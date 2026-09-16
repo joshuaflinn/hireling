@@ -1,6 +1,6 @@
 # Hireling PRD
 
-**Status:** Draft v2.2 (2026-09-16) — checker rounds 1–3 findings
+**Status:** Draft v2.3 (2026-09-16) — checker rounds 1–4 findings
 incorporated; all v1 open questions resolved
 **Owners:** Josh Flinn (PM), Dave (co-dev), Vex (PM/eng agent)
 **Repo:** github.com/joshuaflinn/hireling
@@ -108,7 +108,11 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   popups with paraphrased rules text and Archives of Nethys links. **The content
   corpus is seeded from Dave's prototype** — its condition and rules text
   (paraphrased, AoN-linked, page-cited) is the starting corpus, not a scrape and
-  not model-generated. POC coverage: every Player Core condition; other game
+  not model-generated. The prototype's 28-condition map is missing four POC
+  conditions (sickened, enfeebled, drained, slowed): those entries are
+  **hand-authored in the same style** (paraphrase + AoN link + page cite) and
+  human-reviewed before they ship — never model-generated straight into the
+  product. POC coverage: every Player Core condition; other game
   terms are out of POC scope and get added on demand. Paraphrased
   rules text ships under the Paizo Community Use Policy / ORC notice in the repo.
 - **Manual level adjust:** Level up/down control, scoped to **math rescale only** —
@@ -168,8 +172,8 @@ Functional Requirements; each story cites its covering requirement group (FG#).
 - **Stacking math (the whole rules engine):** among active modifiers on a stat,
   typed bonuses don't stack — the highest circumstance, highest status, and
   highest item bonus each apply once; untyped bonuses stack fully; penalties take
-  the worst per type (untyped penalties stack). Blanket targets expand to every
-  covered stat before stacking is evaluated. The engine recomputes every derived
+  the worst per type (untyped penalties stack). Blanket targets expand to their
+  defined expansion sets before stacking is evaluated. The engine recomputes every derived
   stat on every affected sheet whenever any effect changes.
 - **Provenance breakdown:** Every derived number on a sheet shows its math on
   hover — e.g. `Strike +14 = +13 base +1 status (Bless, from Bear)`, including

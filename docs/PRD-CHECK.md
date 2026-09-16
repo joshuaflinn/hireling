@@ -340,3 +340,133 @@ Grizzly-Endeavors) carry owners and fallbacks.)*
 2. Re-check after that pass is expected to flip the gate to ✅ PASS — then
    **prd-decomposer** or straight to engineering; P0 scope is small and the
    owners are the builders.
+
+---
+---
+
+# ROUND 4 RE-CHECK — Hireling PRD (Draft v2.2, 2026-09-16)
+
+Reviewed per the `prd-checker` skill (all 10 check categories + agent-ready
+gate), run fresh against the full document. PRD: `docs/PRD.md` (Draft v2.2 —
+"checker rounds 1–3 findings incorporated"). UX reference re-verified:
+`docs/reference/lorum_ipsum_dashboard.html` (`CONDITIONS` map intact at line
+480 — 28 condition entries). The PRD was not modified; rounds 1–3 content
+above is retained; this section is appended.
+
+## Round 3 Disposition (one warning + two info items)
+
+| # | Sev | Finding | Disposition | Evidence in v2.2 |
+|---|-----|---------|-------------|------------------|
+| R3-1 | 🟡 | Blanket-target expansion mapping undefined | **Fixed** | FG3 now carries the decided, rules-exact expansion sets: `all_checks` = `attack, spell_attack, fort, ref, will, perception`, every `skill:<name>` — explicitly NOT `damage`, NOT `speed`; `all_dcs` = `ac, class_dc, spell_dc` (AC-is-a-DC confirmed, matching round 3's recommended reading); `all_checks_and_dcs` = the union. Internal consistency verified: the sets **exhaustively partition the closed vocabulary** — every single stat is classified exactly once (7 checks, 3 DCs, 2 neither), so no stat's blanket membership is left to inference. Automatic seeds verified against the mapping: frightened/sickened −X status to `all_checks_and_dcs` hits every d20 roll + all three DCs and nothing else; off-guard −2 circumstance to `ac` untouched by the blankets. Cross-checked against the prototype corpus: frightened's tooltip ("all checks and DCs") and off-guard's ("−2 circumstance penalty to AC") agree with the engine math. The "no special-casing" claim now fully holds. One residual wording nit — see [R4-2] |
+| R3-2 | 🔵 | UX Step 3 implied a seeded, pickable Bless | **Fixed** | UX Step 3 now reads "names it Bless (spells are freeform at POC; only conditions are seeded)" — the suggested fix verbatim, and consistent with FG3's "Spells and other sources are freeform at POC" |
+| R3-3 | 🔵 | Roster metric parsed as the GM importing a sheet | **Fixed** | Success Metrics now reads "5/5 players have imported sheets; all six accounts active (the GM needs no sheet)" — grammar no longer distributes sheets over the GM account; consistent with FG2 (one character per account; GM writes nothing) and US-9 |
+
+**Disposition totals: 3 of 3 fixed (1 warning, 2 info). 0 partially fixed. 0 not fixed.**
+
+## Part 1: Summary Dashboard (Round 4)
+
+### Agent-Ready Gate: ⚠️ CONDITIONAL — one provenance line from PASS
+
+Every round-3 finding is resolved and verified, and the expansion-set fix is
+cleaner than asked for (it partitions the whole vocabulary, so nothing is left
+to tribal knowledge). The fresh full check surfaced one gap the earlier rounds
+missed — it sits, again, on the seed library:
+
+- **Four seeded conditions have no tooltip text in the declared corpus.** FG1
+  declares Dave's prototype `CONDITIONS` map the starting corpus ("not a scrape
+  and not model-generated"), but the map has no entries for **sickened** (an
+  *automatic* P0 engine seed), **enfeebled**, **drained**, or **slowed** (three
+  of the six manual-tracking seeds that "ship in the picker with their rules
+  tooltip"). An agent building the seed picker cannot satisfy both "seed ships
+  with rules tooltip" (FG3/US-3) and "content is not model-generated" (FG1)
+  without asking where that text comes from.
+
+### Summary
+- 🔴 Critical Issues: 0
+- 🟡 Warnings: 1
+- 🔵 Info: 1
+
+### Sections Found:
+tl;dr, Goals (Business/User/Non-Goals), User Stories (US-1–US-9, with convention
+statement), Functional Requirements (P0–P2, six feature groups), User Experience
+(entry point, core flow, party screens, edge cases), Narrative, Success Metrics
+(+ Tracking Plan), Technical Considerations (Tooling, UI, API/Backend, Hosting,
+Performance, Integration Points, Key Risks)
+
+### Sections Missing: None
+
+### Story Coverage: 9 of 9 user stories carry acceptance criteria (by convention —
+criteria live in the Functional Requirements; convention stated explicitly and
+every story cites its covering FG#; all FG# citations re-verified)
+
+### Overall Assessment
+v2.2 closes everything round 3 raised, and the blanket expansion is now the
+strongest-specified rule in the document. What remains is a corpus-provenance
+gap on the same seed library — pre-existing (present since the seeds were named
+in v2.1, missed by rounds 2–3), one sentence to fix, and the last thing between
+this PRD and a clean PASS.
+
+---
+
+## Part 2: Detailed Findings (Round 4 — fresh full check)
+
+### 3. Ambiguous Requirements / 6. Section Completeness / 9. Testability
+
+**[R4-1] 🟡 Seed tooltip corpus gap: 4 of 9 seeded conditions absent from the declared content source**
+- **Where:** FG3 seeded effect library (automatic: frightened, **sickened**,
+  off-guard; manual-tracking: clumsy, **enfeebled**, stupefied, **drained**,
+  **slowed**, stunned — bold = missing) vs. FG1 rules tooltips ("The content
+  corpus is seeded from Dave's prototype — its condition and rules text … is
+  the starting corpus, not a scrape and not model-generated") and
+  `docs/reference/lorum_ipsum_dashboard.html` line 480 (`CONDITIONS` map: 28
+  entries; sickened/enfeebled/drained/slowed appear only inside monster
+  ability text, never as tooltip entries; "drained" appears nowhere at all).
+- **What:** The PRD promises POC coverage of "every Player Core condition"
+  (FG1) and that the manual-tracking seeds "ship in the picker with their
+  rules tooltip" (FG3); US-3 requires every condition to explain itself on
+  hover. But the one sanctioned content source lacks the text for four of the
+  nine seeds — including sickened, one of only three automatic engine seeds.
+  The PRD never says how corpus gaps get filled.
+- **Why it matters:** An agent building the seed picker hits this on day one
+  of FG3 work. Its options are to author the tooltip text (violating the
+  "not model-generated" provenance rule, on Player Core rules text, under a
+  CUP/ORC notice) or to ship picker entries without tooltips (violating FG3
+  and US-3 on a P0 seed). Both failure modes land on the product's flagship
+  feature, and choosing between them is a PM call, not an agent call.
+- **Suggested fix:** One sentence in FG1 (or the FG3 seed library), e.g.:
+  "Conditions missing from the prototype corpus (sickened, enfeebled, drained,
+  slowed, …) are hand-authored in the same paraphrased, AoN-linked, page-cited
+  style and reviewed against Player Core before build." Name the owner.
+
+### 2. Conflicting Information (residual wording, non-blocking)
+
+**[R4-2] 🔵 Stacking sentence still says "every covered stat"**
+- **Where:** FG3 stacking math — "Blanket targets expand to every covered stat
+  before stacking is evaluated."
+- **What:** This was the sentence R3-1 flagged, and the fix landed next to it
+  without touching it. With the expansion bullet now present, "covered" is
+  effectively defined (per-blanket, rules-exact), and the specific rule wins
+  over the general one — but a hyper-literal read of "every covered stat" as
+  "all 12 single stats" is still textually available.
+- **Suggested fix:** "Blanket targets expand to their defined expansion sets
+  before stacking is evaluated." Three words; removes the last trace of R3-1.
+
+*(Categories 1, 4, 5, 7, 8, 10: no findings. Structural completeness is full;
+no cross-section contradictions — the expansion bullet, stacking rules, seed
+tiers, UX Step 3, Narrative, and both provenance examples now all state the
+same attack-roll-only Bless and the same frightened footprint; traceability
+verified story→FG for all nine stories and goal→metric; stack prescriptions
+remain marked as settled house constraints; personas flow through UX and the
+fixed roster metric; external deps (Pathbuilder, Authentik, Cloudflare,
+Grizzly-Endeavors) carry owners and fallbacks.)*
+
+---
+
+## Round 4 Next Steps
+
+1. Back to **prd-builder** in update mode for [R4-1] — one sentence naming the
+   provenance (and owner) for seed tooltip text the prototype corpus lacks.
+   [R4-2] is a three-word edit; batch it in.
+2. That pass is expected to flip the gate to ✅ PASS — then **prd-decomposer**
+   or straight to engineering; P0 scope is small and the owners are the
+   builders.
