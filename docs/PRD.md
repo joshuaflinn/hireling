@@ -1,7 +1,7 @@
 # Hireling PRD
 
-**Status:** Draft v2 (2026-09-16) — checker round 1 findings incorporated; all v1 open
-questions resolved
+**Status:** Draft v2.1 (2026-09-16) — checker round 1 + round 2 findings
+incorporated; all v1 open questions resolved
 **Owners:** Josh Flinn (PM), Dave (co-dev), Vex (PM/eng agent)
 **Repo:** github.com/joshuaflinn/hireling
 
@@ -50,33 +50,34 @@ door open to feed RPGMastermind later without committing to it now.
 
 ## User Stories
 
-Acceptance criteria for all stories live in the Functional Requirements; each story
-cites its covering requirement group (FG#).
+Story IDs are US-1…US-9 (these are identifiers, not priorities — priorities live
+on the requirement groups). Acceptance criteria for all stories live in the
+Functional Requirements; each story cites its covering requirement group (FG#).
 
 ### The Player (Josh, Bear, Becky, Jake, Dave)
-- **P1.** As a player, I want to import my Pathbuilder JSON and immediately have a
+- **US-1.** As a player, I want to import my Pathbuilder JSON and immediately have a
   usable live sheet, so that I never retype a character. (FG1)
-- **P2.** As a player, I want my HP, spell slots, and consumables to update on
+- **US-2.** As a player, I want my HP, spell slots, and consumables to update on
   everyone's screen when I change them, so the table stops playing telephone. (FG2)
-- **P3.** As a player, I want every condition and buff on my sheet to explain itself
+- **US-3.** As a player, I want every condition and buff on my sheet to explain itself
   on hover, so I stop interrupting the GM with rules questions. (FG1, FG3)
-- **P4.** As a player, I want my sheet usable on my phone over spotty
+- **US-4.** As a player, I want my sheet usable on my phone over spotty
   convention-hall wifi, so a dropped connection doesn't kill my turn. (FG2)
-- **P5.** As a player, I want to dump the night's loot into a shared stash and see
-  who claimed what, so the party loot list stops living in a group chat. (FG4, P1)
+- **US-5.** As a player, I want to dump the night's loot into a shared stash and see
+  who claimed what, so the party loot list stops living in a group chat. (FG4)
 
 ### The Caster (a role any player holds mid-session, not a separate seat)
-- **C1.** As a caster, I want to apply an effect to chosen party members and have
+- **US-6.** As a caster, I want to apply an effect to chosen party members and have
   the app do the stacking math on each target's sheet, so nobody mis-adds a status
   bonus. (FG3)
-- **C2.** As a caster, I want to toggle targets off when they leave my aura and end
+- **US-7.** As a caster, I want to toggle targets off when they leave my aura and end
   the effect when it expires, because *I* am the authority on my spell — not the
   app. (FG3)
-- **C3.** As a caster, I want to see at a glance who is currently under my effects,
+- **US-8.** As a caster, I want to see at a glance who is currently under my effects,
   so I can answer "wait, am I still blessed?" without scrolling. (FG3)
 
 ### The GM (Bruce — read-only, deliberately unburdened)
-- **G1.** As the GM, I want to glance at the party's real HP and active effects, so
+- **US-9.** As the GM, I want to glance at the party's real HP and active effects, so
   I can calibrate encounters — without being asked to click anything, ever. (FG5)
 
 ## Functional Requirements
@@ -107,7 +108,8 @@ cites its covering requirement group (FG#).
   popups with paraphrased rules text and Archives of Nethys links. **The content
   corpus is seeded from Dave's prototype** — its condition and rules text
   (paraphrased, AoN-linked, page-cited) is the starting corpus, not a scrape and
-  not model-generated. POC coverage: every Player Core condition. Paraphrased
+  not model-generated. POC coverage: every Player Core condition; other game
+  terms are out of POC scope and get added on demand. Paraphrased
   rules text ships under the Paizo Community Use Policy / ORC notice in the repo.
 - **Manual level adjust:** Level up/down control, scoped to **math rescale only** —
   proficiency bonuses, HP, and class DC scaling re-derive from level (the
@@ -165,7 +167,7 @@ cites its covering requirement group (FG#).
   covered stat before stacking is evaluated. The engine recomputes every derived
   stat on every affected sheet whenever any effect changes.
 - **Provenance breakdown:** Every derived number on a sheet shows its math on
-  hover — e.g. `Will +14 = +13 base +1 status (Bless, from Bear)`, including
+  hover — e.g. `Strike +14 = +13 base +1 status (Bless, from Bear)`, including
   *suppressed* sources (`+1 status (Bless) — Inspire Courage +1 also active,
   not stacked`). This is the feature that kills "what does that do again?"
 - **Manual lifecycle:** The effect's creator adds/removes targets and ends the
@@ -173,12 +175,20 @@ cites its covering requirement group (FG#).
   note ("10 rounds", "while in aura"), displayed, not enforced.
 - **Effect visibility:** Each sheet shows effects affecting it (with sources);
   the caster's view shows all their active effects and current targets.
-- **Seeded effect library (decided):** Pre-seed the **valued conditions that carry
-  math** — frightened, sickened, slowed, stunned, enfeebled, clumsy, drained,
-  stupefied, plus off-guard — as ready-made effects on the stat vocabulary above.
-  Spells and other sources are freeform at POC: the composer offers a modifier
-  picker built from the same stat vocabulary (stat → type → value), a name, a
-  duration note, and the target picker.
+- **Seeded effect library (decided, two tiers):**
+  - **Automatic seeds** — fully expressible in the stat vocabulary, engine math
+    applies: **frightened** and **sickened** (−X status to `all_checks_and_dcs`),
+    **off-guard** (−2 circumstance to `ac`).
+  - **Manual-tracking seeds** — the rest of the valued conditions ship in the
+    picker with their rules tooltip and a duration note but **no engine math**,
+    badged "tracked manually": clumsy, enfeebled, stupefied (ability-scoped
+    check/DC subsets the closed vocabulary can't express), drained (adds max-HP
+    math), slowed and stunned (action economy, not modifiers). Same precedent as
+    companion buffs: humans track what the engine can't. Extending the vocabulary
+    to ability-scoped penalties is an engine-v2 conversation, not POC scope.
+  - Spells and other sources are freeform at POC: the composer offers a modifier
+    picker built from the stat vocabulary (stat → type → value), a name, a
+    duration note, and the target picker.
 - **Detrimental conditions ride the same engine** as effects with negative
   modifiers — one mechanism, both directions.
 
@@ -186,7 +196,8 @@ cites its covering requirement group (FG#).
 - **Party stash:** A shared loot list with item, quantity, Bulk, and notes.
 - **Transfers:** Move items between a character's inventory and the stash; both
   sides update live.
-- **Claim history:** A simple log of who took what, when — settles arguments.
+- **Claim history:** An append-only log of `{ item, quantity, from, to, actor,
+  timestamp }` per transfer — settles arguments.
 
 ### Feature Group 5 — Account & Access (Priority: P0)
 - **Authentik OIDC login:** Six pre-provisioned accounts (Josh, Bear, Dave, Becky,
@@ -194,9 +205,9 @@ cites its covering requirement group (FG#).
 - **GM view (decided: ships in POC):** Bruce's account lands on the **party view** —
   roster with per-character HP bars, down/max state, and active effect chips with
   sources. Read-only end to end: no edit affordances rendered for the GM account,
-  no notifications, no action required of him, ever. The same party view (with
-  normal read permissions) is what a player sees when they open another member's
-  sheet — minus ownership write controls.
+  no notifications, no action required of him, ever. **Cross-member viewing (one
+  rule, everywhere):** any account can open any character's full sheet read-only
+  from the party view — ownership gates writes, nothing gates reads.
 - **PWA install:** Installable on iOS/Android/desktop; app icon, splash, standalone
   display mode.
 
@@ -225,8 +236,8 @@ cites its covering requirement group (FG#).
   - Validation: HP clamped to [0, max]; temp HP absorbs damage first (standard
     PF2e order), shown as a distinct bar segment.
 - **Step 3:** Bear casts *Bless* on Josh and Becky → Bear taps "new effect" →
-  picks Bless (or freeforms it) → modifier `+1 status to attack rolls,
-  Perception…` → selects targets Josh, Becky → both sheets recompute, and every
+  picks Bless (or freeforms it) → modifier `+1 status to attack rolls` →
+  selects targets Josh, Becky → both sheets recompute, and every
   affected number shows its provenance.
   - UI Elements: effect composer (name, modifier picker from the FG3 stat
     vocabulary, duration note, target picker from party roster); effect chips on
@@ -265,7 +276,7 @@ the party's battery — drops *Bless* and calls out "Josh, Becky,
 you're in the aura." Last year this is where the table lost five minutes: Josh
 digging for what bless does, Becky asking if it stacks with her *guidance*, the GM
 re-explaining emanations. Tonight, neither of them looks up from their phones.
-Josh's sheet already shows it: `Will +14 = +13 base +1 status (Bless, from Bear)`.
+Josh's sheet already shows it: `Strike +14 = +13 base +1 status (Bless, from Bear)`.
 Becky's attack modifier ticks up on its own. When Josh's fighter lunges too far
 forward chasing the caster, Bear taps Josh's name off the target list and the
 bonus quietly disappears from Josh's sheet before the GM finishes describing the
@@ -295,6 +306,8 @@ everything else. That's the deal.
 - **Sync latency:** p95 state-change propagation < 1s on home wifi, < 3s on
   cellular. **Instrumented:** the backend timestamps every state-change broadcast;
   `sync_roundtrip_ms` is logged per event (we own the server — this is free).
+  This measures server-side broadcast latency; client-receipt confirmation is a
+  productization refinement, not POC scope.
 - **Session uptime:** 100% during scheduled game nights, measured by the existing
   house monitoring (Heimdall) against the service health endpoint.
 - **Crash-free use (qualitative at POC):** no crash reports at the table. Six
