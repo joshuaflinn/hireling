@@ -1,6 +1,7 @@
 # Hireling PRD
 
-**Status:** Draft v1 (2026-09-16) — for review by Josh & Dave
+**Status:** Draft v2 (2026-09-16) — checker round 1 findings incorporated; all v1 open
+questions resolved
 **Owners:** Josh Flinn (PM), Dave (co-dev), Vex (PM/eng agent)
 **Repo:** github.com/joshuaflinn/hireling
 
@@ -20,7 +21,7 @@ door open to feed RPGMastermind later without committing to it now.
   sheet state removes the table's two biggest friction taxes — buff math and
   "what does that do again?" Prove or kill it with six friendly users.
 - **Zero-new-infrastructure.** Runs on existing lab assets (Mimir, Cloudflare,
-  Authentik). No paid services, no new vendors.
+  Authentik, Asgard). No paid services, no new vendors.
 - **Optionality for RPGMastermind.** Keep the modifier engine and sync layer modular
   enough that a future harvest is a port, not a rewrite. Explicitly *not* designing
   for the harvest — "if it works, we'll see."
@@ -36,8 +37,8 @@ door open to feed RPGMastermind later without committing to it now.
   (for this product's POC life).
 - **Combat tracking.** No initiative, no round counter, no turn timer. The GM
   manages the table; we don't add to their plate.
-- **GM tooling.** Bruce gets a read-only seat. Nothing in MVP requires the GM to
-  do anything.
+- **GM workload.** The GM seat is read-only. Nothing in MVP requires the GM to do
+  anything — including click.
 - **Positioning/aura automation.** Humans decide who is in the aura. The app does
   arithmetic, not adjacency.
 - **Dice roller.** This table rolls physical dice, religiously. MVP+1 at earliest,
@@ -49,34 +50,53 @@ door open to feed RPGMastermind later without committing to it now.
 
 ## User Stories
 
-### The Player (Josh, Bear, Becky, Jake, Dave)
-- As a player, I want to import my Pathbuilder JSON and immediately have a usable
-  live sheet, so that I never retype a character.
-- As a player, I want my HP, spell slots, and consumables to update on everyone's
-  screen when I change them, so the table stops playing telephone.
-- As a player, I want every condition and buff on my sheet to explain itself on
-  hover, so I stop interrupting the GM with rules questions.
-- As a player, I want my sheet usable on my phone over spotty convention-hall wifi,
-  so a dropped connection doesn't kill my turn.
+Acceptance criteria for all stories live in the Functional Requirements; each story
+cites its covering requirement group (FG#).
 
-### The Caster (any player running a buff/debuff)
-- As a caster, I want to apply an effect to chosen party members and have the app
-  do the stacking math on each target's sheet, so nobody mis-adds a status bonus.
-- As a caster, I want to toggle targets off when they leave my aura and end the
-  effect when it expires, because *I* am the authority on my spell — not the app.
-- As a caster, I want to see at a glance who is currently under my effects, so I
-  can answer "wait, am I still blessed?" without scrolling.
+### The Player (Josh, Bear, Becky, Jake, Dave)
+- **P1.** As a player, I want to import my Pathbuilder JSON and immediately have a
+  usable live sheet, so that I never retype a character. (FG1)
+- **P2.** As a player, I want my HP, spell slots, and consumables to update on
+  everyone's screen when I change them, so the table stops playing telephone. (FG2)
+- **P3.** As a player, I want every condition and buff on my sheet to explain itself
+  on hover, so I stop interrupting the GM with rules questions. (FG1, FG3)
+- **P4.** As a player, I want my sheet usable on my phone over spotty
+  convention-hall wifi, so a dropped connection doesn't kill my turn. (FG2)
+- **P5.** As a player, I want to dump the night's loot into a shared stash and see
+  who claimed what, so the party loot list stops living in a group chat. (FG4, P1)
+
+### The Caster (a role any player holds mid-session, not a separate seat)
+- **C1.** As a caster, I want to apply an effect to chosen party members and have
+  the app do the stacking math on each target's sheet, so nobody mis-adds a status
+  bonus. (FG3)
+- **C2.** As a caster, I want to toggle targets off when they leave my aura and end
+  the effect when it expires, because *I* am the authority on my spell — not the
+  app. (FG3)
+- **C3.** As a caster, I want to see at a glance who is currently under my effects,
+  so I can answer "wait, am I still blessed?" without scrolling. (FG3)
 
 ### The GM (Bruce — read-only, deliberately unburdened)
-- As the GM, I want to glance at the party's real HP and active effects, so I can
-  calibrate encounters — without being asked to click anything, ever.
+- **G1.** As the GM, I want to glance at the party's real HP and active effects, so
+  I can calibrate encounters — without being asked to click anything, ever. (FG5)
 
 ## Functional Requirements
 
 ### Feature Group 1 — Character Core (Priority: P0)
 - **Pathbuilder import:** Paste or upload a Pathbuilder 2e JSON export; the full
-  sheet derives from it. Re-import replaces the base sheet while preserving live
-  state (HP, slots used, active effects).
+  sheet derives from it. The import contract is defined by the reference export
+  embedded in `docs/reference/lorum_ipsum_dashboard.html` (the `#pbExport` JSON
+  block) — that shape is the spec. Failure classes, each with a human-readable
+  message: (a) invalid JSON, (b) valid JSON but not a Pathbuilder export (missing
+  required top-level keys), (c) unknown/unexpected fields — logged, import
+  continues. There is no version pin (the export carries no version field);
+  robustness comes from class (c).
+- **Re-import anchoring:** Re-import replaces the base sheet while preserving live
+  state. Anchors: HP/temp-HP by the character's identity (Authentik account →
+  character, see FG2); spell-slot usage by slot rank + index; prep selections by
+  slot rank + index; inventory deltas by item name. Entities that fail to match
+  after re-import (renamed weapon, swapped spell) are kept, not dropped, and
+  surfaced in a post-import diff for human review. Active effects are unaffected —
+  they live server-side, not in the export.
 - **Live sheet UI:** HP/temp-HP, AC, saves, Perception, skills with proficiency
   ranks, strikes/actions, spells (slots, focus, innate, cantrips) with prep and
   expenditure tracking, feats, inventory with containers (extradimensional
@@ -84,9 +104,15 @@ door open to feed RPGMastermind later without committing to it now.
   Lorum Ipsum prototype (`docs/reference/lorum_ipsum_dashboard.html`) is the
   visual and interaction baseline.
 - **Rules tooltips:** Conditions and game terms render as hoverable/pinnable
-  popups with paraphrased rules text and Archives of Nethys links.
-- **Manual level adjust:** Level up/down control that re-derives stats, for tables
-  that level mid-session.
+  popups with paraphrased rules text and Archives of Nethys links. **The content
+  corpus is seeded from Dave's prototype** — its condition and rules text
+  (paraphrased, AoN-linked, page-cited) is the starting corpus, not a scrape and
+  not model-generated. POC coverage: every Player Core condition. Paraphrased
+  rules text ships under the Paizo Community Use Policy / ORC notice in the repo.
+- **Manual level adjust:** Level up/down control, scoped to **math rescale only** —
+  proficiency bonuses, HP, and class DC scaling re-derive from level (the
+  prototype's model). Ability boosts, feats, and skill increases are **not**
+  applied by the app; those require a Pathbuilder re-export.
 - **Persistence:** All live state survives refresh, reinstall, and device switch
   (server-side, not localStorage).
 
@@ -94,34 +120,67 @@ door open to feed RPGMastermind later without committing to it now.
 - **Party model:** A party has a roster of characters with owners. Schema is
   multi-party from day one (`party_id` on everything relevant); the POC UI only
   ever exposes one party. Second campaign = config, not migration.
+- **Ownership:** A character's owner is its sole writer. Ownership is **claimed at
+  import** (the importing Authentik account owns the character). One character per
+  account at POC; reassignment is a manual admin/DB operation, not a UI feature.
+  The caster is the sole writer of effects they created (even on other people's
+  sheets). Everyone in the party reads everything. The GM account reads
+  everything, writes nothing.
 - **Real-time sync:** Any state change propagates to all connected party members
-  via WebSocket in under a second on sane networks.
-- **Ownership & permissions:** A character's owner is the sole writer of that
-  character. The caster is the sole writer of effects they created (even on other
-  people's sheets). Everyone in the party reads everything. GM seat is read-only.
+  via WebSocket, meeting the Technical Metrics latency targets (p95 < 1s on home
+  wifi, < 3s on cellular).
 - **Offline tolerance:** PWA caches last-known state for read; writes made offline
-  queue and reconcile last-writer-wins per field on reconnect. HP desync between
-  two devices of the same owner resolves to the most recent write.
+  queue and reconcile on reconnect. **Reconciliation rule:** the server assigns a
+  monotonic version per field on receipt (server-receipt order wins — client
+  clocks are untrusted). Field granularity: HP, temp-HP, each spell slot
+  individually, each inventory item's quantity, each effect as a whole. A queued
+  write that loses is silently superseded; the client's view re-renders to synced
+  state. A subtle "syncing…" indicator shows while the queue is non-empty. No
+  error theatre.
+- **Degraded mode:** Backend unreachable → the PWA serves last-known state
+  read-only and queues writes, exactly like offline. Session-night infra health
+  (Mimir, tunnel) is a P0 operational dependency owned by Josh.
 
 ### Feature Group 3 — Buff/Effect Engine (Priority: P0)
 - **Effect model:** `{ name, source_character, targets[], modifiers[], duration_note, active }`.
-  A modifier is `{ type: circumstance | status | item | untyped, stat, value }`,
-  where a negative value is a penalty. Detrimental conditions (frightened,
-  off-guard…) ride the same engine as effects with negative modifiers — one
-  mechanism, both directions.
+  Targets are **roster characters only**; companions/minions are not targetable
+  entities at POC (their buffs are tracked manually on the owner's sheet).
+  A modifier is `{ type, stat, value }`:
+  - `type`: `circumstance | status | item | untyped`. Negative `value` = penalty.
+  - `stat` — the closed vocabulary the engine recomputes:
+    - Single stats: `ac`, `fort`, `ref`, `will`, `perception`, `speed`,
+      `attack`, `damage`, `spell_attack`, `spell_dc`, `class_dc`,
+      `skill:<name>` (one per PF2e skill)
+    - Blanket targets: `all_checks`, `all_dcs`, `all_checks_and_dcs`
+      (this is how *frightened* −1 works — no special-casing)
+  - `attack` covers attack **rolls** only; damage rolls are `damage`. Both exist
+    because e.g. *inspire courage* grants +1 status to each.
+- **Engine-recomputed vs. static:** every numeric derived stat on the sheet is
+  engine-recomputed from base + active effects. Non-numeric content (names, feat
+  text, inventory items, spell lists) is static-from-import.
 - **Stacking math (the whole rules engine):** among active modifiers on a stat,
   typed bonuses don't stack — the highest circumstance, highest status, and
   highest item bonus each apply once; untyped bonuses stack fully; penalties take
-  the worst per type (untyped penalties stack). The engine recomputes every
-  derived stat on every affected sheet whenever any effect changes.
+  the worst per type (untyped penalties stack). Blanket targets expand to every
+  covered stat before stacking is evaluated. The engine recomputes every derived
+  stat on every affected sheet whenever any effect changes.
 - **Provenance breakdown:** Every derived number on a sheet shows its math on
-  hover — e.g. `Will +14 = +13 base +1 status (Bless, from Bear)`. This is the
-  feature that kills "what does that do again?"
+  hover — e.g. `Will +14 = +13 base +1 status (Bless, from Bear)`, including
+  *suppressed* sources (`+1 status (Bless) — Inspire Courage +1 also active,
+  not stacked`). This is the feature that kills "what does that do again?"
 - **Manual lifecycle:** The effect's creator adds/removes targets and ends the
   effect. The app never auto-expires, never checks range. Duration is a text
   note ("10 rounds", "while in aura"), displayed, not enforced.
 - **Effect visibility:** Each sheet shows effects affecting it (with sources);
   the caster's view shows all their active effects and current targets.
+- **Seeded effect library (decided):** Pre-seed the **valued conditions that carry
+  math** — frightened, sickened, slowed, stunned, enfeebled, clumsy, drained,
+  stupefied, plus off-guard — as ready-made effects on the stat vocabulary above.
+  Spells and other sources are freeform at POC: the composer offers a modifier
+  picker built from the same stat vocabulary (stat → type → value), a name, a
+  duration note, and the target picker.
+- **Detrimental conditions ride the same engine** as effects with negative
+  modifiers — one mechanism, both directions.
 
 ### Feature Group 4 — Shared Inventory (Priority: P1)
 - **Party stash:** A shared loot list with item, quantity, Bulk, and notes.
@@ -132,6 +191,12 @@ door open to feed RPGMastermind later without committing to it now.
 ### Feature Group 5 — Account & Access (Priority: P0)
 - **Authentik OIDC login:** Six pre-provisioned accounts (Josh, Bear, Dave, Becky,
   Jake, Bruce). No self-serve signup, no password code in the app.
+- **GM view (decided: ships in POC):** Bruce's account lands on the **party view** —
+  roster with per-character HP bars, down/max state, and active effect chips with
+  sources. Read-only end to end: no edit affordances rendered for the GM account,
+  no notifications, no action required of him, ever. The same party view (with
+  normal read permissions) is what a player sees when they open another member's
+  sheet — minus ownership write controls.
 - **PWA install:** Installable on iOS/Android/desktop; app icon, splash, standalone
   display mode.
 
@@ -143,11 +208,13 @@ door open to feed RPGMastermind later without committing to it now.
 ## User Experience
 
 ### Entry Point & First-Time Experience
-- User browses to `https://<host>` → Authentik login → lands on the party screen.
-- First run: "Import your character" prompt (paste Pathbuilder JSON or upload the
-  file). On success, the sheet appears and the character joins the party roster.
-- [TBD — need: what a user sees if they log in before any character exists in the
-  party. Proposal: empty party screen with import CTA; safe default.]
+- User browses to `https://hireling.flinntech.com` → Authentik login → lands on
+  the party screen.
+- First run (no character yet): empty party screen with an "Import your character"
+  CTA (paste Pathbuilder JSON or upload the file). On success, the sheet appears
+  and the character joins the party roster. A user who logs in before any
+  character exists in the party sees the empty party screen with the import CTA —
+  adopted as the design, no longer TBD.
 
 ### Core Experience (at the table)
 - **Step 1:** Player opens the PWA → their sheet, current as of last sync.
@@ -161,22 +228,35 @@ door open to feed RPGMastermind later without committing to it now.
   picks Bless (or freeforms it) → modifier `+1 status to attack rolls,
   Perception…` → selects targets Josh, Becky → both sheets recompute, and every
   affected number shows its provenance.
-  - UI Elements: effect composer (name, modifiers, duration note, target picker
-    from party roster); effect chips on each sheet.
+  - UI Elements: effect composer (name, modifier picker from the FG3 stat
+    vocabulary, duration note, target picker from party roster); effect chips on
+    each sheet.
 - **Step 4:** Josh steps out of the aura → Bear removes Josh from targets → Josh's
   sheet reverts. No questions asked, literally.
 
+### Party Screens
+- **Party screen (all accounts):** roster of character cards — name, portrait
+  initial, HP bar with down/max state, active effect chips with sources. Tapping
+  a card opens that character's full sheet, read-only unless you're the owner.
+- **GM view:** the party screen with zero interactive affordances. Bruce's account
+  never renders an edit control.
+- **Stash (P1):** one list, three actions — add item, transfer to/from a
+  character (pick from roster), and a claim-history log view. Transfers render
+  live on both inventories.
+
 ### Advanced Features & Edge Cases
 - **Conflicting effects:** Bless (+1 status) and a Bard's Inspire Courage (+1
-  status) don't stack — the sheet shows `+1 status (Bless)` and notes the
+  status) don't stack — the sheet shows `+1 status (Bless)` and names the
   suppressed source in the breakdown.
 - **Offline at the table:** Sheet remains fully readable; writes queue; a subtle
-  "syncing…" indicator appears. No error theatre.
-- **Re-import mid-campaign:** Pathbuilder re-export replaces base stats; live
-  state (HP, active effects, inventory deltas) is preserved and re-anchored.
-- **Two devices, one owner:** Last write wins per field; no locking UI.
-- **Error states:** Failed import shows a human-readable parse error, not a stack
-  trace. Dropped WebSocket auto-reconnects silently.
+  "syncing…" indicator appears. Losing writes are silently superseded (FG2 rule).
+- **Re-import mid-campaign:** Pathbuilder re-export replaces base stats per the
+  FG1 anchoring rules; unmatched entities are kept and surfaced in a post-import
+  diff for human review.
+- **Two devices, one owner:** Server-receipt-order per-field versioning; no
+  locking UI.
+- **Error states:** Failed import shows the FG1 failure-class message, not a
+  stack trace. Dropped WebSocket auto-reconnects silently.
 
 ## Narrative
 
@@ -213,16 +293,37 @@ everything else. That's the deal.
 
 ### Technical Metrics
 - **Sync latency:** p95 state-change propagation < 1s on home wifi, < 3s on
-  cellular.
-- **Session uptime:** 100% during scheduled game nights. (Mimir + tunnel health.)
-- **Crash-free PWA sessions:** > 99%.
+  cellular. **Instrumented:** the backend timestamps every state-change broadcast;
+  `sync_roundtrip_ms` is logged per event (we own the server — this is free).
+- **Session uptime:** 100% during scheduled game nights, measured by the existing
+  house monitoring (Heimdall) against the service health endpoint.
+- **Crash-free use (qualitative at POC):** no crash reports at the table. Six
+  friendly users will tell us in person; formal crash instrumentation is a
+  productization concern.
 
 ### Tracking Plan
-- [TBD — POC is six friendly users; metrics are observed at the table, not
-  instrumented. If we productize: effect_applied, effect_expired_manual,
-  import_succeeded/failed, sync_roundtrip_ms. Deferred deliberately.]
+- POC is six friendly users; most metrics are observed at the table, not
+  instrumented. Instrumented exceptions: `sync_roundtrip_ms` (backend log) and
+  service uptime (Heimdall). Deferred deliberately until productization:
+  `effect_applied`, `effect_expired_manual`, `import_succeeded/failed`.
 
 ## Technical Considerations
+
+*Stack choices in this section are settled house constraints, decided by the
+owners — they are not negotiable requirements open for rediscovery.*
+
+### Tooling & Quality Gate
+- **Project scaffolding:** the backend crate adopts Bear's **rust-toolkit**
+  conventions — the clippy deny block (~45 lints with inline reasoning),
+  `clippy.toml` test exemptions, `rustfmt.toml`, `deny.toml` (cargo-deny
+  supply-chain gate), pre-commit hooks, `justfile`, sibling test layout. The
+  configs are **vendored at scaffold time** and tuned to this repo thereafter.
+- **CI gate:** Bear's **grizzly-gate** image runs in **standalone checker mode**
+  as the PR gate in GitHub Actions — fmt/lint/test plus SAST/secret/SCA in one
+  versioned, fail-closed pass, pinned by image tag (upstream:
+  `Grizzly-Endeavors/grizzly-gate`). The signed-image/admission-controller mode
+  is platform-scale and explicitly out of POC scope. Agents run the local
+  equivalent (`just ci-local`) before opening a PR — the gate is the reviewer.
 
 ### UI Architecture
 - **Framework:** Svelte (Vite build), PWA via standard service worker + manifest.
@@ -240,18 +341,15 @@ everything else. That's the deal.
   import/auth/bootstrap only.
 - **Authentication:** Authentik OIDC (existing house IdP). Six static accounts.
 - **Database:** Postgres on **Asgard** — the house shared instance (Mimir,
-  postgres 16, reachable only over the `asgard-net` bridge). Hireling gets its
-  own hall (`hireling` db + role, per-role CONN LIMIT per `asgard/README.md`
-  guardrails), per the standing house policy: *one postgres for Pantheon, no
-  per-app database containers.* Migrations via `sqlx migrate`, checked into the
-  repo. Local dev runs a throwaway postgres container via compose.
-- **Modifier engine:** Pure, isolated Rust module — takes base stats + active
-  effects, returns derived stats + provenance breakdown. Fully unit-tested; this
-  is the module RPGMastermind would harvest, and the only one designed for it.
+  postgres 16, reachable only over the `asgard-net` bridge, no published ports).
+  Hireling gets its own hall: database `hireling`, role `hireling` with
+  `CONNECTION LIMIT 20` (matching the Langfuse hall precedent). Migrations via
+  `sqlx migrate`, checked into the repo. Local dev runs a throwaway postgres
+  container via compose.
 
 ### Hosting & Ops
 - **Mimir** (Unraid, existing Docker host) → **cloudflared** tunnel (existing
-  pattern: dwarfcampaign wiki) → hostname on flinntech.com [TBD: hireling.flinntech.com].
+  pattern: dwarfcampaign wiki) → **`hireling.flinntech.com`** (decided).
 - Backups: the `hireling` hall rides Asgard's existing backup rotation; app
   itself is a stateless container (rebuild-from-git).
 
@@ -260,26 +358,24 @@ everything else. That's the deal.
   zero changes. Beyond that is success, and success gets a redesign conversation.
 
 ### Integration Points
-- **Pathbuilder 2e JSON export** — the sole character source. *Risk: the export
-  schema is unofficial and can drift. Mitigation: importer validates and reports
-  unknown fields rather than dying; version pinned per import.*
+- **Pathbuilder 2e JSON export** — the sole character source. Contract: the
+  reference export embedded in `docs/reference/lorum_ipsum_dashboard.html`.
+  *Risk: the export schema is unofficial and can drift. Mitigation: the FG1
+  failure classes — invalid JSON and missing required keys fail loud and
+  human-readable; unknown fields log and continue. Worst case is a manual
+  re-export, never data loss (re-import preserves live state).*
 - **Archives of Nethys** — outbound reference links in tooltips (read-only).
 - **Authentik** — OIDC provider (existing).
 - **Cloudflare Tunnel** — ingress (existing).
+- **Grizzly-Endeavors** — rust-toolkit (vendored configs) and grizzly-gate
+  (pinned image). Maintained by Bear; vendoring/pinning means his free time is
+  not on our critical path.
 
 ### Key Risks
-- **Modifier-engine edge cases** (weird stacking, untyped penalties): mitigated by
-  exhaustive unit tests against the core rulebook's worked examples.
-- **Pathbuilder schema drift:** importer fails loud and human-readable; worst case
-  is a manual re-export, never data loss.
+- **Modifier-engine edge cases** (weird stacking, untyped penalties, blanket
+  conditions): mitigated by exhaustive unit tests against the core rulebook's
+  worked examples. The engine is Constitution Article IV — stop-the-line on bugs.
+- **Pathbuilder schema drift:** FG1 failure classes; worst case is a manual
+  re-export, never data loss.
 - **Scope creep toward a combat tracker:** every roadmap conversation will want
   it. The PRD says no. Point at this line.
-
-## Open Questions
-- Hostname confirmation (hireling.flinntech.com?).
-- GM read-only seat: ship in POC or cut? (Draft assumes ship — it's cheap and
-  Bruce asked for nothing, which is exactly why we can afford to give him a
-  zero-effort view.)
-- Effect library: pre-seed common effects (Bless, Bane, Guidance, Inspire
-  Courage, common conditions) vs. freeform-only at POC. (Draft: pre-seed the
-  conditions that carry math; spells freeform with sensible modifier pickers.)

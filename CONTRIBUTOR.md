@@ -12,7 +12,9 @@ is the agent side; `CONSTITUTION.md` governs both.
 3. **Build.** However you like — by hand, by agent, by interpretive dance. The PR
    is what's judged.
 4. **PR.** Small beats clever. Description carries the *why*: what changed, what
-   you rejected, what you verified (tests/build output, not vibes).
+   you rejected, what you verified (tests/build output, not vibes). CI runs
+   **grizzly-gate** (Bear's quality gate, standalone mode) — the gate is the
+   first reviewer; a human is the second.
 5. **Human review, human merge.** The reviewer is never the person (or session)
    that wrote it. Either owner can merge; constitution changes need both.
 

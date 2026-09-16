@@ -39,6 +39,11 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
 
 - Work comes from **GitHub Issues** on this repo. One issue, one branch, one PR.
   Small PRs win.
+- **Gate yourself before the PR.** Run `just ci-local` (fmt / clippy-deny block /
+  tests / cargo-deny) and paste the result. CI runs **grizzly-gate** (standalone
+  mode, pinned image) on every PR — a red gate is a red PR, no exceptions. The
+  lint/test configs are vendored from Bear's rust-toolkit; if a lint fights you,
+  propose tuning it in a PR, don't `#[allow]` around it.
 - Priority order is P0 → P1 → P2 as tagged in the PRD's functional requirements.
 - Feedback on the PRD itself goes to the PRD (via issue or PR against `docs/PRD.md`),
   not into code comments.
