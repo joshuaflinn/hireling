@@ -239,8 +239,12 @@ everything else. That's the deal.
 - **Sync:** WebSocket per party; server broadcasts state diffs. REST for
   import/auth/bootstrap only.
 - **Authentication:** Authentik OIDC (existing house IdP). Six static accounts.
-- **Database:** SQLite (moderated WAL). Six users; anything bigger is a product
-  decision, not a POC one.
+- **Database:** Postgres on **Asgard** — the house shared instance (Mimir,
+  postgres 16, reachable only over the `asgard-net` bridge). Hireling gets its
+  own hall (`hireling` db + role, per-role CONN LIMIT per `asgard/README.md`
+  guardrails), per the standing house policy: *one postgres for Pantheon, no
+  per-app database containers.* Migrations via `sqlx migrate`, checked into the
+  repo. Local dev runs a throwaway postgres container via compose.
 - **Modifier engine:** Pure, isolated Rust module — takes base stats + active
   effects, returns derived stats + provenance breakdown. Fully unit-tested; this
   is the module RPGMastermind would harvest, and the only one designed for it.
@@ -248,7 +252,8 @@ everything else. That's the deal.
 ### Hosting & Ops
 - **Mimir** (Unraid, existing Docker host) → **cloudflared** tunnel (existing
   pattern: dwarfcampaign wiki) → hostname on flinntech.com [TBD: hireling.flinntech.com].
-- Backups: nightly SQLite snapshot into the existing Mimir backup rotation.
+- Backups: the `hireling` hall rides Asgard's existing backup rotation; app
+  itself is a stateless container (rebuild-from-git).
 
 ### Performance & Scalability
 - Target: 6 concurrent users. Design headroom: one order of magnitude (60) with
