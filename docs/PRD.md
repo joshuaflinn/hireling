@@ -1,6 +1,6 @@
 # Hireling PRD
 
-**Status:** Draft v2.1 (2026-09-16) — checker round 1 + round 2 findings
+**Status:** Draft v2.2 (2026-09-16) — checker rounds 1–3 findings
 incorporated; all v1 open questions resolved
 **Owners:** Josh Flinn (PM), Dave (co-dev), Vex (PM/eng agent)
 **Repo:** github.com/joshuaflinn/hireling
@@ -155,6 +155,11 @@ Functional Requirements; each story cites its covering requirement group (FG#).
       `skill:<name>` (one per PF2e skill)
     - Blanket targets: `all_checks`, `all_dcs`, `all_checks_and_dcs`
       (this is how *frightened* −1 works — no special-casing)
+    - **Blanket expansion sets (rules-exact, decided):** `all_checks` = `attack`,
+      `spell_attack`, `fort`, `ref`, `will`, `perception`, and every
+      `skill:<name>` — every d20 roll, so NOT `damage` and NOT `speed`.
+      `all_dcs` = `ac`, `class_dc`, `spell_dc` (AC is a DC per Player Core).
+      `all_checks_and_dcs` = the union — frightened's exact footprint.
   - `attack` covers attack **rolls** only; damage rolls are `damage`. Both exist
     because e.g. *inspire courage* grants +1 status to each.
 - **Engine-recomputed vs. static:** every numeric derived stat on the sheet is
@@ -236,7 +241,8 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   - Validation: HP clamped to [0, max]; temp HP absorbs damage first (standard
     PF2e order), shown as a distinct bar segment.
 - **Step 3:** Bear casts *Bless* on Josh and Becky → Bear taps "new effect" →
-  picks Bless (or freeforms it) → modifier `+1 status to attack rolls` →
+  names it Bless (spells are freeform at POC; only conditions are seeded) →
+  modifier `+1 status to attack rolls` via the picker →
   selects targets Josh, Becky → both sheets recompute, and every
   affected number shows its provenance.
   - UI Elements: effect composer (name, modifier picker from the FG3 stat
@@ -294,7 +300,8 @@ everything else. That's the deal.
 - **The question count:** "What does that do again?" asked at the table trends to
   ~zero for buffs/conditions once the engine is live. (Informal tally; the table
   will tell us.)
-- **Roster coverage:** 5/5 players + GM have accounts and imported sheets.
+- **Roster coverage:** 5/5 players have imported sheets; all six accounts active
+  (the GM needs no sheet).
 
 ### Business Metrics
 - **POC verdict after 3 sessions:** keep investing, pivot, or kill. Explicit

@@ -203,3 +203,140 @@ and a fallback (vendoring/pinning) — not flagged.)*
 3. Re-check after that pass is expected to flip the gate to ✅ PASS — then
    **prd-decomposer** or straight to engineering; P0 scope is small and the owners
    are the builders.
+
+---
+---
+
+# ROUND 3 RE-CHECK — Hireling PRD (Draft v2.1, 2026-09-16)
+
+Reviewed per the `prd-checker` skill (all 10 check categories + agent-ready gate),
+run fresh against the full document. PRD: `docs/PRD.md` (Draft v2.1 — "checker
+round 1 + round 2 findings incorporated"). UX reference re-verified:
+`docs/reference/lorum_ipsum_dashboard.html` (`#pbExport` at line 314, `CONDITIONS`
+map at line 480 — both anchors intact). The PRD was not modified; rounds 1–2
+content above is retained; this section is appended.
+
+## Round 2 Disposition (both warnings + all five info items)
+
+| # | Sev | Finding | Disposition | Evidence in v2.1 |
+|---|-----|---------|-------------|------------------|
+| R1 | 🟡 | Seed list outran stat vocabulary | **Fixed** | FG3 seeds split into two tiers: **automatic** (frightened, sickened → −X status to `all_checks_and_dcs`; off-guard → −2 circumstance to `ac`) — all three verified expressible in the closed vocabulary — vs. **manual-tracking** (clumsy, enfeebled, stupefied, drained, slowed, stunned) shipping with tooltip + duration note, no engine math, badged "tracked manually," explicitly citing the companion-buff precedent. The "no special-casing" claim now only has to cover the three automatic seeds, and it holds. Residual on blanket expansion — see [R3-1] below |
+| R2 | 🟡 | Cross-member view stated two ways | **Fixed** | FG5 now carries one rule, labeled as such: "any account can open any character's full sheet read-only from the party view — ownership gates writes, nothing gates reads." UX Party Screens ("full sheet, read-only unless you're the owner") agrees; FG2's "everyone in the party reads everything" agrees. One reading, three sections |
+| R3 | 🔵 | "Game terms" coverage unscoped | **Fixed** | FG1: "POC coverage: every Player Core condition; other game terms are out of POC scope and get added on demand" |
+| R4 | 🔵 | `sync_roundtrip_ms` measures broadcast | **Fixed** | Success Metrics: "This measures server-side broadcast latency; client-receipt confirmation is a productization refinement, not POC scope" — metric and instrument now honestly scoped |
+| R5 | 🔵 | Story IDs collided with P1 priority | **Fixed** | IDs renamed US-1…US-9 with an explicit "identifiers, not priorities" note; citations are FG#-only (verified all nine) |
+| R6 | 🔵 | Bless examples rules-inaccurate | **Fixed** | UX Step 3 is now "`+1 status to attack rolls`"; both provenance examples (FG3, Narrative) read `Strike +14 = +13 base +1 status (Bless, from Bear)` — attack rolls only |
+| R7 | 🔵 | Claim-history record shape | **Fixed** | FG4: append-only log of `{ item, quantity, from, to, actor, timestamp }` |
+
+**Disposition totals: 7 of 7 fixed (2 warnings, 5 info). 0 partially fixed. 0 not fixed.**
+
+## Part 1: Summary Dashboard (Round 3)
+
+### Agent-Ready Gate: ⚠️ CONDITIONAL — one one-line fix from PASS
+
+Every round-2 finding is resolved and the fresh full check found no new critical
+issues. One gap sits exactly on the engine's flagship seed:
+
+- **Blanket-target expansion set is undefined.** FG3 says blanket targets "expand
+  to every covered stat" but never says which covered stats each blanket covers.
+  Read literally ("every single stat"), *frightened* would wrongly penalize
+  `damage` (not a check) and `speed` (not a check), and — depending on the
+  reader — either wrongly include or wrongly exclude `ac` from `all_dcs` (AC *is*
+  a DC in PF2e, so frightened does reduce it). The three automatic seeds' math is
+  only correct under one specific mapping, and the PRD doesn't state it.
+
+### Summary
+- 🔴 Critical Issues: 0
+- 🟡 Warnings: 1
+- 🔵 Info: 2
+
+### Sections Found:
+tl;dr, Goals (Business/User/Non-Goals), User Stories (US-1–US-9, with convention
+statement), Functional Requirements (P0–P2, six feature groups), User Experience
+(entry point, core flow, party screens, edge cases), Narrative, Success Metrics
+(+ Tracking Plan), Technical Considerations (Tooling, UI, API/Backend, Hosting,
+Performance, Integration Points, Key Risks)
+
+### Sections Missing: None
+
+### Story Coverage: 9 of 9 user stories carry acceptance criteria (by convention —
+criteria live in the Functional Requirements; convention stated explicitly and
+every story cites its covering FG#; all FG# citations verified)
+
+### Overall Assessment
+v2.1 closed out everything round 2 raised — the two-tier seed split is the right
+call and it lands cleanly. One residual the split exposed rather than created:
+the blanket-target expansion rule needs its actual stat mapping written down,
+because the document's own stop-the-line-on-engine-bugs stance makes a guessed
+mapping the most expensive possible place to be wrong. One sentence fixes it;
+then this passes.
+
+---
+
+## Part 2: Detailed Findings (Round 3 — fresh full check)
+
+### 3. Ambiguous Requirements / 9. Testability
+
+**[R3-1] 🟡 Blanket-target expansion mapping undefined (exposed by the R1 fix)**
+- **Where:** FG3 — "Blanket targets expand to every covered stat before stacking
+  is evaluated"; the closed vocabulary lists single stats `ac, fort, ref, will,
+  perception, speed, attack, damage, spell_attack, spell_dc, class_dc,
+  skill:<name>` plus blankets `all_checks, all_dcs, all_checks_and_dcs`.
+- **What:** "Every covered stat" is the entire single-stat list if read plainly —
+  but PF2e checks and DCs are a *subset*. `damage` rolls are not checks; `speed`
+  is not a check; and `ac` *is* a DC (so *frightened*'s `all_checks_and_dcs`
+  correctly reduces AC, while a lay reading might exclude it since `ac` sits in
+  the list as a defense). The literal expansion makes the three automatic seeds
+  rules-wrong; the correct expansion is recoverable only by an agent that
+  independently knows PF2e's check/DC taxonomy — exactly the tribal-knowledge
+  reliance the agent-ready gate exists to catch.
+- **Why it matters:** The engine is declared "Constitution Article IV —
+  stop-the-line on bugs," and the automatic seeds are the P0 content built
+  directly on this rule. An agent guessing the mapping ships frightened that
+  either taxes damage rolls or leaves AC untouched — visible, at-the-table wrong
+  math on the product's flagship demo case.
+- **Suggested fix:** One line in FG3, e.g.: "Expansion: `all_checks` →
+  `attack, spell_attack, fort, ref, will, perception, skill:*`; `all_dcs` →
+  `ac, spell_dc, class_dc`; `all_checks_and_dcs` → the union. `damage` and
+  `speed` are never covered by blankets." (PM to confirm the AC-is-a-DC
+  inclusion; that is the rules-accurate reading.)
+
+### 3. Ambiguity (minor)
+
+**[R3-2] 🔵 UX Step 3 implies a seeded, pickable Bless**
+- **Where:** UX Core Experience Step 3 — "Bear taps 'new effect' → picks Bless
+  (or freeforms it)"; FG3 — "Spells and other sources are freeform at POC."
+- **What:** The seed library is conditions-only (two tiers); *Bless* is a spell
+  and is not seeded in either tier, so there is nothing to "pick." The
+  parenthetical half-saves it, but the step still reads as if a Bless entry
+  exists in a picker.
+- **Suggested fix:** "→ freeforms Bless →" or "→ names it Bless →". One word.
+
+### 6. Section Completeness (minor)
+
+**[R3-3] 🔵 Roster-coverage metric parses as the GM importing a sheet**
+- **Where:** Success Metrics — "Roster coverage: 5/5 players + GM have accounts
+  and imported sheets."
+- **What:** The GM account reads everything and writes nothing, owns no
+  character, and (per FG2, one character per account) imports no sheet. The
+  metric's grammar distributes "imported sheets" over all six accounts.
+- **Suggested fix:** "5/5 players have imported sheets and 6/6 accounts (incl.
+  GM) are provisioned and have logged in."
+
+*(Categories 1, 2, 4, 5, 7, 8, 10: no findings. Structural completeness is full;
+no cross-section contradictions — the round-2 cross-member conflict is gone and
+FG2/FG5/UX now state one read rule; traceability verified story→FG for all nine
+stories and goal→metric; stack prescriptions remain marked as settled house
+constraints; personas flow through UX; external deps (Pathbuilder, Authentik,
+Grizzly-Endeavors) carry owners and fallbacks.)*
+
+---
+
+## Round 3 Next Steps
+
+1. Back to **prd-builder** in update mode for [R3-1] — one line in FG3 stating
+   the blanket expansion sets (the only gate blocker). [R3-2] and [R3-3] are
+   one-line edits; batch them in.
+2. Re-check after that pass is expected to flip the gate to ✅ PASS — then
+   **prd-decomposer** or straight to engineering; P0 scope is small and the
+   owners are the builders.
