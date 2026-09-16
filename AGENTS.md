@@ -1,7 +1,10 @@
 # AGENTS.md — Hireling
 
 Instructions for any AI coding agent working in this repo. Read `CONSTITUTION.md`
-first — it is law. Then `docs/PRD.md` — it is the spec.
+first — it is law. Then `docs/PRD.md` — it is the spec. Rust engineering
+conventions (lint policy, test layout, error handling, git workflow) live in
+`docs/toolkit-conventions.md` — vendored from Bear's rust-toolkit, enforced by
+the pre-commit hooks and CI. They are not advisory.
 
 ## What this is
 
@@ -27,9 +30,10 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
    and flag it — do not build it.
 2. **The modifier engine** is pure, isolated, and test-first. Base stats + active
    effects in; derived stats + provenance out. No I/O, no framework imports.
-3. **Branches and PRs.** Work on a feature branch named `issue-<n>-<slug>` or
-   `<slug>`. Never commit to `main`. Never force-push shared branches. Open a PR;
-   a human merges.
+3. **Branches and PRs.** Feature branches with conventional prefixes
+   (`feat/`, `fix/`, `refactor/`, `docs/`, `ci/`, `chore/`), referencing the
+   issue where one exists (`feat/12-buff-engine`). Never commit to `main`.
+   Never force-push shared branches. Open a PR; a human merges.
 4. **Verify before claiming done.** Run the build and the tests. Report actual
    output. If you couldn't verify something, say exactly that.
 5. **Write it down.** Decisions with rejected alternatives go in the PR description.

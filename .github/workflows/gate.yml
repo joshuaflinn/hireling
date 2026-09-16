@@ -1,0 +1,24 @@
+name: gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # grizzly-gate, standalone checker mode — the gate is the first reviewer.
+      # Pinned by digest (bearflinn/grizzly-gate latest @ 2026-09-16). Bump
+      # deliberately, in its own PR.
+      - name: Run grizzly-gate
+        run: >-
+          docker run --rm
+          -v "$PWD:/src"
+          -v grizzly-gate-cache:/cache
+          -w /src
+          bearflinn/grizzly-gate@sha256:25c6193d39ee9460f8e0dc2413e728723943caeb2b550249061c045cab42bc4e
+          --source /src
