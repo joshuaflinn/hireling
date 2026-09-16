@@ -1,0 +1,1624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lorum Ipsum · PF2e Dashboard</title>
+<style>
+:root{
+  --bg:#111317; --panel:#1a1d23; --panel2:#21252d; --line:#2e333d; --line2:#3a404c;
+  --text:#e9e5d9; --muted:#a2a8b3; --dim:#6d7480;
+  --gold:#dcb25b; --gold-dim:#8d7239; --maroon:#5f1d1d; --unc:#9a4f2e; --trad:#2c4a6e; --size:#3b6436;
+  --cs:#7fd6a0; --s:#a9cf86; --f:#e3a45a; --cf:#e46b5e; --blue:#7fb0de;
+  --serif:"Palatino Linotype","Book Antiqua",Palatino,Georgia,serif;
+  --sans:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 var(--sans)}
+button{font:inherit;color:inherit;cursor:pointer}
+a{color:var(--blue)}
+.top{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between;padding:14px 16px 10px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#1b1a17,#111317)}
+.top h1{font-family:var(--serif);font-size:30px;margin:0;color:var(--gold);letter-spacing:.5px;line-height:1.1}
+.top .sub{color:var(--muted);font-size:13px;margin-top:3px}
+.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:6px 12px}
+.btn:hover{border-color:var(--gold-dim)}
+.btn.gold{border-color:var(--gold-dim);color:var(--gold)}
+.lvl{display:flex;align-items:center;gap:0;border:1px solid var(--line2);border-radius:6px;overflow:hidden;background:var(--panel2)}
+.lvl button{background:none;border:0;padding:6px 11px;font-size:16px;line-height:1}
+.lvl button:disabled{opacity:.3;cursor:default}
+.lvl span{padding:0 8px;font-size:13px;color:var(--muted)}
+.lvl b{color:var(--text);font-size:16px}
+.namerow{display:flex;align-items:baseline;gap:6px 16px;flex-wrap:wrap}
+.datanote{color:var(--dim);font-size:11.5px;display:flex;gap:4px 10px;flex-wrap:wrap;align-items:baseline;max-width:520px}
+.datanote b{color:var(--muted);font-weight:600}
+.datanote .lnk{background:none;border:0;color:var(--gold);text-decoration:underline;padding:0;font-size:11.5px}
+
+/* independent columns: each panel stacks directly under the one above it */
+.cols{display:flex;gap:12px;padding:12px;align-items:flex-start}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.col1{flex:0 0 330px}.colMain{flex:1.25 1 0;gap:0}.col3{flex:1 1 0;padding-top:37px}
+@media (max-width:1250px){.cols{flex-wrap:wrap}.colMain{flex:1 1 0}.col3{flex:1 1 100%;padding-top:0}}
+.maintabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding:0 4px}
+.maintabs button{background:none;border:1px solid transparent;border-bottom:0;border-radius:8px 8px 0 0;padding:7px 16px;color:var(--muted);font-family:var(--serif);font-size:16px;margin-bottom:-1px}
+.maintabs button.on{background:var(--panel);border-color:var(--line);color:var(--gold)}
+.tabpane{border-top-left-radius:0}
+@media (max-width:780px){.cols{display:flex;flex-direction:column;align-items:stretch}.col1{flex:none}.colMain{max-width:none}.col3{flex:none}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px 12px;min-width:0}
+.pet-line{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 8px;padding:5px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;font-size:13px;white-space:nowrap}
+.pet-line span{color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.6px}
+#pMinions .pet-line{max-width:440px}
+.pet-line b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums;margin-left:3px}
+.pet-list{margin-top:8px;font-size:13px}
+.pet-list p{margin:3px 0}
+.pet-list b{font-weight:600}
+.pet-note{color:var(--muted);font-size:12.5px;margin-top:6px}
+.pet-src{color:var(--dim);font-size:11.5px;margin-top:4px}
+.panel h2{font-family:var(--serif);font-weight:normal;color:var(--gold);font-size:19px;margin:0 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.panel h2 small{font-family:var(--sans);color:var(--muted);font-size:12px}
+.panel h3{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin:12px 0 5px;font-weight:600}
+
+/* stats */
+.hp{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.hp-top{display:flex;justify-content:space-between;align-items:baseline}
+.hp-top .lbl{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted)}
+.hpnum{font-size:14px;color:var(--muted)}
+.hpnum b{font-size:26px;color:var(--text);font-variant-numeric:tabular-nums}
+.bar{height:6px;background:#2a2f38;border-radius:3px;margin:5px 0 7px;overflow:hidden;display:flex}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,#b3452f,#d9a142 60%,#6fbf73)}
+.bar i.tmp{background:var(--blue)}
+.hp-btns{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.hp-btns button{background:#2a2f38;border:1px solid var(--line2);border-radius:5px;padding:2px 8px;font-size:13px;min-width:34px}
+.hp-btns button:hover{border-color:var(--gold-dim)}
+.hp-btns .tmpin{margin-left:auto;display:flex;gap:4px;align-items:center;font-size:12px;color:var(--muted)}
+.hp-btns input{width:44px;background:#2a2f38;border:1px solid var(--line2);border-radius:5px;color:var(--text);padding:2px 4px;font:inherit;font-size:13px}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
+.tile{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 6px;text-align:center;cursor:default}
+.tile .v{font-size:21px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
+.tile .k{font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+.tile .x{font-size:11px;color:var(--dim)}
+.tile.gold .v{color:var(--gold)}
+.trackers{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.trk{flex:1;min-width:120px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 8px;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.trk .k{font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+.pips{display:flex;gap:4px}
+.pip{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--gold-dim);background:none;padding:0}
+.pip.on{background:var(--gold);border-color:var(--gold)}
+.attrs{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
+.attr{background:var(--panel2);border:1px solid var(--line);border-radius:6px;text-align:center;padding:3px 0}
+.attr .k{font-size:10px;letter-spacing:1px;color:var(--muted)}
+.attr .v{font-size:16px;font-weight:600}
+.attr.key{border-color:var(--gold-dim)}
+.skills{display:grid;grid-template-columns:1fr 1fr;gap:1px 10px}
+.sk{display:flex;align-items:center;gap:6px;padding:2px 2px;border-bottom:1px dotted #2a2f38;font-size:13px;min-width:0}
+.sk .rk{width:15px;height:15px;border-radius:3px;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;background:#2a2f38;color:var(--dim);flex:none}
+.sk .rk.r2{background:#34506e;color:#dfe9f5}.sk .rk.r4{background:#6a4f9a;color:#f0eaff}.sk .rk.r6{background:#9a6a20;color:#fff3dc}.sk .rk.r8{background:#8a2a2a;color:#ffe}
+.sk .n{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sk .m{font-variant-numeric:tabular-nums;font-weight:600}
+.sk.untr .n,.sk.untr .m{color:var(--dim)}
+.sk.wide{grid-column:1/-1}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.trait{display:inline-block;background:var(--maroon);color:#f3e6e0;font-size:10.5px;padding:1px 6px;border-radius:3px;letter-spacing:.3px;text-transform:uppercase;font-weight:600}
+.trait.unc{background:var(--unc)}.trait.trad{background:var(--trad)}.trait.size{background:var(--size)}
+.meta{font-size:12.5px;color:var(--muted);margin-top:6px}
+.meta b{color:var(--text);font-weight:600}
+
+/* rows */
+.row{display:grid;grid-template-columns:20px 56px minmax(0,1fr) auto auto;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;cursor:help;min-height:30px}
+.row:hover,.row.pinned{background:var(--panel2)}
+.row .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.row .q{color:var(--muted);font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.glyph{display:inline-flex;align-items:center;gap:2px;color:var(--text);white-space:nowrap;line-height:1}
+.glyph svg{height:13px;width:auto;display:block;overflow:visible}
+.glyph .dash{font-size:11px;color:var(--muted);margin:0 1px}
+.glyph.txt{font-size:10px;color:var(--muted);border:1px solid var(--line2);border-radius:3px;padding:1px 3px;justify-self:start}
+.chip{font-size:10.5px;padding:1px 6px;border-radius:10px;border:1px solid var(--line2);color:var(--muted);white-space:nowrap}
+.chip.slot,.chip.book{border-color:#4b3f6e;color:#c9b9ef}
+.chip.focus{border-color:#6e4b3f;color:#efc3b0}
+.chip.innate{border-color:#3f6e5a;color:#b0efcf}
+.chip.cantrip{border-color:#3f566e;color:#b8d3ef}
+.use{width:18px;height:18px;border-radius:4px;border:1.5px solid var(--line2);background:none;padding:0;font-size:11px;line-height:1;color:var(--cf)}
+.use:hover{border-color:var(--gold)}
+.use.on{border-color:var(--cf);background:#3a2020}
+.use.none{border:0}
+.use.lock{display:inline-flex;align-items:center;justify-content:center;color:var(--muted)}
+.row.spent .nm,.row.spent .q{text-decoration:line-through;color:var(--dim)}
+.row.empty{cursor:default;color:var(--dim);font-style:italic;font-size:13px}
+.row.empty:hover{background:none}
+.row.locked{background:rgba(63,110,90,.08)}
+.row.staffslot{background:rgba(220,178,91,.12);box-shadow:inset 3px 0 0 rgba(220,178,91,.55);cursor:help}
+.row.staffslot:hover{background:rgba(220,178,91,.18)}
+.row.currslot{background:rgba(120,140,220,.10);box-shadow:inset 3px 0 0 rgba(150,170,240,.5)}
+.cur{color:var(--gold);font-size:11px}
+.src-tag{margin-left:6px;font-size:10.5px;color:#b0efcf;border:1px solid #3f6e5a;border-radius:3px;padding:0 4px;font-weight:400;vertical-align:1px}
+.src-tag.staff-tag{color:#e8c77a;border-color:rgba(220,178,91,.6)}
+.src-tag.curr-tag{color:#c9b9ef;border-color:#4b3f6e}
+.staff-ctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 6px 2px;font-size:12.5px;color:var(--muted)}
+.staff-ctl select,.staff-pick select{background:var(--panel2);color:var(--text);border:1px solid var(--line2);border-radius:5px;padding:2px 6px;font:inherit;font-size:12.5px}
+.staff-pick{margin:4px 6px 4px 90px}
+.lnk{background:none;border:0;color:var(--gold);text-decoration:underline;padding:0;font-size:12px;cursor:pointer}
+.rank-h{display:flex;align-items:baseline;gap:8px;margin:10px 0 2px;padding:0 6px 3px;border-bottom:1px solid var(--line)}
+.rank-h .t{font-family:var(--serif);font-size:15px;color:var(--text)}
+.rank-h .s{font-size:12px;color:var(--muted);flex:1}
+.rank-h .r{font-size:12px;color:var(--muted)}
+.caster-h{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:2px 0 4px}
+.caster-h .cname{font-family:var(--serif);font-size:16px;color:var(--gold);margin-right:4px}
+.pill{font-size:12px;padding:2px 8px;border-radius:12px;background:var(--panel2);border:1px solid var(--line2);color:var(--muted);white-space:nowrap}
+.pill.gold{color:var(--gold);border-color:var(--gold-dim);cursor:help}
+.pill button{background:none;border:0;padding:0;color:inherit;text-decoration:underline}
+details.book{margin-top:10px}
+details.book summary{cursor:pointer;color:var(--muted);font-size:12.5px;padding:4px 6px;list-style:none}
+details.book summary::before{content:"▸ ";color:var(--gold)}
+details.book[open] summary::before{content:"▾ "}
+.divider{height:1px;background:var(--line);margin:12px 0 4px}
+.rank-h .warn{color:var(--f)}
+.row[draggable="true"]{cursor:grab}
+.row.dragsrc{opacity:.4}
+.drop-ok{outline:1px dashed var(--gold-dim);outline-offset:-1px;border-radius:6px}
+.drop-hover{outline:1px solid var(--gold) !important;background:#2a2415 !important}
+details.book.drop-ok>summary{color:var(--gold)}
+
+/* tabs */
+.tabs{display:flex;gap:4px;margin:-2px 0 6px;flex-wrap:wrap}
+.tabs button{background:none;border:1px solid transparent;border-radius:6px;padding:3px 10px;color:var(--muted);font-size:13px}
+.tabs button.on{border-color:var(--gold-dim);color:var(--gold);background:var(--panel2)}
+.grp{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin:10px 6px 2px;font-weight:600}
+.arow{grid-template-columns:56px auto minmax(0,1fr)}
+.arow .q{text-align:right;overflow:hidden;text-overflow:ellipsis}
+
+/* collapsible group headers */
+[data-coll]{cursor:pointer;user-select:none}
+.car{display:inline-block;width:12px;font-size:9px;color:var(--muted);transition:transform .12s;margin-right:4px}
+[data-coll].closed .car{transform:rotate(-90deg)}
+.secb.closed{display:none}
+.cn{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--dim);font-size:11px}
+.h3s{text-transform:none;letter-spacing:0;color:var(--dim);font-weight:400;margin-left:6px}
+
+/* minions */
+.mcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:8px;margin:4px 0 8px}
+.mcard{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.4}
+.mcard .mh{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--line2);padding-bottom:3px;margin-bottom:4px}
+.mcard .mh b{font-family:var(--serif);font-size:16px;color:var(--gold);font-weight:normal}
+.mcard p{margin:2px 0}
+.mcard .glyph svg{height:11px}
+.mcard .foot{margin-top:5px;font-size:11px;color:var(--dim)}
+
+/* inventory */
+.coins{display:flex;gap:6px;margin-bottom:6px}
+.coin{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:6px;text-align:center;padding:3px 0}
+.coin .v{font-size:17px;font-weight:600}
+.coin .k{font-size:10px;letter-spacing:1px;color:var(--muted)}
+.coin.gp .v{color:var(--gold)}.coin.sp .v{color:#c9ced6}.coin.cp .v{color:#c98a5a}.coin.pp .v{color:#b9d4e6}
+.coin input{width:100%;max-width:70px;background:#2a2f38;border:1px solid var(--line2);border-radius:4px;color:var(--text);padding:1px 4px;font:inherit;font-size:15px;text-align:center}
+.coin[data-coin]{cursor:pointer}
+.coin[data-coin]:hover{border-color:var(--gold-dim)}
+.irow{grid-template-columns:minmax(0,1fr) auto auto}
+.irow .qty{color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}
+.bulk{margin-top:8px;padding:6px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;font-size:12.5px;color:var(--muted)}
+.bulk b{color:var(--text)}
+.bulk .meter{height:6px;border-radius:3px;background:#2a2f38;margin-top:5px;position:relative;overflow:hidden}
+.bulk .meter i{position:absolute;left:0;top:0;bottom:0;background:var(--s)}
+.bulk .meter i.enc{background:var(--f)}
+
+/* familiar */
+.fam{margin-top:12px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px}
+.fam .hd{display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid var(--line2);padding-bottom:3px;margin-bottom:5px}
+.fam .hd b{font-family:var(--serif);font-size:16px;color:var(--gold);font-weight:normal}
+.fam p{margin:3px 0}
+.fam .src{color:var(--dim);font-size:11.5px}
+
+/* tooltip */
+#tip{position:fixed;z-index:50;width:440px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;background:#0d0f13;border:1px solid var(--gold-dim);border-radius:10px;padding:10px 12px;box-shadow:0 12px 36px rgba(0,0,0,.6);font-size:13px;line-height:1.45}
+#tip.pinned{border-color:var(--gold)}
+.tt-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;border-bottom:1px solid var(--line2);padding-bottom:4px;margin-bottom:6px}
+.tt-name{font-family:var(--serif);font-size:18px;color:var(--gold)}
+.tt-name .glyph{margin-right:7px;color:var(--gold);vertical-align:-1px}
+.tt-name .glyph svg{height:14px}
+.tt-rank{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);white-space:nowrap}
+#tip .traits{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:1px 12px;margin-bottom:6px}
+.kv div{font-size:12.5px}
+.kv b,.line b{color:var(--text);font-weight:600}
+.kv .full{grid-column:1/-1}
+.line{margin:4px 0;padding:5px 8px;background:#171a20;border-left:2px solid var(--gold-dim);border-radius:4px}
+#tip p{margin:6px 0}
+.deg{margin:6px 0;display:grid;gap:2px}
+.deg .d{padding:2px 8px;border-radius:4px;background:#171a20}
+.deg .d b{font-weight:600;margin-right:4px}
+.deg .cs b{color:var(--cs)}.deg .s b{color:var(--s)}.deg .f b{color:var(--f)}.deg .cf b{color:var(--cf)}
+.hi{margin:6px 0;font-size:12.5px}
+.hi div{color:var(--dim)}
+.hi div.act{color:var(--text)}
+.hi div b{color:var(--muted)}
+.hi div.act b{color:var(--gold)}
+.notes{margin:6px 0;font-size:12.5px;color:#d7c9a5}
+.notes div::before{content:"• ";color:var(--gold)}
+.conds{margin-top:6px;padding-top:6px;border-top:1px dashed var(--line2);font-size:12px;color:var(--muted)}
+.conds b{color:var(--text)}
+.foot{margin-top:8px;padding-top:6px;border-top:1px solid var(--line2);font-size:11.5px;color:var(--dim);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.hint{color:var(--dim);font-size:11px;text-align:right;margin-top:4px}
+.cond{color:#e9c47c;border-bottom:1px dotted rgba(233,196,124,.75);cursor:help}
+.row .q .cond{color:inherit}
+#ctip{position:fixed;z-index:70;width:340px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;background:#16130d;border:1px solid var(--gold);border-radius:8px;padding:8px 11px;box-shadow:0 10px 30px rgba(0,0,0,.7);font-size:12.5px;line-height:1.45}
+#ctip .tt-name{font-size:16px}
+#ctip p{margin:5px 0}
+
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--gold-dim);border-radius:10px;width:min(620px,94vw);padding:14px 16px}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+dialog h3{font-family:var(--serif);color:var(--gold);margin:0 0 6px;font-weight:normal;font-size:20px}
+dialog textarea{width:100%;height:220px;background:#0d0f13;color:var(--text);border:1px solid var(--line2);border-radius:6px;font:12px/1.3 Consolas,monospace;padding:6px}
+dialog .err{color:var(--cf);font-size:13px;min-height:18px}
+dialog .row2{display:flex;gap:8px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-top:8px}
+
+/* campaign reference */
+.cref{display:grid;grid-template-columns:150px minmax(0,1fr);gap:4px 10px;align-items:start;margin:3px 0;font-size:13px}
+.cref .ck{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--gold);font-weight:600}
+.npcrow{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,2fr) minmax(0,1fr) auto;gap:8px;padding:3px 6px;font-size:13px;border-bottom:1px dotted var(--line)}
+.npctag{font-size:10.5px;letter-spacing:.5px;border:1px solid var(--line2);border-radius:10px;padding:1px 7px;color:var(--muted);white-space:nowrap}
+
+/* rules clarifications */
+.rule{margin:6px 0 9px}
+.rule .rt{font-weight:600;color:var(--text)}
+.rule .rb{font-size:13px;margin-top:1px}
+.rule .rs{font-size:11px;color:var(--dim);margin-top:1px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div>
+    <div class="namerow"><h1 id="charName">Lorum Ipsum</h1><div id="dataNote" class="datanote"></div></div>
+    <div id="charSub" class="sub"></div>
+  </div>
+  <div class="controls">
+    <div class="lvl"><button id="lvlDown" aria-label="Level down">−</button><span>Level <b id="lvlVal"></b></span><button id="lvlUp" aria-label="Level up">+</button></div>
+    <button class="btn gold" id="btnDaily" title="Clears cast slots, refills Focus Points, resets Drain Bonded Item">New Day</button>
+    <button class="btn" id="btnImport">Import Pathbuilder JSON</button>
+  </div>
+</header>
+
+<main class="cols">
+  <div class="col col1">
+    <section class="panel" id="pStats"></section>
+  </div>
+  <div class="col colMain">
+    <nav class="maintabs" id="mainTabs"></nav>
+    <section class="panel tabpane" id="pSpells"></section>
+    <section class="panel tabpane" id="pMinions"></section>
+    <section class="panel tabpane" id="pInv"></section>
+    <section class="panel tabpane" id="pFeats"></section>
+    <section class="panel tabpane" id="pCampaign"></section>
+    <section class="panel tabpane" id="pRules"></section>
+  </div>
+  <div class="col col3">
+    <section class="panel" id="pActions"></section>
+  </div>
+</main>
+
+<div id="tip" role="tooltip" hidden></div>
+<div id="ctip" role="tooltip" hidden></div>
+
+<dialog id="dlg">
+  <h3>Import Pathbuilder export</h3>
+  <div style="color:var(--muted);font-size:13px">Paste a Pathbuilder 2e JSON export, or choose the saved file. Everything on the page recalculates from it.</div>
+  <div class="row2"><input type="file" id="impFile" accept=".json,.txt,application/json,text/plain"></div>
+  <textarea id="impText" placeholder='{"success":true,"build":{ ... }}'></textarea>
+  <div class="err" id="impErr"></div>
+  <div class="row2">
+    <button class="btn" id="impReset">Revert to embedded export</button>
+    <span style="display:flex;gap:8px"><button class="btn" id="impCancel">Cancel</button><button class="btn gold" id="impGo">Import</button></span>
+  </div>
+</dialog>
+
+<!-- Pathbuilder export embedded from Lorum level 3.json (2026-09-13) -->
+<script type="application/json" id="pbExport">
+{"success":true,"build":{"name":"Lorum Ipsum","class":"Wizard","dualClass":null,"level":3,"xp":18,"ancestry":"Gnome","heritage":"Wellspring Gnome","background":"Charlatan","alignment":"N","gender":"Male","age":"44","deity":"Not set","size":1,"sizeName":"Small","keyability":"int","languages":["Aklo","Common","Dwarven","Fey","Gnomish","Goblin","Ysoki"],"rituals":[],"resistances":[],"inventorMods":[],"abilities":{"str":8,"dex":12,"con":14,"int":18,"wis":10,"cha":16,"breakdown":{"ancestryFree":["Int"],"ancestryBoosts":["Con","Cha"],"ancestryFlaws":["Str"],"backgroundBoosts":["Int","Cha"],"classBoosts":["Int"],"mapLevelledBoosts":{"1":["Con","Cha","Int","Dex"]}}},"attributes":{"ancestryhp":8,"classhp":6,"bonushp":0,"bonushpPerLevel":0,"speed":25,"speedBonus":0},"proficiencies":{"classDC":2,"perception":2,"fortitude":2,"reflex":2,"will":4,"heavy":0,"medium":0,"light":0,"unarmored":2,"advanced":0,"martial":0,"simple":2,"unarmed":2,"castingArcane":2,"castingDivine":0,"castingOccult":2,"castingPrimal":0,"acrobatics":0,"arcana":2,"athletics":0,"crafting":0,"deception":4,"diplomacy":2,"intimidation":0,"medicine":0,"nature":0,"occultism":2,"performance":0,"religion":0,"society":2,"stealth":2,"survival":0,"thievery":2,"piloting":0,"computers":0},"mods":{},"feats":[["Charming Liar",null,"Awarded Feat",1],["Wellspring Gnome",null,"Heritage",1,"Heritage Feat","standardChoice",null],["Gnome Obsession",null,"Ancestry Feat",1,"Gnome Feat 1","parentChoice",null],["Additional Lore",null,"Skill Feat",1,"Gnome Feat 1additional lore","childChoice","Gnome Feat 1"],["Assurance","Lore: Mror Holds History","Skill Feat",1,"Gnome Feat 1additional lore assurance","childChoice","Gnome Feat 1"],["Pickpocket",null,"Skill Feat",2,"Skill Feat 2","standardChoice",null],["Conceal Spell",null,"Class Feat",2,"Wizard Feat 2","standardChoice",null],["Pet",null,"General Feat",3,"General Feat 3","standardChoice",null]],"specials":["Arcane School: School of Mentalism","Arcane Thesis: Staff Nexus","Arcane Bond","Drain Bonded Item","Spellbook","Wizard Spellcasting","Low-Light Vision","Occult","Wellspring Gnome"],"lores":[["Underworld",2],["Mror Holds History",4]],"equipmentContainers":{"e6b4b905-236b-479e-92c4-36b9854f14b4":{"containerName":"Backpack","bagOfHolding":false,"backpack":true,"augmentations":false},"cd1c5fd5-50f9-43df-8990-88cd7f01f3c4":{"containerName":"Giant body's sack","bagOfHolding":true,"backpack":false,"augmentations":false}},"equipment":[["Backpack",1,"Invested"],["Bedroll",1,"e6b4b905-236b-479e-92c4-36b9854f14b4","Invested"],["Chalk",10,"e6b4b905-236b-479e-92c4-36b9854f14b4","Invested"],["Flint and Steel",1,"e6b4b905-236b-479e-92c4-36b9854f14b4","Invested"],["Rope",1,"e6b4b905-236b-479e-92c4-36b9854f14b4","Invested"],["Rations",2,"e6b4b905-236b-479e-92c4-36b9854f14b4","Invested"],["Torch",5,"e6b4b905-236b-479e-92c4-36b9854f14b4","Invested"],["Waterskin",1,"e6b4b905-236b-479e-92c4-36b9854f14b4","Invested"],["Soap",1,"e6b4b905-236b-479e-92c4-36b9854f14b4","Invested"],["Writing Set",1,"e6b4b905-236b-479e-92c4-36b9854f14b4","Invested"],["Sack",5,"e6b4b905-236b-479e-92c4-36b9854f14b4","Invested"],["Lock (Simple)",1,"cd1c5fd5-50f9-43df-8990-88cd7f01f3c4","Invested"],["Manacles (Simple)",1,"cd1c5fd5-50f9-43df-8990-88cd7f01f3c4","Invested"],["Cold Iron Ingot",7,"cd1c5fd5-50f9-43df-8990-88cd7f01f3c4","Invested"],["Silver Chunk",2,"cd1c5fd5-50f9-43df-8990-88cd7f01f3c4","Invested"],["Oil of Weightlessness",1,"cd1c5fd5-50f9-43df-8990-88cd7f01f3c4","Invested"]],"specificProficiencies":{"trained":[],"expert":[],"master":[],"legendary":[]},"weapons":[{"name":"Staff","qty":1,"prof":"simple","die":"d4","pot":0,"str":"","mat":null,"display":"Staff","runes":[],"damageType":"B","attack":4,"damageBonus":-1,"extraDamage":[],"increasedDice":false,"isInventor":false,"grade":""}],"money":{"cp":4,"sp":2,"gp":24,"pp":0},"armor":[{"name":"Explorer's Clothing","qty":1,"prof":"unarmored","pot":0,"res":"","mat":null,"display":"Explorer's Clothing","worn":true,"runes":[],"grade":""}],"spellCasters":[{"name":"Wizard","magicTradition":"arcane","spellcastingType":"prepared","ability":"int","proficiency":2,"focusPoints":0,"innate":false,"perDay":[6,4,3,0,0,0,0,0,0,0,0],"spells":[{"spellLevel":0,"list":["Daze","Detect Magic","Electric Arc","Figment","Light","Scatter Scree","Shield","Telekinetic Hand","Infectious Enthusiasm","Phase Bolt"]},{"spellLevel":1,"list":["Dizzying Colors","Illusory Object","Fear","Befuddle","Summon Undead","500 Toads"]},{"spellLevel":2,"list":["Blazing Bolt","Illusory Creature","Invisibility"]}],"prepared":[{"spellLevel":0,"list":["Shield","Daze","Detect Magic","Phase Bolt","Scatter Scree","Figment"]},{"spellLevel":1,"list":["500 Toads","Befuddle","Fear","Dizzying Colors"]},{"spellLevel":2,"list":["Blazing Bolt","Invisibility","Illusory Creature"]}],"blendedSpells":[]},{"name":"Wellspring Gnome","magicTradition":"occult","spellcastingType":"prepared","ability":"cha","proficiency":2,"focusPoints":0,"innate":true,"perDay":[1,0,0,0,0,0,0,0,0,0,0],"spells":[{"spellLevel":0,"list":["Guidance"]}],"prepared":[],"blendedSpells":[]}],"focusPoints":1,"focus":{"arcane":{"int":{"abilityBonus":4,"proficiency":2,"itemBonus":0,"focusCantrips":[],"focusSpells":["Charming Push"]}}},"formula":[],"acTotal":{"acProfBonus":5,"acAbilityBonus":1,"acItemBonus":0,"acTotal":16,"shieldBonus":null},"pets":[],"familiars":[{"type":"Familiar","name":"Familiar (Pippin)","equipment":[],"specific":null,"abilities":["Fast Movement (Land)","Manual Dexterity"]}]}}
+</script>
+
+<script>
+"use strict";
+/* ============================================================
+   Settings that live outside the Pathbuilder export
+   ============================================================ */
+const EXPORT_LABEL = "Lorum level 3.json, Sep 13 2026";
+const DEFAULT_LEVEL = null;   // null = use the export's level
+const EXTRA_FAMILIAR = null;
+const LS_KEY = "lorum-ipsum-dashboard-v1";
+
+/* ============================================================
+   Rules data (Player Core remaster unless noted), paraphrased
+   ============================================================ */
+const AON = "https://2e.aonprd.com/";
+const DEG = {cs:"Critical Success", s:"Success", f:"Failure", cf:"Critical Failure"};
+const RANK = {0:["U","Untrained"],2:["T","Trained"],4:["E","Expert"],6:["M","Master"],8:["L","Legendary"]};
+
+const CURRICULA = {
+  "School of Mentalism": {0:["Daze","Figment"],1:["Dizzying Colors","Sleep","Sure Strike"],2:["Illusory Creature","Stupefy"],3:["Dream Message","Mind Reading"],4:["Nightmare","Vision of Death"],5:["Hallucination","Illusory Scene"],6:["Never Mind","Phantasmal Calamity"],7:["Project Image","Warp Mind"],8:["Disappearance","Uncontrollable Dance"],9:["Phantasmagoria"]}
+};
+
+const D = (n,d,type)=>({n,d,type,avg:n*(d+1)/2});
+const avg = v => String(Math.round(v*10)/10);
+const dtxt = x => `${x.n}d${x.d} ${x.type}`;
+function halfAvg(n,d){   // expected value of floor(NdD / 2)
+  let dist=[1];
+  for(let i=0;i<n;i++){ const nd=new Array(dist.length+d).fill(0); dist.forEach((p,s)=>{ for(let f=1;f<=d;f++) nd[s+f]+=p/d; }); dist=nd; }
+  return dist.reduce((a,p,s)=>a+p*Math.floor(s/2),0);
+}
+const basicSave = (x,cfExtra)=>[
+  ["cs","No damage"],
+  ["s",`Half damage, rounded down (avg ${avg(halfAvg(x.n,x.d))})`],
+  ["f",`${dtxt(x)} (avg ${avg(x.avg)})`],
+  ["cf",`Double damage (avg ${avg(x.avg*2)})${cfExtra?", "+cfExtra:""}`]];
+const attackDeg = x=>[["cs",`Double damage (avg ${avg(x.avg*2)})`],["s",`${dtxt(x)} (avg ${avg(x.avg)})`]];
+const incap = r => `Incapacitation: creatures above level ${2*r} get one degree of success better on the save.`;
+const MENTAL = "Mental: no effect on mindless creatures.";
+
+const SP = {
+  "Daze":{kind:"cantrip",act:2,traits:["Cantrip","Concentrate","Manipulate","Mental","Nonlethal"],src:"Player Core p. 322",url:"Spells.aspx?ID=1482",
+    f:(r,K)=>{const x=D(1+Math.floor((r-1)/2),6,"mental");return{
+      stats:[["Range","60 feet"],["Target","1 creature"],["Defense",`basic Will, DC ${K.dc}`],["Duration","1 round"]],
+      quick:`Will DC ${K.dc} · ${x.n}d6`,
+      text:"A mental jolt to one creature's mind deals mental damage.",
+      deg:basicSave(x,"and stunned 1"),
+      hi:[["+2","+1d6 damage"]], notes:[MENTAL]}}},
+  "Detect Magic":{kind:"cantrip",act:2,traits:["Cantrip","Concentrate","Detection","Manipulate"],src:"Player Core p. 323",url:"Spells.aspx?ID=1485",
+    f:r=>({stats:[["Area","30-foot emanation"]],quick:"30-ft emanation",
+      text:`A pulse tells you whether magic is present nearby, and nothing more. You can ignore magic you already know about, like your own and your allies' items and spells. Illusion magic registers only if its rank is below ${r} (this spell's rank). Items with an illusion aura that don't disguise their appearance, like an invisibility potion, register normally.`,
+      hi:[["3rd","Also learn the rank or level of the strongest magic detected."],["4th","As 3rd, and you narrow the strongest source down to about a 5-foot cube."]]})},
+  "Electric Arc":{kind:"cantrip",act:2,traits:["Cantrip","Concentrate","Electricity","Manipulate"],src:"Player Core p. 328",url:"Spells.aspx?ID=1509",
+    f:(r,K)=>{const x=D(1+r,4,"electricity");return{
+      stats:[["Range","30 feet"],["Targets","1 or 2 creatures"],["Defense",`basic Reflex, DC ${K.dc}`]],
+      quick:`Ref DC ${K.dc} · ${x.n}d4`,
+      text:"Lightning jumps from one target to the next. Each target takes the damage.",
+      deg:basicSave(x), hi:[["+1","+1d4 damage"]]}}},
+  "Figment":{kind:"cantrip",act:2,traits:["Cantrip","Concentrate","Illusion","Manipulate","Subtle"],src:"Player Core p. 331",url:"Spells.aspx?ID=1528",
+    f:(r,K,C)=>{const dv=C.skill("deception").mod+2;return{
+      stats:[["Range","30 feet"],["Duration","sustained"]], quick:`Diversion ${sg(dv)}`,
+      text:"Make a simple illusory sound or image. A sound gains the auditory trait and can't carry intelligible words or elaborate music. An image gains the visual trait, fits in a 5-foot cube, and looks crude to anyone within 15 feet.",
+      lines:[["Create a Diversion",`Each time you Cast or Sustain it, you can Create a Diversion at ${sg(dv)} (includes the +2 circumstance bonus). A creature your check fails against disbelieves the figment.`]]}}},
+  "Infectious Enthusiasm":{kind:"cantrip",act:2,traits:["Cantrip","Concentrate","Emotion","Manipulate","Mental"],src:"Impossible Magic p. 148",url:"Spells.aspx?ID=2748",
+    f:()=>({stats:[["Duration","1 round"]],quick:"+1 status, shareable",
+      text:"Choose one for yourself: +1 status bonus to attack rolls, Will saves, or Charisma-based skill checks. During the duration, an ally who watched you cast it from within 30 feet can spend a single action (concentrate) to gain the same bonus until the start of their next turn.",
+      notes:["Casting it on someone you're trying to sway socially is a faux pas. If they saw it cast, the Charisma skill bonus doesn't apply against them."]})},
+  "Light":{kind:"cantrip",act:2,traits:["Cantrip","Concentrate","Light","Manipulate"],src:"Player Core p. 340",url:"Spells.aspx?ID=1585",
+    f:r=>{const rad=r>=4?60:20;return{stats:[["Range","120 feet"],["Duration","until your next daily preparations"]],quick:`${rad}-ft bright light`,
+      text:`An orb in the color you choose sheds bright light in a ${rad}-foot radius and dim light for the next ${rad} feet. Create it in a willing creature's space to attach it so it follows them. Sustain to move it up to 60 feet, attaching or detaching it as part of the move. You can Dismiss it. A fifth active light ends one of your other four.`,
+      hi:[["4th","60-foot bright light, dim light for the next 60 feet."]]}}},
+  "Scatter Scree":{kind:"cantrip",act:2,traits:["Cantrip","Concentrate","Earth","Manipulate"],src:"Player Core 2 p. 250",url:"Spells.aspx?ID=2021",
+    f:(r,K)=>{const x=D(1+r,4,"bludgeoning");return{
+      stats:[["Range","30 feet"],["Area","2 contiguous 5-foot cubes"],["Defense",`basic Reflex, DC ${K.dc}`],["Duration","1 minute"]],
+      quick:`Ref DC ${K.dc} · ${x.n}d4`,
+      text:"Rocks tumble into the area, dealing bludgeoning damage, and leave the ground difficult terrain for the duration. A creature can Interact to clear one square. Casting it again ends your earlier scree.",
+      deg:basicSave(x), hi:[["+1","+1d4 damage"]]}}},
+  "Shield":{kind:"cantrip",act:1,traits:["Cantrip","Concentrate","Force"],src:"Player Core p. 356",url:"Spells.aspx?ID=1671",
+    f:(r,K,C)=>{const h=shieldHardness(r);return{
+      stats:[["Duration","until the start of your next turn"]], quick:`AC ${C.ac+1} · Hardness ${h}`,
+      text:`A shield of force counts as Raise a Shield with no hand needed: +1 circumstance bonus to AC, putting you at AC ${C.ac+1}.`,
+      lines:[["Shield Block",`While it lasts, you can use the Shield Block reaction with Hardness ${h}. It also blocks damage from spells and magical effects, even non-physical damage. Once you block, the spell ends and you can't cast it again for 10 minutes.`]],
+      hi:[["+2","+5 Hardness"]], notes:["It's a 1-action cast on your turn. Cast it first to have the block available."]}}},
+  "Telekinetic Hand":{kind:"cantrip",act:2,traits:["Cantrip","Concentrate","Manipulate"],src:"Player Core p. 362",url:"Spells.aspx?ID=1715",
+    f:r=>{const rng=r>=5?60:30, b=r>=7?"Bulk 2 or less":r>=3?"Bulk 1 or less":"light Bulk or less";return{
+      stats:[["Range",`${rng} feet`],["Duration","sustained"],["Target",`1 unattended object of ${b}`]],quick:`${rng} ft · ${b.replace(" or less","")}`,
+      text:"A floating hand, unseen or ghostly, grabs the object and slowly lifts it up to 20 feet in any direction. Each Sustain moves it another 20 feet. It falls if the spell ends while it's in the air.",
+      hi:[["3rd","Bulk 1 or less"],["5th","Range 60 feet, Bulk 1 or less"],["7th","Range 60 feet, Bulk 2 or less"]]}}},
+  "Phase Bolt":{kind:"cantrip",act:2,traits:["Attack","Cantrip","Concentrate","Manipulate"],src:"Dark Archives (Remastered) p. 106",url:"Spells.aspx?ID=2576",
+    f:(r,K)=>{const x=D(2+r,4,"piercing");return{
+      stats:[["Range","60 feet"],["Target","1 creature"],["Defense","AC"]], quick:`${sg(K.atk)} · ${x.n}d4`,
+      lines:[["Spell attack",`${sg(K.atk)}, then ${sg(K.atk-5)} and ${sg(K.atk-10)}. It has the attack trait, so it adds to your multiple attack penalty.`]],
+      text:"The bolt stutters in and out of phase on its way. Any circumstance bonus to the target's AC, like a raised shield or cover, is reduced by 2 against this attack.",
+      deg:attackDeg(x), hi:[["+1","+1d4 damage"]]}}},
+  "Guidance":{kind:"cantrip",act:1,traits:["Cantrip","Concentrate"],src:"Player Core p. 334",url:"Spells.aspx?ID=1549",
+    f:()=>({stats:[["Range","30 feet"],["Target","1 creature"],["Duration","until the start of your next turn"]],quick:"+1 status to one roll",
+      text:"The target gets a +1 status bonus to one attack roll, Perception check, saving throw, or skill check it attempts before the spell ends, chosen before rolling. Using the bonus ends the spell. Either way, the target is then immune to guidance for 1 hour."})},
+  "Dizzying Colors":{kind:"spell",act:2,traits:["Concentrate","Illusion","Incapacitation","Manipulate","Visual"],src:"Player Core p. 326",url:"Spells.aspx?ID=1500",
+    f:(r,K)=>({stats:[["Area","15-foot cone"],["Defense",`Will, DC ${K.dc}`],["Duration","1 or more rounds"]],quick:`Will DC ${K.dc} · 15-ft cone`,
+      text:"A swirl of colors floods the cone. Each creature in it attempts a Will save.",
+      deg:[["cs","Unaffected"],["s","Dazzled for 1 round"],["f","Stunned 1, blinded for 1 round, and dazzled for 1 minute"],["cf","Stunned for 1 round and blinded for 1 minute"]],
+      notes:[incap(r),"Visual: only creatures that can see it are affected."]})},
+  "Illusory Object":{kind:"spell",act:2,traits:["Concentrate","Illusion","Manipulate","Visual"],src:"Player Core p. 337",url:"Spells.aspx?ID=1569",
+    f:(r,K)=>{const dur=r>=5?"unlimited":r>=2?"1 hour":"10 minutes";return{
+      stats:[["Range","500 feet"],["Area","20-foot burst"],["Duration",dur]], quick:`500 ft · ${dur}`,
+      text: r>=2 ? "Create an illusion of a stationary object that fits in the area. It moves naturally, makes the right sounds and smells, and feels right to the touch (gains auditory and olfactory traits)."
+                 : "Create a visual illusion of a stationary object that fits in the area. It moves naturally (water pours down an illusory waterfall) but makes no sound and has no smell.",
+      lines:[["Disbelief",`A creature that touches the image or uses Seek to examine it can try to disbelieve it against your spell DC ${K.dc}.`]],
+      hi:[["2nd","Adds sound, smell and touch, gains auditory and olfactory traits, duration 1 hour."],["5th","As 2nd, with unlimited duration."]]}}},
+  "Summon Undead":{kind:"spell",act:3,traits:["Concentrate","Manipulate","Summon"],src:"Player Core p. 361",url:"Spells.aspx?ID=1706",
+    f:r=>{const lv={1:-1,2:1,3:2,4:3,5:5,6:7,7:9,8:11,9:13,10:15}[r];return{
+      stats:[["Range","30 feet"],["Duration","sustained up to 1 minute"]], quick:`undead up to level ${lv}`,
+      text:`Summon a common creature with the undead trait, level ${lv} or lower, into an open space in range.`,
+      lines:[["Summoned",`It takes 2 actions immediately when you finish casting. After that it's a minion: Sustain the spell to command it for 2 actions. It can't summon, create things of value, or cast spells with a cost. It's banished at 0 HP or when the spell ends.`]],
+      hi:[["2nd","Level 1"],["3rd","Level 2"],["4th","Level 3"],["5th","Level 5"],["6th","Level 7"],["7th","Level 9"],["8th","Level 11"],["9th","Level 13"],["10th","Level 15"]],
+      notes:["Your prep notes favor a Zombie Shambler over a Skeleton Guard as a distraction."]}}},
+  "Fear":{kind:"spell",act:2,traits:["Concentrate","Emotion","Fear","Manipulate","Mental"],src:"Player Core p. 331",url:"Spells.aspx?ID=1524",
+    f:(r,K)=>({stats:[["Range","30 feet"],["Targets",r>=3?"up to 5 creatures":"1 creature"],["Defense",`Will, DC ${K.dc}`],["Duration","varies"]],quick:`Will DC ${K.dc}`,
+      text:"Plant fear in the target's mind.",
+      deg:[["cs","Unaffected"],["s","Frightened 1"],["f","Frightened 2"],["cf","Frightened 3 and fleeing for 1 round"]],
+      hi:[["3rd","Up to 5 targets"]], notes:[MENTAL]})},
+  "Befuddle":{kind:"spell",act:2,traits:["Concentrate","Emotion","Manipulate","Mental"],src:"Divine Mysteries p. 256",url:"Spells.aspx?ID=2344",
+    f:(r,K)=>({stats:[["Range","30 feet"],["Target","1 creature"],["Defense",`Will, DC ${K.dc}`],["Duration","1 round"]],quick:`Will DC ${K.dc}`,
+      text:"Tangle the target's thoughts and movements.",
+      deg:[["cs","Unaffected"],["s","Clumsy 1 and stupefied 1"],["f","Clumsy 2 and stupefied 2"],["cf","Clumsy 3, stupefied 3, and confused"]],
+      notes:[MENTAL]})},
+  "500 Toads":{kind:"spell",act:2,traits:["Rare","Concentrate","Manipulate"],src:"NPC Core p. 26",url:"Spells.aspx?ID=2335",
+    f:()=>({stats:[["Range","30 feet"],["Area","15-foot burst"],["Duration","1 round"]],quick:"15-ft burst · trap tester",
+      text:"Hundreds of magical toads fill the area and hop around. They have enough weight and height to set off any trap there that a Medium creature's weight, movement or position would trigger. The area is difficult terrain, and toads destroyed by traps re-form for the duration."})},
+  "Blazing Bolt":{kind:"spell",act:"1–3",traits:["Attack","Concentrate","Fire","Manipulate"],src:"Player Core p. 318",url:"Spells.aspx?ID=1450",
+    f:(r,K)=>{const one=D(2+(r-2),6,"fire"), multi=D(4+2*(r-2),6,"fire");return{
+      stats:[["Range","60 feet"],["Targets","1 to 3 creatures"],["Defense","AC"]], quick:`${sg(K.atk)} · ${one.n}d6 or ${multi.n}d6/ray`,
+      lines:[["By actions",`1 action: one ray, ${dtxt(one)} (avg ${avg(one.avg)}). 2 actions: two rays; 3 actions: three rays; ${dtxt(multi)} each (avg ${avg(multi.avg)}), each at a different target.`],
+             ["Spell attack",`${sg(K.atk)} for every ray. Your multiple attack penalty increases only after all the rays are rolled.`]],
+      text:"Fire rays of heat and flame.",
+      deg:[["cs","Double damage"],["s","Full damage"]], hi:[["+1","+1d6 per ray (1 action) or +2d6 per ray (2 or 3 actions)"]]}}},
+  "Illusory Creature":{kind:"spell",act:2,traits:["Auditory","Concentrate","Illusion","Manipulate","Olfactory","Visual"],src:"Player Core p. 336",url:"Spells.aspx?ID=1567",
+    f:(r,K)=>{const x=D(3+(r-2),4,"mental"), size=["Large","Huge","Gargantuan"][Math.min(2,Math.max(0,r-2))];return{
+      stats:[["Range","500 feet"],["Duration","sustained"]], quick:`atk ${sg(K.atk)} · AC ${K.dc} · ${x.n}d4`,
+      text:`Create an illusion of a ${size} or smaller creature that sounds, smells and feels real. The spell ends if you and it are ever more than 500 feet apart. It can't speak on its own, but you can speak through it; the GM may call for Deception or Performance to imitate someone.`,
+      lines:[["In combat",`When you Sustain, it uses 2 actions. Attack ${sg(K.atk)}, AC ${K.dc}, saves ${sg(K.dc-10)}. It can flank. Its Strikes deal ${dtxt(x)}, nonlethal (avg ${avg(x.avg)}). The spell ends if it's hit by an attack or fails a save.`],
+             ["Disbelief","A creature that touches it or Seeks to examine it can try to disbelieve. When it does, it recovers half the damage the illusion dealt it and takes no more. Damage that doesn't fit the image may earn an immediate Perception check to disbelieve."]],
+      hi:[["+1","+1d4 Strike damage and one size larger (max Gargantuan)"]]}}},
+  "Invisibility":{kind:"spell",act:2,traits:["Illusion","Manipulate","Subtle"],src:"Player Core p. 339",url:"Spells.aspx?ID=1577",
+    f:r=>({stats:[["Range","touch"],["Target","1 creature"],["Duration",r>=4?"1 minute":"10 minutes"]], quick:r>=4?"1 min · attacks OK":"10 min · touch",
+      text:"The target turns invisible: undetected by everyone, or hidden to creatures already watching it. A creature that Seeks and beats its Stealth DC makes it hidden until it Sneaks again."+(r>=4?" Hostile actions don't end this version.":" The spell ends after the target completes a hostile action."),
+      hi:[["4th","Lasts 1 minute and doesn't end when the target uses a hostile action."]]})},
+  "Charming Push":{kind:"focus",act:1,traits:["Uncommon","Concentrate","Focus","Incapacitation","Mental","Wizard"],src:"Player Core p. 388",url:"Spells.aspx?ID=1902",
+    f:(r,K)=>({stats:[["Range","30 feet"],["Target","1 creature"],["Defense",`Will, DC ${K.dc}`],["Duration","until the start of your next turn"]],quick:`Will DC ${K.dc}`,
+      text:"Push at the target's mind so its hostility slides off you.",
+      lines:[["Cost","1 Focus Point. Refocus: 10 minutes studying your spellbook or doing arcane research."]],
+      deg:[["cs","Unaffected"],["s","−1 circumstance penalty to attack and damage rolls against you"],["f","Can't use hostile actions against you"],["cf","Stunned 1 and can't use hostile actions against you"]],
+      notes:[incap(r),MENTAL]})}
+};
+function shieldHardness(r){ return 5*(1+Math.floor((r-1)/2)); }
+
+// Player Core conditions (paraphrased). p = page, id = Archives of Nethys condition ID
+const CONDITIONS = {
+  "blinded":{p:442,id:59,t:"You can't see. Normal terrain is difficult terrain, you can't detect anything with vision, and Perception checks that need sight automatically critically fail. If vision is your only precise sense, −4 status penalty to Perception. Immune to visual effects. Overrides dazzled."},
+  "clumsy":{p:442,id:61,t:"Status penalty equal to the value on Dexterity-based rolls and DCs: AC, Reflex saves, ranged attack rolls, and Acrobatics, Stealth and Thievery checks."},
+  "concealed":{p:442,id:62,t:"Fog or something similar makes you hard to see. You can still be observed, but a creature targeting you with an attack, spell or other effect must pass a DC 5 flat check or it doesn't affect you. Area effects skip the check."},
+  "confused":{p:442,id:63,t:"Off-guard, treats no one as an ally, and can't Delay, Ready or use reactions. Spends its actions Striking or casting offensive cantrips at targets the GM picks at random, hitting itself if nothing else is available. Each time it takes damage from an attack or spell, it can attempt a DC 11 flat check to end the condition."},
+  "dazzled":{p:442,id:65,t:"Vision is swimming. If sight is the creature's only precise sense, all creatures and objects are concealed from it."},
+  "dying":{p:443,id:69,t:"Unconscious and bleeding out; at dying 4 you die. Attempt a recovery check at the start of each turn. Taking damage raises dying by 1, or by 2 from a critical hit or a critically failed save."},
+  "encumbered":{p:443,id:70,t:"Carrying more than you can manage: clumsy 1 and a −10-foot penalty to all Speeds (minimum 5 feet)."},
+  "fatigued":{p:444,id:73,t:"−1 status penalty to AC and saving throws, and no exploration activities while traveling. A full night's rest removes it."},
+  "fleeing":{p:444,id:74,t:"Must spend every action escaping the source as quickly as possible. Can't Delay or Ready."},
+  "friendly":{p:444,id:75,t:"Attitude: likes the character and will usually agree to Requests that are simple, safe and cheap. Hostile acts against it worsen its attitude."},
+  "frightened":{p:444,id:76,t:"Status penalty equal to the value on all checks and DCs. The value drops by 1 at the end of each of the creature's turns."},
+  "grabbed":{p:444,id:77,t:"Held in place: off-guard and immobilized. Each manipulate action needs a DC 5 flat check or it's lost."},
+  "helpful":{p:444,id:78,t:"Attitude: wants to actively help the character and accepts reasonable Requests that don't undercut its own goals. Hostile acts against it worsen its attitude."},
+  "hidden":{p:444,id:79,t:"The creature knows your space but not your exact spot. It's off-guard to you and must pass a DC 11 flat check to target you with an attack, spell or other effect. Area effects skip the check. It can Seek to try to observe you."},
+  "hostile":{p:444,id:80,t:"Attitude: actively wants to harm the character. It won't necessarily attack, but it won't accept Requests."},
+  "immobilized":{p:444,id:81,t:"Can't use actions with the move trait. A force trying to move it out of its space must beat the DC of whatever holds it there."},
+  "indifferent":{p:444,id:82,t:"Attitude: doesn't care one way or the other about the character. This is the default attitude."},
+  "invisible":{p:444,id:83,t:"Can't be seen: undetected to everyone. A creature that Seeks and beats your Stealth DC makes you hidden to it until you Sneak again. Anyone already watching when you turn invisible starts with you hidden. You can't become observed except by special abilities or magic."},
+  "observed":{p:444,id:84,t:"In plain view. A creature that avoids detection, such as by Hiding, can be hidden or undetected instead. Only precise senses can observe."},
+  "off-guard":{p:445,id:58,t:"−2 circumstance penalty to AC. Some effects apply it only against certain creatures or attacks."},
+  "prone":{p:445,id:88,t:"Lying on the ground: off-guard and −2 circumstance penalty to attack rolls. Crawl and Stand are the only move actions available. Taking Cover while prone gives +4 AC against ranged attacks."},
+  "restrained":{p:446,id:90,t:"Tied up or pinned: off-guard and immobilized, with no attack or manipulate actions except to Escape or Force Open. Overrides grabbed."},
+  "stunned":{p:446,id:93,t:"Can't act. Stunned N: lose N actions in total as you regain actions, possibly across turns. \"Stunned for 1 round\" is a duration and loses every action for that time. Overrides slowed."},
+  "stupefied":{p:446,id:94,t:"Status penalty equal to the value on Int, Wis and Cha rolls and DCs, including Will saves, spell attacks and spell DCs. Casting a spell requires a DC 5 + value flat check or the spell is disrupted."},
+  "unconscious":{p:446,id:95,t:"Knocked out: can't act, −4 status penalty to AC, Perception and Reflex, and blinded and off-guard. You fall prone and drop what you're holding. If you're unconscious from dying, getting back to 1 HP or more ends both conditions."},
+  "undetected":{p:447,id:96,t:"The creature can't see you, doesn't know your space and can't target you directly, though area effects still work. It's off-guard to you. It can guess a square and attack (with a secret DC 11 flat check) or Seek to find you."},
+  "unfriendly":{p:447,id:97,t:"Attitude: dislikes and distrusts the character and won't accept Requests."},
+  "wounded":{p:447,id:99,t:"Seriously hurt. Gaining dying while wounded adds the wounded value to dying; losing dying raises wounded by 1. Ends when Treat Wounds restores HP, or at full HP after 10 minutes of rest."}
+};
+const COND_RE = new RegExp("\\b("+Object.keys(CONDITIONS).sort((a,b)=>b.length-a.length).map(k=>k.replace("-","\\-")).join("|")+")\\b(?![- ]actions?\\b)","gi");
+// wrap condition names in hoverable links; only touches text, never tags or attributes
+function linkConds(html, self){
+  return String(html).split(/(<[^>]+>)/).map(seg=> seg.startsWith("<") ? seg :
+    seg.replace(COND_RE, m=>{ const k=m.toLowerCase(); return k===self ? m : `<span class="cond" data-cond="${k}">${m}</span>`; })).join("");
+}
+
+const WEAPONS = {
+  "Staff":{traits:["Monk","Two-Hand d8"],group:"Club",bulk:1,hands:1,
+    text:"A long piece of wood. Held in two hands, its damage die becomes d8. Staff Nexus: your makeshift staff holds one cantrip and one 1st-rank spell from your spellbook. The export doesn't record which spells."},
+  "Fist":{traits:["Agile","Finesse","Nonlethal","Unarmed"],group:"Brawling",bulk:0,text:"Your unarmed attack."}
+};
+const ARMOR = {"Explorer's Clothing":{ac:0,dexCap:5,bulk:"L",text:"Not armor; uses your unarmored defense proficiency. Dex cap +5. Can still take armor potency runes."}};
+const ITEMS = {
+  "Backpack":{bulk:"L",worn:"-",text:"Holds up to 4 Bulk. Worn on your back, the first 2 Bulk inside don't count against your limits and the pack itself is negligible. Carried instead of worn, the pack is light Bulk."},
+  "Bedroll":{bulk:"L",text:"Sleeping gear for camping."},
+  "Chalk":{bulk:"-",text:"Sold as 10 pieces. Handy for marking your path."},
+  "Flint and Steel":{bulk:"-",text:"Lights a fire given time: at least 3 actions in ideal conditions, often much longer. Not practical mid-fight."},
+  "Rope":{bulk:"L",text:"50 feet of rope."},
+  "Rations":{bulk:"L",text:"Each unit is 1 week of food."},
+  "Torch":{bulk:"L",text:"Bright light in a 20-foot radius and dim light for the next 20 feet, for 1 hour. As an improvised weapon: 1d4 bludgeoning plus 1 fire."},
+  "Waterskin":{bulk:"L",text:"Full, it holds about 1 day of water for a Small or Medium creature."},
+  "Soap":{bulk:"-",text:"Soap."},
+  "Writing Set":{bulk:"L",text:"Paper, parchment, ink, a pen, sealing wax and a simple seal. Used for correspondence and scribing scrolls."},
+  "Sack":{bulk:"L",text:"Holds up to 8 Bulk. With 2 Bulk or less inside, it can be worn tucked into a belt."},
+  "Lock (Simple)":{bulk:"-",text:"Picking it takes three successful DC 20 Thievery checks."},
+  "Manacles (Simple)":{bulk:"-",text:"Apply to a willing or helpless creature in 10 to 30 seconds. Bound legs: −15-foot circumstance penalty to Speeds. Bound wrists: DC 5 flat check for each manipulate action. Bound to a fixed object: immobilized. Escaping takes three successful DC 22 Thievery checks."},
+  "Cold Iron Ingot":{bulk:null,text:"Precious material, worth 100 gp. Cold iron weapons are deadly to demons and fey."},
+  "Silver Chunk":{bulk:"L",text:"Precious material, worth 10 gp. Silver weapons are a bane to creatures from devils to werewolves."},
+  "Oil of Weightlessness":{bulk:"L",text:"Consumable magical oil, held in 2 hands. Activate (1 action, manipulate): spread it on an item of 1 Bulk or less, which has negligible Bulk for 1 hour."}
+};
+
+const FEATURE_TEXT = {
+  "Charming Liar": C=>"When you critically succeed at Lie, the target's attitude toward you improves one step, as if you'd succeeded at Make an Impression. Works once per conversation; if one roll fools several targets, pick one. The lie has to matter: important information, inflating your status, or ingratiating yourself.",
+  "Gnome Obsession": C=>`You gain Additional Lore and Assurance for one Lore (${C.alName||"your chosen Lore"}). You can retrain it to a different Lore with 1 day of downtime.`,
+  "Additional Lore": C=>{const l=C.alName&&C.skill("lore:"+C.alName);return `Trained in ${C.alName||"a Lore"}. You get extra skill increases for that Lore at 3rd, 7th and 15th level.${l?` Currently ${RANK[l.rank][1].toLowerCase()}, ${sg(l.mod)}.`:""}`;},
+  "Assurance": C=>{const l=C.assurance;return l?`Skip the roll on ${l.name} and take 10 + your proficiency bonus = <b>${l.value}</b>. No other bonuses, penalties or modifiers apply.`:"Take 10 + proficiency bonus instead of rolling for the chosen skill.";},
+  "Wellspring Gnome": C=>`Heritage. You gain one cantrip from your chosen tradition (occult: guidance) and cast it as an innate spell at will, heightened to half your level rounded up (rank ${C.cantripRank}). Primal innate spells from gnome ancestry feats become occult.`,
+  "Arcane School": C=>{const c=CURRICULA[C.school];return `${C.school}. Your curriculum gives one extra cantrip and one extra spell slot of each rank you can cast, usable only for curriculum spells.`+(c?` Cantrips: ${c[0].join(", ")}. 1st: ${c[1].join(", ")}. 2nd: ${c[2].join(", ")}. 3rd: ${c[3].join(", ")}.`:"")+(C.school==="School of Mentalism"?" School spells: charming push (initial), invisibility cloak (advanced). Focus pool refills at daily preparations; Refocus by studying your spellbook or doing arcane research for 10 minutes.":"");},
+  "Arcane Thesis": C=>C.thesis==="Staff Nexus"?"Staff Nexus. You carry a makeshift staff holding one cantrip and one 1st-rank spell from your spellbook. While holding it you can cast those spells: the cantrip needs no charges, the 1st-rank spell costs 1 charge. During daily preparations, expend one spell to give the staff charges equal to that spell's rank; they fade after 24 hours. You can merge the makeshift staff into another staff you own during preparations. A destroyed staff can be rebuilt in 1 hour with no charges. At 8th level you can expend two spells, at 16th up to three.":C.thesis,
+  "Arcane Bond": C=>"Each day during preparations, designate one item you own as your bonded item, usually the staff. Grants Drain Bonded Item.",
+  "Drain Bonded Item": C=>"Free action, once per day, bonded item on your person. This turn, cast one spell you prepared today and already cast, without spending a slot.",
+  "Spellbook": C=>"Study it each day to prepare spells. A new wizard's book holds 10 cantrips, five 1st-rank spells and two 1st-rank curriculum spells. Add two spells of ranks you can cast each time you level up, or Learn a Spell from other sources.",
+  "Wizard Spellcasting": C=>{const K=C.casters.find(k=>!k.sc.innate);return `Prepare arcane spells from your spellbook each day. Cantrips heighten to half your level rounded up (rank ${C.cantripRank}). Intelligence-based: spell attack ${sg(K.atk)}, spell DC ${K.dc}.`;},
+  "Low-Light Vision": C=>"You see in dim light as though it were bright light, so dim light doesn't make things concealed from you.",
+  "Occult": C=>"Wellspring Gnome tradition choice: occult.",
+  "Pickpocket": C=>"You can Steal or Palm an Object that's closely guarded, like something in a pocket, without the −5 penalty. Extremely noticeable or slow-to-remove items (worn shoes, armor, wielded items) are still off limits. At master Thievery you can Steal in combat: 2 actions, −5 penalty.",
+  "Conceal Spell": C=>"1 action (concentrate, spellshape). If your next action is Cast a Spell, the spell gains the subtle trait, hiding its incantations and visible manifestations. Effects still show, like a streaking ray or you vanishing.",
+  "Pet": C=>C.familiar?`${C.familiar.name}, a Tiny minion. See the card below.`:"A Tiny animal minion."
+};
+const hasFeat = (C,name) => (C.B.feats||[]).some(f=>f[0]===name);
+const PET_ABILITIES = {
+  "Fast Movement":"One Speed increases from 25 feet to 40 feet.",
+  "Manual Dexterity":"Can use up to two limbs as hands for manipulate actions."
+};
+const UNDEAD_SUMMONS = [{"name":"Crawling Hand","level":-1,"size":"Tiny","traits":["Undead","Unholy"],"source":"Monster Core p. 68","url":"Monsters.aspx?ID=2885","perception":"+5","senses":"lifesense 30 feet, tremorsense (imprecise) 30 feet","languages":"Common; (can't speak any language)","skills":"Athletics +5, Stealth +6, Survival +2","attrs":"Str +1, Dex +3, Con +0, Int −4, Wis +0, Cha +0","ac":12,"fort":"+2","ref":"+5","will":"+2","hp":8,"hpNote":"void healing","immunities":"bleed, death effects, disease, paralyzed, poison, unconscious, visual","weaknesses":"","resistances":"","speed":"30 feet, climb 30 feet","strikes":[{"name":"Claw","ranged":false,"bonus":"+7","traits":"agile, finesse, reach 0 feet","damage":"1d4+1 slashing plus Throat Grab"}],"abilities":[{"name":"Void Healing","act":null,"text":"Draws health from void energy, not vitality. Damaged by vitality damage, unhealed by vitality healing; takes no void damage and is healed by void effects that heal undead."},{"name":"Mark Quarry","act":null,"text":"Anointed with a drop of blood to mark a quarry, or automatically gains the next creature it damages as quarry. Gains +1 circumstance bonus to Perception (Seek), Survival (Track), and damage against that quarry."},{"name":"Throat Grab","act":1,"text":"Functions as Grab, but grips the throat of a Medium or smaller creature. A grabbed or restrained creature must spend an extra action to speak, including to cast spells."}]},{"name":"Predatory Rabbit","level":-1,"size":"Tiny","traits":["Undead"],"source":"Book of the Dead p. 142","url":"Monsters.aspx?ID=1895","perception":"+5","senses":"darkvision, sense companion","languages":"","skills":"Acrobatics +6, Athletics +2, Stealth +6","attrs":"Str +0, Dex +4, Con +2, Int −4, Wis +1, Cha −1","ac":16,"fort":"+4","ref":"+8","will":"+3","hp":6,"hpNote":"negative healing","immunities":"death effects, disease, paralyzed, poison, sleep","weaknesses":"","resistances":"","speed":"40 feet","strikes":[{"name":"Jaws","ranged":false,"bonus":"+8","traits":"finesse, reach 0 feet","damage":"1d4 piercing"}],"abilities":[{"name":"Negative Healing","act":null,"text":"Draws health from negative energy, not positive. Damaged by positive damage, unhealed by positive healing; takes no negative damage and is healed by negative effects that heal undead."},{"name":"Sense Companion","act":null,"text":"Knows the direction (not distance) of its past owner or family, as long as both are on the same plane."},{"name":"Stench","act":null,"text":"Aura, 10 feet. Creatures entering or starting their turn there must succeed at a DC 13 Fortitude save or be sickened 1 (also slowed 1 while sickened on a critical failure); take a −2 penalty to saves vs. disease and to recover from sickened while inside. Success grants 1-minute immunity."},{"name":"Feral Leap","act":2,"text":"Jumps up to half its Speed in height and distance without triggering reactions, and attempts a jaws Strike at any point during the leap."}]},{"name":"Severed Head","level":-1,"size":"Tiny","traits":["Mindless","Undead","Unholy"],"source":"Monster Core 2 p. 56","url":"Monsters.aspx?ID=4279","perception":"+6","senses":"darkvision","languages":"","skills":"Acrobatics +6, Athletics +4","attrs":"Str +1, Dex +2, Con +0, Int −5, Wis +2, Cha +0","ac":15,"fort":"+4","ref":"+6","will":"+4","hp":7,"hpNote":"void healing","immunities":"bleed, death effects, disease, mental, paralyzed, poison, unconscious","weaknesses":"vitality 1","resistances":"","speed":"15 feet, fly 25 feet","strikes":[{"name":"Jaws","ranged":false,"bonus":"+6","traits":"agile, finesse","damage":"1d4+1 piercing"}],"abilities":[{"name":"Void Healing","act":null,"text":"Draws health from void energy, not vitality. Damaged by vitality damage, unhealed by vitality healing; takes no void damage and is healed by void effects that heal undead."},{"name":"Gnash","act":1,"text":"Requires its last action was a jaws Strike that damaged the target. Makes a second jaws Strike; on a success, the target also takes 1d4 slashing damage and 1 persistent bleed damage."}]},{"name":"Skeleton Guard","level":-1,"size":"Medium","traits":["Mindless","Skeleton","Undead","Unholy"],"source":"Monster Core p. 312","url":"Monsters.aspx?ID=3193","perception":"+2","senses":"darkvision","languages":"","skills":"Acrobatics +6, Athletics +3","attrs":"Str +2, Dex +4, Con +0, Int −5, Wis +0, Cha +0","ac":16,"fort":"+2","ref":"+8","will":"+2","hp":4,"hpNote":"void healing","immunities":"bleed, death effects, disease, mental, paralyzed, poison, unconscious","weaknesses":"","resistances":"cold 5, electricity 5, fire 5, piercing 5, slashing 5","speed":"25 feet","strikes":[{"name":"Scimitar","ranged":false,"bonus":"+6","traits":"forceful, sweep","damage":"1d6+2 slashing"},{"name":"Claw","ranged":false,"bonus":"+6","traits":"agile, finesse","damage":"1d4+2 slashing"},{"name":"Shortbow","ranged":true,"bonus":"+6","traits":"deadly d10, range increment 60 feet, reload 0","damage":"1d6 piercing"}],"abilities":[{"name":"Void Healing","act":null,"text":"Draws health from void energy, not vitality. Damaged by vitality damage, unhealed by vitality healing; takes no void damage and is healed by void effects that heal undead."}]},{"name":"Zombie Shambler","level":-1,"size":"Medium","traits":["Mindless","Undead","Unholy","Zombie"],"source":"Monster Core p. 356","url":"Monsters.aspx?ID=3249","perception":"+0","senses":"darkvision","languages":"","skills":"Athletics +7","attrs":"Str +3, Dex −2, Con +2, Int −5, Wis +0, Cha −2","ac":12,"fort":"+6","ref":"+0","will":"+2","hp":20,"hpNote":"void healing","immunities":"bleed, death effects, disease, mental, paralyzed, poison, unconscious","weaknesses":"slashing 5, vitality 5","resistances":"","speed":"25 feet","strikes":[{"name":"Fist","ranged":false,"bonus":"+7","traits":"","damage":"1d6+3 bludgeoning plus Grab"}],"abilities":[{"name":"Slow","act":null,"text":"Permanently slowed 1 and can't use reactions."},{"name":"Void Healing","act":null,"text":"Draws health from void energy, not vitality. Damaged by vitality damage, unhealed by vitality healing; takes no void damage and is healed by void effects that heal undead."},{"name":"Grab","act":1,"text":"Requires a prior Strike that lists Grab, or a creature already grabbed/restrained. Attempts to Grapple with the attacking body part; doesn't count toward multiple attack penalty."},{"name":"Zombie Bite","act":1,"text":"Requires a creature grabbed or restrained. Makes an unarmed jaws Strike against it at +7, dealing 1d8+3 piercing damage."}]},{"name":"Mummified Cat","level":0,"size":"Tiny","traits":["Mummy","Undead"],"source":"Book of the Dead p. 130","url":"Monsters.aspx?ID=1883","perception":"+7","senses":"darkvision, scent (imprecise) 30 feet","languages":"","skills":"Acrobatics +4, Athletics +5, Stealth +9","attrs":"Str +1, Dex +0, Con +2, Int −4, Wis +3, Cha −2","ac":15,"fort":"+8","ref":"+4","will":"+7","hp":17,"hpNote":"negative healing","immunities":"death effects, disease, paralyzed, poison, unconscious","weaknesses":"fire 2","resistances":"","speed":"25 feet, climb 15 feet","strikes":[{"name":"Jaws","ranged":false,"bonus":"+8","traits":"reach 0 feet","damage":"1d6+1 piercing"},{"name":"Claw","ranged":false,"bonus":"+8","traits":"agile, reach 0 feet","damage":"1d4+1 piercing"}],"abilities":[{"name":"Negative Healing","act":null,"text":"Draws health from negative energy, not positive. Damaged by positive damage, unhealed by positive healing; takes no negative damage and is healed by negative effects that heal undead."},{"name":"Aura of Repose","act":null,"text":"60 feet. Corpses within don't decay. The aura also tries to counteract any effect that would turn a creature inside it into undead (counteract level 2, modifier +5)."},{"name":"Divine Innate Spells","act":null,"text":"DC 15; can cast 1st-level Fear as a divine innate spell (source lists no frequency)."},{"name":"Pounce","act":1,"text":"Strides and makes a Strike at the end of the movement. If it began hidden, it stays hidden until after the Strike."},{"name":"Sneak Attack","act":null,"text":"Deals an additional 1d4 precision damage to flat-footed creatures."}]},{"name":"Wolf Skeleton","level":0,"size":"Medium","traits":["Mindless","Skeleton","Undead","Unholy"],"source":"Monster Core 2 p. 289","url":"Monsters.aspx?ID=4546","perception":"+8","senses":"darkvision","languages":"","skills":"Acrobatics +6, Athletics +5, Stealth +6","attrs":"Str +2, Dex +4, Con +1, Int −5, Wis +2, Cha +0","ac":16,"fort":"+3","ref":"+8","will":"+6","hp":12,"hpNote":"void healing","immunities":"bleed, death effects, disease, mental, paralyzed, poison, unconscious","weaknesses":"","resistances":"cold 5, electricity 5, fire 5, piercing 5, slashing 5","speed":"35 feet","strikes":[{"name":"Jaws","ranged":false,"bonus":"+8","traits":"","damage":"1d4+2 piercing plus Knockdown"}],"abilities":[{"name":"Void Healing","act":null,"text":"Draws health from void energy, not vitality. Damaged by vitality damage, unhealed by vitality healing; takes no void damage and is healed by void effects that heal undead."},{"name":"Knockdown","act":1,"text":"Requires a prior Strike that listed Knockdown. Attempts to Trip the target; doesn't count toward multiple attack penalty."},{"name":"Surge of Speed","act":2,"text":"Strides three times, but becomes off-guard until the start of its next turn."}]},{"name":"Zombie Snake","level":0,"size":"Medium","traits":["Mindless","Undead","Zombie"],"source":"Book of the Dead p. 170","url":"Monsters.aspx?ID=1918","perception":"+2","senses":"darkvision","languages":"","skills":"Athletics +5, Stealth +5","attrs":"Str +3, Dex +1, Con +2, Int −5, Wis +0, Cha −2","ac":13,"fort":"+6","ref":"+3","will":"+2","hp":35,"hpNote":"negative healing","immunities":"death effects, disease, mental, paralyzed, poison, unconscious","weaknesses":"positive 5, slashing 5","resistances":"","speed":"20 feet, climb 20 feet","strikes":[{"name":"Fangs","ranged":false,"bonus":"+7","traits":"","damage":"1d6+3 piercing plus filth fever"}],"abilities":[{"name":"Slow","act":null,"text":"Permanently slowed 1 and can't use reactions."},{"name":"Negative Healing","act":null,"text":"Draws health from negative energy, not positive. Damaged by positive damage, unhealed by positive healing; takes no negative damage and is healed by negative effects that heal undead."},{"name":"Filth Fever","act":null,"text":"Disease. Sickened and unconscious from it can't end or lessen until cured. Saving Throw DC 14 Fortitude. Stage 1 carrier, no effect (1d4 hours); Stage 2 sickened 1 (1 day); Stage 3 sickened 1 and slowed 1 (1 day); Stage 4 unconscious (1 day); Stage 5 dead."}]},{"name":"Festering Gnasher","level":1,"size":"Tiny","traits":["Undead"],"source":"Book of the Dead p. 74","url":"Monsters.aspx?ID=1839","perception":"+8","senses":"darkvision","languages":"","skills":"Acrobatics +7","attrs":"Str +3, Dex +4, Con +1, Int −3, Wis +3, Cha +0","ac":16,"fort":"+4","ref":"+9","will":"+6","hp":18,"hpNote":"negative healing","immunities":"death effects, disease, paralyzed, poison, unconscious","weaknesses":"positive 2","resistances":"","speed":"15 feet, fly 25 feet","strikes":[{"name":"Jaws","ranged":false,"bonus":"+9","traits":"agile, finesse, reach 0 feet","damage":"1d4+3 piercing plus brain rot"}],"abilities":[{"name":"Negative Healing","act":null,"text":"Draws health from negative energy, not positive. Damaged by positive damage, unhealed by positive healing; takes no negative damage and is healed by negative effects that heal undead."},{"name":"Brain Rot","act":null,"text":"Disease. Saving Throw DC 14 Fortitude; Onset 1 day. Stage 1 stupefied 1 (3 days); Stage 2 stupefied 2 and slowed 1 (1 day); Stage 3 paralyzed with spasms (1 day); Stage 4 death."}]},{"name":"Festrog","level":1,"size":"Medium","traits":["Undead"],"source":"Monster Core 2 p. 155","url":"Monsters.aspx?ID=4399","perception":"+6","senses":"darkvision","languages":"Common","skills":"Acrobatics +5, Athletics +6, Stealth +7, Survival +5","attrs":"Str +4, Dex +2, Con +2, Int +0, Wis +1, Cha +1","ac":15,"fort":"+7","ref":"+7","will":"+6","hp":25,"hpNote":"void healing","immunities":"bleed, death effects, disease, paralyzed, poison, sleep, unconscious","weaknesses":"","resistances":"","speed":"30 feet","strikes":[{"name":"Jaws","ranged":false,"bonus":"+9","traits":"","damage":"1d6+4 piercing"},{"name":"Claw","ranged":false,"bonus":"+9","traits":"agile","damage":"1d4+4 slashing plus Grab"}],"abilities":[{"name":"Void Healing","act":null,"text":"Draws health from void energy, not vitality. Damaged by vitality damage, unhealed by vitality healing; takes no void damage and is healed by void effects that heal undead."},{"name":"Diseased Pustules","act":null,"text":"Whenever the festrog takes piercing or slashing damage, adjacent creatures take 1d4 poison damage (DC 14 basic Reflex save)."},{"name":"Grab","act":1,"text":"Requires a prior Strike that lists Grab, or a creature already grabbed/restrained. Attempts to Grapple with the attacking body part; doesn't count toward multiple attack penalty."},{"name":"Feast","act":1,"text":"Requires its last action was a jaws Strike that damaged a living creature. Tears off flesh, dealing 1d4 slashing damage and gaining that much temporary HP for 1 minute."},{"name":"On All Fours","act":1,"text":"Requires nothing in its hands. Strides with a +10-foot circumstance bonus to Speed."}]},{"name":"Ghoul Stalker","level":1,"size":"Medium","traits":["Ghoul","Undead","Unholy"],"source":"Monster Core p. 163","url":"Monsters.aspx?ID=3009","perception":"+7","senses":"darkvision","languages":"Common, Necril","skills":"Acrobatics +7, Athletics +8, Stealth +7, Survival +5","attrs":"Str +1, Dex +4, Con +1, Int +1, Wis +2, Cha +2","ac":17,"fort":"+4","ref":"+9","will":"+5","hp":16,"hpNote":"void healing","immunities":"bleed, death effects, disease, paralyzed, poison, unconscious","weaknesses":"","resistances":"","speed":"25 feet, burrow 5 feet","strikes":[{"name":"Jaws","ranged":false,"bonus":"+9","traits":"finesse","damage":"1d8+1 piercing"},{"name":"Claw","ranged":false,"bonus":"+9","traits":"agile, finesse","damage":"1d6+1 slashing plus Grab"}],"abilities":[{"name":"Void Healing","act":null,"text":"Draws health from void energy, not vitality. Damaged by vitality damage, unhealed by vitality healing; takes no void damage and is healed by void effects that heal undead."},{"name":"Stench","act":null,"text":"Aura, 10 feet, DC 14. Creatures entering or starting their turn there must succeed at a Fortitude save or be sickened 1 (also slowed 1 while sickened on a critical failure); take a −2 penalty to saves vs. disease and to recover from sickened while inside. Success grants 1-minute immunity."},{"name":"Grab","act":1,"text":"Requires a prior Strike that lists Grab, or a creature already grabbed/restrained. Attempts to Grapple with the attacking body part; doesn't count toward multiple attack penalty."},{"name":"Consume Flesh","act":1,"text":"Manipulate. Must be adjacent to a corpse that died within the last hour. Devours flesh, regaining 1d6 HP; can only regain HP from a given corpse once."},{"name":"Ghoul Whispers","act":1,"text":"Auditory, linguistic, occult. Requires a grabbed, paralyzed, restrained, or unconscious creature within reach. Whispers vile cravings; target must save against the Forbidden Cravings curse, DC 17."},{"name":"Forbidden Cravings","act":null,"text":"Curse from Ghoul Whispers. Saving Throw Will DC 17. Stage 1 carrier, no effect (1 day); Stage 2 2d6 void damage, sickened 1 until eating raw meat (1 day); Stage 3 as stage 2; Stage 4 as stage 2, or if raw meat eaten in past 24 hours, 4d6 void damage and sickened 2; Stage 5 dies and rises as a ghoul if it ate raw meat in the past 24 hours, else reverts to stage 4."},{"name":"Grave Knowledge","act":null,"text":"Occult. Once per hour, draws on a consumed creature's retained knowledge to attempt a skill check it was trained in, using its +7 skill modifier, or automatically recall one specific fact from that creature (consumed within the last 7 days)."},{"name":"Swift Leap","act":1,"text":"Move. Jumps up to half its Speed without triggering reactions."}]},{"name":"Pickled Punk","level":1,"size":"Tiny","traits":["Undead"],"source":"Pathfinder #157: Devil at the Dreaming Palace p. 59","url":"Monsters.aspx?ID=2481","perception":"+8","senses":"darkvision","languages":"Common","skills":"Acrobatics +7, Athletics +5, Stealth +7","attrs":"Str +2, Dex +4, Con +3, Int −3, Wis +0, Cha −3","ac":16,"fort":"+8","ref":"+9","will":"+3","hp":20,"hpNote":"","immunities":"death effects, disease, paralyzed, poison, unconscious","weaknesses":"fire 2","resistances":"","speed":"20 feet","strikes":[{"name":"Fist","ranged":false,"bonus":"+9","traits":"agile, finesse, nonlethal","damage":"1d4+1 bludgeoning plus attach"},{"name":"Jaws","ranged":false,"bonus":"+7","traits":"","damage":"1d6+1 piercing plus 2 poison and attach"}],"abilities":[{"name":"Combustible","act":null,"text":"The first time each round it takes fire damage, its fumes combust, dealing 5 fire damage to other creatures within its Suffocating Fumes aura."},{"name":"Suffocating Fumes","act":null,"text":"Aura, 5 feet. A creature entering or starting its turn there must succeed at a DC 14 Fortitude save (DC 17 if the punk is attached to it) or be sickened 1; also enfeebled 1 for 1 minute on a critical failure."},{"name":"Attach","act":null,"text":"On hitting a larger target, adheres like Grab but isn't flat-footed and moves with the target. Each turn it automatically deals its jaws damage to that creature and gains +2 circumstance AC unless also grabbed or restrained."}]},{"name":"Plague Zombie","level":1,"size":"Medium","traits":["Mindless","Undead","Unholy","Zombie"],"source":"Monster Core p. 356","url":"Monsters.aspx?ID=3250","perception":"+3","senses":"darkvision","languages":"","skills":"Athletics +9","attrs":"Str +4, Dex −2, Con +3, Int −5, Wis +0, Cha −2","ac":13,"fort":"+6","ref":"+3","will":"+4","hp":50,"hpNote":"void healing","immunities":"bleed, death effects, disease, mental, paralyzed, poison, unconscious","weaknesses":"slashing 10, vitality 10","resistances":"","speed":"25 feet","strikes":[{"name":"Fist","ranged":false,"bonus":"+9","traits":"","damage":"1d8+4 bludgeoning plus Grab and zombie rot"}],"abilities":[{"name":"Slow","act":null,"text":"Permanently slowed 1 and can't use reactions."},{"name":"Void Healing","act":null,"text":"Draws health from void energy, not vitality. Damaged by vitality damage, unhealed by vitality healing; takes no void damage and is healed by void effects that heal undead."},{"name":"Grab","act":1,"text":"Requires a prior Strike that lists Grab, or a creature already grabbed/restrained. Attempts to Grapple with the attacking body part; doesn't count toward multiple attack penalty."},{"name":"Zombie Bite","act":1,"text":"Requires a creature grabbed or restrained. Makes an unarmed jaws Strike against it at +9, dealing 1d12+4 piercing damage and exposing it to zombie rot."},{"name":"Zombie Rot","act":null,"text":"Disease, divine, void. Damage from it can't be healed until cured. Saving Throw DC 18 Fortitude. Stage 1 carrier (1 day); Stages 2–4 1d6 void damage each (1 day each); Stage 5 dead, immediately rising as a plague zombie."}]},{"name":"Scorned Hound","level":1,"size":"Small","traits":["Undead"],"source":"Book of the Dead p. 142","url":"Monsters.aspx?ID=1896","perception":"+7","senses":"darkvision, scent (imprecise) 30 feet, sense companion","languages":"","skills":"Acrobatics +5, Athletics +7, Stealth +5, Survival +5","attrs":"Str +4, Dex +2, Con +2, Int −4, Wis +2, Cha −1","ac":15,"fort":"+9","ref":"+7","will":"+5","hp":22,"hpNote":"negative healing","immunities":"death effects, disease, paralyzed, poison, sleep","weaknesses":"","resistances":"","speed":"30 feet","strikes":[{"name":"Jaws","ranged":false,"bonus":"+9","traits":"","damage":"1d6+2 piercing"}],"abilities":[{"name":"Negative Healing","act":null,"text":"Draws health from negative energy, not positive. Damaged by positive damage, unhealed by positive healing; takes no negative damage and is healed by negative effects that heal undead."},{"name":"Sense Companion","act":null,"text":"Knows the direction (not distance) of its past owner or family, as long as both are on the same plane."},{"name":"Stench","act":null,"text":"Aura, 10 feet. Creatures entering or starting their turn there must succeed at a DC 14 Fortitude save or be sickened 1 (also slowed 1 while sickened on a critical failure); take a −2 penalty to saves vs. disease and to recover from sickened while inside. Success grants 1-minute immunity."},{"name":"Betray the Pack","act":null,"text":"Its Strikes deal an additional 1d4 damage to creatures that were once its owner, companion, fellow pet, family, household, or pack."}]},{"name":"Skeletal Soldier","level":1,"size":"Medium","traits":["Mindless","Skeleton","Undead"],"source":"Book of the Dead p. 147","url":"Monsters.aspx?ID=1900","perception":"+5","senses":"darkvision","languages":"","skills":"Acrobatics +5, Athletics +7, Stealth +5","attrs":"Str +2, Dex +2, Con +3, Int −5, Wis +0, Cha +0","ac":17,"fort":"+6","ref":"+7","will":"+5","hp":16,"hpNote":"negative healing","immunities":"death effects, disease, mental, paralyzed, poison, unconscious","weaknesses":"","resistances":"cold 5, electricity 5, fire 5, piercing 5, slashing 5","speed":"25 feet","strikes":[{"name":"Glaive","ranged":false,"bonus":"+9","traits":"deadly d8, forceful, reach 10 feet","damage":"1d8+2 slashing"},{"name":"Claw","ranged":false,"bonus":"+9","traits":"agile, finesse","damage":"1d4+2 slashing"},{"name":"Longbow","ranged":true,"bonus":"+9","traits":"deadly d10, range increment 100 feet, volley 30 feet","damage":"1d8 piercing"}],"abilities":[{"name":"Negative Healing","act":null,"text":"Draws health from negative energy, not positive. Damaged by positive damage, unhealed by positive healing; takes no negative damage and is healed by negative effects that heal undead."},{"name":"Set Defense","act":1,"text":"Sets its reach weapon to defend its area, gaining the Attack of Opportunity reaction for that weapon only, until it takes a move or attack action or is destroyed."}]}]; // DATA:UNDEAD_SUMMONS
+const SUMMON_MAX_LEVEL = {1:-1,2:1,3:2,4:3,5:5,6:7,7:9,8:11,9:13,10:15};
+
+/* ============================================================
+   Utilities and state
+   ============================================================ */
+const $ = (s,r=document)=>r.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const sg = n => (n<0?"−":"+")+Math.abs(n);
+const cap = s => s ? s[0].toUpperCase()+s.slice(1) : s;
+const ordn = n => n===1?"1st":n===2?"2nd":n===3?"3rd":n+"th";
+const GLYPH_TITLE = {1:"Single action",2:"Two actions",3:"Three actions",R:"Reaction",F:"Free action"};
+// PF2e action symbols as inline SVG: n chevrons leading into a diamond; free = outlined; reaction = hooked arrow
+// Matched to the Pathfinder icon font used by Archives of Nethys: a small diamond, then one notched
+// arrowhead per action (each later one a little smaller). Free = outlined diamond; reaction = hooked arrow.
+function actionSVG(a){
+  if(a==="R") return `<svg viewBox="0 0 20 16" aria-hidden="true"><path d="M0.4,4.3 C3.5,0.2 10,-0.6 14.8,1.1 C19.6,2.9 20.9,8.6 17.4,11.4 C16.4,12.2 15.2,12.8 13.9,13.2 L12.1,15.9 L3.3,14 L10.3,10.2 L12.3,11.7 C15.3,10.4 16,6.2 13.4,4.3 C10.4,2.1 4.6,2 1.3,3.3 Z" fill="currentColor"/></svg>`;
+  if(a==="F") return `<svg viewBox="0 0 16 16" aria-hidden="true"><polygon points="8,0.9 15.1,8 8,15.1 0.9,8" fill="none" stroke="currentColor" stroke-width="1.6"/><polygon points="6.1,4.2 9.9,8 6.1,11.8 4.2,9.9 6.1,8 4.2,6.1" fill="currentColor"/></svg>`;
+  const n=Math.min(3,Math.max(1,+a)), CX=[7.9,18.2,27.6], SC=[1,0.9,0.69], W=[0,15.9,25.4,33.2];
+  const parts=["2.8,5.2 5.6,8 2.8,10.8 0,8"];
+  for(let k=0;k<n;k++){ const cx=CX[k], h=8*SC[k];
+    parts.push([[cx,8-h],[cx+h,8],[cx,8+h],[cx-0.48*h,8+0.52*h],[cx+0.04*h,8],[cx-0.48*h,8-0.52*h]].map(p=>p.map(v=>+v.toFixed(2)).join(",")).join(" ")); }
+  return `<svg viewBox="0 0 ${W[n]} 16" aria-hidden="true">${parts.map(p=>`<polygon points="${p}" fill="currentColor"/>`).join("")}</svg>`;
+}
+function glyph(a){
+  if(a==null) return "<span></span>";
+  if(GLYPH_TITLE[a]) return `<span class="glyph" title="${GLYPH_TITLE[a]}">${actionSVG(String(a))}</span>`;
+  const range = String(a).match(/^([123])\s*[–-]\s*([123])$/);
+  if(range) return `<span class="glyph" title="${range[1]} to ${range[2]} actions">${actionSVG(range[1])}<span class="dash">–</span>${actionSVG(range[2])}</span>`;
+  return `<span class="glyph txt">${esc(a)}</span>`;
+}
+function traitsHTML(list){ return (list||[]).map(t=>`<span class="trait ${t==="Uncommon"||t==="Rare"?"unc":""}">${esc(t)}</span>`).join(""); }
+
+function loadState(){ try{ return JSON.parse(localStorage.getItem(LS_KEY))||null; }catch(e){ return null; } }
+function saveState(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }catch(e){} }
+const EMBEDDED = JSON.parse($("#pbExport").textContent).build;
+let S = Object.assign({level:DEFAULT_LEVEL, imported:null, hp:null, temp:0, hero:1, focus:null, used:{}, drain:false, tab:"encounter", bookOpen:false, mainTab:"spells", coll:{}, coins:null}, loadState()||{});
+S.staff = Object.assign({cantrip:null, spell:null, chargeRank:0, spent:0, edit:false}, S.staff||{});
+S.coll = S.coll || {};
+const getBuild = ()=> S.imported || EMBEDDED;
+
+/* ============================================================
+   Character math
+   ============================================================ */
+const SKILLS = [["acrobatics","Acrobatics","dex"],["arcana","Arcana","int"],["athletics","Athletics","str"],["crafting","Crafting","int"],["deception","Deception","cha"],["diplomacy","Diplomacy","cha"],["intimidation","Intimidation","cha"],["medicine","Medicine","wis"],["nature","Nature","wis"],["occultism","Occultism","int"],["performance","Performance","cha"],["religion","Religion","wis"],["society","Society","int"],["stealth","Stealth","dex"],["survival","Survival","wis"],["thievery","Thievery","dex"]];
+
+function computeCtx(B, L){
+  const M={}; for(const k of ["str","dex","con","int","wis","cha"]) M[k]=Math.floor((B.abilities[k]-10)/2);
+  const P=Object.assign({},B.proficiencies);
+  const up=(k,r)=>{P[k]=Math.max(P[k]||0,r)};
+  if(B.class==="Wizard" && L>B.level){   // Player Core wizard class progression
+    if(L>=5)up("reflex",4); if(L>=7)up("castingArcane",4); if(L>=9)up("fortitude",4);
+    if(L>=11){up("perception",4);up("simple",4);up("unarmed",4);}
+    if(L>=13)up("unarmored",4); if(L>=15)up("castingArcane",6); if(L>=17)up("will",6); if(L>=19)up("castingArcane",8);
+  }
+  const pb = r => r>0 ? r+L : 0;
+  const C={B,L,M,P,pb};
+  const at=B.attributes;
+  C.hpMax = at.ancestryhp + (at.bonushp||0) + (at.classhp + M.con + (at.bonushpPerLevel||0))*L;
+  C.speed = at.speed + (at.speedBonus||0);
+  const armor=(B.armor||[]).find(a=>a.worn); const AR=(armor&&ARMOR[armor.name])||{ac:0,dexCap:99};
+  C.armor=armor; C.armorDef=AR;
+  C.acParts=[["Base",10],["Dex",Math.min(M.dex,AR.dexCap)],[`${RANK[P[armor?armor.prof:"unarmored"]||0][1]} ${armor?armor.prof:"unarmored"}`,pb(P[armor?armor.prof:"unarmored"]||0)]];
+  if(AR.ac) C.acParts.push(["Armor",AR.ac]); if(armor&&armor.pot) C.acParts.push(["Potency",armor.pot]);
+  C.ac=C.acParts.reduce((s,p)=>s+p[1],0);
+  C.saves={fort:{n:"Fortitude",a:"con",r:P.fortitude},ref:{n:"Reflex",a:"dex",r:P.reflex},will:{n:"Will",a:"wis",r:P.will}};
+  for(const s of Object.values(C.saves)) s.mod=M[s.a]+pb(s.r);
+  C.per=M.wis+pb(P.perception);
+  C.key=M[B.keyability]; C.classDC=10+C.key+pb(P.classDC);
+  const specials=B.specials||[];
+  C.school=(specials.find(s=>s.startsWith("Arcane School: "))||"").slice(15)||null;
+  C.thesis=(specials.find(s=>s.startsWith("Arcane Thesis: "))||"").slice(15)||null;
+  // Additional Lore extra increases at 3/7/15 when showing a level above the export
+  const feats=B.feats||[];
+  const assur=feats.find(f=>f[0]==="Assurance");
+  const al=feats.find(f=>f[0]==="Additional Lore");
+  C.alName = al ? ((al[1]||"").replace(/^Lore: /,"") || (feats.some(f=>f[0]==="Gnome Obsession") && assur && /^Lore: /.test(assur[1]||"") ? assur[1].slice(6) : null)) : null;
+  C.skills=SKILLS.map(([k,n,a])=>({key:k,name:n,attr:a,rank:P[k]||0,mod:M[a]+pb(P[k]||0)}));
+  C.lores=(B.lores||[]).map(([n,r])=>{let rank=r; if(n===C.alName && L>B.level) rank=Math.min(8, r+2*[3,7,15].filter(t=>t>B.level&&t<=L).length);
+    return {key:"lore:"+n,name:n+" Lore",attr:"int",rank,mod:M.int+pb(rank),bumped:rank!==r};});
+  C.skill = k => C.skills.find(s=>s.key===k) || C.lores.find(s=>s.key===k);
+  if(assur && assur[1]){ const nm=assur[1].replace(/^Lore: /,""); const s=/^Lore: /.test(assur[1]) ? C.skill("lore:"+nm) : C.skills.find(x=>x.name===nm);
+    if(s) C.assurance={name:s.name,key:s.key,value:10+pb(s.rank)}; }
+  C.cantripRank=Math.ceil(L/2);
+  C.casters=(B.spellCasters||[]).map((sc,i)=>{ const tk="casting"+cap(sc.magicTradition);
+    const prof=sc.innate ? (sc.proficiency||0) : Math.max(sc.proficiency||0, P[tk]||0);
+    const atk=M[sc.ability]+pb(prof); return {i,sc,trad:sc.magicTradition,prof,atk,dc:10+atk}; });
+  C.focusCasters=[]; for(const [trad,byA] of Object.entries(B.focus||{})) for(const [abil,f] of Object.entries(byA)){
+    const prof=Math.max(f.proficiency||0,P["casting"+cap(trad)]||0); const atk=M[abil]+pb(prof)+(f.itemBonus||0);
+    C.focusCasters.push({trad,abil,atk,dc:10+atk,cantrips:f.focusCantrips||[],spells:f.focusSpells||[]}); }
+  C.focusMax=B.focusPoints||0;
+  // strikes
+  const spec = r => L>=13 ? ({4:2,6:3,8:4}[r]||0) : 0;
+  C.strikes=(B.weapons||[]).map(w=>{ const W=WEAPONS[w.name]||{traits:[],group:"",text:""}; const fin=W.traits.includes("Finesse");
+    const r=P[w.prof]||0; const atk=(fin?Math.max(M.str,M.dex):M.str)+pb(r)+(w.pot||0);
+    return {name:w.display||w.name,atk,map:W.traits.includes("Agile")?4:5,die:w.die,bonus:M.str+spec(r),type:w.damageType,W,rank:r,prof:w.prof}; });
+  const ur=P.unarmed||0; C.unarmedAtk=Math.max(M.str,M.dex)+pb(ur);
+  C.strikes.push({name:"Fist",atk:C.unarmedAtk,map:4,die:"d4",bonus:M.str+spec(ur),type:"B",W:WEAPONS.Fist,rank:ur,prof:"unarmed"});
+  // familiar
+  const fam=(B.familiars||[])[0];
+  const petOnly = feats.some(f=>f[0]==="Pet") && !feats.some(f=>f[0]==="Familiar");
+  C.familiar = fam ? {name:(fam.name||"Familiar").replace(/^Familiar \((.*)\)$/,"$1"),abilities:fam.abilities||[],source:"Pathbuilder export",pet:petOnly}
+                   : (L>=2 && EXTRA_FAMILIAR ? {name:EXTRA_FAMILIAR.name,abilities:[],source:EXTRA_FAMILIAR.source,pet:false} : null);
+  return C;
+}
+
+function slotsFor(C,K){
+  const sc=K.sc;
+  if(C.L===C.B.level || sc.innate || sc.name!=="Wizard") return (sc.perDay||[]).slice();
+  const out=[5]; for(let r=1;r<=9;r++) out[r]= C.L>=2*r?3:(C.L===2*r-1?2:0); out[10]=C.L>=19?1:0;
+  const cur = C.school && CURRICULA[C.school] ? 1 : (C.school && !/Unified/i.test(C.school) ? 1 : 0);
+  return out.map((n,r)=> (n>0 && r<=9) ? n+cur : n);
+}
+const byRank = arr => { const o={}; (arr||[]).forEach(x=>{o[x.spellLevel]=x.list.slice()}); return o; };
+const isCurr = (C,name) => { const c=CURRICULA[C.school]; return !!c && Object.values(c).some(l=>l.includes(name)); };
+const currRank = (C,r) => { const c=CURRICULA[C.school]; return c && c[r] ? c[r] : null; };
+const knowsSpell = (C,name) => (C.B.spellCasters||[]).some(sc=>(sc.prepared||[]).concat(sc.spells||[]).some(x=>x.list.includes(name)));
+
+/* ============================================================
+   Tooltip registry
+   ============================================================ */
+let REG=new Map(), regN=0, C=null;
+const reg = fn => { const id="t"+(regN++); REG.set(id,fn); return id; };
+const tipEl=$("#tip"); let pinned=null, hideT=null, showT=null;
+function showTip(el, pin){
+  const fn=REG.get(el.dataset.tip); if(!fn) return;
+  tipEl.innerHTML=linkConds(fn())+(pin?`<div class="hint">Pinned · hover underlined conditions · click elsewhere or Esc to close</div>`:`<div class="hint">Click to pin</div>`);
+  tipEl.classList.toggle("pinned",!!pin); tipEl.hidden=false;
+  document.querySelectorAll(".row.pinned").forEach(r=>r.classList.remove("pinned"));
+  if(pin) el.classList.add("pinned");
+  place(el);
+}
+function place(el){
+  const W=innerWidth,H=innerHeight; tipEl.style.left="0px"; tipEl.style.top="0px";
+  const t=tipEl.getBoundingClientRect(), r=el.getBoundingClientRect();
+  const panel=el.closest(".panel"); const pr=panel?panel.getBoundingClientRect():r;
+  let x,y;
+  if(W>=780 && pr.right+10+t.width<=W-8){ x=pr.right+10; y=r.top-8; }
+  else if(W>=780 && panel && panel.classList.contains("tabpane")){
+    x=Math.min(innerWidth-t.width-8, pr.right-t.width-10);
+    y=r.bottom+4; if(y+t.height>H-8) y=r.top-t.height-4;
+    x=Math.min(Math.max(8,x),W-t.width-8);
+  }
+  else if(W>=780 && pr.left-10-t.width>=8){ x=pr.left-10-t.width; y=r.top-8; }
+  else { x=Math.min(Math.max(8,r.left),W-t.width-8); y=r.bottom+6; if(y+t.height>H-8) y=r.top-t.height-6; }
+  y=Math.min(Math.max(8,y),Math.max(8,H-t.height-8));
+  tipEl.style.left=x+"px"; tipEl.style.top=y+"px";
+}
+function hideTip(){ pinned=null; owner=null; tipEl.hidden=true; document.querySelectorAll(".row.pinned").forEach(r=>r.classList.remove("pinned")); }
+let owner=null;
+
+/* condition popups (second layer above the main tooltip) */
+const ctipEl=$("#ctip"); let cPinned=false, cHideT=null, cShowT=null, cOwner=null;
+function showCond(k, el, pin){
+  const c=CONDITIONS[k]; if(!c) return;
+  ctipEl.innerHTML=`<div class="tt-h"><span class="tt-name">${esc(cap(k))}</span><span class="tt-rank">Condition</span></div><p>${linkConds(esc(c.t),k)}</p><div class="foot"><span>Player Core p. ${c.p}</span><a href="${AON}Conditions.aspx?ID=${c.id}" target="_blank" rel="noopener">AoN ↗</a></div>${pin?`<div class="hint">Pinned · click another condition to switch · click elsewhere or Esc to close</div>`:""}`;
+  ctipEl.classList.toggle("pinned",!!pin); cPinned=!!pin; cOwner=el; ctipEl.hidden=false;
+  ctipEl.style.left="0px"; ctipEl.style.top="0px";
+  const t=ctipEl.getBoundingClientRect(), r=el.getBoundingClientRect(), W=innerWidth, H=innerHeight;
+  const x=Math.min(Math.max(8,r.left-12),W-t.width-8); let y=r.bottom+6;
+  if(y+t.height>H-8) y=Math.max(8,r.top-t.height-6);
+  ctipEl.style.left=x+"px"; ctipEl.style.top=y+"px";
+}
+function hideCond(){ cPinned=false; cOwner=null; ctipEl.hidden=true; }
+document.addEventListener("mouseover",e=>{
+  if(e.target.closest("#ctip")){ clearTimeout(cHideT); return; }
+  const c=e.target.closest(".cond");
+  if(c){ clearTimeout(cHideT); if(cPinned || (c===cOwner && !ctipEl.hidden)) return; clearTimeout(cShowT); cShowT=setTimeout(()=>showCond(c.dataset.cond,c,false),60); }
+  else if(!cPinned){ clearTimeout(cShowT); clearTimeout(cHideT); cHideT=setTimeout(()=>{ if(!cPinned) hideCond(); },200); }
+});
+
+document.addEventListener("mouseover",e=>{
+  if(pinned) return;
+  const el=e.target.closest("[data-tip]");
+  if(e.target.closest("#tip,#ctip")){ clearTimeout(hideT); return; }
+  if(el && el===owner && !tipEl.hidden){ clearTimeout(hideT); return; }
+  if(el){ clearTimeout(hideT); clearTimeout(showT); showT=setTimeout(()=>{ owner=el; showTip(el,false); },70); }
+  else { clearTimeout(showT); clearTimeout(hideT); hideT=setTimeout(()=>{ if(!pinned) tipEl.hidden=true; },150); }
+});
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ if(!ctipEl.hidden) hideCond(); else hideTip(); } });
+window.addEventListener("scroll",()=>{ if(!pinned) tipEl.hidden=true; if(!cPinned) ctipEl.hidden=true; },{passive:true});
+
+// condition definitions now open as popups from the linked words, so no glossary block at the bottom
+function conditionsFor(){ return ""; }
+function degHTML(deg){ return deg?`<div class="deg">${deg.map(([k,v])=>`<div class="d ${k}"><b>${DEG[k]}</b>${v}</div>`).join("")}</div>`:""; }
+
+/* ============================================================
+   Spell tooltip + rows
+   ============================================================ */
+function spellTip(name,r,K,opts){
+  const def=SP[name];
+  const head = opts.kind==="focus"?`Focus ${r}`:(opts.kind==="cantrip"||opts.kind==="innate")?`Cantrip ${r}`:`Spell ${r}`;
+  if(!def) return `<div class="tt-h"><span class="tt-name">${esc(name)}</span><span class="tt-rank">${head}</span></div><p>No rules entry for this spell in the dashboard yet.</p><p><a href="${AON}Search.aspx?q=${encodeURIComponent(name)}" target="_blank" rel="noopener">Look it up on Archives of Nethys ↗</a></p>`;
+  const d=def.f(r,K,C);
+  let h=`<div class="tt-h"><span class="tt-name">${glyph(def.act)}${esc(name)}</span><span class="tt-rank">${head}</span></div>`;
+  const trad = opts.kind==="innate" ? `<span class="trait trad">${cap(K.trad)} innate</span>` : `<span class="trait trad">${cap(K.trad)}</span>`;
+  h+=`<div class="traits">${traitsHTML(def.traits)}${trad}${opts.curriculum?`<span class="trait" style="background:#6b5520">Curriculum</span>`:""}</div>`;
+  h+=`<div class="kv">${(d.stats||[]).map(([k,v])=>`<div class="${String(v).length>26?"full":""}"><b>${k}</b> ${esc(v)}</div>`).join("")}</div>`;
+  const body=[];
+  if(d.lines) body.push(d.lines.map(([k,v])=>`<div class="line"><b>${k}.</b> ${v}</div>`).join(""));
+  body.push(`<p>${d.text}</p>`);
+  body.push(degHTML(d.deg));
+  h+=body.join("");
+  if(d.hi&&d.hi.length){
+    h+=`<div class="hi">`+d.hi.map(([k,v])=>{ const m=k.match(/^(\d+)/); const plus=k.startsWith("+"); const active= plus || (m && r>=+m[1]);
+      return `<div class="${active?"act":""}"><b>Heightened (${k})</b> ${v}${plus?` <span style="color:var(--dim)">· numbers above are for rank ${r}</span>`:""}</div>`; }).join("")+`</div>`;
+  }
+  if(opts.kind==="book") h+=`<div class="notes"><div>In your spellbook, not prepared. Numbers shown at rank ${r}; prepare it in a higher slot to heighten.</div></div>`;
+  if(opts.locked) h+=`<div class="notes"><div>From your ${esc(opts.source)} heritage. Cast it at will; it doesn't take a cantrip slot and can't be swapped out.</div></div>`;
+  if(opts.staff==="cantrip") h+=`<div class="notes"><div>Cast from your staff while holding it. No charge needed.</div></div>`;
+  if(opts.staff==="spell") h+=`<div class="notes"><div>Cast from your staff while holding it. Costs 1 charge (${opts.staffRemaining} left).</div></div>`;
+  if(opts.staffSlot) h+=`<div class="notes"><div>Stored in your Staff Nexus staff and cast from the staff for 1 charge (${opts.staffRemaining} left). This ${ordn(opts.staffChargeRank)}-rank slot is the one you spent charging it.</div></div>`;
+  if(d.notes&&d.notes.length) h+=`<div class="notes">${d.notes.map(n=>`<div>${n}</div>`).join("")}</div>`;
+  h+=conditionsFor((d.deg||[]).map(x=>x[1]).join(" ")+" "+d.text+" "+(d.lines||[]).map(x=>x[1]).join(" "));
+  const castLine = opts.kind==="innate" ? `${cap(K.trad)} innate · ${K.sc.ability.toUpperCase()} · at will` : `Spell attack ${sg(K.atk)} · Spell DC ${K.dc}`;
+  h+=`<div class="foot"><span>${castLine}</span><span>${esc(def.src)} · <a href="${AON}${def.url}" target="_blank" rel="noopener">AoN ↗</a></span></div>`;
+  return h;
+}
+function spellRow(name,r,K,opts){
+  const def=SP[name]; let quick="";
+  if(def){ try{ quick=def.f(r,K,C).quick||""; }catch(e){ quick=""; } }
+  const id=reg(()=>spellTip(name,r,K,opts));
+  const chip = opts.staff==="cantrip"?`Cantrip ${r} · free`:opts.staff==="spell"?`Rank ${r} · 1 charge`
+    :opts.kind==="focus"?`Focus ${r}`:opts.kind==="innate"?`Innate ${r}`:opts.kind==="cantrip"?`Cantrip ${r}`:`Rank ${r}`;
+  const lockIcon=`<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 10V8a6 6 0 1112 0v2h.5A1.5 1.5 0 0120 11.5v9A1.5 1.5 0 0118.5 22h-13A1.5 1.5 0 014 20.5v-9A1.5 1.5 0 015.5 10H6zm2 0h8V8a4 4 0 00-8 0v2z"/></svg>`;
+  const use = opts.locked ? `<span class="use lock" title="Innate from ${esc(opts.source)}. Always available; can't be prepared, swapped or moved.">${lockIcon}</span>`
+    : opts.key ? `<button class="use ${opts.used?"on":""}" data-use="${esc(opts.key)}" title="${opts.used?"Cast (click to restore)":"Mark as cast"}">${opts.used?"✕":""}</button>` : `<span class="use none"></span>`;
+  return `<div class="row ${opts.used?"spent":""}${opts.locked?" locked":""}${opts.staffSlot?" staffslot":""}${opts.currSlot?" currslot":""}" data-tip="${id}"${opts.attrs||""}>${use}${glyph(def?def.act:null)}<span class="nm">${esc(name)}${opts.curriculum?` <span class="cur" title="Curriculum spell">✦</span>`:""}${opts.locked?` <span class="src-tag">${esc(opts.source)}</span>`:""}${opts.staffSlot?` <span class="src-tag staff-tag">Staff Nexus Spell</span>`:""}${opts.currSlot?` <span class="src-tag curr-tag">Curriculum slot</span>`:""}</span><span class="q">${esc(quick)}</span><span class="chip ${opts.kind}">${chip}</span></div>`;
+}
+const rankHead = (t,s,r,attrs)=>`<div class="rank-h" ${attrs||""}><span class="t">${t}</span><span class="s">${s}</span><span class="r">${r||""}</span></div>`;
+
+/* prepared slots: export by default, S.prep[caster][rank] = [name|null] once you drag spells around */
+let PREP={};
+let STAFF_RES=null; /* {ki,r,i} of the Staff Nexus reserved slot, when active */
+let WIZ_KI=null; /* K.i of the Wizard caster, for gating the curriculum slot to Wizard ranks only */
+function bookRank(K,nm){
+  for(const x of K.sc.spells||[]) if(x.list.includes(nm)) return x.spellLevel;
+  for(const x of K.sc.prepared||[]) if(x.list.includes(nm)) return x.spellLevel;
+  return null;
+}
+const rankOk = (base,r) => base===0 ? r===0 : r>=Math.max(1,base||0);
+function prepSlots(K,slots,prep){
+  const saved=S.prep&&S.prep[K.i], out={};
+  const maxR=Math.max(0,...slots.map((n,r)=>n>0?r:0),...Object.keys(prep).map(Number));
+  for(let r=0;r<=maxR;r++){
+    const want=slots[r]||0;
+    let arr;
+    if(saved){ arr=(saved[r]||[]).slice(0,want); }
+    else{
+      arr=(prep[r]||[]).slice();
+      // default export prep: seed the dedicated curriculum slot (last index) with a curriculum spell if the export has one elsewhere
+      const cList=currRank(C,r);
+      if(cList && want>0){
+        const ci=want-1;
+        if(!(arr[ci]!=null && cList.includes(arr[ci]))){
+          const j=arr.findIndex((nm,idx)=>idx!==ci && nm!=null && cList.includes(nm));
+          if(j>=0){ const t=arr[ci]; arr[ci]=arr[j]; arr[j]=t; }
+        }
+      }
+    }
+    while(arr.length<want) arr.push(null);
+    out[r]=arr;
+  }
+  return out;
+}
+
+function renderSpells(){
+  let h=`<h2>Spells <small>hover for details · drag to prepare</small></h2>`;
+  const cr=C.cantripRank;
+  const alpha=(a,b)=>a.localeCompare(b,undefined,{sensitivity:"base",numeric:true});
+  const WK=C.casters.find(k=>!k.sc.innate);
+  WIZ_KI=WK?WK.i:null;
+  if(C.thesis==="Staff Nexus"){
+    const maxCh=S.staff.chargeRank, remaining=Math.max(0,maxCh-S.staff.spent);
+    const pips = maxCh>0
+      ? `<span class="pips">${[...Array(maxCh).keys()].map(i=>`<button class="pip ${i<remaining?"on":""}" data-staffcharge="${i+1}" title="Staff charges"></button>`).join("")}</span>`
+      : `<span style="color:var(--dim)">no charges</span>`;
+    h+=rankHead("Staff Nexus","makeshift staff · hold it to cast",pips);
+    const stSlots=slotsFor(C,WK);
+    let chOpts=`<option value="0" ${maxCh===0?"selected":""}>nothing today</option>`;
+    for(let r=1;r<=10;r++){ if((stSlots[r]||0)>0) chOpts+=`<option value="${r}" ${maxCh===r?"selected":""}>${ordn(r)}-rank slot (${r} charge${r>1?"s":""})</option>`; }
+    h+=`<div class="staff-ctl">Charged with <select data-staff="chargeRank">${chOpts}</select><button class="lnk" data-staffedit="1">${S.staff.edit?"Done":"Change spells"}</button></div>`;
+    const stCantrips=byRank(WK.sc.spells)[0]||[];
+    if(S.staff.edit || !S.staff.cantrip){
+      let o=`<option value="">Choose the staff's cantrip</option>`;
+      stCantrips.slice().sort(alpha).forEach(n=>o+=`<option value="${esc(n)}" ${S.staff.cantrip===n?"selected":""}>${esc(n)}</option>`);
+      h+=`<div class="staff-pick"><select data-staff="cantrip">${o}</select></div>`;
+    } else h+=spellRow(S.staff.cantrip,cr,WK,{kind:"cantrip",staff:"cantrip"});
+    const stSpells1=byRank(WK.sc.spells)[1]||[];
+    if(S.staff.edit || !S.staff.spell){
+      let o=`<option value="">Choose the staff's 1st-rank spell</option>`;
+      stSpells1.slice().sort(alpha).forEach(n=>o+=`<option value="${esc(n)}" ${S.staff.spell===n?"selected":""}>${esc(n)}</option>`);
+      h+=`<div class="staff-pick"><select data-staff="spell">${o}</select></div>`;
+    } else h+=spellRow(S.staff.spell,1,WK,{kind:"slot",staff:"spell",used:remaining===0,staffRemaining:remaining});
+    h+=`<div class="divider"></div>`;
+  }
+  PREP={}; STAFF_RES=null;
+  for(const K of C.casters.filter(k=>!k.sc.innate)){
+    const sc=K.sc, slots=slotsFor(C,K), book=byRank(sc.spells), P=prepSlots(K,slots,byRank(sc.prepared));
+    PREP[K.i]=P;
+    // dedicated curriculum slot: last index of a Wizard rank that has a curriculum list defined
+    const curIdxOf=r=>{ if(K.i!==WIZ_KI) return -1; const cl=currRank(C,r), n=slots[r]||0; return (cl && n>0) ? n-1 : -1; };
+    // Staff Nexus: reserve the last NORMAL slot (never the curriculum slot) of the charge rank for a read-only display row
+    let staffOn=false, sr=-1, stI=-1, staffRemaining=0, staffNoRoom=false;
+    if(C.thesis==="Staff Nexus" && S.staff.chargeRank>0 && K===WK){
+      sr = S.staff.chargeRank;
+      const n=slots[sr]||0, ci=curIdxOf(sr);
+      const lastNormal = ci>=0 ? n-2 : n-1;
+      if(n>=2){ staffOn=true; stI=lastNormal; staffRemaining=Math.max(0,S.staff.chargeRank-S.staff.spent); STAFF_RES={ki:K.i,r:sr,i:stI}; }
+      else staffNoRoom=true;
+    }
+    const dragAttr=(nm,from)=>` draggable="true" data-drag="${esc(JSON.stringify({ki:K.i,name:nm,base:bookRank(K,nm)??(from?from.r:0),from}))}"`;
+    const slotRows=(r,shown,kind)=>{
+      const arr=P[r]||[]; let s="";
+      const resI=(staffOn && r===sr)?stI:-1;
+      const ci=curIdxOf(r);
+      const skip=x=>x===resI||x===ci;
+      // sorted for display; slot indexes stay fixed so cast tracking follows the slot
+      arr.map((nm,i)=>({nm,i})).filter(x=>x.nm && !skip(x.i)).sort((a,b)=>alpha(a.nm,b.nm)).forEach(({nm,i})=>{
+        const key=`${K.i}:${r}:${i}`, cast=kind==="slot";
+        s+=spellRow(nm,shown,K,{kind,key:cast?key:null,used:cast&&!!S.used[key],curriculum:isCurr(C,nm),attrs:`${dragAttr(nm,{r,i})} data-slot="${key}"`});
+      });
+      arr.forEach((nm,i)=>{ if(!nm && !skip(i)) s+=`<div class="row empty" data-slot="${K.i}:${r}:${i}"><span></span><span></span><span class="nm">Open slot</span><span class="q">drag a spell here</span><span></span></div>`; });
+      if(resI>=0){
+        if(S.staff.spell){
+          const ownRank=bookRank(K,S.staff.spell)??1;
+          s+=spellRow(S.staff.spell,ownRank,K,{kind:"slot",staffSlot:true,used:staffRemaining===0,staffRemaining,staffChargeRank:sr});
+        } else {
+          const id=reg(()=>`<div class="tt-h"><span class="tt-name">Staff Nexus</span><span class="tt-rank">${ordn(sr)} Rank</span></div><div class="notes"><div>This slot is spent charging your Staff Nexus staff. Choose a stored spell above to see it here.</div></div>`);
+          s+=`<div class="row staffslot" data-tip="${id}"><span class="use none"></span><span></span><span class="nm" style="color:var(--dim)">Slot spent charging the staff</span><span class="q"></span><span class="chip">${ordn(sr)} Rank</span></div>`;
+        }
+      }
+      if(ci>=0){
+        const nm=arr[ci];
+        if(nm){
+          const key=`${K.i}:${r}:${ci}`, cast=kind==="slot";
+          s+=spellRow(nm,shown,K,{kind,key:cast?key:null,used:cast&&!!S.used[key],curriculum:true,currSlot:true,attrs:`${dragAttr(nm,{r,i:ci})} data-slot="${key}"`});
+        } else {
+          s+=`<div class="row empty currslot" data-slot="${K.i}:${r}:${ci}"><span></span><span></span><span class="nm">Curriculum slot (open)</span><span class="q">drag a spell here</span><span></span></div>`;
+        }
+      }
+      return s;
+    };
+    const currWarn=r=>{
+      const ci=curIdxOf(r); if(ci<0) return "";
+      const nm=(P[r]||[])[ci];
+      return (nm && !isCurr(C,nm)) ? ` · <span class="warn">curriculum slot needs a curriculum spell</span>` : "";
+    };
+    const atkTip=reg(()=>`<div class="tt-h"><span class="tt-name">Spellcasting</span><span class="tt-rank">${cap(K.trad)}</span></div><div class="line">Spell attack ${sg(K.atk)} = ${sc.ability.toUpperCase()} ${sg(C.M[sc.ability])} + ${RANK[K.prof][1]} ${C.pb(K.prof)}</div><div class="line">Spell DC ${K.dc} = 10 + ${K.atk}</div><p>Multiple attack penalty on attack spells: ${sg(K.atk-5)} second, ${sg(K.atk-10)} third.</p>`);
+    h+=`<div class="caster-h"><span class="cname">${esc(sc.name)}</span><span class="pill">${cap(K.trad)} · ${cap(sc.spellcastingType)} · ${sc.ability.toUpperCase()}</span><span class="pill gold" data-tip="${atkTip}">Attack ${sg(K.atk)}</span><span class="pill gold" data-tip="${atkTip}">DC ${K.dc}</span>`;
+    if(sc.name==="Wizard" && (C.B.specials||[]).includes("Drain Bonded Item")) h+=`<span class="pill">Drain Bonded Item ◇ <button data-drain="1">${S.drain?"used":"ready"}</button></span>`;
+    if(S.prep&&S.prep[K.i]) h+=`<span class="pill"><button data-prepreset="${K.i}" title="Put back the prepared spells from the Pathbuilder export">Reset to export</button></span>`;
+    h+=`</div>`;
+    const cp=P[0]||[];
+    h+=rankHead("Cantrips",`at will · heightened to rank ${cr}${currWarn(0)}`,`${cp.filter(Boolean).length}/${cp.length} prepared`,`data-rankdrop="${K.i}:0"`);
+    C.casters.filter(k=>k.sc.innate).forEach(ik=>{ (byRank(ik.sc.spells)[0]||[]).forEach(n=>h+=spellRow(n,cr,ik,{kind:"innate",locked:true,source:ik.sc.name})); });
+    h+=slotRows(0,cr,"cantrip");
+    const maxRank=Math.max(0,...Object.keys(P).map(Number));
+    for(let r=1;r<=maxRank;r++){
+      const arr=P[r]||[]; if(!arr.length) continue;
+      const resI=(staffOn && r===sr)?stI:-1;
+      const used=arr.filter((nm,i)=>nm&&i!==resI&&S.used[`${K.i}:${r}:${i}`]).length;
+      const denom=arr.length-(resI>=0?1:0);
+      const cur=currRank(C,r);
+      h+=rankHead(`${ordn(r)} Rank`,`${slots[r]||0} slots${cur?` · 1 curriculum slot (${cur.join(", ")})`:""}${currWarn(r)}${resI>=0?" · a slot here is reserved for the Staff Nexus":""}${staffNoRoom&&r===sr?" · no normal slot free at this rank to charge the staff":""}`,`${used}/${denom} cast`,`data-rankdrop="${K.i}:${r}"`);
+      h+=slotRows(r,r,"slot");
+    }
+    const resSpell = staffOn ? (P[sr]||[])[stI] : null;
+    const inSlots=new Set();
+    for(const [r,a] of Object.entries(P)){ const resI=(staffOn && +r===sr)?stI:-1; a.forEach((nm,i)=>{ if(nm && i!==resI) inSlots.add(nm); }); }
+    const extra=[]; for(const [r,list] of Object.entries(book)) for(const nm of list) if(!inSlots.has(nm)) extra.push([+r,nm]);
+    extra.sort((a,b)=>a[0]-b[0]||alpha(a[1],b[1]));
+    h+=`<details class="book" data-bookdrop="${K.i}" ${S.bookOpen?"open":""}><summary>Spellbook, not prepared (${extra.length})</summary>`;
+    extra.forEach(([r,nm])=>{
+      // the spell hidden in the Staff Nexus reserved slot drags as a MOVE from that slot, not a plain book copy
+      const fromSlot=(staffOn && r===sr && nm===resSpell) ? {r:sr,i:stI} : null;
+      h+=spellRow(nm,r===0?cr:r,K,{kind:r===0?"cantrip":"book",curriculum:isCurr(C,nm),attrs:dragAttr(nm,fromSlot)});
+    });
+    if(!extra.length) h+=`<div class="row empty"><span></span><span></span><span class="nm">Every spellbook spell is prepared</span><span class="q"></span><span></span></div>`;
+    h+=`</details>`;
+  }
+  for(const F of C.focusCasters){
+    const cur = S.focus==null ? C.focusMax : Math.min(S.focus,C.focusMax);
+    const K={trad:F.trad,atk:F.atk,dc:F.dc,sc:{ability:F.abil}};
+    h+=`<div class="divider"></div>`+rankHead("Focus Spells",`${cap(F.trad)} · heightened to rank ${cr}`,`<span class="pips">${[...Array(C.focusMax).keys()].map(i=>`<button class="pip ${i<cur?"on":""}" data-focus="${i+1}" title="Focus Points"></button>`).join("")}</span>`);
+    F.cantrips.slice().sort(alpha).forEach(n=>h+=spellRow(n,cr,K,{kind:"cantrip"}));
+    F.spells.slice().sort(alpha).forEach(n=>h+=spellRow(n,cr,K,{kind:"focus"}));
+  }
+  for(const K of C.casters.filter(k=>k.sc.innate)){
+    const list=byRank(K.sc.spells);
+    const nonCantrip=Object.entries(list).filter(([r])=>+r!==0);
+    if(!nonCantrip.length) continue;
+    h+=`<div class="divider"></div>`+rankHead(`Innate · ${esc(K.sc.name)}`,`${cap(K.trad)} · ${K.sc.ability.toUpperCase()} · at will`,"");
+    nonCantrip.forEach(([r,names])=> names.slice().sort(alpha).forEach(n=>h+=spellRow(n,+r,K,{kind:"slot"})));
+  }
+  $("#pSpells").innerHTML=h;
+}
+
+/* ============================================================
+   Actions
+   ============================================================ */
+const skl = (C,k)=>{const s=C.skill(k);return s?`${s.name} ${sg(s.mod)}`:"";};
+const ACTIONS = {
+  encounter:[
+    {group:"Basic",items:[
+      {n:"Stride",a:1,t:["Move"],q:C=>`${C.speed} ft`,text:C=>`Move up to your Speed, ${C.speed} feet.`},
+      {n:"Step",a:1,t:["Move"],q:()=>"5 ft",text:"Move 5 feet without triggering reactions like Reactive Strike. You can't Step into difficult terrain."},
+      {n:"Interact",a:1,t:["Manipulate"],text:"A simple hand task: draw, stow, pick up or pass an item, open a door, pull a lever."},
+      {n:"Seek",a:1,t:["Concentrate","Secret"],q:C=>`Perception ${sg(C.per)}`,text:"Scan an area, almost always 30 feet or less. The GM rolls your Perception in secret against the Stealth DCs of hidden or undetected creatures there, or the DC to find objects.",deg:[["cs","Hidden or undetected creatures become observed; you learn where objects are"],["s","Undetected creatures become hidden, hidden creatures become observed; you find objects or a clue to them"]]},
+      {n:"Point Out",a:1,t:["Auditory","Manipulate","Visual"],text:"Indicate a creature you can see. For allies who can see you, it's hidden instead of undetected. Allies who can't hear or understand you need a Perception check against its Stealth DC."},
+      {n:"Take Cover",a:1,t:[],text:"Behind standard cover, you get greater cover instead: +4 circumstance bonus to AC, to Reflex saves against area effects, and to Stealth checks to Hide or Sneak. Otherwise you get standard cover (+2). While prone, you get greater cover against ranged attacks. Lasts until you move, attack, fall unconscious, or end it as a free action."},
+      {n:"Escape",a:1,t:["Attack"],q:C=>sg(C.unarmedAtk),text:C=>`Break free of being grabbed, immobilized or restrained by one source. Roll unarmed attack (${sg(C.unarmedAtk)}), Acrobatics (${sg(C.skill("acrobatics").mod)}) or Athletics (${sg(C.skill("athletics").mod)}) against its DC. Counts toward your multiple attack penalty.`,deg:[["cs","Free of that source's conditions, then Stride up to 5 feet"],["s","Free of that source's conditions"],["cf","Still held, and you can't try to Escape again until your next turn"]]},
+      {n:"Ready",a:2,t:["Concentrate"],text:"Pick one action or free action and a trigger, then end your turn. If the trigger happens before your next turn, use the action as a reaction. A readied attack uses the multiple attack penalty you had when you Readied."},
+      {n:"Delay",a:"F",t:[],trig:"Your turn begins",text:"Leave the initiative order and rejoin after any other creature's turn ends; that becomes your initiative. No reactions until you return. Delay a whole round and those actions are lost. Bad effects at the start or end of your turn happen immediately; good ones that would end on your turn end."},
+      {n:"Sustain",a:1,t:["Concentrate"],text:"Extend a sustained effect to the end of your next turn, or trigger its Sustain benefit. Sustaining twice in one turn doesn't extend it further."},
+      {n:"Dismiss",a:1,t:["Concentrate"],text:"End an effect that says you can Dismiss it."},
+      {n:"Drop Prone",a:1,t:["Move"],text:"Fall prone."},
+      {n:"Stand",a:1,t:["Move"],text:"Stand up from prone."},
+      {n:"Crawl",a:1,t:["Move"],req:"You're prone and your Speed is at least 10 feet",text:"Move 5 feet and stay prone."},
+      {n:"Leap",a:1,t:["Move"],q:C=>`${C.speed>=30?15:10} ft`,text:C=>`Jump ${C.speed>=30?15:10} feet horizontally (Speed ${C.speed}), landing where the Leap ends. Or jump 3 feet up and 5 feet across onto a raised surface.`},
+      {n:"Release",a:"F",t:["Manipulate"],text:"Let go of something you're holding, or take one hand off a two-handed grip. Doesn't trigger reactions that key off manipulate actions."},
+      {n:"Aid",a:"R",t:[],trig:"An ally is about to use an action that requires a skill check or attack roll",req:"The ally accepts your aid, and you prepared to help, usually with an action on your turn",text:"Roll the check or attack the GM chooses. The usual DC is 15.",deg:[["cs","Ally gets +2 circumstance bonus (+3 if you're a master, +4 if legendary)"],["s","Ally gets +1 circumstance bonus"],["cf","Ally takes −1 circumstance penalty"]]}
+    ]},
+    {group:"Class & Magic",items:[
+      {n:"Drain Bonded Item",a:"F",t:["Arcane","Wizard"],freq:"Once per day",req:"Your bonded item is on your person",show:C=>(C.B.specials||[]).includes("Drain Bonded Item"),q:()=>S.drain?"used today":"ready",text:"Draw on your bonded item. During this turn, cast one spell you prepared today and already cast, without spending a slot. You still Cast the Spell and meet its other requirements."},
+      {n:"Shield Block",a:"R",t:[],show:C=>knowsSpell(C,"Shield"),trig:"Your shield spell is up and you would take damage from an attack, spell or magical effect",q:C=>`Hardness ${shieldHardness(C.cantripRank)}`,text:C=>`Reduce the damage by the shield's Hardness (${shieldHardness(C.cantripRank)}); you take the rest. The shield spell then ends and you can't cast it again for 10 minutes.`},
+      {n:"Conceal Spell",a:1,t:["Concentrate","Spellshape","Wizard"],show:C=>hasFeat(C,"Conceal Spell"),text:"If your next action is Cast a Spell, it gains the subtle trait: no incantations or visible manifestations. The spell's effects still show. Using any other action first (even a free action or reaction), or ending your turn, wastes it."},
+      {n:"Command Familiar",a:1,t:["Auditory","Concentrate"],show:C=>!!C.familiar,label:C=>`Command ${C.familiar.name}`,
+        text:C=>C.familiar.pet ? `Command an Animal with no Nature check: ${C.familiar.name} gets 2 actions this turn. A pet can't take attack actions except Escape and Force Open. Without a command it only defends itself or avoids obvious harm.`
+                               : `${C.familiar.name} is a minion: this gives it 2 actions this turn. Without a command it only defends itself or avoids obvious harm.`}
+    ]}
+  ],
+  skills:[
+    {group:"Knowledge",items:[
+      {n:"Recall Knowledge",a:1,t:["Concentrate","Secret"],q:C=>`best ${sg(Math.max(...["arcana","occultism","society"].map(k=>C.skill(k).mod),...C.lores.map(l=>l.mod)))}`,
+        roll:C=>[...["arcana","occultism","society"].map(k=>C.skill(k)),...C.lores].map(s=>`${s.name} ${sg(s.mod)}`).join(" · ")+(C.assurance?` · Assurance on ${C.assurance.name}: ${C.assurance.value}`:"")+`<br><span style="color:var(--dim)">Untrained: Crafting ${sg(C.skill("crafting").mod)}, Nature ${sg(C.skill("nature").mod)}, Religion ${sg(C.skill("religion").mod)}, Medicine ${sg(C.skill("medicine").mod)}</span>`,
+        text:"Name a skill and ask the GM one question. The GM sets the DC. You can back out before committing if you don't like the options.",deg:[["cs","True answer plus extra context or a follow-up question"],["s","True answer"],["f","No information"],["cf","False information, or none"]]}
+    ]},
+    {group:"Deception",items:[
+      {n:"Create a Diversion",a:1,t:["Mental"],sk:"deception",vs:"Perception DCs",text:"Use a gesture or trick (adds manipulate) or distracting words (adds auditory and linguistic). One check against everyone you're diverting. Win or lose, they get +4 circumstance to their Perception DC against your diversions for 1 minute.",deg:[["s","Hidden from each creature whose Perception DC you meet, until the end of your turn or until you do anything except Step, Hide or Sneak. If you Strike one, it's off-guard against that attack, then you're observed."],["f","Creatures whose DC you miss aren't diverted, and they know you tried to trick them"]]},
+      {n:"Feint",a:1,t:["Mental"],sk:"deception",vs:"Perception DC",req:"You're within melee reach of the target",text:"A misleading flourish sets up your real attack.",deg:[["cs","Target is off-guard against your melee attacks until the end of your next turn"],["s","Target is off-guard against your next melee attack this turn"],["cf","You're off-guard against its melee attacks until the end of your next turn"]]},
+      {n:"Lie",a:"1 round+",t:["Auditory","Concentrate","Linguistic","Mental","Secret"],sk:"deception",vs:"Perception DCs",text:"One secret check against everyone you're fooling. Elaborate or far-fetched lies are harder, and the GM can give targets a circumstance bonus. A believer who later finds contrary evidence may Sense Motive against your Deception DC.",deg:[["cs","Believed, and Charming Liar improves the target's attitude one step (once per conversation; the lie must matter)"],["s","The target believes you"],["f","Not believed; the target gets +4 circumstance against your Lies for the rest of the conversation and may stay suspicious"]]},
+      {n:"Impersonate",a:"10 min",t:["Concentrate","Exploration","Manipulate","Secret"],sk:"deception",vs:"Perception DC",text:"Build a disguise with a disguise kit. Creatures usually only get to check if they Seek against your Deception DC; talking to someone directly triggers a secret Deception check against their Perception DC.",deg:[["s","They take you for who you're disguised as"],["f","They can tell you're not who you claim to be"],["cf","As failure, and they recognize you if they'd know you undisguised"]]}
+    ]},
+    {group:"Diplomacy",items:[
+      {n:"Request",a:1,t:["Auditory","Concentrate","Linguistic","Mental"],sk:"diplomacy",vs:"GM-set DC",req:"The target is friendly or helpful to you",text:"Ask for something in terms the target would accept given its attitude.",deg:[["cs","Agrees without qualifications"],["s","Agrees, maybe with added provisions"],["f","Refuses, maybe offering a lesser alternative"],["cf","Refuses, and its attitude toward you drops one step"]]},
+      {n:"Make an Impression",a:"1 min",t:["Auditory","Concentrate","Exploration","Linguistic","Mental"],sk:"diplomacy",vs:"Will DC",text:"After at least a minute of charm and flattery, roll against one target's Will DC, or up to five targets with a −2 penalty. Usually lasts for the current interaction.",deg:[["cs","Attitude improves two steps"],["s","Attitude improves one step"],["cf","Attitude drops one step"]]},
+      {n:"Gather Information",a:"2 hr",t:["Exploration","Secret"],sk:"diplomacy",vs:"GM-set DC",text:"Canvass markets, taverns and gathering spots about a person or topic. Bribes or rounds of drinks may help.",deg:[["s","You learn about the person or topic"],["cf","You learn incorrect information"]]}
+    ]},
+    {group:"Intimidation (untrained)",items:[
+      {n:"Demoralize",a:1,t:["Auditory","Concentrate","Emotion","Fear","Mental"],sk:"intimidation",vs:"Will DC",text:"Target a creature within 30 feet. −4 circumstance penalty if it doesn't understand your language. It's immune to your Demoralize for 10 minutes either way.",deg:[["cs","Frightened 2"],["s","Frightened 1"]]},
+      {n:"Coerce",a:"1 min",t:["Auditory","Concentrate","Emotion","Exploration","Linguistic","Mental"],sk:"intimidation",vs:"Will DC",text:"Bully a creature through at least a minute of threats.",deg:[["cs","Complies (if it won't be harmed) for up to 1 day, then turns unfriendly but is too scared to retaliate soon"],["s","As critical success, but once unfriendly it may act against you"],["f","Doesn't comply, and becomes unfriendly"],["cf","Refuses, becomes hostile, and is immune to your Coerce for at least 1 week"]]}
+    ]},
+    {group:"Stealth",items:[
+      {n:"Hide",a:1,t:["Secret"],sk:"stealth",vs:"Perception DCs",req:"You have cover or greater cover from the observer, or are concealed from it",text:"The GM rolls Stealth in secret. +2 circumstance from standard cover, +4 from greater cover. You stop being hidden if you lose cover or concealment, or do anything except Hide, Sneak or Step.",deg:[["s","Observed creatures now treat you as hidden; if you were already hidden or undetected, you stay that way"]]},
+      {n:"Sneak",a:1,t:["Move","Secret"],sk:"stealth",vs:"Perception DCs",text:"Stride up to half your Speed. The GM rolls Stealth against each creature you were hidden from or undetected by at the start. Cover for the whole move adds +2 (greater +4). Ending without cover or concealment makes you observed automatically.",deg:[["s","Undetected during and after the move. Speaking or making loud noise makes you hidden instead; most other actions make you observed."],["f","A sound or sign gives you away: hidden instead of undetected"],["cf","Spotted: observed, or hidden if you still have cover or concealment"]]},
+      {n:"Conceal an Object",a:1,t:["Manipulate","Secret"],sk:"stealth",vs:"Perception DC",text:"Hide a small object on you, like a light-Bulk weapon. Passive observers check against one secret Stealth roll; someone searching you rolls Perception against your Stealth DC.",deg:[["s","The object stays undetected"],["f","The searcher finds it"]]},
+      {n:"Avoid Notice",a:"explore",t:["Exploration"],sk:"stealth",text:"Travel at half speed while staying out of sight. If an encounter starts, you usually roll Stealth for initiative and to see if enemies notice you."}
+    ]},
+    {group:"Thievery",items:[
+      {n:"Palm an Object",a:1,t:["Manipulate"],sk:"thievery",vs:"observers' Perception DCs",text:C=>"Pick up a small unattended object, usually negligible Bulk, without being noticed."+(hasFeat(C,"Pickpocket")?" Pickpocket: no −5 penalty for closely guarded objects.":""),deg:[["s","That creature doesn't notice"],["f","That creature notices"]]},
+      {n:"Steal",a:1,t:["Manipulate"],sk:"thievery",vs:"Perception DC",text:C=>"Take a negligible-Bulk object from a creature with a free hand. Automatically fails if the target is in combat or on guard. Pockets or held items are usually 5 harder."+(hasFeat(C,"Pickpocket")?" Pickpocket: no −5 penalty for pockets and other closely guarded spots; very noticeable items are still off limits.":""),deg:[["s","Taken unnoticed"],["f","The bearer or an observer notices the attempt"]]},
+      {n:"Disable a Device",a:2,t:["Manipulate"],sk:"thievery",vs:"device DC",text:"Work on a trap or complex device; many need several successes. A thieves' toolkit may be required.",deg:[["cs","Disabled, or two successes toward it; no trace, and you can rearm it"],["s","Disabled, or one success toward it"],["cf","You trigger the device"]]},
+      {n:"Pick a Lock",a:2,t:["Manipulate"],sk:"thievery",vs:"lock DC",req:"You're holding or wearing a thieves' toolkit",text:"Better locks need several successes.",deg:[["cs","Unlocked, or two successes; no trace"],["s","Unlocked, or one success; close inspection shows it was picked"],["cf","Your toolkit breaks and leaves obvious damage"]]}
+    ]},
+    {group:"Perception",items:[
+      {n:"Sense Motive",a:1,t:["Concentrate","Secret"],q:C=>`Perception ${sg(C.per)}`,text:"The GM rolls your Perception in secret against a creature's Deception DC or a mental spell's DC. Usually one try per creature until things change.",deg:[["cs","You learn its true intentions and sense mental magic on it"],["s","You can tell whether it's acting normally, not why"],["f","You believe what a deceiver wants you to; an honest creature seems normal"],["cf","You get a false read on its intentions"]]}
+    ]},
+    {group:"Acrobatics & Athletics (untrained)",items:[
+      {n:"Balance",a:1,t:["Move"],sk:"acrobatics",vs:"Balance DC",req:"You're in a square with a narrow surface or uneven ground",text:"You're off-guard while on it.",deg:[["cs","Move up to your Speed"],["s","Move up to your Speed as difficult terrain"],["f","Stay put (action wasted) or fall, ending your turn"],["cf","You fall and your turn ends"]]},
+      {n:"Tumble Through",a:1,t:["Move"],sk:"acrobatics",vs:"Reflex DC",text:"Stride and try to pass through one enemy's space.",deg:[["s","Move through its space as difficult terrain"],["f","Your movement stops and you trigger reactions as if leaving your starting square"]]},
+      {n:"Climb",a:1,t:["Move"],sk:"athletics",vs:"GM-set DC",req:"You have both hands free",text:"Move up to 5 feet along an incline. Off-guard while climbing unless you have a climb Speed.",deg:[["cs","Move, +5 feet"],["s","Move"],["cf","You fall; prone if you started on stable ground"]]},
+      {n:"Swim",a:1,t:["Move"],sk:"athletics",vs:"GM-set DC",text:"Move up to 10 feet through water; calm water is usually an automatic critical success. End your turn in water without a successful Swim and you sink 10 feet or drift.",deg:[["cs","Move, +5 feet"],["s","Move"],["cf","No progress; lose 1 round of air if holding your breath"]]},
+      {n:"Force Open",a:1,t:["Attack"],sk:"athletics",vs:"GM-set DC",text:"Force a door, window, container or gate. −2 item penalty to pry without a crowbar.",deg:[["cs","Opened without damaging it"],["s","Broken open"],["cf","Jammed: −2 circumstance to future attempts"]]},
+      {n:"Grapple",a:1,t:["Attack"],sk:"athletics",vs:"Fortitude DC",req:"A free hand; target no more than one size larger",text:"",deg:[["cs","Restrained until the end of your next turn unless you move or it Escapes"],["s","Grabbed until the end of your next turn unless you move or it Escapes"],["f","No grab; an existing grab or restraint ends"],["cf","It breaks free and can grab you or knock you prone"]]},
+      {n:"Shove",a:1,t:["Attack"],sk:"athletics",vs:"Fortitude DC",req:"A free hand; target no more than one size larger",text:"",deg:[["cs","Push it up to 10 feet; you may Stride after it the same distance"],["s","Push it 5 feet; you may follow"],["cf","You fall prone"]]},
+      {n:"Trip",a:1,t:["Attack"],sk:"athletics",vs:"Reflex DC",text:"",deg:[["cs","It falls prone and takes 1d6 bludgeoning"],["s","It falls prone"],["cf","You fall prone"]]}
+    ]},
+    {group:"Medicine (untrained)",items:[
+      {n:"Administer First Aid",a:2,t:["Manipulate"],sk:"medicine",vs:"5 + recovery DC, or bleed DC",req:"You're wearing or holding a healer's toolkit",text:"Treat an adjacent creature that's dying (DC 5 + its recovery DC, usually 15 + dying value) or taking persistent bleed damage.",deg:[["s","Stabilize: it loses dying and stays unconscious. Bleed: it gets an assisted recovery check."],["cf","Stabilize: dying +1. Bleed: it takes its bleed damage immediately."]]}
+    ]}
+  ],
+  exploration:[
+    {group:"Exploration",items:[
+      {n:"Refocus",a:"10 min",t:["Concentrate","Exploration"],show:C=>C.focusMax>0,q:C=>`${C.focusMax} FP max`,text:"Study your spellbook or do arcane research to regain 1 Focus Point. Your pool refills fully at daily preparations."},
+      {n:"Identify Magic",a:"10 min",t:["Concentrate","Exploration","Secret"],q:C=>`Arcana ${sg(C.skill("arcana").mod)}`,roll:C=>`${skl(C,"arcana")} · ${skl(C,"occultism")}`,text:"Once you know something is magical, study it. Interruptions reset the clock. The GM sets the DC; curses and esoteric magic are harder.",deg:[["cs","Everything: name, effect, activation, and whether it's cursed"],["s","Items and locations: what it does and how to activate it. Effects: name and what it does."],["f","Can't identify it; wait 1 day to retry"],["cf","You misidentify it as something else"]]},
+      {n:"Learn a Spell",a:"1 hr/rank",t:["Concentrate","Exploration"],q:C=>`Arcana ${sg(C.skill("arcana").mod)}`,text:"Copy an arcane spell into your spellbook from a teacher, scroll or another book. Materials: 2 gp (DC 15) for a cantrip or 1st rank, 6 gp (DC 18) 2nd, 16 gp (DC 20) 3rd. Uncommon and rare spells are harder.",deg:[["cs","Learned, using half the materials"],["s","Learned, using all the materials"],["f","Not learned; retry after gaining a level; materials kept"],["cf","As failure, but half the materials are spent"]]},
+      {n:"Borrow an Arcane Spell",a:"prep",t:["Concentrate","Exploration"],q:C=>`Arcana ${sg(C.skill("arcana").mod)}`,text:"During daily preparations, prepare a spell from someone else's arcane spellbook. Usually a bit easier than Learn a Spell.",deg:[["s","The spell is prepared"],["f","Slot stays open for another spell; can't retry until your next preparations"]]},
+      {n:"Decipher Writing",a:"1 min/page",t:["Concentrate","Exploration","Secret"],q:C=>`Society ${sg(C.skill("society").mod)}`,roll:C=>`${skl(C,"arcana")} · ${skl(C,"occultism")} · ${skl(C,"society")}`,text:"Work through dense or obscure text in a language you read. Ciphers take about an hour per page. Society may let you try an unfamiliar language.",deg:[["cs","You understand its true meaning"],["s","You understand it; coded text gives the general meaning"],["f","No luck, and −2 circumstance to further attempts"],["cf","You're sure you get it, but you've misread it"]]},
+      {n:"Subsist",a:"downtime",t:["Downtime"],q:C=>`Society ${sg(C.skill("society").mod)}`,text:"Find food and shelter. Society in a settlement, Survival in the wild. You can Subsist after 8 hours or less of exploration at a −5 penalty.",deg:[["cs","Subsistence for you and one more, or a comfortable living for you"],["s","Subsistence living"],["f","Fatigued until you get enough food and shelter"],["cf","−2 circumstance to Subsist for 1 week and no food found"]]},
+      {n:"Create Forgery",a:"downtime",t:["Downtime","Secret"],q:C=>`Society ${sg(C.skill("society").mod)}`,req:"You provide proper writing materials (your writing set)",text:"Forge a document over a day or a week; the GM rolls a secret DC 20 check. Copying someone's handwriting needs a sample. Having seen a similar document gives up to +4.",deg:[["s","Passive observers can't spot the fake"],["f","Obvious signs; each passive observer compares your result to its Perception or Society DC"]]}
+    ]}
+  ]
+};
+
+function actionTip(it){
+  const val = v => typeof v==="function" ? v(C) : v;
+  const name = it.label ? it.label(C) : it.n;
+  let h=`<div class="tt-h"><span class="tt-name">${glyph(it.a)}${esc(name)}</span><span class="tt-rank">${GLYPH_TITLE[it.a]||esc(it.a||"")}</span></div>`;
+  if(it.t&&it.t.length) h+=`<div class="traits">${traitsHTML(it.t)}</div>`;
+  if(it.freq) h+=`<div><b>Frequency</b> ${esc(it.freq)}</div>`;
+  if(it.trig) h+=`<div><b>Trigger</b> ${esc(val(it.trig))}</div>`;
+  if(it.req) h+=`<div><b>Requirements</b> ${esc(val(it.req))}</div>`;
+  if(it.roll) h+=`<div class="line"><b>Roll.</b> ${val(it.roll)}</div>`;
+  else if(it.sk){ const s=C.skill(it.sk); h+=`<div class="line"><b>${s.name} ${sg(s.mod)}</b> (${RANK[s.rank][1].toLowerCase()})${it.vs?` vs ${esc(it.vs)}`:""}</div>`; }
+  const text=val(it.text); if(text) h+=`<p>${text}</p>`;
+  h+=degHTML(it.deg);
+  h+=conditionsFor((it.deg||[]).map(x=>x[1]).join(" ")+" "+(text||""));
+  return h;
+}
+// one-line summaries shown to the right of each action name (roll first, then effect)
+const ACTION_SUM = (()=>{ const m=(C,k)=>sg(C.skill(k).mod);
+  return {
+    "Aid": ()=>"DC 15 · ally +1, crit +2",
+    "Crawl": ()=>"move 5 ft while prone",
+    "Delay": ()=>"act later in the round",
+    "Dismiss": ()=>"end a dismissible effect",
+    "Drop Prone": ()=>"fall prone",
+    "Escape": C=>`${sg(C.unarmedAtk)} vs effect DC · break free`,
+    "Interact": ()=>"draw, stow, open, pick up",
+    "Leap": C=>`${C.speed>=30?15:10} ft across or 3 ft up`,
+    "Point Out": ()=>"show allies where a foe is",
+    "Ready": ()=>"hold an action for a trigger",
+    "Release": ()=>"let go, no reactions",
+    "Seek": C=>`Perception ${sg(C.per)} · find hidden things`,
+    "Stand": ()=>"stand up from prone",
+    "Step": ()=>"move 5 ft, no reactions",
+    "Stride": C=>`move ${C.speed} ft`,
+    "Sustain": ()=>"extend a sustained effect",
+    "Take Cover": ()=>"+2 AC, or +4 behind cover",
+    "Command Familiar": C=>`${C.familiar.name} takes 2 actions`,
+    "Conceal Spell": ()=>"next spell is subtle",
+    "Drain Bonded Item": ()=>`recast a spent spell · ${S.drain?"used today":"ready"}`,
+    "Shield Block": C=>`reduce damage by ${shieldHardness(C.cantripRank)}`,
+    "Recall Knowledge": C=>`best ${sg(Math.max(...["arcana","occultism","society"].map(k=>C.skill(k).mod),...C.lores.map(l=>l.mod)))} · ask the GM a question`,
+    "Create a Diversion": C=>`${m(C,"deception")} vs Perception · become hidden`,
+    "Feint": C=>`${m(C,"deception")} vs Perception · target off-guard`,
+    "Impersonate": C=>`${m(C,"deception")} vs Perception · pass as someone`,
+    "Lie": C=>`${m(C,"deception")} vs Perception · they believe you`,
+    "Gather Information": C=>`${m(C,"diplomacy")} · learn rumors`,
+    "Make an Impression": C=>`${m(C,"diplomacy")} vs Will · attitude +1 step`,
+    "Request": C=>`${m(C,"diplomacy")} · ask a friendly creature`,
+    "Coerce": C=>`${m(C,"intimidation")} vs Will · force compliance`,
+    "Demoralize": C=>`${m(C,"intimidation")} vs Will · frightened 1, crit 2`,
+    "Avoid Notice": C=>`${m(C,"stealth")} · Stealth for initiative`,
+    "Conceal an Object": C=>`${m(C,"stealth")} · hide a small item`,
+    "Hide": C=>`${m(C,"stealth")} vs Perception · become hidden`,
+    "Sneak": C=>`${m(C,"stealth")} vs Perception · half speed, unseen`,
+    "Disable a Device": C=>`${m(C,"thievery")} · disarm a trap`,
+    "Palm an Object": C=>`${m(C,"thievery")} vs Perception · pocket an item`,
+    "Pick a Lock": C=>`${m(C,"thievery")} · open a lock`,
+    "Steal": C=>`${m(C,"thievery")} vs Perception · lift an item`,
+    "Sense Motive": C=>`Perception ${sg(C.per)} vs Deception · read intent`,
+    "Balance": C=>`Acrobatics ${m(C,"acrobatics")} · cross narrow ground`,
+    "Tumble Through": C=>`Acrobatics ${m(C,"acrobatics")} vs Reflex · pass a foe`,
+    "Climb": C=>`Athletics ${m(C,"athletics")} · 5 ft up or down`,
+    "Swim": C=>`Athletics ${m(C,"athletics")} · 10 ft through water`,
+    "Force Open": C=>`Athletics ${m(C,"athletics")} · break it open`,
+    "Grapple": C=>`Athletics ${m(C,"athletics")} vs Fort · grabbed`,
+    "Shove": C=>`Athletics ${m(C,"athletics")} vs Fort · push 5 ft`,
+    "Trip": C=>`Athletics ${m(C,"athletics")} vs Reflex · knock prone`,
+    "Administer First Aid": C=>`Medicine ${m(C,"medicine")} · stabilize or stop bleeding`,
+    "Refocus": ()=>"regain 1 Focus Point",
+    "Identify Magic": C=>`Arcana ${m(C,"arcana")} · learn what magic does`,
+    "Learn a Spell": C=>`Arcana ${m(C,"arcana")} · add a spell to your book`,
+    "Borrow an Arcane Spell": C=>`Arcana ${m(C,"arcana")} · prepare from another book`,
+    "Decipher Writing": C=>`Society ${m(C,"society")} · read obscure text`,
+    "Subsist": C=>`Society ${m(C,"society")} · find food and shelter`,
+    "Create Forgery": C=>`Society ${m(C,"society")} · DC 20 forged document`
+  };
+})();
+function actionRow(it){
+  const q = ACTION_SUM[it.n] ? ACTION_SUM[it.n](C) : it.q ? it.q(C) : it.sk ? skl(C,it.sk) : "";
+  const id=reg(()=>actionTip(it));
+  return `<div class="row arow" data-tip="${id}">${glyph(it.a)}<span class="nm">${esc(it.label?it.label(C):it.n)}</span><span class="q">${linkConds(esc(q))}</span></div>`;
+}
+function strikeRow(s){
+  const dmg = b => `1${s.die}${b?(b<0?"−":"+")+Math.abs(b):""}`;
+  const two = s.W.traits.find(t=>/^Two-Hand d(\d+)/.test(t)); const twoDie = two ? two.split(" ")[1] : null;
+  const id=reg(()=>{
+    let h=`<div class="tt-h"><span class="tt-name">${glyph(1)}Strike: ${esc(s.name)}</span><span class="tt-rank">${esc(s.W.group||"")}</span></div><div class="traits">${traitsHTML(["Attack",...s.W.traits])}</div>`;
+    h+=`<div class="line"><b>Attack</b> ${sg(s.atk)} / ${sg(s.atk-s.map)} / ${sg(s.atk-2*s.map)} <span style="color:var(--dim)">(${RANK[s.rank][1].toLowerCase()} ${s.prof}${s.map===4?", agile":""})</span></div>`;
+    h+=`<div class="line"><b>Damage</b> ${dmg(s.bonus)} ${s.type==="B"?"bludgeoning":s.type==="P"?"piercing":"slashing"}${twoDie?` · two hands: 1${twoDie}${s.bonus?(s.bonus<0?"−":"+")+Math.abs(s.bonus):""}`:""}${s.W.traits.includes("Nonlethal")?" · nonlethal":""}</div>`;
+    if(s.W.text) h+=`<p>${esc(s.W.text)}</p>`;
+    h+=`<div class="deg"><div class="d cs"><b>Critical Success</b>Double damage</div><div class="d s"><b>Success</b>Normal damage</div></div>`;
+    return h;});
+  return `<div class="row arow" data-tip="${id}">${glyph(1)}<span class="nm">${esc(s.name)}</span><span class="q">${sg(s.atk)} / ${sg(s.atk-s.map)} / ${sg(s.atk-2*s.map)} · ${dmg(s.bonus)} ${s.type}${twoDie?` (2H 1${twoDie})`:""}${s.W.traits.includes("Nonlethal")?" nonlethal":""}</span></div>`;
+}
+function renderActions(){
+  const tabs=[["encounter","Encounter"],["skills","Skill Actions"],["exploration","Exploration"]];
+  let h=`<h2>Actions <small>hover for rules</small></h2><div class="tabs">${tabs.map(([k,n])=>`<button data-tab="${k}" class="${S.tab===k?"on":""}">${n}</button>`).join("")}</div>`;
+  const byName=(a,b)=>a.localeCompare(b,undefined,{sensitivity:"base"});
+  if(S.tab==="encounter"){ h+=`<div class="grp">Strikes</div>`+C.strikes.slice().sort((a,b)=>byName(a.name,b.name)).map(strikeRow).join(""); }
+  for(const g of ACTIONS[S.tab]||[]){
+    const label=it=>it.label?it.label(C):it.n;
+    const items=g.items.filter(it=>!it.show||it.show(C)).sort((a,b)=>byName(label(a),label(b))); if(!items.length) continue;
+    h+=`<div class="grp">${esc(g.group)}</div>`+items.map(actionRow).join("");
+  }
+  $("#pActions").innerHTML=h;
+}
+
+/* ============================================================
+   Stats
+   ============================================================ */
+function renderStats(){
+  const B=C.B;
+  const hp = S.hp==null ? C.hpMax : Math.min(S.hp,C.hpMax);
+  const temp = S.temp||0;
+  const tot = C.hpMax + temp;
+  const tile=(k,v,x,tip,cls)=>`<div class="tile ${cls||""}" ${tip?`data-tip="${reg(tip)}"`:""}><div class="v">${v}</div><div class="k">${k}</div>${x?`<div class="x">${x}</div>`:""}</div>`;
+  const brk=(title,parts,extra,signed)=>()=>{ const tot=parts.reduce((s,p)=>s+p[1],0);
+    return `<div class="tt-h"><span class="tt-name">${title}</span><span class="tt-rank">${signed?sg(tot):tot}</span></div>${parts.map(([k,v])=>`<div class="line"><b>${esc(k)}</b> ${sg(v)}</div>`).join("")}${extra||""}`; };
+  let h=`<h2>Stat Block <small>${esc(B.ancestry)} ${esc(B.class)} ${C.L}</small></h2>`;
+  h+=`<div class="hp"><div class="hp-top"><span class="lbl">Hit Points</span><span class="hpnum"><b>${hp}</b> / ${C.hpMax}${temp?` <span style="color:var(--blue)">+${temp} temp</span>`:""}</span></div>
+      <div class="bar"><i style="width:${Math.max(0,hp)/tot*100}%"></i><i class="tmp" style="width:${temp/tot*100}%"></i></div>
+      <div class="hp-btns"><button data-hp="-5">−5</button><button data-hp="-1">−1</button><button data-hp="1">+1</button><button data-hp="5">+5</button><button data-hp="full" title="Restore to max">Full</button>
+      <span class="tmpin">Temp <input type="number" min="0" id="tempHp" value="${temp}"></span></div></div>`;
+  h+=`<div class="tiles">`;
+  h+=tile("AC",C.ac,`${C.ac+1} w/ shield`,brk("Armor Class",C.acParts,`<p>${esc(C.armor?C.armor.name:"Unarmored")}. Shield cantrip adds +1 circumstance (AC ${C.ac+1}).</p>`),"gold");
+  for(const s of Object.values(C.saves)) h+=tile(s.n.slice(0,s.n==="Fortitude"?4:s.n.length),sg(s.mod),RANK[s.r][1],brk(s.n,[[s.a.toUpperCase(),C.M[s.a]],[RANK[s.r][1],C.pb(s.r)]],"",true));
+  h+=tile("Perception",sg(C.per),"low-light vision",brk("Perception",[["WIS",C.M.wis],[RANK[C.P.perception][1],C.pb(C.P.perception)]],`<p>Usually your initiative roll. Low-light vision: dim light doesn't conceal things from you.</p>`,true));
+  h+=tile("Speed",C.speed,"feet");
+  h+=tile("Class DC",C.classDC,B.keyability.toUpperCase(),brk("Class DC",[["Base",10],[B.keyability.toUpperCase(),C.key],[RANK[C.P.classDC][1],C.pb(C.P.classDC)]]));
+  const wiz=C.casters.find(k=>!k.sc.innate);
+  if(wiz){ h+=tile("Spell DC",wiz.dc,`attack ${sg(wiz.atk)}`,brk("Spell DC",[["Base",10],[wiz.sc.ability.toUpperCase(),C.M[wiz.sc.ability]],[RANK[wiz.prof][1],C.pb(wiz.prof)]],`<p>Spell attack ${sg(wiz.atk)}.</p>`),"gold"); }
+  h+=tile("Size",esc(B.sizeName),"");
+  h+=`</div>`;
+  const focus = S.focus==null ? C.focusMax : Math.min(S.focus,C.focusMax);
+  h+=`<div class="trackers"><div class="trk"><span class="k">Hero Points</span><span class="pips">${[1,2,3].map(i=>`<button class="pip ${i<=S.hero?"on":""}" data-hero="${i}"></button>`).join("")}</span></div>`;
+  if(C.focusMax) h+=`<div class="trk"><span class="k">Focus</span><span class="pips">${[...Array(C.focusMax).keys()].map(i=>`<button class="pip ${i<focus?"on":""}" data-focus="${i+1}"></button>`).join("")}</span></div>`;
+  h+=`</div>`;
+  h+=`<h3>Attributes</h3><div class="attrs">${["str","dex","con","int","wis","cha"].map(k=>`<div class="attr ${k===B.keyability?"key":""}"><div class="k">${k.toUpperCase()}</div><div class="v">${sg(C.M[k])}</div></div>`).join("")}</div>`;
+  h+=`<h3>Skills</h3><div class="skills">`;
+  const skRow=(s,wide)=>{ const tip = s.key===(C.assurance&&C.assurance.key) || s.bumped ? `data-tip="${reg(()=>`<div class="tt-h"><span class="tt-name">${esc(s.name)}</span><span class="tt-rank">${RANK[s.rank][1]}</span></div><div class="line"><b>Modifier</b> ${sg(s.mod)} = ${s.attr.toUpperCase()} ${sg(C.M[s.attr])} + ${RANK[s.rank][1]} ${C.pb(s.rank)}</div>${C.assurance&&C.assurance.key===s.key?`<div class="line"><b>Assurance</b> ${C.assurance.value} (10 + proficiency, no other modifiers)</div>`:""}${s.bumped?`<p>Additional Lore's extra skill increases (levels 3, 7, 15) raise this to ${RANK[s.rank][1].toLowerCase()}. The export predates that.</p>`:""}`)}"` : "";
+    return `<div class="sk ${s.rank?"":"untr"} ${wide?"wide":""}" ${tip}><span class="rk r${s.rank}">${RANK[s.rank][0]}</span><span class="n">${esc(s.name)}${C.assurance&&C.assurance.key===s.key?` <span style="color:var(--gold);font-size:11px">A ${C.assurance.value}</span>`:""}</span><span class="m">${sg(s.mod)}</span></div>`; };
+  h+=C.skills.map(s=>skRow(s)).join("")+C.lores.map(s=>skRow(s,true)).join("")+`</div>`;
+  const langs=(B.languages||[]).filter(l=>l && l!=="None selected");
+  h+=`<div class="meta"><b>Ancestry</b> ${esc(B.ancestry)} (${esc(B.heritage)}) · <b>Background</b> ${esc(B.background)} · <b>Alignment</b> ${esc(B.alignment)}</div>`;
+  h+=`<div class="meta"><b>Languages</b> ${langs.length?esc(langs.join(", ")):'<span style="color:var(--dim)">not set in export</span>'} · <b>Deity</b> ${esc(B.deity)}</div>`;
+  $("#pStats").innerHTML=h;
+}
+
+/* ============================================================
+   Inventory
+   ============================================================ */
+function bulkVal(v){ return v==="L"?1 : (v==="-"||v==null)?0 : Math.round(+v*10); } // in tenths
+function bulkTxt(t){ const b=Math.floor(t/10), l=t%10; return b&&l?`${b} Bulk + ${l} L`:b?`${b} Bulk`:l?`${l} L`:"negligible"; }
+function renderInv(){
+  const B=C.B, m=S.coins||B.money||{};
+  let h=`<h2>Inventory</h2><div class="coins">${["pp","gp","sp","cp"].map(k=>`<div class="coin ${k}" data-coin="${k}" title="Click to edit"><div class="v">${m[k]||0}</div><div class="k">${k.toUpperCase()}</div></div>`).join("")}</div>${S.coins!=null?`<button class="lnk" data-coinreset="1">reset to export</button>`:""}`;
+  const containers=B.equipmentContainers||{};
+  const eq=(B.equipment||[]).map(e=>({name:e[0],qty:e[1],cont:containers[e[2]]?e[2]:null}));
+  let worn=0, unknown=[];
+  const irow=(name,qty,bulkStr,tipFn)=>`<div class="row irow" ${tipFn?`data-tip="${reg(tipFn)}"`:""}><span class="nm">${esc(name)}</span><span class="qty">${qty>1?"×"+qty:""}</span><span class="q">${bulkStr}</span></div>`;
+  const itemTip=(name,qty,def,extra)=>()=>`<div class="tt-h"><span class="tt-name">${esc(name)}</span><span class="tt-rank">${qty>1?"×"+qty+" · ":""}Bulk ${def&&def.bulk!=null?(def.bulk==="-"?"—":def.bulk):"?"}</span></div>${def&&def.traits?`<div class="traits">${traitsHTML(def.traits)}</div>`:""}<p>${def?esc(def.text||""):"No entry in the dashboard's item list."}</p>${extra||""}`;
+  h+=`<h3>Worn &amp; Held</h3>`;
+  for(const a of B.armor||[]){ const d=ARMOR[a.name]; const b=d?bulkVal(d.bulk):0; worn+=b; if(!d) unknown.push(a.name);
+    h+=irow(a.display||a.name,a.qty,d?bulkTxt(b):"?",itemTip(a.display||a.name,a.qty,d,`<div class="line"><b>AC</b> ${C.ac} total · Dex cap ${sg(d?d.dexCap:0)}${a.worn?" · worn":""}</div>`)); }
+  for(const w of B.weapons||[]){ const d=WEAPONS[w.name]; const b=d?bulkVal(d.bulk)*w.qty:0; worn+=b; if(!d) unknown.push(w.name);
+    const s=C.strikes.find(x=>x.name===(w.display||w.name));
+    h+=irow(w.display||w.name,w.qty,d?bulkTxt(b):"?",itemTip(w.display||w.name,w.qty,d?{...d,bulk:String(d.bulk)}:null,s?`<div class="line"><b>Strike</b> ${sg(s.atk)} · 1${s.die}${s.bonus?(s.bonus<0?"−":"+")+Math.abs(s.bonus):""} ${s.type}</div>`:"")); }
+  for(const e of eq.filter(e=>!e.cont)){ const d=ITEMS[e.name]; const isPack=containers && Object.values(containers).some(c=>c.containerName===e.name&&c.backpack);
+    const b=d?bulkVal(isPack?(d.worn||d.bulk):d.bulk)*e.qty:0; worn+=b; if(!d) unknown.push(e.name);
+    h+=irow(e.name,e.qty,d?bulkTxt(b):"?",itemTip(e.name,e.qty,d)); }
+  let packRelief=0;
+  for(const [id,c] of Object.entries(containers)){
+    const inside=eq.filter(e=>e.cont===id); let sum=0;
+    let rows=inside.map(e=>{ const d=ITEMS[e.name]; const known=d&&d.bulk!==null; const b=known?bulkVal(d.bulk)*e.qty:0; sum+=b; if(!known&&!c.bagOfHolding) unknown.push(e.name); return irow(e.name,e.qty,known?bulkTxt(b):"?",itemTip(e.name,e.qty,d)); }).join("");
+    if(c.bagOfHolding){
+      h+=`<h3>${esc(c.containerName)} <span style="text-transform:none;letter-spacing:0;color:var(--dim)">· marked extradimensional in Pathbuilder; contents not counted</span></h3>`+rows;
+      continue;
+    }
+    const relief=c.backpack?Math.min(sum,20):0; packRelief+=relief; worn+=sum;
+    h+=`<h3>${esc(c.containerName)} <span style="text-transform:none;letter-spacing:0;color:var(--dim)">· ${bulkTxt(sum)} inside${relief?`, ${bulkTxt(relief)} doesn't count`:""}</span></h3>`+rows;
+  }
+  const total=worn-packRelief, enc=(5+C.M.str)*10, max=(10+C.M.str)*10;
+  h+=`<div class="bulk">Carrying <b>${bulkTxt(total)}</b> · <span class="cond" data-cond="encumbered">encumbered</span> above <b>${enc/10}</b> · max <b>${max/10}</b>${unknown.length?`<br><span style="color:var(--f)">No Bulk data for: ${esc([...new Set(unknown)].join(", "))}</span>`:""}<div class="meter"><i class="${total>enc?"enc":""}" style="width:${Math.min(100,total/max*100)}%"></i></div></div>`;
+  $("#pInv").innerHTML=h;
+}
+
+/* ============================================================
+   Feats, features, familiar
+   ============================================================ */
+function renderFeats(){
+  const B=C.B;
+  const frow=(name,sub,fn)=>`<div class="row irow" data-tip="${reg(()=>`<div class="tt-h"><span class="tt-name">${esc(name)}</span><span class="tt-rank">${esc(sub)}</span></div><p>${fn?fn(C):"No description on file."}</p>`)}"><span class="nm">${esc(name)}</span><span class="q">${esc(sub)}</span><span></span></div>`;
+  let h=`<h2>Feats &amp; Features</h2><h3>Feats</h3>`;
+  for(const f of B.feats||[]){ const label=f[1]?`${f[0]} (${f[1].replace(/^Lore: /,"")})`:f[0];
+    const sub=(f[2]||"").replace(" Feat","")+(f[3]?` ${f[3]}`:"")+(f[6]?" · via "+(f[6].replace(/ Feat \d+$/,"")===B.ancestry?"Gnome Obsession":f[6]):"");
+    h+=frow(label,f[2]==="Awarded Feat"?`${B.background} background`:sub,FEATURE_TEXT[f[0]]); }
+  h+=`<h3>Class &amp; Ancestry Features</h3>`;
+  for(const s of B.specials||[]){ const base=s.split(":")[0]; if(base==="Wellspring Gnome" && (B.feats||[]).some(f=>f[0]==="Wellspring Gnome")) continue;
+    h+=frow(s,base===s?"":"",FEATURE_TEXT[base]||FEATURE_TEXT[s]); }
+  $("#pFeats").innerHTML=h;
+}
+
+function renderCampaign(){
+  const cref=(k,v)=>`<div class="cref"><div class="ck">${esc(k)}</div><div class="cv">${esc(v)}</div></div>`;
+  const npc=(name,role,loc,tag)=>`<div class="npcrow"><b>${esc(name)}</b><span>${esc(role)}</span><span>${esc(loc)}</span><span class="npctag">${esc(tag)}</span></div>`;
+  let h=`<h2>Campaign Reference <small>Eberron / Korvaire · Mror Holds Campaign · Pathfinder 2e</small></h2>`;
+  h+=`<h3>Plot Hooks</h3>`;
+  h+=cref("THE DREAMS","Lifelong visions of Khyber depths, ancient halls, unknown creatures — loremasters recognized them from sealed vaults. Lorum thinks he invented them. Watch for: NPCs alarmed by his illusions; texts or places matching his drawings; anyone asking where he \"really\" saw these things.");
+  h+=cref("ASHMANTLE CLAN","Lorum witnessed something the Ashmantle clan will kill to protect. He doesn't know the scope. Watch for: Ashmantle agents or livery; anyone who knows his real history; clan activity in the Holds.");
+  h+=cref("BARAK IRONSCRIBE","High Priest of Aureon who strong-armed Lorum into private intelligence work. True agenda unknown; Lorum resents it. Watch for: what he specifically wants reported; faction connections; whether his interest is genuinely scholarly.");
+  h+=cref("SEELA LONGSTRIDER","Traveling minstrel with unusual Holds knowledge (clan history, unmapped passes). Meetings may not have been accidental. Watch for: reactions to Lorum's information; knowledge she shouldn't have; signs of faction affiliation.");
+  h+=cref("SKRIX & BRAM","Skrix Tarnblot (goblin ringleader) abandoned the troupe instantly — Lorum wants his comeuppance. Bram the Earthmover (dwarf, genuine friend) is missing after the scatter. Watch for: troupe members; Skrix schemes; word of Bram.");
+  h+=`<h3>Key NPCs</h3>`;
+  h+=npc("Lord Theron Ashmantle","Powerful enemy — holds a secret Lorum witnessed","Active, Mror Holds","THREAT");
+  h+=npc("Barak Ironscribe","High Priest Loremaster (Aureon) — using Lorum as intelligence asset","Mror Holds","AMBIGUOUS");
+  h+=npc("Seela Longstrider","Traveling minstrel — kindred spirit, may be more than she appears","On the road","UNKNOWN");
+  h+=npc("Bram the Earthmover","Dwarven strongman — Lorum's genuine friend","Whereabouts unknown","ALLY");
+  h+=npc("Skrix Tarnblot","Goblin ringleader — abandoned the troupe to save himself","Whereabouts unknown","GRUDGE");
+  h+=`<h3>Roleplaying Tips</h3>`;
+  h+=cref("Charlatan reflex","He lies as a survival mechanism, not cruelty — half-truths roll out before honesty. Let Charming Liar trigger naturally when caught.");
+  h+=cref("Dreams are unknown","He never connected his visions to anything real. Sincere bafflement — not mystique — when NPCs recognize his imagery from forbidden texts.");
+  h+=cref("Watchful paranoia","Eyes on exits. Prefers seat facing the door. Brief hesitation before giving his real name. Quiet and practiced, not disruptive.");
+  h+=cref("Warms to honest folk","Bram-type directness disarms him visibly. His guard drops around people who want nothing performative from him.");
+  h+=cref("Gnome Obsession","Cannot suppress knowing and sharing Mror Holds clan histories, genealogies, old feuds. He genuinely lights up — a quirk, not a tool.");
+  h+=cref("Resents being used","Accepted Barak's deal but bristles at it. Finds small ways to assert autonomy. Dry wit or quiet refusal to be grateful for things he didn't ask for.");
+  $("#pCampaign").innerHTML=h;
+}
+
+function renderRules(){
+  const rule=(t,b,s)=>`<div class="rule"><div class="rt">${esc(t)}</div><div class="rb">${linkConds(esc(b))}</div><div class="rs">${esc(s)}</div></div>`;
+  let h=`<h2>Rules Clarifications <small>checked against the books</small></h2>`;
+  h+=`<h3>Slots and preparation</h3>`;
+  h+=rule("Curriculum slots are extra","You prepare five cantrips and your normal slots, plus one extra cantrip and one extra slot of every rank you can cast. The extras hold curriculum spells only. At level 3 that is 6 cantrips, four 1st-rank slots and three 2nd-rank slots.","Player Core p. 192");
+  h+=rule("Cantrips heighten on their own","Cantrips and focus spells always cast at half your level rounded up: rank 2 now, rank 3 at level 5. At rank 2 that means Electric Arc 3d4, Scatter Scree 3d4 and Phase Bolt 4d4, while Daze stays 1d6 and Shield stays Hardness 5 until rank 3.","Player Core p. 192 and p. 198");
+  h+=`<h3>Staff Nexus and bonded item</h3>`;
+  h+=rule("Charging the staff","At daily preparations, expend one spell slot and the staff gains charges equal to that slot's rank. Charges vanish after 24 hours, and preparing it again clears any left over.","Player Core p. 195");
+  h+=rule("Casting from the staff","Hold the staff. Its cantrip costs no charges and casts at your cantrip rank. Its 1st-rank spell costs 1 charge and always casts at rank 1, so a 2nd-rank slot buys two casts rather than one heightened cast. Both still take the spell's normal actions, and both use your spell attack and spell DC.","Player Core p. 195 · GM Core p. 278");
+  h+=rule("A bought staff works differently","Preparing a real magic staff gives free charges equal to your highest slot rank, and you may expend one slot on top of that. Nobody prepares more than one staff per day.","GM Core p. 278");
+  h+=rule("Getting a real staff","Staves are ordinary magic items, so buying one is down to settlement availability and Bruce. Level 3 commons cost 60 gp (Staff of Fire, Air, Earth, Water). The Mentalism fit is the Staff of Phantasms, level 6, 230 gp, holding figment, illusory disguise, illusory object, illusory creature and item facade, plus a +2 status bonus to disbelieve illusions.","GM Core p. 278 and p. 280");
+  h+=rule("Merging a staff you acquire","At daily preparations you can merge the makeshift staff with another staff you possess, adding your cantrip and 1st-rank spell to its own list. The merged staff then gains charges both ways: free charges equal to your highest castable rank, plus any slot you expend on top.","Player Core p. 195 · GM Core p. 278");
+  h+=rule("Drain Bonded Item","Free action, once per day, with the item on you: cast a spell you prepared and already cast today again this turn, without a slot. You choose the spell when you use it, not in advance, and any item you own can be the bonded item.","Player Core p. 192 and p. 197");
+  h+=`<h3>Actions and casting</h3>`;
+  h+=rule("Readying a spell","Ready costs 2 actions and takes a single action, so you can only ready a 1-action spell: Shield, Charming Push, Guidance or the 1-action Blazing Bolt. The spell goes off when the trigger fires. Player Core doesn't say what happens to the slot if the trigger never comes, so check that with Bruce.","Player Core p. 417");
+  h+=rule("Wellspring Gnome is at will, not free","Guidance still costs its normal 1 action every time you cast it. Each target is then immune to guidance for 1 hour.","Player Core p. 51 and p. 334");
+  h+=rule("Shield has to be cast","1 action for a +1 circumstance bonus to AC until the start of your next turn. Shield Block is a separate reaction that reduces damage by the shield's Hardness. After you block, the spell ends and you can't cast it again for 10 minutes.","Player Core p. 356");
+  h+=rule("Conceal Spell","1 action, spellshape. If your next action is Cast a Spell, that spell gains the subtle trait, hiding the casting but not its effects. Any other action in between wastes it.","Player Core p. 187");
+  h+=`<h3>Saves and conditions</h3>`;
+  h+=rule("Incapacitation","A creature whose level is above twice the spell's rank treats its save as one degree better. Dizzying Colors in a 1st-rank slot: creatures above level 2. Charming Push at rank 2: above level 4.","Player Core p. 457");
+  h+=rule("Mental spells and mindless creatures","Daze, Fear, Befuddle and Charming Push do nothing to mindless creatures, which covers most skeletons and zombies.","Player Core p. 458");
+  h+=rule("Assurance is a fortune effect","Take 10 plus your proficiency bonus instead of rolling, which is 17 for Mror Holds History Lore. No other bonuses or penalties apply, and a misfortune effect cancels it so you roll normally.","Player Core p. 252 and p. 401");
+  h+=`<h3>Minions</h3>`;
+  h+=rule("Summoned creatures","The creature uses 2 actions immediately after you finish casting. After that, Sustain the spell to command it. It is banished at 0 HP or when the spell ends, and it can't summon, create things of value or cast spells with a cost.","Player Core p. 301 and p. 360");
+  h+=rule("Pippin is a pet, not a familiar","Your Pet feat sets his Perception, Acrobatics and Stealth at 3 + your level, which is +6. Pathbuilder shows +7 because it uses familiar math. A pet takes no attack actions except Escape and Force Open.","Player Core p. 259");
+  h+=rule("Commanding a minion","One action gives the minion 2 actions for the turn. Without a command it only defends itself or avoids obvious harm.","Player Core p. 301");
+  $("#pRules").innerHTML=h;
+}
+
+function mcard(m){
+  // data values are display strings ("+6", "−2", "cold 5, fire 5"); arrays tolerated too
+  const str=v=>Array.isArray(v)?v.join(", "):(v==null?"":String(v));
+  const num=v=>{ const t=str(v); return /^[+−-]/.test(t)||t===""?t:(isNaN(+t)?t:sg(+t)); };
+  const line=(lbl,val)=>val?`<p><b>${lbl}</b> ${val}</p>`:"";
+  const strikeLine=s=>`<p>${glyph(1)}<b>${s.ranged?"Ranged":"Melee"}</b> ${esc(s.name)} ${esc(num(s.bonus))}${str(s.traits)?` (${esc(str(s.traits))})`:""}, <b>Damage</b> ${esc(s.damage)}</p>`;
+  const abilLine=a=>`<p>${a.act!=null?glyph(a.act):""}<b>${esc(a.name)}</b> ${esc(a.text||"")}</p>`;
+  const defTraits=[str(m.immunities)?`<b>Immunities</b> ${esc(str(m.immunities))}`:"",
+    str(m.weaknesses)?`<b>Weaknesses</b> ${esc(str(m.weaknesses))}`:"",
+    str(m.resistances)?`<b>Resistances</b> ${esc(str(m.resistances))}`:""].filter(Boolean);
+  return `<div class="mcard">
+    <div class="mh"><b>${esc(m.name)}</b><span>Creature ${m.level<0?"−"+Math.abs(m.level):m.level}</span></div>
+    <div class="traits">${traitsHTML([m.size,...(m.traits||[])])}</div>
+    ${line("Perception",`${esc(num(m.perception))}${m.senses?`, ${esc(m.senses)}`:""}`)}
+    ${line("Languages",m.languages?esc(m.languages):"")}
+    ${line("Skills",m.skills?esc(m.skills):"")}
+    ${m.attrs?`<p style="color:var(--dim)">${esc(m.attrs)}</p>`:""}
+    <p><b>AC</b> ${m.ac} · <b>Fort</b> ${esc(num(m.fort))} · <b>Ref</b> ${esc(num(m.ref))} · <b>Will</b> ${esc(num(m.will))} · <b>HP</b> ${m.hp}${m.hpNote?` (${esc(m.hpNote)})`:""}</p>
+    ${defTraits.length?`<p>${defTraits.join(" · ")}</p>`:""}
+    ${line("Speed",m.speed?esc(m.speed):"")}
+    ${(m.strikes||[]).map(strikeLine).join("")}
+    ${(m.abilities||[]).map(abilLine).join("")}
+    <div class="foot">${esc(m.source||"")}${m.url?` · <a href="${AON}${m.url}" target="_blank" rel="noopener">AoN ↗</a>`:""}</div>
+  </div>`;
+}
+function renderMinions(){
+  let h=`<h2>Minions</h2>`;
+  if(C.familiar){
+    const F=C.familiar, K=C.casters.find(k=>!k.sc.innate), smod=K?C.M[K.sc.ability]:3;
+    const pas=C.L+(F.pet?3:Math.max(3,smod));
+    const kind=F.pet?"Pet":"Familiar";
+    const fast=F.abilities.some(a=>/^Fast Movement/.test(a));
+    const stat=(k,v,title)=>`<span title="${title}">${k}<b>${v}</b></span>`;
+    const abil=F.abilities.map(a=>{ const key=Object.keys(PET_ABILITIES).find(k=>a.startsWith(k)); return `<p><b>${esc(a)}</b>${key?` ${PET_ABILITIES[key]}`:""}</p>`; }).join("");
+    h+=`<h3>${esc(F.name)} <span class="h3s">${kind} ${C.L} · Tiny · Minion</span></h3>
+      <div class="pet-line">${stat("HP",5*C.L,"Hit Points")}${stat("AC",C.ac,"Armor Class")}${stat("Spd",fast?40:25,"Speed in feet")}${stat("Fort",sg(C.saves.fort.mod),"Fortitude")}${stat("Ref",sg(C.saves.ref.mod),"Reflex")}${stat("Will",sg(C.saves.will.mod),"Will")}</div>
+      <div class="pet-list">
+        <p><b>Perception</b> ${sg(pas)} · low-light vision</p>
+        <p><b>Acrobatics</b> ${sg(pas)} · <b>Stealth</b> ${sg(pas)} · other skills ${sg(C.L)}</p>
+        ${abil||'<p><b>Abilities</b> <span style="color:var(--dim)">none recorded</span></p>'}
+      </div>
+      <div class="pet-note">${F.pet?"Command an Animal (1 action, no Nature check) gives it 2 actions. No attack actions except Escape and Force Open.":"Empathic link within 1 mile. Command it (1 action) to give it 2 actions."}</div>
+      <div class="pet-src">${F.pet?"Pet feat: HP 5 per level, your AC and saves, 3 + level for Perception, Acrobatics and Stealth.":"HP 5 per level, your AC and saves, level + spellcasting modifier for Perception, Acrobatics and Stealth."} Source: ${esc(F.source)}.</div>`;
+  } else {
+    h+=`<p>No pet or familiar in this build.</p>`;
+  }
+  h+=`<h3>Summon Undead</h3><p class="pet-note">Rank 1 spell, 3 actions, sustained up to 1 minute. The creature takes 2 actions right after you cast; after that, Sustain to command it. It must be common.</p>`;
+  const WK=C.casters.find(k=>!k.sc.innate);
+  if(WK){
+    const slots=slotsFor(C,WK);
+    let prevMax=null;
+    for(const r of [1,2]){
+      if(!((slots[r]||0)>0)) continue;
+      const max=SUMMON_MAX_LEVEL[r];
+      const sub = r===1 ? "level −1 or lower" : "level 1 or lower";
+      h+=`<h3>${ordn(r)}-rank slot <span class="h3s">${sub}</span></h3>`;
+      const list = UNDEAD_SUMMONS.filter(m=> prevMax==null ? m.level<=max : (m.level>prevMax && m.level<=max));
+      if(list.length){
+        h+=`<div class="mcards">${list.map(mcard).join("")}</div>`;
+        if(r>1) h+=`<p class="pet-note">Plus every option from the 1st-rank slot.</p>`;
+      } else {
+        h+=`<p class="pet-note">No creature data for this rank yet.</p>`;
+      }
+      prevMax=max;
+    }
+  }
+  $("#pMinions").innerHTML=linkConds(h);
+}
+
+/* ============================================================
+   Header, data note, render loop
+   ============================================================ */
+function currentLevel(B){ return Math.max(B.level, Math.min(20, S.level||B.level)); }
+function render(){
+  REG=new Map(); regN=0; hideTip(); hideCond();
+  const B=getBuild(); const L=currentLevel(B);
+  C=computeCtx(B,L);
+  $("#charName").textContent=B.name;
+  $("#charSub").textContent=`Level ${L} ${B.ancestry} ${B.class} · ${B.heritage} · ${B.background}`+(C.school?` · ${C.school}`:"")+(C.thesis?` · ${C.thesis}`:"");
+  document.title=`${B.name} · PF2e Dashboard`;
+  $("#lvlVal").textContent=L; $("#lvlDown").disabled=L<=B.level; $("#lvlUp").disabled=L>=20;
+  const src=S.imported?"imported Pathbuilder export":`Pathbuilder export (${EXPORT_LABEL})`;
+  $("#dataNote").innerHTML = L===B.level
+    ? `<span><b>Build data:</b> ${esc(src)}, level ${B.level}.</span>`
+    : `<span title="HP, proficiency, cantrip rank, spell slots, wizard class progression and Additional Lore are recalculated. Feats, skill increases and spells picked after level ${B.level} aren't in the export."><b>Build data:</b> ${esc(src)}, level ${B.level}. Previewing <b>level ${L}</b> (later picks not included).</span><button class="lnk" data-lvlreset="1">Use level ${B.level}</button><button class="lnk" data-import="1">Import</button>`;
+  renderMainTabs();
+  renderStats(); renderMinions(); renderSpells(); renderActions(); renderInv(); renderFeats(); renderCampaign(); renderRules();
+  applyCollapse();
+  saveState();
+}
+function renderMainTabs(){
+  const tabs=[["spells","Spells"],["minions","Minions"],["inv","Inventory"],["feats","Feats & Features"],["campaign","Campaign"],["rules","Rules"]];
+  if(!tabs.some(([k])=>k===S.mainTab)) S.mainTab="spells";   // Actions now has its own column
+  $("#mainTabs").innerHTML=tabs.map(([k,n])=>`<button data-main="${k}" class="${S.mainTab===k?"on":""}">${esc(n)}</button>`).join("");
+  const panes={spells:"pSpells",minions:"pMinions",inv:"pInv",feats:"pFeats",campaign:"pCampaign",rules:"pRules"};
+  for(const [k,id] of Object.entries(panes)) $("#"+id).hidden = S.mainTab!==k;
+}
+
+/* ============================================================
+   Collapsible group headers (post-render DOM pass)
+   ============================================================ */
+const HEAD_SEL=".grp, h3, .rank-h";
+const STOP_SEL=".grp, h3, .rank-h, h2, .caster-h, .divider, .tabs, details.book";
+function applyCollapse(){
+  for(const paneId of ["pSpells","pMinions","pActions","pInv","pFeats","pCampaign","pRules"]){
+    const pane=$("#"+paneId); if(!pane) continue;
+    const headers=Array.from(pane.children).filter(el=>el.matches(HEAD_SEL));
+    for(const hd of headers){
+      let label;
+      if(hd.classList.contains("rank-h")){ const s=hd.querySelector(".t"); label=s?s.textContent.trim():""; }
+      else if(hd.tagName==="H3"){ let txt=""; for(const n of hd.childNodes){ if(n.nodeType===3 && n.textContent.trim()){ txt=n.textContent.trim(); break; } } label=txt; }
+      else { label=hd.textContent.trim(); }
+      const key=`${paneId}:${label}`;
+      const body=[]; let sib=hd.nextElementSibling;
+      while(sib && !sib.matches(STOP_SEL)){ body.push(sib); sib=sib.nextElementSibling; }
+      if(!body.length) continue;
+      const secb=document.createElement("div"); secb.className="secb";
+      body.forEach(el=>secb.appendChild(el));
+      hd.after(secb);
+      hd.dataset.coll=key;
+      const collapsed=!!S.coll[key];
+      hd.classList.toggle("closed",collapsed);
+      secb.classList.toggle("closed",collapsed);
+      hd.insertBefore(Object.assign(document.createElement("span"),{className:"car",textContent:"▾"}),hd.firstChild);
+      if(collapsed){
+        const rows=secb.querySelectorAll(".row"); const n=rows.length||secb.children.length;
+        const cn=Object.assign(document.createElement("span"),{className:"cn",textContent:`${n} hidden`});
+        if(hd.classList.contains("rank-h")){ const s=hd.querySelector(".s"); if(s) s.appendChild(cn); else hd.appendChild(cn); }
+        else hd.appendChild(cn);
+      }
+    }
+  }
+}
+
+/* ============================================================
+   Coin editing (Inventory)
+   ============================================================ */
+function startCoinEdit(tile){
+  if(tile.querySelector("input")) return;
+  const k=tile.dataset.coin, B=getBuild();
+  const cur=(S.coins||B.money||{})[k]||0;
+  const vEl=tile.querySelector(".v"); if(!vEl) return;
+  vEl.innerHTML=`<input type="number" min="0" value="${cur}">`;
+  const inp=vEl.querySelector("input");
+  inp.focus(); inp.select();
+  let done=false;
+  const commit=()=>{
+    if(done) return; done=true;
+    let n=parseInt(inp.value,10);
+    if(isNaN(n)) n=cur;
+    n=Math.max(0,n);
+    if(S.coins==null){ const bm=B.money||{}; S.coins={pp:bm.pp||0,gp:bm.gp||0,sp:bm.sp||0,cp:bm.cp||0}; }
+    S.coins[k]=n;
+    render();
+  };
+  const cancel=()=>{ if(done) return; done=true; vEl.textContent=cur; };
+  inp.addEventListener("keydown",ev=>{
+    if(ev.key==="Enter"){ ev.preventDefault(); commit(); }
+    else if(ev.key==="Escape"){ ev.preventDefault(); cancel(); }
+  });
+  inp.addEventListener("blur",commit);
+}
+
+/* ============================================================
+   Events
+   ============================================================ */
+document.addEventListener("click",e=>{
+  const t=e.target;
+  const cond=t.closest(".cond");
+  if(cond){ showCond(cond.dataset.cond,cond,true); return; }
+  const coin=t.closest("[data-coin]");
+  if(coin && !t.closest("input")){ startCoinEdit(coin); return; }
+  const collHd=t.closest("[data-coll]");
+  if(collHd && !t.closest("button, select, input, a, .pip, .cond")){
+    const key=collHd.dataset.coll, closed=!collHd.classList.contains("closed");
+    collHd.classList.toggle("closed",closed);
+    const secb=collHd.nextElementSibling;
+    if(secb && secb.classList.contains("secb")) secb.classList.toggle("closed",closed);
+    if(closed) S.coll[key]=1; else delete S.coll[key];
+    saveState();
+    const pinnedRow=document.querySelector(".row.pinned");
+    if(closed && pinnedRow && secb && secb.contains(pinnedRow)) hideTip();
+    return;
+  }
+  if(t.closest("#ctip")) return;
+  if(!ctipEl.hidden) hideCond();
+  const btn=t.closest("[data-use],[data-hp],[data-hero],[data-focus],[data-drain],[data-tab],[data-lvlreset],[data-import],[data-prepreset],[data-staffcharge],[data-staffedit],[data-main],[data-coinreset]");
+  if(btn){
+    const d=btn.dataset;
+    if(d.use!=null){ S.used[d.use]=!S.used[d.use]; }
+    else if(d.prepreset!=null){ if(S.prep) delete S.prep[d.prepreset]; Object.keys(S.used).forEach(k=>{ if(k.startsWith(d.prepreset+":")) delete S.used[k]; }); }
+    else if(d.hp!=null){ const max=C.hpMax; let hp=S.hp==null?max:Math.min(S.hp,max);
+      if(d.hp==="full"){ hp=max; }
+      else { const n=+d.hp; if(n<0){ let dmg=-n; const ab=Math.min(S.temp||0,dmg); S.temp=(S.temp||0)-ab; dmg-=ab; hp=Math.max(0,hp-dmg); } else hp=Math.min(max,hp+n); }
+      S.hp=hp; }
+    else if(d.hero!=null){ const n=+d.hero; S.hero = S.hero===n ? n-1 : n; }
+    else if(d.focus!=null){ const n=+d.focus; const cur=S.focus==null?C.focusMax:S.focus; S.focus = cur===n ? n-1 : n; }
+    else if(d.drain!=null){ S.drain=!S.drain; }
+    else if(d.staffcharge!=null){ const max=S.staff.chargeRank, rem=Math.max(0,max-S.staff.spent), n=+d.staffcharge, nr = rem===n ? n-1 : n; S.staff.spent=max-nr; }
+    else if(d.staffedit!=null){ S.staff.edit=!S.staff.edit; }
+    else if(d.tab!=null){ S.tab=d.tab; }
+    else if(d.main!=null){ S.mainTab=d.main; hideTip(); }
+    else if(d.coinreset!=null){ S.coins=null; }
+    else if(d.lvlreset!=null){ S.level=getBuild().level; }
+    else if(d.import!=null){ openImport(); return; }
+    render(); return;
+  }
+  if(t.closest("#tip")) return;
+  const el=t.closest("[data-tip]");
+  if(el){ if(pinned===el.dataset.tip){ hideTip(); } else { pinned=el.dataset.tip; showTip(el,true); } return; }
+  if(pinned) hideTip();
+});
+document.addEventListener("change",e=>{
+  if(e.target.id==="tempHp"){ S.temp=Math.max(0,parseInt(e.target.value)||0); render(); }
+  else if(e.target.matches("select[data-staff]")){
+    const key=e.target.dataset.staff;
+    if(key==="chargeRank"){ S.staff.chargeRank=+e.target.value; S.staff.spent=0; }
+    else { S.staff[key]=e.target.value||null; }
+    if(S.staff.cantrip && S.staff.spell) S.staff.edit=false;
+    render();
+  }
+});
+
+/* drag spells between the spellbook and prepared slots (Ctrl while dropping copies a prepared spell) */
+let DRAG=null, dropEl=null;
+const DROP_T="[data-slot],[data-rankdrop],[data-bookdrop]";
+// index of the dedicated curriculum slot for (caster,rank), or -1 if none applies there
+function curIdx(ki,r){
+  if(ki!==WIZ_KI) return -1;
+  const cl=currRank(C,r), arr=(PREP[ki]||{})[r]||[];
+  return (cl && arr.length>0) ? arr.length-1 : -1;
+}
+function dropInfo(el){
+  if(!DRAG||!el) return null;
+  if(el.dataset.bookdrop!=null){
+    if(+el.dataset.bookdrop!==DRAG.ki || !DRAG.from) return null;
+    // dragging the Staff Nexus reserved-slot entry back onto the book it's already shown in: no-op, not a valid drop
+    if(STAFF_RES && DRAG.ki===STAFF_RES.ki && DRAG.from.r===STAFF_RES.r && DRAG.from.i===STAFF_RES.i) return null;
+    return {book:true};
+  }
+  const [ki,r,si]=(el.dataset.slot!=null?el.dataset.slot:el.dataset.rankdrop).split(":").map(Number);
+  if(ki!==DRAG.ki || !rankOk(DRAG.base,r)) return null;
+  const arr=(PREP[ki]||{})[r]||[];
+  const resI=(STAFF_RES && STAFF_RES.ki===ki && STAFF_RES.r===r) ? STAFF_RES.i : -1;
+  const ci=curIdx(ki,r);
+  const qualifies = ci<0 || currRank(C,r).includes(DRAG.name);
+  let i;
+  if(el.dataset.slot!=null){ i=si; if(i===ci && !qualifies) return null; }
+  else { i = arr.findIndex((v,idx)=>v===null && idx!==resI && (idx!==ci || qualifies)); }
+  if(i<0 || i===resI || (DRAG.from && DRAG.from.r===r && DRAG.from.i===i)) return null;
+  return {r,i};
+}
+function endDrag(){
+  DRAG=null; dropEl=null;
+  document.querySelectorAll(".drop-ok,.drop-hover,.dragsrc").forEach(el=>el.classList.remove("drop-ok","drop-hover","dragsrc"));
+}
+document.addEventListener("dragstart",e=>{
+  const row=e.target.closest&&e.target.closest("[data-drag]"); if(!row) return;
+  try{ DRAG=JSON.parse(row.dataset.drag); }catch(err){ DRAG=null; return; }
+  e.dataTransfer.effectAllowed="copyMove"; e.dataTransfer.setData("text/plain",DRAG.name);
+  clearTimeout(showT); hideTip(); hideCond();
+  row.classList.add("dragsrc");
+  document.querySelectorAll(DROP_T).forEach(el=>{ if(dropInfo(el)) el.classList.add("drop-ok"); });
+});
+document.addEventListener("dragover",e=>{
+  if(!DRAG) return;
+  const el=e.target.closest&&e.target.closest(DROP_T), info=el?dropInfo(el):null;
+  if(dropEl!==(info?el:null)){ if(dropEl) dropEl.classList.remove("drop-hover"); dropEl=info?el:null; if(dropEl) dropEl.classList.add("drop-hover"); }
+  if(info){ e.preventDefault(); e.dataTransfer.dropEffect=(e.ctrlKey&&DRAG.from&&!info.book)?"copy":"move"; }
+});
+document.addEventListener("drop",e=>{
+  if(!DRAG) return;
+  const el=e.target.closest&&e.target.closest(DROP_T), info=el?dropInfo(el):null;
+  if(!info){ endDrag(); return; }
+  e.preventDefault();
+  const ki=DRAG.ki, K=C.casters.find(k=>k.i===ki), f=DRAG.from, key=(r,i)=>`${ki}:${r}:${i}`;
+  const P={}; for(const [r,a] of Object.entries(PREP[ki])) P[r]=a.slice();
+  const setUsed=(r,i,v)=>{ if(v) S.used[key(r,i)]=true; else delete S.used[key(r,i)]; };
+  if(info.book){ P[f.r][f.i]=null; setUsed(f.r,f.i,false); }
+  else if(f && !e.ctrlKey){
+    // move; the spell already in the target slot swaps back if it fits the source rank, otherwise returns to the spellbook
+    const target=P[info.r][info.i], tUsed=!!S.used[key(info.r,info.i)], fUsed=!!S.used[key(f.r,f.i)];
+    let back = target && rankOk(bookRank(K,target)??info.r, f.r);
+    if(back && f.i===curIdx(ki,f.r) && !currRank(C,f.r).includes(target)) back=false; // don't swap a non-curriculum spell back into the curriculum slot
+    P[info.r][info.i]=DRAG.name; setUsed(info.r,info.i,fUsed);
+    P[f.r][f.i]=back?target:null; setUsed(f.r,f.i,back&&tUsed);
+  } else { P[info.r][info.i]=DRAG.name; setUsed(info.r,info.i,false); }
+  S.prep=S.prep||{}; S.prep[ki]=P;
+  endDrag(); render();
+});
+document.addEventListener("dragend",endDrag);
+document.addEventListener("toggle",e=>{ if(e.target.matches&&e.target.matches("details.book")){ S.bookOpen=e.target.open; saveState(); } },true);
+$("#lvlUp").onclick=()=>{ S.level=Math.min(20,currentLevel(getBuild())+1); render(); };
+$("#lvlDown").onclick=()=>{ S.level=Math.max(getBuild().level,currentLevel(getBuild())-1); render(); };
+$("#btnDaily").onclick=()=>{ S.used={}; S.focus=null; S.drain=false; S.staff.spent=0; render(); };
+$("#btnImport").onclick=openImport;
+
+const dlg=$("#dlg");
+function openImport(){ $("#impErr").textContent=""; $("#impText").value=""; $("#impFile").value=""; if(dlg.showModal) dlg.showModal(); else dlg.setAttribute("open",""); }
+$("#impCancel").onclick=()=>dlg.close();
+$("#impFile").onchange=e=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>{$("#impText").value=rd.result;}; rd.readAsText(f); };
+$("#impGo").onclick=()=>{
+  try{
+    const obj=JSON.parse($("#impText").value.trim()); const b=obj.build||obj;
+    if(!b||!b.abilities||!b.proficiencies||!b.level) throw new Error("That JSON doesn't look like a Pathbuilder build (no abilities, proficiencies or level).");
+    S.imported=b; S.level=b.level; S.hp=null; S.used={}; S.focus=null; S.prep=null; S.coins=null;
+    dlg.close(); render();
+  }catch(err){ $("#impErr").textContent=err.message; }
+};
+$("#impReset").onclick=()=>{ S.imported=null; S.level=DEFAULT_LEVEL; S.hp=null; S.used={}; S.prep=null; S.coins=null; dlg.close(); render(); };
+window.addEventListener("resize",()=>{ if(!tipEl.hidden) hideTip(); if(!ctipEl.hidden) hideCond(); });
+
+render();
+</script>
+</body>
+</html>
