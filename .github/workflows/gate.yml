@@ -9,7 +9,7 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # grizzly-gate, standalone checker mode — the gate is the first reviewer.
       # Pinned by digest (bearflinn/grizzly-gate latest @ 2026-09-16). Bump

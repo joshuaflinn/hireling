@@ -317,6 +317,13 @@ dialog .row2{display:flex;gap:8px;justify-content:space-between;align-items:cent
 
 <script>
 "use strict";
+/* Safe HTML setter: parses inert via DOMParser, then adopts the nodes.
+   Behaviorally equivalent to el.innerHTML = html for these fragments (no script
+   execution either way; inline handler attributes survive adoption). */
+function setHTML(el, html){
+  const d = new DOMParser().parseFromString(html, "text/html");
+  el.replaceChildren(...d.body.childNodes);
+}
 /* ============================================================
    Settings that live outside the Pathbuilder export
    ============================================================ */
@@ -681,7 +688,7 @@ const reg = fn => { const id="t"+(regN++); REG.set(id,fn); return id; };
 const tipEl=$("#tip"); let pinned=null, hideT=null, showT=null;
 function showTip(el, pin){
   const fn=REG.get(el.dataset.tip); if(!fn) return;
-  tipEl.innerHTML=linkConds(fn())+(pin?`<div class="hint">Pinned · hover underlined conditions · click elsewhere or Esc to close</div>`:`<div class="hint">Click to pin</div>`);
+  setHTML(tipEl, linkConds(fn())+(pin?`<div class="hint">Pinned · hover underlined conditions · click elsewhere or Esc to close</div>`:`<div class="hint">Click to pin</div>`));
   tipEl.classList.toggle("pinned",!!pin); tipEl.hidden=false;
   document.querySelectorAll(".row.pinned").forEach(r=>r.classList.remove("pinned"));
   if(pin) el.classList.add("pinned");
@@ -710,7 +717,7 @@ let owner=null;
 const ctipEl=$("#ctip"); let cPinned=false, cHideT=null, cShowT=null, cOwner=null;
 function showCond(k, el, pin){
   const c=CONDITIONS[k]; if(!c) return;
-  ctipEl.innerHTML=`<div class="tt-h"><span class="tt-name">${esc(cap(k))}</span><span class="tt-rank">Condition</span></div><p>${linkConds(esc(c.t),k)}</p><div class="foot"><span>Player Core p. ${c.p}</span><a href="${AON}Conditions.aspx?ID=${c.id}" target="_blank" rel="noopener">AoN ↗</a></div>${pin?`<div class="hint">Pinned · click another condition to switch · click elsewhere or Esc to close</div>`:""}`;
+  setHTML(ctipEl, `<div class="tt-h"><span class="tt-name">${esc(cap(k))}</span><span class="tt-rank">Condition</span></div><p>${linkConds(esc(c.t),k)}</p><div class="foot"><span>Player Core p. ${c.p}</span><a href="${AON}Conditions.aspx?ID=${c.id}" target="_blank" rel="noopener">AoN ↗</a></div>${pin?`<div class="hint">Pinned · click another condition to switch · click elsewhere or Esc to close</div>`:""}`);
   ctipEl.classList.toggle("pinned",!!pin); cPinned=!!pin; cOwner=el; ctipEl.hidden=false;
   ctipEl.style.left="0px"; ctipEl.style.top="0px";
   const t=ctipEl.getBoundingClientRect(), r=el.getBoundingClientRect(), W=innerWidth, H=innerHeight;
@@ -950,7 +957,7 @@ function renderSpells(){
     h+=`<div class="divider"></div>`+rankHead(`Innate · ${esc(K.sc.name)}`,`${cap(K.trad)} · ${K.sc.ability.toUpperCase()} · at will`,"");
     nonCantrip.forEach(([r,names])=> names.slice().sort(alpha).forEach(n=>h+=spellRow(n,+r,K,{kind:"slot"})));
   }
-  $("#pSpells").innerHTML=h;
+  setHTML($("#pSpells"), h);
 }
 
 /* ============================================================
@@ -1153,7 +1160,7 @@ function renderActions(){
     const items=g.items.filter(it=>!it.show||it.show(C)).sort((a,b)=>byName(label(a),label(b))); if(!items.length) continue;
     h+=`<div class="grp">${esc(g.group)}</div>`+items.map(actionRow).join("");
   }
-  $("#pActions").innerHTML=h;
+  setHTML($("#pActions"), h);
 }
 
 /* ============================================================
@@ -1194,7 +1201,7 @@ function renderStats(){
   const langs=(B.languages||[]).filter(l=>l && l!=="None selected");
   h+=`<div class="meta"><b>Ancestry</b> ${esc(B.ancestry)} (${esc(B.heritage)}) · <b>Background</b> ${esc(B.background)} · <b>Alignment</b> ${esc(B.alignment)}</div>`;
   h+=`<div class="meta"><b>Languages</b> ${langs.length?esc(langs.join(", ")):'<span style="color:var(--dim)">not set in export</span>'} · <b>Deity</b> ${esc(B.deity)}</div>`;
-  $("#pStats").innerHTML=h;
+  setHTML($("#pStats"), h);
 }
 
 /* ============================================================
@@ -1232,7 +1239,7 @@ function renderInv(){
   }
   const total=worn-packRelief, enc=(5+C.M.str)*10, max=(10+C.M.str)*10;
   h+=`<div class="bulk">Carrying <b>${bulkTxt(total)}</b> · <span class="cond" data-cond="encumbered">encumbered</span> above <b>${enc/10}</b> · max <b>${max/10}</b>${unknown.length?`<br><span style="color:var(--f)">No Bulk data for: ${esc([...new Set(unknown)].join(", "))}</span>`:""}<div class="meter"><i class="${total>enc?"enc":""}" style="width:${Math.min(100,total/max*100)}%"></i></div></div>`;
-  $("#pInv").innerHTML=h;
+  setHTML($("#pInv"), h);
 }
 
 /* ============================================================
@@ -1248,7 +1255,7 @@ function renderFeats(){
   h+=`<h3>Class &amp; Ancestry Features</h3>`;
   for(const s of B.specials||[]){ const base=s.split(":")[0]; if(base==="Wellspring Gnome" && (B.feats||[]).some(f=>f[0]==="Wellspring Gnome")) continue;
     h+=frow(s,base===s?"":"",FEATURE_TEXT[base]||FEATURE_TEXT[s]); }
-  $("#pFeats").innerHTML=h;
+  setHTML($("#pFeats"), h);
 }
 
 function renderCampaign(){
@@ -1274,7 +1281,7 @@ function renderCampaign(){
   h+=cref("Warms to honest folk","Bram-type directness disarms him visibly. His guard drops around people who want nothing performative from him.");
   h+=cref("Gnome Obsession","Cannot suppress knowing and sharing Mror Holds clan histories, genealogies, old feuds. He genuinely lights up — a quirk, not a tool.");
   h+=cref("Resents being used","Accepted Barak's deal but bristles at it. Finds small ways to assert autonomy. Dry wit or quiet refusal to be grateful for things he didn't ask for.");
-  $("#pCampaign").innerHTML=h;
+  setHTML($("#pCampaign"), h);
 }
 
 function renderRules(){
@@ -1303,7 +1310,7 @@ function renderRules(){
   h+=rule("Summoned creatures","The creature uses 2 actions immediately after you finish casting. After that, Sustain the spell to command it. It is banished at 0 HP or when the spell ends, and it can't summon, create things of value or cast spells with a cost.","Player Core p. 301 and p. 360");
   h+=rule("Pippin is a pet, not a familiar","Your Pet feat sets his Perception, Acrobatics and Stealth at 3 + your level, which is +6. Pathbuilder shows +7 because it uses familiar math. A pet takes no attack actions except Escape and Force Open.","Player Core p. 259");
   h+=rule("Commanding a minion","One action gives the minion 2 actions for the turn. Without a command it only defends itself or avoids obvious harm.","Player Core p. 301");
-  $("#pRules").innerHTML=h;
+  setHTML($("#pRules"), h);
 }
 
 function mcard(m){
@@ -1372,7 +1379,7 @@ function renderMinions(){
       prevMax=max;
     }
   }
-  $("#pMinions").innerHTML=linkConds(h);
+  setHTML($("#pMinions"), linkConds(h));
 }
 
 /* ============================================================
@@ -1388,9 +1395,9 @@ function render(){
   document.title=`${B.name} · PF2e Dashboard`;
   $("#lvlVal").textContent=L; $("#lvlDown").disabled=L<=B.level; $("#lvlUp").disabled=L>=20;
   const src=S.imported?"imported Pathbuilder export":`Pathbuilder export (${EXPORT_LABEL})`;
-  $("#dataNote").innerHTML = L===B.level
+  setHTML($("#dataNote"), L===B.level
     ? `<span><b>Build data:</b> ${esc(src)}, level ${B.level}.</span>`
-    : `<span title="HP, proficiency, cantrip rank, spell slots, wizard class progression and Additional Lore are recalculated. Feats, skill increases and spells picked after level ${B.level} aren't in the export."><b>Build data:</b> ${esc(src)}, level ${B.level}. Previewing <b>level ${L}</b> (later picks not included).</span><button class="lnk" data-lvlreset="1">Use level ${B.level}</button><button class="lnk" data-import="1">Import</button>`;
+    : `<span title="HP, proficiency, cantrip rank, spell slots, wizard class progression and Additional Lore are recalculated. Feats, skill increases and spells picked after level ${B.level} aren't in the export."><b>Build data:</b> ${esc(src)}, level ${B.level}. Previewing <b>level ${L}</b> (later picks not included).</span><button class="lnk" data-lvlreset="1">Use level ${B.level}</button><button class="lnk" data-import="1">Import</button>`);
   renderMainTabs();
   renderStats(); renderMinions(); renderSpells(); renderActions(); renderInv(); renderFeats(); renderCampaign(); renderRules();
   applyCollapse();
@@ -1399,7 +1406,7 @@ function render(){
 function renderMainTabs(){
   const tabs=[["spells","Spells"],["minions","Minions"],["inv","Inventory"],["feats","Feats & Features"],["campaign","Campaign"],["rules","Rules"]];
   if(!tabs.some(([k])=>k===S.mainTab)) S.mainTab="spells";   // Actions now has its own column
-  $("#mainTabs").innerHTML=tabs.map(([k,n])=>`<button data-main="${k}" class="${S.mainTab===k?"on":""}">${esc(n)}</button>`).join("");
+  setHTML($("#mainTabs"), tabs.map(([k,n])=>`<button data-main="${k}" class="${S.mainTab===k?"on":""}">${esc(n)}</button>`).join(""));
   const panes={spells:"pSpells",minions:"pMinions",inv:"pInv",feats:"pFeats",campaign:"pCampaign",rules:"pRules"};
   for(const [k,id] of Object.entries(panes)) $("#"+id).hidden = S.mainTab!==k;
 }
@@ -1448,7 +1455,7 @@ function startCoinEdit(tile){
   const k=tile.dataset.coin, B=getBuild();
   const cur=(S.coins||B.money||{})[k]||0;
   const vEl=tile.querySelector(".v"); if(!vEl) return;
-  vEl.innerHTML=`<input type="number" min="0" value="${cur}">`;
+  setHTML(vEl, `<input type="number" min="0" value="${cur}">`);
   const inp=vEl.querySelector("input");
   inp.focus(); inp.select();
   let done=false;
