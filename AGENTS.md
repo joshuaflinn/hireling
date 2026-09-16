@@ -1,0 +1,60 @@
+# AGENTS.md — Hireling
+
+Instructions for any AI coding agent working in this repo. Read `CONSTITUTION.md`
+first — it is law. Then `docs/PRD.md` — it is the spec.
+
+## What this is
+
+Hireling: a party-linked Pathfinder 2e character tracker. PWA. Pathbuilder JSON
+imports, real-time party sync, a modifier engine that does PF2e buff/condition math
+with per-number provenance, shared party inventory (P1). Friends-and-family POC for
+six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_dashboard.html`.
+
+## Stack (settled — do not re-litigate)
+
+- **Backend:** Rust, axum, single binary. WebSocket for party sync; REST for auth/import/bootstrap.
+- **Database:** Postgres — a `hireling` hall on the house shared instance (Asgard).
+  Migrations via `sqlx migrate`, checked in. Local dev: throwaway postgres in compose.
+- **Frontend:** Svelte (Vite), hand-rolled CSS, PWA (service worker + manifest).
+  No component library. No SvelteKit.
+- **Auth:** Authentik OIDC. No password code in this repo, ever.
+
+## Hard rules
+
+1. **Scope discipline.** The PRD's non-goals are binding: no character builder, no
+   combat/round/initiative tracking, no GM tooling beyond read-only, no dice roller,
+   no auto-expiry or aura/positioning automation. If a task smells like these, stop
+   and flag it — do not build it.
+2. **The modifier engine** is pure, isolated, and test-first. Base stats + active
+   effects in; derived stats + provenance out. No I/O, no framework imports.
+3. **Branches and PRs.** Work on a feature branch named `issue-<n>-<slug>` or
+   `<slug>`. Never commit to `main`. Never force-push shared branches. Open a PR;
+   a human merges.
+4. **Verify before claiming done.** Run the build and the tests. Report actual
+   output. If you couldn't verify something, say exactly that.
+5. **Write it down.** Decisions with rejected alternatives go in the PR description.
+   If you discover the PRD is wrong, say so — don't code around it silently.
+
+## Workflow
+
+- Work comes from **GitHub Issues** on this repo. One issue, one branch, one PR.
+  Small PRs win.
+- Priority order is P0 → P1 → P2 as tagged in the PRD's functional requirements.
+- Feedback on the PRD itself goes to the PRD (via issue or PR against `docs/PRD.md`),
+  not into code comments.
+
+## Style
+
+- Grug-brained (see Constitution Article II). Flat code, locality of behavior,
+  name your intermediate variables.
+- Integration tests are the sweet spot. The modifier engine gets exhaustive unit
+  tests; everything else gets a curated end-to-end suite.
+- Log generously on the backend: major branches, request IDs.
+- Commit messages: imperative, one line, what + why if non-obvious.
+
+## Humans
+
+- **Josh** — PM, owner. **Dave** — co-dev, owner. Both build agentically.
+- **Vex** — Josh's engineering agent (PM/eng on this project).
+- Constitution amendments need both owners. Everything else, one owner's PR
+  approval suffices.
