@@ -1,7 +1,6 @@
 # Hireling PRD
+**Status:** v2.4 — AGENT-READY (prd-checker round 5: PASS) (2026-09-16)
 
-**Status:** Draft v2.3 (2026-09-16) — checker rounds 1–4 findings
-incorporated; all v1 open questions resolved
 **Owners:** Josh Flinn (PM), Dave (co-dev), Vex (PM/eng agent)
 **Repo:** github.com/joshuaflinn/hireling
 
@@ -110,8 +109,8 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   (paraphrased, AoN-linked, page-cited) is the starting corpus, not a scrape and
   not model-generated. The prototype's 28-condition map is missing four POC
   conditions (sickened, enfeebled, drained, slowed): those entries are
-  **hand-authored in the same style** (paraphrase + AoN link + page cite) and
-  human-reviewed before they ship — never model-generated straight into the
+  **hand-authored by Dave in the same style** (paraphrase + AoN link + page cite)
+  and reviewed by Josh before they ship — never model-generated straight into the
   product. POC coverage: every Player Core condition; other game
   terms are out of POC scope and get added on demand. Paraphrased
   rules text ships under the Paizo Community Use Policy / ORC notice in the repo.

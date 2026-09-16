@@ -470,3 +470,125 @@ Grizzly-Endeavors) carry owners and fallbacks.)*
 2. That pass is expected to flip the gate to ✅ PASS — then **prd-decomposer**
    or straight to engineering; P0 scope is small and the owners are the
    builders.
+
+---
+---
+
+# ROUND 5 RE-CHECK — Hireling PRD (Draft v2.3, 2026-09-16)
+
+Reviewed per the `prd-checker` skill (all 10 check categories + agent-ready
+gate), run fresh against the full document. PRD: `docs/PRD.md` (Draft v2.3 —
+"checker rounds 1–4 findings incorporated"). Prototype corpus re-verified
+directly: `docs/reference/lorum_ipsum_dashboard.html` `CONDITIONS` map at line
+480 — 28 key entries counted; zero key occurrences of `sickened`, `enfeebled`,
+`drained`, or `slowed` confirmed by grep. The PRD was not modified; rounds 1–4
+content above is retained; this section is appended.
+
+## Round 4 Disposition (one warning + one info item)
+
+| # | Sev | Finding | Disposition | Evidence in v2.3 |
+|---|-----|---------|-------------|------------------|
+| R4-1 | 🟡 | Seed tooltip corpus gap: 4 seeded conditions absent from the declared source | **Fixed** | FG1 now carries the provenance sentence: the prototype's "28-condition map is missing four POC conditions (sickened, enfeebled, drained, slowed): those entries are **hand-authored in the same style** (paraphrase + AoN link + page cite) and human-reviewed before they ship — never model-generated straight into the product." Cross-section consistency verified end to end: the four named conditions are exactly the corpus-less members of the FG3 seed tiers (automatic: sickened; manual: enfeebled, drained, slowed — while frightened, off-guard, clumsy, stupefied, stunned all have prototype entries), so FG3's "ship in the picker with their rules tooltip" now has a legal text source for all nine seeds, and US-3's hover-explanation is covered. The "not a scrape and not model-generated" corpus claim and the hand-authored carve-out no longer collide — the carve-out is explicit. One residual nit — see [R5-1] |
+| R4-2 | 🔵 | Stacking sentence said "every covered stat" | **Fixed** | FG3 now reads "Blanket targets expand to their defined expansion sets before stacking is evaluated" — the suggested three-word fix verbatim; grep confirms no "covered stat" wording survives anywhere in the document. R3-1's last trace is gone |
+
+**Disposition totals: 2 of 2 fixed (1 warning, 1 info). 0 partially fixed. 0 not fixed.**
+
+## Part 1: Summary Dashboard (Round 5)
+
+### Agent-Ready Gate: ✅ PASS — Agent-ready
+
+All three gate tests pass:
+
+- **Specificity:** the closed stat vocabulary, rules-exact blanket expansion
+  sets, stacking rules, seed tiers with engine math or explicit "tracked
+  manually" badges, import failure classes (a)(b)(c), re-import anchors,
+  per-field server-receipt-order reconciliation, and quantified sync targets
+  (p95 < 1s wifi / < 3s cellular) leave nothing to tribal knowledge. The seed
+  tooltip corpus now has a declared provenance for 100% of seeded conditions
+  (28 prototype-sourced + 4 hand-authored-and-reviewed).
+- **Completeness:** every user-facing surface has a UX flow with entry point,
+  happy path, and error behavior (import failure messages, offline queueing,
+  WebSocket reconnect, re-import diff); edge cases are enumerated in Advanced
+  Features & Edge Cases; stories are individually addressable (US-1…US-9) and
+  the acceptance-criteria convention is stated explicitly with per-story FG#
+  citations.
+- **Unambiguity:** zero 🔴 Critical issues; zero 🟡 Warnings; priorities
+  (P0/P1/P2) are consistent across sections.
+
+### Summary
+- 🔴 Critical Issues: 0
+- 🟡 Warnings: 0
+- 🔵 Info: 1
+
+### Sections Found:
+tl;dr, Goals (Business/User/Non-Goals), User Stories (US-1–US-9, with
+convention statement), Functional Requirements (P0–P2, six feature groups),
+User Experience (entry point, core flow, party screens, edge cases),
+Narrative, Success Metrics (+ Tracking Plan), Technical Considerations
+(Tooling, UI, API/Backend, Hosting, Performance, Integration Points, Key
+Risks)
+
+### Sections Missing: None
+
+### Story Coverage: 9 of 9 user stories carry acceptance criteria (by
+convention — criteria live in the Functional Requirements; convention stated
+explicitly and every story cites its covering FG#; all nine citations
+re-verified against the requirement groups)
+
+### Overall Assessment
+v2.3 closes the last gate blocker: the seed tooltip corpus now has a declared,
+license-clean provenance for every seeded condition, and the stacking rule's
+final vague wording is gone. The fresh full check found no new criticals and
+no new warnings — the engine, sync, import, and access surfaces are each
+specified to the point where an agent with zero PF2e background can build
+against them. One info-level nit remains; it does not block anything.
+
+---
+
+## Part 2: Detailed Findings (Round 5 — fresh full check)
+
+### 6. Section Completeness (residual nit, non-blocking)
+
+**[R5-1] 🔵 Hand-authored tooltip entries have no named author/reviewer**
+- **Where:** FG1 rules tooltips — the new provenance sentence says the four
+  corpus-missing entries are "hand-authored in the same style … and
+  human-reviewed before they ship," but does not say *who* authors or reviews
+  them. Round 4's suggested fix ended with "Name the owner"; the landed
+  sentence doesn't.
+- **What:** For the agent-ready gate this is fully resolved — the agent now
+  knows the text arrives human-supplied and is never to generate it. The
+  residue is a PM-side task-ownership gap only: with three owners named at the
+  document head (Josh, Dave, Vex), "human-reviewed" doesn't say which human
+  signs off on Player Core rules text shipping under the CUP/ORC notice.
+- **Why it matters:** Minor. Nobody builds the wrong thing; but when the four
+  entries get written, "someone reviews them" has no assignee, and the
+  document's own convention elsewhere (FG2 names Josh for infra health;
+  Integration Points names Bear for Grizzly-Endeavors) is to name the owner.
+- **Suggested fix:** Two words — e.g. "hand-authored by Dave in the same style
+  … and human-reviewed (Josh) before they ship." Any named pair works.
+
+*(Categories 1, 2, 3, 4, 5, 7, 8, 9, 10: no findings. Structural completeness
+is full. Cross-section consistency re-verified fresh: FG1's corpus claims
+(28 + 4 hand-authored = every Player Core condition for POC tooltip coverage)
+match the prototype's actual 28-entry map and FG3's nine seeds exactly; the
+automatic seeds' math (frightened/sickened −X status to `all_checks_and_dcs`,
+off-guard −2 circumstance to `ac`) still agrees with both the expansion sets
+and the prototype's tooltip text; UX Step 3's "spells are freeform at POC;
+only conditions are seeded" agrees with the two-tier library; Narrative and
+both provenance examples state the same attack-roll-only Bless. No
+contradictions between Goals/Non-Goals/Requirements/Metrics; traceability
+verified story→FG for all nine stories and goal→metric; stack prescriptions
+remain marked as settled house constraints; personas flow through UX; external
+deps (Pathbuilder, Authentik, Cloudflare, Grizzly-Endeavors, Asgard) carry
+owners and fallbacks.)*
+
+---
+
+## Round 5 Next Steps
+
+1. **Gate is ✅ PASS.** The PRD is agent-ready. Optionally batch [R5-1] (two
+   words) into the next PRD touch — it is not worth a dedicated edit pass.
+2. Next step in the pipeline: **prd-decomposer** to break into sequenced epics
+   with SpecKit prompts, or hand the PRD (plus Dave's prototype as the UX
+   reference) directly to engineering — P0 scope is small and the owners are
+   the builders.
