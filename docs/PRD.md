@@ -1,5 +1,5 @@
 # Hireling PRD
-**Status:** v3.1 (2026-09-16) — v3.0 + round-6 propagation fixes
+**Status:** v3.2 (2026-09-16) — AGENT-READY (checker round 7: PASS)
 (7 findings: layouts, GM stat density, import special-cases, PB write-back ruling,
 seeded spell library, stash sell/bank, conflict pre-warn)
 
@@ -211,7 +211,8 @@ Functional Requirements; each story cites its covering requirement group (FG#).
     math), slowed and stunned (action economy, not modifiers). Same precedent as
     companion buffs: humans track what the engine can't. Extending the vocabulary
     to ability-scoped penalties is an engine-v2 conversation, not POC scope.
-  - Spells and other sources are freeform at POC: the composer offers a modifier
+  - Spells and other sources are freeform at **P0** (the P1 seeded spell
+    library below covers the commonly-cast top of the list): the composer offers a modifier
     picker built from the stat vocabulary (stat → type → value), a name, a
     duration note, and the target picker.
 - **Detrimental conditions ride the same engine** as effects with negative
@@ -238,7 +239,8 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   timestamp }` per transfer — settles arguments.
 - **Sell:** Quartermaster-only action on a stash item — prompts for sale value
   (defaults to book value, editable for in-game negotiation), removes the item,
-  and adds the proceeds to the party bank.
+  and adds the proceeds to the party bank; sales append to the claim history
+  (`to: party bank`) like any other stash event.
 - **Party bank:** Shared currency ledger (gp/sp/cp) feeding from sales and
   manual adjustments; visible to all party members.
 - **Quartermaster:** One character is designated quartermaster (owner-set,

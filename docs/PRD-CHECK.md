@@ -840,3 +840,153 @@ dependency story rather than adding to it.)*
 2. The three 🔵 items are single-line edits; batch them into the same pass.
 3. Re-check after that pass is expected to restore ✅ PASS — the v3.0 content
    decisions themselves are all sound; only their propagation is incomplete.
+
+---
+---
+
+# ROUND 7 RE-CHECK — Hireling PRD (v3.1, 2026-09-16)
+
+Reviewed per the `prd-checker` skill (all 10 check categories + agent-ready
+gate), run fresh against the full document. PRD: `docs/PRD.md` (v3.1 — "v3.0 +
+round-6 propagation fixes"). UX reference re-verified:
+`docs/reference/lorum_ipsum_dashboard.html` — `#pbExport` at line 314,
+`CONDITIONS` map at line 480, and the 780px single-column mobile reflow
+(`@media (max-width:780px)` → `flex-direction:column`) confirmed at line 46.
+The PRD was not modified; rounds 1–6 content above is retained; this section
+is appended.
+
+## Round 6 Disposition (all four warnings + all three info items)
+
+| # | Sev | Finding | Disposition | Evidence in v3.1 |
+|---|-----|---------|-------------|------------------|
+| R6-1 | 🟡 | "Spells freeform at POC; only conditions seeded" stale vs. P1 library | **Fixed, one residual clause** | UX Step 3 now reads "if it's in the seeded spell library (P1), its outcome template applies automatically; otherwise it's freeform via the picker" — the stale parenthetical is gone and the walkthrough's own example (Bless) now routes through the library. ⚠️ The fix was two clauses; the second did not land: FG3's seed bullet still says "Spells and other sources are freeform at POC" without the priority qualifier. See [R7-1] |
+| R6-2 | 🟡 | UX stash flow predated sell/bank/quartermaster | **Fixed, one residual edge case** | UX Party Screens rewritten: add item, transfer, sell (quartermaster-only, value prompt defaulting to book, proceeds to the party bank shown in the stash header), claim-history log view; quartermaster toggle in party settings (owner action). Every FG4 capability now has a screen and an entry point, consistent with FG4's wording. ⚠️ One round-6 sub-question unanswered: whether a sale appends to the claim-history log. See [R7-2] |
+| R6-3 | 🟡 | Spell outcome templates: no content provenance | **Fixed** | FG3 library bullet gains "**Provenance:** outcome templates follow the FG1 tooltip rule — hand-authored by Dave in the prototype's paraphrase style (rules-accurate, AoN-linked), reviewed by Josh before shipping; never model-generated straight into the product." Mirrors the FG1 carve-out exactly, including the named pair. The R4-1-class gap is closed on the spell library |
+| R6-4 | 🟡 | Phone/tablet layout P0 with no design reference | **Fixed** | UX Step 1 now names an implementable floor — "the prototype's existing mobile treatment (780px single-column reflow)," **verified present** in the reference (`@media (max-width:780px)` collapsing `.cols` to a single column) — plus a gate: "its own design pass before frontend build — reviewed by Dave." An agent can build to the floor today; the design pass is sequenced, owned, and gated. Round 6's failure mode (agent inventing the phone UX) is closed |
+| R6-5 | 🔵 | US-5 predated selling and the party bank | **Fixed** | US-5 now reads "dump the night's loot into a shared stash — and as quartermaster, sell what we don't keep into the party bank — and see who claimed what." Story text covers the FG4 sell/bank surface; FG4 citation intact |
+| R6-6 | 🔵 | P1 composer additions absent from UX UI-elements list | **Fixed** | UX Step 3 gains "**P1 additions:** seeded-spell outcome tapper (pick degree of success → effects auto-apply) and conflict flags in the target picker (same-type suppression warned pre-assignment)" — both FG3 P1 behaviors now have a screen-inventory home, wording consistent with FG3 |
+| R6-7 | 🔵 | GM stat density "key skills" undefined | **Fixed** | FG5 now reads "the character's three highest skill modifiers ('key skills', auto-selected)" — the subset is defined and the selection rule is mechanical |
+
+**Disposition totals: 7 of 7 fixed (4 warnings, 3 info) — two with small
+residuals surfacing below as [R7-1] / [R7-2]. 0 partially fixed. 0 not fixed.**
+
+**Round-6 baseline regression sweep:** blanket expansion sets intact and still
+partition the vocabulary; "defined expansion sets" stacking wording intact;
+two-tier seed split intact; FG1 tooltip provenance (28 + 4 hand-authored by
+Dave, reviewed by Josh) intact; both provenance examples still `Strike +14 =
++13 base +1 status (Bless, from Bear)`; story IDs US-1…US-9 with FG#-only
+citations intact (all nine re-verified); roster-coverage metric grammar
+intact; `sync_roundtrip_ms` scoping intact; PB write-back and
+initiative-order non-goals intact and still double-stated. **No regressions
+against the round-6 baseline.**
+
+## Part 1: Summary Dashboard (Round 7)
+
+### Agent-Ready Gate: ✅ PASS — Agent-ready
+
+All three gate tests pass:
+
+- **Specificity:** the v3.0 additions are now specified end to end — spell
+  library (seeds, degrees of success, auto-apply, scope fences, provenance),
+  sell/bank/quartermaster (actor, value default, destination, toggle
+  location), GM stat density (every element a defined stat or a defined
+  subset), conflict pre-warning (trigger, timing, worked example). Nothing
+  relies on tribal knowledge.
+- **Completeness:** every user-facing surface has a UX home with entry point
+  and behavior — the stash flow covers all FG4 capabilities, the composer
+  lists its P1 elements, and the phone layout has an implementable floor plus
+  a gated design pass. Stories are individually addressable (US-1…US-9) with
+  the acceptance-criteria convention stated and per-story FG# citations.
+- **Unambiguity:** zero 🔴 Critical issues; zero 🟡 Warnings; priorities
+  (P0/P1/P2) consistent across sections; the UX walkthrough and FG3 now state
+  the same freeform-vs-library layering.
+
+### Summary
+- 🔴 Critical Issues: 0
+- 🟡 Warnings: 0
+- 🔵 Info: 2
+
+### Sections Found:
+tl;dr, Goals (Business/User/Non-Goals), User Stories (US-1–US-9, with
+convention statement), Functional Requirements (P0–P2, six feature groups),
+User Experience (entry point, core flow, party screens, edge cases),
+Narrative, Success Metrics (+ Tracking Plan), Technical Considerations
+(Tooling, UI, API/Backend, Hosting, Performance, Integration Points, Key
+Risks)
+
+### Sections Missing: None
+
+### Story Coverage: 9 of 9 user stories carry acceptance criteria (by
+convention — criteria live in the Functional Requirements; convention stated
+explicitly and every story cites its covering FG#; all nine citations
+re-verified against the requirement groups)
+
+### Overall Assessment
+v3.1 lands the round-6 propagation pass: all seven fixes are in, the two
+externally-checkable claims (spell-library provenance, the 780px mobile floor)
+verify against their sources, and the fresh full check found no new criticals
+or warnings. Two info-level residuals remain — both single-clause edits, both
+shavings off the round-6 fixes rather than new issues. The PRD is
+agent-ready.
+
+---
+
+## Part 2: Detailed Findings (Round 7 — fresh full check)
+
+### 3. Ambiguous Requirements (residuals, non-blocking)
+
+**[R7-1] 🔵 FG3 seed bullet still says "freeform at POC" without the priority qualifier (R6-1 residual)**
+- **Where:** FG3 seeded effect library — "Spells and other sources are
+  freeform at POC: the composer offers a modifier picker…"
+- **What:** Round 6's suggested fix was one clause in each of two spots; the
+  UX Step 3 clause landed, this one did not. The harm is much reduced: the
+  flagship walkthrough is now correct, and the adjacent library bullet
+  reconciles the layering in-section ("Spells outside the library stay
+  freeform via the modifier picker, exactly as P0"), so an agent reading FG3
+  recovers the right rule. But "at POC" still literally asserts the
+  pre-library world, and round 6 established that P1 ships in POC.
+- **Suggested fix:** Three words — "Spells and other sources are freeform at
+  P0 (outside the P1 spell library): the composer offers…"
+
+**[R7-2] 🔵 Whether a sale appends to the claim-history log is unstated (R6-2 residual)**
+- **Where:** FG4 — "**Claim history:** An append-only log of `{ item,
+  quantity, from, to, actor, timestamp }` per transfer" and "**Sell:** …
+  removes the item, and adds the proceeds to the party bank"; UX Party
+  Screens — sell and the log view are both described, with no stated
+  relationship.
+- **What:** Round 6 asked whether a sale writes a log entry (a sale's `to` is
+  the bank, not a character); v3.1 gives sell and the log adjacent UX homes
+  but never says they interact. The log's stated purpose — "settles
+  arguments" about who took what — argues it should; an agent could build
+  either way. (The other round-6 sub-question — the zero-quartermaster state
+  — is adequately covered: "quartermaster only" with no quartermaster
+  designated means nobody can sell, derivable from the text as written.)
+- **Suggested fix:** One line in FG4 or the UX stash flow, e.g.: "Sales
+  append to the claim-history log with `to: party bank`."
+
+*(Categories 1, 2, 4, 5, 6, 7, 8, 9, 10: no findings. Structural completeness
+is full. No cross-section contradictions — UX Step 3, FG3's library bullet,
+and the P1 composer elements now state one freeform-vs-library layering; the
+stash UX and FG4 state the same four capabilities with the same actors;
+US-5's broadened text matches FG4; FG5's defined "key skills" matches its own
+stat list. Traceability verified story→FG for all nine stories and
+goal→metric; the new P1 surfaces trace through existing citations (spell
+library and conflict flags via US-6/US-8 → FG3, sell/bank via the broadened
+US-5 → FG4). Stack prescriptions remain marked as settled house constraints.
+No scope creep — v3.1 adds no features, only propagation. Personas flow
+through UX; "quartermaster" follows the Caster convention (a role a player
+holds, not a seat). Testability of pre-existing requirements unaffected.
+External deps (Pathbuilder, Authentik, Cloudflare, Grizzly-Endeavors, Asgard)
+unchanged, owners and fallbacks intact.)*
+
+---
+
+## Round 7 Next Steps
+
+1. **Gate is ✅ PASS.** The PRD is agent-ready. [R7-1] and [R7-2] are
+   single-clause edits; batch them into the next PRD touch — neither is worth
+   a dedicated pass.
+2. Next step in the pipeline: **prd-decomposer** to break into sequenced
+   epics with SpecKit prompts, or hand the PRD (plus Dave's prototype as the
+   UX reference) directly to engineering — P0 scope is small and the owners
+   are the builders.
