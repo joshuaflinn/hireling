@@ -1,5 +1,7 @@
 # Hireling PRD
-**Status:** v2.4 — AGENT-READY (prd-checker round 5: PASS) (2026-09-16)
+**Status:** v3.0 (2026-09-16) — AGENT-READY v2.4 + Dave's review round incorporated
+(7 findings: layouts, GM stat density, import special-cases, PB write-back ruling,
+seeded spell library, stash sell/bank, conflict pre-warn)
 
 **Owners:** Josh Flinn (PM), Dave (co-dev), Vex (PM/eng agent)
 **Repo:** github.com/joshuaflinn/hireling
@@ -34,8 +36,14 @@ door open to feed RPGMastermind later without committing to it now.
 ### Non-Goals
 - **Character builder.** Pathbuilder owns character creation. Import only, forever
   (for this product's POC life).
-- **Combat tracking.** No initiative, no round counter, no turn timer. The GM
-  manages the table; we don't add to their plate.
+- **Combat tracking.** No initiative *order*, no round counter, no turn timer
+  (displaying an initiative *modifier* is a stat, not tracking — that's fine).
+  The GM manages the table; we don't add to their plate.
+- **Pathbuilder write-back.** Data flows one way: Pathbuilder → Hireling. The
+  engine never generates "re-importable" PB exports — the schema is unofficial,
+  a malformed write-back risks corrupting a character, and re-import anchoring
+  already preserves session state (inventory deltas, HP, effects). Revisit only
+  if the table genuinely misses it.
 - **GM workload.** The GM seat is read-only. Nothing in MVP requires the GM to do
   anything — including click.
 - **Positioning/aura automation.** Humans decide who is in the aura. The app does
@@ -89,7 +97,11 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   message: (a) invalid JSON, (b) valid JSON but not a Pathbuilder export (missing
   required top-level keys), (c) unknown/unexpected fields — logged, import
   continues. There is no version pin (the export carries no version field);
-  robustness comes from class (c).
+  robustness comes from class (c). Class features that reshape slot layouts
+  (Staff Nexus, wizard school spells, flexible spellcasting…) are handled
+  per-feature as real imports surface them; every quirk lands as an importer
+  test case — the reference export covers exactly one build, not the feature
+  space.
 - **Re-import anchoring:** Re-import replaces the base sheet while preserving live
   state. Anchors: HP/temp-HP by the character's identity (Authentik account →
   character, see FG2); spell-slot usage by slot rank + index; prep selections by
@@ -183,6 +195,10 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   note ("10 rounds", "while in aura"), displayed, not enforced.
 - **Effect visibility:** Each sheet shows effects affecting it (with sources);
   the caster's view shows all their active effects and current targets.
+- **Conflict pre-warning (P1):** The composer's target picker flags stacking
+  conflicts *before* assignment — characters whose active same-type bonus would
+  suppress the new effect are marked at pick time ("Becky: +1 status active —
+  Bless would be suppressed"), so the caster decides with the math already done.
 - **Seeded effect library (decided, two tiers):**
   - **Automatic seeds** — fully expressible in the stat vocabulary, engine math
     applies: **frightened** and **sickened** (−X status to `all_checks_and_dcs`),
@@ -199,6 +215,16 @@ Functional Requirements; each story cites its covering requirement group (FG#).
     duration note, and the target picker.
 - **Detrimental conditions ride the same engine** as effects with negative
   modifiers — one mechanism, both directions.
+- **Seeded spell library (P1):** The party's commonly-cast spells (seed the top
+  ~20 the table actually uses — Bless, Fear, Guidance, Heal…) carry structured
+  outcome templates: cast → the composer offers the spell's degrees of success
+  (crit success / success / failure / crit failure) → the caster taps what
+  happened → the defined effects apply to the chosen targets automatically.
+  No manual modifier definition for library spells. **Scope fences:** the
+  library covers party-targeted effects; effects landing on *enemies* stay
+  player-managed per the non-goals (enemies aren't roster entities — modeling
+  them is combat tracking). Spells outside the library stay freeform via the
+  modifier picker, exactly as P0.
 
 ### Feature Group 4 — Shared Inventory (Priority: P1)
 - **Party stash:** A shared loot list with item, quantity, Bulk, and notes.
@@ -206,6 +232,14 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   sides update live.
 - **Claim history:** An append-only log of `{ item, quantity, from, to, actor,
   timestamp }` per transfer — settles arguments.
+- **Sell:** Quartermaster-only action on a stash item — prompts for sale value
+  (defaults to book value, editable for in-game negotiation), removes the item,
+  and adds the proceeds to the party bank.
+- **Party bank:** Shared currency ledger (gp/sp/cp) feeding from sales and
+  manual adjustments; visible to all party members.
+- **Quartermaster:** One character is designated quartermaster (owner-set,
+  admin-style toggle); only that character's owner may sell from the stash.
+  Claims/transfers remain open to all.
 
 ### Feature Group 5 — Account & Access (Priority: P0)
 - **Authentik OIDC login:** Six pre-provisioned accounts (Josh, Bear, Dave, Becky,
@@ -213,7 +247,12 @@ Functional Requirements; each story cites its covering requirement group (FG#).
 - **GM view (decided: ships in POC):** Bruce's account lands on the **party view** —
   roster with per-character HP bars, down/max state, and active effect chips with
   sources. Read-only end to end: no edit affordances rendered for the GM account,
-  no notifications, no action required of him, ever. **Cross-member viewing (one
+  no notifications, no action required of him, ever. **GM stat density (P1):**
+  the party view's per-character cards extend to full glanceable stat blocks —
+  current/max HP, AC, saves, Perception, spell/class DCs, initiative *modifier*,
+  key skill modifiers — all read-only. Initiative *order* and turn tracking
+  remain non-goals (stat display is data, not combat tracking).
+  **Cross-member viewing (one
   rule, everywhere):** any account can open any character's full sheet read-only
   from the party view — ownership gates writes, nothing gates reads.
 - **PWA install:** Installable on iOS/Android/desktop; app icon, splash, standalone
@@ -237,8 +276,10 @@ Functional Requirements; each story cites its covering requirement group (FG#).
 
 ### Core Experience (at the table)
 - **Step 1:** Player opens the PWA → their sheet, current as of last sync.
-  - UI Elements: Dave's three-column sheet layout (prototype), collapsed to a
-    single column on phone.
+  - UI Elements: **Two purposeful layouts, both P0, desktop built first.** The
+    desktop (PC-resolution) layout is the primary build — Dave's three-column
+    prototype design. The phone/tablet layout is a dedicated at-table design
+    for one-handed use, not a responsive collapse of the desktop.
 - **Step 2:** Something changes HP — player taps +/-; the change renders locally
   instantly and syncs out.
   - Validation: HP clamped to [0, max]; temp HP absorbs damage first (standard
