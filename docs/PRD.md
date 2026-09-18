@@ -1,5 +1,5 @@
 # Hireling PRD
-**Status:** v3.3 (2026-09-18) — rules-corpus architecture (Foundry import, source lanes, licensing) + prototype freeze · AGENT-READY
+**Status:** v3.4 (2026-09-18) — round-8 reconciliation: corpus lane-split supersedes hand-seeding, rules-data de-specified from document (mechanism + ownership only), custom-lane entry P0 · pending re-gate
 (7 findings: layouts, GM stat density, import special-cases, PB write-back ruling,
 seeded spell library, stash sell/bank, conflict pre-warn)
 
@@ -117,20 +117,28 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   Lorum Ipsum prototype (`docs/reference/lorum_ipsum_dashboard.html`) is the
   visual and interaction baseline.
 - **Rules tooltips:** Conditions and game terms render as hoverable/pinnable
-  popups with paraphrased rules text and Archives of Nethys links. **The content
-  corpus is seeded from Dave's prototype** — its condition and rules text
-  (paraphrased, AoN-linked, page-cited) is the starting corpus, not a scrape and
-  not model-generated. The prototype's 28-condition map is missing four POC
-  conditions (sickened, enfeebled, drained, slowed): those entries are
-  **hand-authored by Dave in the same style** (paraphrase + AoN link + page cite)
-  and reviewed by Josh before they ship — never model-generated straight into the
-  product. POC coverage: every Player Core condition; other game
-  terms are out of POC scope and get added on demand. Paraphrased
-  rules text ships under the Paizo Community Use Policy / ORC notice in the repo.
+  popups with paraphrased rules text and Archives of Nethys links. Tooltip
+  **prose is a curated layer** seeded from Dave's frozen prototype — its
+  condition text (paraphrased, AoN-linked, page-cited) covers every Player
+  Core condition as of the freeze. **Structure and rules data come from the
+  corpus import** (see Rules Corpus & Data Sources). POC coverage: every
+  Player Core condition; other game terms are out of POC scope and get added
+  on demand. Paraphrased rules text ships under the Paizo Community Use
+  Policy / ORC notice in the repo.
+- **Custom content entry (P0):** Create/edit `custom`-lane rows in-app —
+  custom item, spell, or condition entries with minimal fields (name, level
+  or value where applicable, one-line description). This is the homebrew
+  path ("500 Toads"-class content must be representable at the first
+  session, or the caster seat fails for the party's actual sheet). Curation
+  editing of prose on imported rows is P1. Dave owns the custom lane's
+  content; the form is available to every character owner.
 - **Manual level adjust:** Level up/down control, scoped to **math rescale only** —
   proficiency bonuses, HP, and class DC scaling re-derive from level (the
   prototype's model). Ability boosts, feats, and skill increases are **not**
-  applied by the app; those require a Pathbuilder re-export.
+  applied by the app; those require a Pathbuilder re-export. *(Supporting
+  requirement — serves US-1's accurate-sheet story in the gap between
+  Pathbuilder re-exports; proper level-ups arrive by re-export, so this
+  exists for mid-level table nights only.)*
 - **Persistence:** All live state survives refresh, reinstall, and device switch
   (server-side, not localStorage).
 
@@ -157,7 +165,7 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   error theatre.
 - **Degraded mode:** Backend unreachable → the PWA serves last-known state
   read-only and queues writes, exactly like offline. Session-night infra health
-  (Mimir, tunnel) is a P0 operational dependency owned by Josh.
+  (Mimir, Asgard, tunnel) is a P0 operational dependency owned by Josh.
 
 ### Feature Group 3 — Buff/Effect Engine (Priority: P0)
 - **Effect model:** `{ name, source_character, targets[], modifiers[], duration_note, active }`.
@@ -200,38 +208,40 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   conflicts *before* assignment — characters whose active same-type bonus would
   suppress the new effect are marked at pick time ("Becky: +1 status active —
   Bless would be suppressed"), so the caster decides with the math already done.
-- **Seeded effect library (decided, two tiers):**
-  - **Automatic seeds** — fully expressible in the stat vocabulary, engine math
-    applies: **frightened** and **sickened** (−X status to `all_checks_and_dcs`),
-    **off-guard** (−2 circumstance to `ac`).
-  - **Manual-tracking seeds** — the rest of the valued conditions ship in the
-    picker with their rules tooltip and a duration note but **no engine math**,
-    badged "tracked manually": clumsy, enfeebled, stupefied (ability-scoped
-    check/DC subsets the closed vocabulary can't express), drained (adds max-HP
-    math), slowed and stunned (action economy, not modifiers). Same precedent as
-    companion buffs: humans track what the engine can't. Extending the vocabulary
-    to ability-scoped penalties is an engine-v2 conversation, not POC scope.
+- **Seeded effect library (two tiers, data-driven):** Valued conditions ship
+  in the picker from the imported corpus. Conditions fully expressible in
+  the stat vocabulary carry engine math (e.g., frightened → −X status to
+  `all_checks_and_dcs`); conditions the vocabulary can't express ship with
+  their rules tooltip and a duration note but **no engine math**, badged
+  "tracked manually" — same precedent as companion buffs: humans track what
+  the engine can't. **Which condition lands in which tier is corpus data,
+  owned by the importer — not this document.** Extending the vocabulary to
+  ability-scoped penalties is an engine-v2 conversation, not POC scope.
   - Spells and other sources are freeform at **P0** (the P1 seeded spell
     library below covers the commonly-cast top of the list): the composer offers a modifier
     picker built from the stat vocabulary (stat → type → value), a name, a
     duration note, and the target picker.
 - **Detrimental conditions ride the same engine** as effects with negative
   modifiers — one mechanism, both directions.
-- **Seeded spell library (P1):** The party's commonly-cast spells (seed the top
-  ~20 the table actually uses — Bless, Fear, Guidance, Heal…) carry structured
-  outcome templates: cast → the composer offers the spell's degrees of success
-  (crit success / success / failure / crit failure) → the caster taps what
+- **Seeded spell library (P1):** The party's commonly-cast top ~20 spells carry
+  structured outcome templates: cast → the composer offers the spell's degrees of
+  success (crit success / success / failure / crit failure) → the caster taps what
   happened → the defined effects apply to the chosen targets automatically.
-  No manual modifier definition for library spells. **Scope fences:** the
+  No manual modifier definition for library spells. **The definitive list is
+  importer seed config owned by Josh** (chosen from the party's observed usage;
+  not enumerated in this document). **Scope fences:** the
   library covers party-targeted effects; effects landing on *enemies* stay
   player-managed per the non-goals (enemies aren't roster entities — modeling
   them is combat tracking). Spells outside the library stay freeform via the
-  modifier picker, exactly as P0. **Provenance:** outcome templates follow the
-  FG1 tooltip rule — hand-authored by Dave in the prototype's paraphrase
-  style (rules-accurate, AoN-linked), reviewed by Josh before shipping; never
+  modifier picker, exactly as P0. **Provenance:** outcome templates are
+  hand-authored by Dave in the prototype's paraphrase style (rules-accurate,
+  AoN-linked), reviewed by Josh before shipping; never
   model-generated straight into the product.
 
 ### Feature Group 4 — Shared Inventory (Priority: P1)
+*Scope note: table-convenience P1 — serves the loot workflow, not the two
+friction taxes. Cuttable without touching the validation hypothesis if it
+ever threatens P0 schedule.*
 - **Party stash:** A shared loot list with item, quantity, Bulk, and notes.
 - **Transfers:** Move items between a character's inventory and the stash; both
   sides update live.
@@ -240,12 +250,17 @@ Functional Requirements; each story cites its covering requirement group (FG#).
 - **Sell:** Quartermaster-only action on a stash item — prompts for sale value
   (defaults to book value, editable for in-game negotiation), removes the item,
   and adds the proceeds to the party bank; sales append to the claim history
-  (`to: party bank`) like any other stash event.
+  (`to: party bank`) like any other stash event. Book value resolves from the
+  Foundry items corpus by case-insensitive exact-name match; unmatched items
+  default to manual entry and are flagged "no book value."
 - **Party bank:** Shared currency ledger (gp/sp/cp) feeding from sales and
-  manual adjustments; visible to all party members.
+  manual adjustments; visible to all party members. Manual adjustments are
+  quartermaster-only, entered from the stash screen, and log the actor.
 - **Quartermaster:** One character is designated quartermaster (owner-set,
   admin-style toggle); only that character's owner may sell from the stash.
-  Claims/transfers remain open to all.
+  The quartermaster character's owner flips the toggle in party settings;
+  party settings are writable by any character owner. Claims/transfers remain
+  open to all.
 
 ### Feature Group 5 — Account & Access (Priority: P0)
 - **Authentik OIDC login:** Six pre-provisioned accounts (Josh, Bear, Dave, Becky,
@@ -326,6 +341,10 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   suppressed source in the breakdown.
 - **Offline at the table:** Sheet remains fully readable; writes queue; a subtle
   "syncing…" indicator appears. Losing writes are silently superseded (FG2 rule).
+- **Manual level adjust:** The up/down control lives in the sheet header
+  beside the level display (the prototype's pattern). Bounds 1–20; leveling
+  down asks for confirmation; every derived stat (proficiency bonus, HP,
+  class DC) visibly re-derives on tap.
 - **Re-import mid-campaign:** Pathbuilder re-export replaces base stats per the
   FG1 anchoring rules; unmatched entities are kept and surfaced in a post-import
   diff for human review.
@@ -365,8 +384,10 @@ everything else. That's the deal.
 ### Business Metrics
 - **POC verdict after 3 sessions:** keep investing, pivot, or kill. Explicit
   go/no-go, not vibes.
-- **Dave's second campaign:** whether it onboards via config row (schema works)
-  or demands engineering (schema failed).
+- **Dave's second campaign:** whether the campaign is creatable via config/DB
+  rows with zero schema migration (schema works) or requires migration
+  (schema failed). The multi-party **UI** is FG6 scope either way and does not
+  count against the schema verdict.
 
 ### Technical Metrics
 - **Sync latency:** p95 state-change propagation < 1s on home wifi, < 3s on
@@ -425,6 +446,8 @@ owners — they are not negotiable requirements open for rediscovery.*
   `CONNECTION LIMIT 20` (matching the Langfuse hall precedent). Migrations via
   `sqlx migrate`, checked into the repo. Local dev runs a throwaway postgres
   container via compose.
+- **Health endpoint:** the backend exposes `GET /healthz` — Heimdall's uptime
+  probe target (Technical Metrics) and the session-night readiness check.
 
 ### Rules Corpus & Data Sources
 - **The rules DB is seeded by import, not hand-entry.** One-time ETL from the
@@ -434,28 +457,52 @@ owners — they are not negotiable requirements open for rediscovery.*
   **No runtime dependency on AoN** (no API, CORS-fragile); AoN remains what
   the prototype used it for — citation links in tooltips, harvest source for
   one-off tables.
+- **POC import tiers:** **conditions and items** import at POC (items feed
+  FG4 book value); **spells** unlock at P1 (seed library); **feats and
+  bestiary** are importer-capable but deferred — no POC consumer (feats
+  arrive via Pathbuilder export; enemies are non-goals). The full breadth
+  serves the optionality business goal, not POC features.
 - **Ruling 2026-09-18 (Josh):** Foundry import approved; ad-hoc accumulation
-  rejected.
+  rejected. **This ruling supersedes earlier hand-seeding instructions
+  elsewhere in this document.**
+- **Lane split (the governing rule for who owns what content):** the Foundry
+  import owns **all structured rules rows** — condition→modifier mappings,
+  items, spells, feats, the engine corpus. Dave's curation owns **display
+  prose and outcome templates only** (tooltip paraphrases, P1 spell
+  templates), plus homebrew in the `custom` lane. The prototype's harvested
+  tables are the *initial display-prose corpus* to curate from — they are
+  not a structured data source.
 - **Structured effects, not prose:** conditions/traits land as
   condition→stat-modifier rows the buff engine computes from (FG3); prose is
-  display-only.
+  display-only. Conditions the closed vocabulary cannot express import as
+  display-only rows (lane `imported`, badged tracked-manually per FG3); they
+  never produce modifier rows.
 - **Source lanes on every rules row:** `core | imported | custom`. `custom`
   is the first-class homebrew lane ("500 Toads" is in the reference export —
-  proof of need); importer re-runs never touch `custom` rows.
-- **Licensing:** remaster content is ORC-licensed, pre-remaster OGL 1.0a;
-  the license notice ships from day one. The importer epic contains a gated
-  verify-the-pack-license task — green before anything public (the
-  dice-roller public gate inherits it).
+  proof of need); importer re-runs never touch `custom` rows. Custom rows
+  are created in-app (FG1 custom content entry).
+- **Licensing:** imported remaster content is ORC-licensed, pre-remaster
+  OGL 1.0a; curated paraphrase prose ships under the Paizo Community Use
+  Policy / ORC notice. The license notice ships from day one. The importer
+  epic contains a gated verify-the-pack-license task — **green means:**
+  ORC/OGL notice file present in the repo, an in-app about/license view
+  rendering it, and the upstream pack license text archived. **Red means:**
+  nothing ships public — the deployment stays private and the dice-roller
+  public gate stays closed; the POC is unaffected.
 - **Epic placement:** importer runs early — after scaffold, before FG3.
+- **PRD scope law (Josh, 2026-09-18):** this document carries **mechanism
+  and ownership only** — rules data, condition→tier mappings, and content
+  lists live in the corpus/config, never here.
 
 ### Reference Prototype — FROZEN (2026-09-18, PR #2)
 `docs/reference/lorum_ipsum_dashboard.html` is frozen at merge `cb0f397`:
-the 09-26 table tool, the design language (UI Architecture), and the seed
-corpus for tooltips/conditions/items. Further prototype feature branches are
+the table tool for the 2026-09-26 game session, the design language (UI
+Architecture), the UX/interaction
+baseline (FG1), and the initial tooltip-prose corpus (display layer — see the
+lane split above). Further prototype feature branches are
 held unmerged during the app build (Josh's ruling — the prototype must not
-outgrow the product; Dave's prototype lane redirects in-app: tooltip
-authoring, curated entries, custom content — the v2.4 authorship ruling
-stands).
+outgrow the product; Dave's prototype lane redirects in-app: tooltip prose
+curation, custom content).
 
 ### Hosting & Ops
 - **Mimir** (Unraid, existing Docker host) → **cloudflared** tunnel (existing

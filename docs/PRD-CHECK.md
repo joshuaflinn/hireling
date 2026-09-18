@@ -990,3 +990,358 @@ unchanged, owners and fallbacks intact.)*
    epics with SpecKit prompts, or hand the PRD (plus Dave's prototype as the
    UX reference) directly to engineering — P0 scope is small and the owners
    are the builders.
+
+---
+
+# Round 8 — v3.3 review (2026-09-18, after Foundry-import + freeze rulings)
+
+**Gate: ⚠️ CONDITIONAL — 2🔴 / 6🟡 / 3🔵.** Checked by a fresh-eyes subagent
+(author of v3.3 did not review it); headline finding independently re-verified
+in-repo by Vex (prototype line 695: `sickened` present in the 42-condition map).
+
+**Findings (summary; full report follows):**
+- 🔴 C1 — corpus seed source: v3.3's Rules Corpus section, the FROZEN section,
+  FG1, and FG3 gave four contradictory answers on where rules content is
+  seeded from (+ licensing seam: Community Use vs ORC/OGL postures).
+- 🔴 C2 — FG1's "28-condition map missing four POC conditions" claim factually
+  false against the frozen prototype it cites (42 entries, all four present at
+  cb0f397).
+- 🟡 C3 — importer behavior undefined for conditions the FG3 vocabulary can't
+  express. 🟡 A1 — seed-spell "~20" unbounded, no method/owner. 🟡 A2 — "book
+  value" source undefined, no name-matching rule. 🟡 A3 — who may designate
+  quartermaster undefined. 🟡 T1 — in-app authoring/custom lane has no
+  requirement, story, priority, or UX flow. 🟡 T2 — manual level adjust has no
+  UX coverage.
+- 🔵 C4 — P0 ops list omits Asgard. 🔵 A4 — license gate's pass condition
+  undefined, no red path. 🔵 T3 — story-criteria FR-residency convention
+  verified sound (noted, no action).
+
+**v3.4 disposition (applied same evening):**
+- C1 → **Lane split** written into the corpus section as the governing rule
+  (import = structured rows/engine corpus; Dave = display prose + templates +
+  `custom` homebrew; prototype tables = initial display-prose corpus only);
+  ruling marked as superseding earlier hand-seeding instructions; licensing
+  split by lane.
+- C2 → FG1 paragraph rewritten against the frozen baseline; phantom
+  hand-authoring work item deleted.
+- C3 → display-only import path defined (lane `imported`, tracked-manually
+  badge, never modifier rows).
+- A1 → definitive spell list = importer seed config owned by Josh; enumerated
+  examples removed. A2 → book value resolves from Foundry items corpus,
+  case-insensitive exact-name match; unmatched → manual + flagged. A3 →
+  quartermaster toggle flipped by that character's owner; party settings
+  writable by any character owner.
+- T1 → FG1 gains **Custom content entry (P0)** bullet + bounds (curation
+  editing on imported rows = P1). T2 → UX gains level-adjust bullet (header
+  control, bounds 1–20, confirm on down, visible re-derive).
+- C4 → Asgard added to P0 ops dependency list. A4 → license gate green/red
+  conditions defined; POC unaffected by red.
+- **New PRD scope law (Josh, 2026-09-18, during round-8 fixes):** the PRD
+  carries mechanism and ownership only; rules data, condition→tier mappings,
+  and content lists live in the corpus/config — FG3's tier enumeration and
+  FG1's condition-level authoring instructions de-specified accordingly (the
+  stat vocabulary contract and its worked examples stay).
+
+**Next:** round 9 re-gate on v3.4.
+
+## Round 8 Full Report (verbatim from the checker subagent)
+
+## PRD Quality Report: Hireling PRD (v3.3, 2026-09-18) — Round 8
+
+### Agent-Ready Gate: ⚠️ CONDITIONAL
+- **Corpus provenance unresolved** — the v3.3 Rules Corpus section (Foundry import, "not hand-entry") contradicts the FROZEN-prototype section, FG1, and FG3 on where tooltip/condition/item/spell content is seeded from.
+- **FG1's condition-gap claim is factually false** against the frozen prototype it cites (verified in-repo): the map is not 28 conditions and is not missing sickened/enfeebled/drained/slowed.
+- **Importer behavior undefined** for conditions the FG3 stat vocabulary cannot express.
+- **P1 specifics missing:** the seed-spell list/selection method and the "book value" data source.
+
+### Summary
+- 🔴 Critical Issues: 2
+- 🟡 Warnings: 6
+- 🔵 Info: 3
+
+### Sections Found: tl;dr; Goals (Business/User/Non-Goals); User Stories (US-1…US-9); Functional Requirements (FG1–FG6, prioritized P0/P1/P2); User Experience (Entry Point, Core Experience, Party Screens, Advanced/Edge); Narrative; Success Metrics (User/Business/Technical/Tracking Plan); Technical Considerations (Tooling, UI, API, Rules Corpus & Data Sources, Reference Prototype, Hosting, Performance, Integration Points, Key Risks)
+### Sections Missing: None
+### Story Coverage: 0 of 9 (by convention — criteria live in Functional Requirements; convention stated at L60-62, and all 9 stories' cited FG groups verified to cover them)
+
+### Overall Assessment
+The document is still structurally complete and mostly rigorous, but v3.3's two new sections were bolted on without reconciling them against each other or against FG1/FG3 — the PRD now gives two contradictory answers to "where does rules content come from," and FG1's hand-authoring work item is premised on a gap that does not exist in the frozen artifact. The self-declared "AGENT-READY" status on line 2 does not survive contact with the cited prototype. Fix the corpus-provenance cluster and re-gate.
+
+---
+
+## Detailed Findings
+
+### Conflicting Information
+
+**🔴 C1. Rules-corpus seed source: three parts of the document give contradictory answers**
+- **Where:** Technical Considerations → "Rules Corpus & Data Sources" vs. "Reference Prototype — FROZEN" vs. FG1 Rules tooltips vs. FG3 seeded spell library
+- **What:** The corpus section states: "**The rules DB is seeded by import, not hand-entry.** One-time ETL from the Foundry VTT pf2e system packs … (conditions, items, spells, feats, bestiary)" and "**Ruling 2026-09-18 (Josh):** Foundry import approved; ad-hoc accumulation rejected." But the FROZEN section (also new in v3.3) says the prototype "is frozen at merge `cb0f397`: … and **the seed corpus for tooltips/conditions/items**" — claiming the prototype seeds *conditions and items*, which the corpus section assigns to the Foundry import. FG1 still says "**The content corpus is seeded from Dave's prototype** … not a scrape and not model-generated," and FG3's P1 spell templates are "**hand-authored by Dave** in the prototype's paraphrase style … reviewed by Josh before shipping." Two v3.3 additions contradict each other, and both conflict with the pre-existing FG1/FG3 hand-authoring pipeline that the 2026-09-18 ruling ("ad-hoc accumulation rejected") appears to invalidate. A licensing seam follows the same fault line: FG1 ships paraphrase "under the Paizo Community Use Policy / ORC notice" while the corpus section licenses imported content as "ORC-licensed, pre-remaster OGL 1.0a" — two different postures for the same tooltip text depending on which pipeline wins.
+- **Why it matters:** An agent building the importer, tooltips, condition seeds, or spell library cannot determine which pipeline governs which content lane, which artifact is authoritative, or whether Dave's authoring/review steps still exist. The "Ruling" line reads as superseding FG1/FG3, but nothing says so — this is guaranteed rework on four feature groups.
+- **Suggested fix:** Draw the line explicitly and propagate it. E.g.: "Foundry import = all structured rules rows (conditions→modifiers, items, spells, feats) and the engine corpus; Dave/prototype = display prose and spell outcome templates only, lane `custom`." Then rewrite FG1's provenance paragraph, FG3's template provenance, and the FROZEN section's "seed corpus for tooltips/conditions/items" list to match, and state whether the 2026-09-18 ruling supersedes the FG1/FG3 hand-authoring instructions.
+
+**🔴 C2. FG1's condition-map claim is factually false against the frozen prototype it cites**
+- **Where:** FG1 → Rules tooltips, citing `docs/reference/lorum_ipsum_dashboard.html`
+- **What:** "The prototype's 28-condition map is missing four POC conditions (sickened, enfeebled, drained, slowed): those entries are **hand-authored by Dave in the same style** (paraphrase + AoN link + page cite) and reviewed by Josh before they ship." Verified against the frozen artifact (clean working tree at merge `cb0f397`, per the FROZEN section): the prototype's `CONDITIONS` map contains **42 entries** — not 28 — and **already includes** all four "missing" conditions, each paraphrased, page-cited, and AoN-id'd. The secondary `COND_SUM` map and `COND_GROUPS` picker in the same file also include all four. No 28-entry condition structure missing those four exists anywhere in the frozen file.
+- **Why it matters:** The paragraph creates a phantom, review-gated work item (Dave authors four entries; Josh reviews) premised on a gap that doesn't exist, misstates the seed artifact's coverage, and — combined with C1 — leaves three candidate sources for these four conditions (prototype text, Dave's new text, Foundry import). An agent that checks the cited artifact, as instructed, will find the PRD wrong.
+- **Suggested fix:** Correct the paragraph against the frozen baseline: either "the prototype's 42-condition map already covers every Player Core condition" (deleting the hand-authoring instruction), or — if the Foundry ruling means prototype text is no longer the source — rewrite the whole provenance clause per C1.
+
+**🟡 C3. Importer behavior for engine-inexpressible conditions is undefined and contradicts FG3**
+- **Where:** "Rules Corpus & Data Sources" vs. FG3 seeded effect library
+- **What:** The corpus section states categorically: "**Structured effects, not prose:** conditions/traits land as condition→stat-modifier rows the buff engine computes from (FG3); prose is display-only." But FG3 defines a manual-tracking tier with "**no engine math**, badged 'tracked manually'," because they are "ability-scoped check/DC subsets the closed vocabulary can't express." The importer cannot land those six as computable modifier rows, and the PRD never says what it does instead: import as display-only? skip? which source lane do they get?
+- **Why it matters:** The importer is sequenced "after scaffold, before FG3"; its handling of the six most common conditions is undefined at the moment it runs. QA cannot write a test for "conditions land as modifier rows" because six conditions demonstrably can't.
+- **Suggested fix:** One sentence in the corpus section: "Conditions the closed vocabulary cannot express import as display-only rows (lane `imported`, badged tracked-manually per FG3); they never produce modifier rows."
+
+**🔵 C4. P0 ops-dependency list omits Asgard, which hosts the database**
+- **Where:** FG2 → Degraded mode vs. API & Backend → Database
+- **What:** "Session-night infra health (Mimir, tunnel) is a P0 operational dependency owned by Josh" — but all live state lives in Postgres on **Asgard**. If Asgard is down, the app is down; the enumerated P0 list names only Mimir and the tunnel.
+- **Why it matters:** Session-night readiness checks built from this line will skip the single most state-critical host.
+- **Suggested fix:** Extend to "(Mimir, Asgard, tunnel)."
+
+### Ambiguous Requirements
+
+**🟡 A1. Seed-spell library composition is a tilde-quantifier with no list or method**
+- **Where:** FG3 → Seeded spell library
+- **What:** "seed the top ~20 the table actually uses — Bless, Fear, Guidance, Heal…" — no enumeration, no selection method (table vote? Josh's pick? observed cast counts?), no owner for the cut line. Four examples do not bound a set of "~-20."
+- **Why it matters:** A P1 builder cannot know what is in scope; "the table actually uses" is untestable as written.
+- **Suggested fix:** Attach the definitive list (or its selection method and decider) to the requirement, even as "the 20 spells named in the importer seed config, seeded by Josh before P1 build."
+
+**🟡 A2. "Book value" source is undefined**
+- **Where:** FG4 → Sell
+- **What:** "prompts for sale value (defaults to book value, editable for in-game negotiation)." Book value of what data source — Pathbuilder export fields, the (new) Foundry items corpus, or manual entry? And if it's corpus lookup, what matches a stash item (named in Pathbuilder inventory) to a Foundry item row? No matching rule exists anywhere in the PRD.
+- **Why it matters:** The default of a P1 money-handling feature depends on an unnamed source and an undefined name-matching rule; agents will guess differently.
+- **Suggested fix:** One clause: "book value resolves from [source]; items with no match default to [X]."
+
+**🟡 A3. Who may designate the quartermaster is undefined**
+- **Where:** FG4 → Quartermaster + Party Screens → Stash
+- **What:** "One character is designated quartermaster (owner-set, admin-style toggle); only that character's owner may sell" and "The quartermaster toggle lives in party settings (owner action)." "Owner" of what — the quartermaster character's owner, or any character owner who can reach party settings? Who can open party settings at all is never defined (no party-admin persona exists).
+- **Why it matters:** The toggle grants sell-from-stash (party money) privileges; the access-control rule an agent must implement is a guess.
+- **Suggested fix:** Name the principal: "the quartermaster character's owner flips the toggle; party settings are writable by any character owner."
+
+**🔵 A4. Licensing gate's pass condition is undefined**
+- **Where:** Rules Corpus → Licensing + Key Risks
+- **What:** "a gated verify-the-pack-license task — green before anything public." What makes it green — license text present in the repo? ORC/OGL notice rendered in-app? Legal sign-off? No fallback is stated if it cannot go green (implied: nothing ships public; POC unaffected) — the dependency has a mitigation but no failure plan.
+- **Why it matters:** "Green" is untestable as written; the gate inherits into the dice-roller public gate, so the ambiguity compounds later.
+- **Suggested fix:** Define the checklist inside the importer epic (e.g., "ORC/OGL notice file present + rendered notice in settings + pack license text archived") and state the red-path outcome.
+
+### Traceability
+
+**🟡 T1. The in-app authoring lane is a product capability with no requirement, story, priority, or UX flow**
+- **Where:** Reference Prototype — FROZEN, cross-referencing Source lanes
+- **What:** "Dave's prototype lane redirects in-app: tooltip authoring, curated entries, custom content — the v2.4 authorship ruling stands." This describes authoring/editing UI, but no FG contains it, no story asks for it, no UX flow shows it, and it carries no priority. Related: source lanes make `custom` "the first-class homebrew lane ('500 Toads' is in the reference export — proof of need)" — yet nothing in the PRD says how a `custom` row is ever created or managed. (The "v2.4 authorship ruling" itself is an internal-history reference an outside agent cannot inspect.)
+- **Why it matters:** Either in-app authoring is POC scope — then a requirement group is missing — or it isn't, and the FROZEN section overstates while the custom lane has no creation path. An agent cannot build "first-class custom lane" from what's written.
+- **Suggested fix:** Decide and place it: either an FG bullet ("custom content: create/edit `custom`-lane rows in-app, Dave-owned, P?") plus a UX flow, or a sentence deferring in-app authoring to post-POC with the interim path for creating custom rows.
+
+**🟡 T2. Manual level adjust has no UX coverage**
+- **Where:** FG1 → Manual level adjust vs. User Experience
+- **What:** "Level up/down control, scoped to **math rescale only**…" — a distinct user-facing control whose location, flow, and edge behavior (level below 1? above campaign level? interaction with re-import anchoring) appear in no UX section and no story beyond FG1's group-level tracing.
+- **Why it matters:** The "how does the user actually do this?" gap; UX and FR will drift on a P0 group.
+- **Suggested fix:** Add one UX bullet (where the control lives, its bounds, and what the user sees re-derive).
+
+### Testability
+
+**🔵 T3. Story acceptance criteria: deliberate FR-residency convention, verified**
+- **Where:** User Stories preamble
+- **What:** "Acceptance criteria for all stories live in the Functional Requirements; each story cites its covering requirement group (FG#)." Verified: all nine stories cite covering groups, and the FRs do cover each story at group level. Per calibration this is the deliberate-convention case — noted, not flagged as a defect. Requirement-side testability is strong; the untestable residue is cross-filed above (A1, A2, C3).
+
+### Categories With No Findings
+
+- **Structural Completeness:** Zero issues — all required and expected sections present, including all three Goals subsections, priorities on every FG, and UX entry/core/edge coverage.
+- **Technical Agnosticism:** Zero issues — stack choices sit under an explicit settled-house-constraints banner naming owner decisions; these read as constraints, not prescriptions.
+- **Section Completeness:** Zero issues — stories are well-formed with stable IDs; FRs carry priorities and error states; metrics have methods, targets, and timeframes.
+- **Scope Creep Detection:** Zero issues — the Foundry importer, multi-party schema, and stat density each trace to a stated goal or an explicit owner ruling; FG6 is an honestly-labeled parking lot.
+- **Persona Consistency:** Zero issues — Player/Caster/GM personas and the quartermaster role flow consistently through stories, requirements, UX, narrative, and metrics.
+- **Cross-PRD Dependencies:** Zero issues — every external dependency names its owner and mitigation; the licensing-gate criterion gap is filed as A4.
+
+## Round 8 Second Checker (independent cross-validation, same evening)
+
+A second fresh-eyes checker ran the same ruleset against v3.3 in parallel
+(dispatched when the first checker's result handle broke; kept as an
+independent sample). **Verdict: ⚠️ CONDITIONAL — 2🔴 / 6🟡 / 7🔵.**
+
+**Both checkers independently found the same two 🔴s** (corpus seeding
+authority conflict; FG1's condition-map claim false — #2 verified via git
+that the claim was never true of ANY committed revision: pre-freeze 597e803
+also had all 42 conditions). #2 additionally verified clean: cb0f397, the
+#pbExport block, "500 Toads" presence, and that "no runtime AoN" resolves
+the old runtime-AoN concern.
+
+**#2 findings beyond checker #1's set, folded into v3.4:**
+- Health endpoint: Technical Metrics measured Heimdall against an endpoint
+  no requirement defined → API & Backend now requires `GET /healthz`.
+- ETL breadth: feats/bestiary had no POC consumer → POC import tiers added
+  (conditions+items now; spells P1; feats/bestiary deferred, breadth tied to
+  the optionality goal).
+- FG4 fails the cut-test (serves neither friction tax) → scope note added:
+  table-convenience P1, cuttable if it threatens P0 schedule.
+- Party-bank manual adjustments: undefined writer (authorization hole on
+  currency) → quartermaster-only, stash screen, actor logged.
+- "the 09-26 table tool" opaque referent → "the table tool for the
+  2026-09-26 game session."
+- Manual level adjust orphan (no story hook) → marked supporting requirement
+  serving US-1 between re-exports.
+- Second-campaign success metric prejudiced by FG6 UI → scoped to the
+  data-layer verdict (zero-migration vs migration; UI is FG6 either way).
+
+**Process note (Josh catch, 2026-09-18):** the first tranche of v3.4 fixes
+was applied by hand before prd-builder was loaded — a pipeline violation;
+the remainder went through prd-builder update mode (impact table → PM
+confirm → surgical edits → this audit entry). Round 9 re-gate dispatched
+after push.
+
+# PRD Quality Report: Hireling PRD (v3.3, 2026-09-18) — Round 8
+
+### Agent-Ready Gate: ⚠️ CONDITIONAL
+
+Blockers (punch list — detail below):
+- **Two contradictory seeding authorities for the rules corpus.** The new "Rules Corpus & Data Sources" section (Foundry ETL, "not hand-entry") vs FG1/FG3 and the new freeze section ("the seed corpus for tooltips/conditions/items" = the prototype). Three sections claim authority over the same data; an agent cannot know what builds the conditions/spells/items tables.
+- **FG1's "28-condition map is missing four POC conditions" is factually false against the frozen prototype.** Verified: the map at `docs/reference/lorum_ipsum_dashboard.html` lines 655–698 contains **42 entries including sickened (695), enfeebled (689), drained (688), and slowed (696)** — each already in the mandated style (paraphrase + AoN ID + page cite). The hand-authoring mandate prescribes duplicate work against content that exists.
+- **Licensing notices unreconciled:** FG1 ships "Paizo Community Use Policy / ORC notice"; the corpus section ships "ORC-licensed / OGL 1.0a" with a gated verify task. Which notice(s), covering which content?
+
+### Summary
+- 🔴 Critical Issues: 2
+- 🟡 Warnings: 6
+- 🔵 Info: 7
+
+### Sections Found: tl;dr; Goals (Business / User / Non-Goals); User Stories (US-1…US-9, personas identified); Functional Requirements (FG1–FG6 with P0/P1/P2); User Experience (entry point, core flow, edge cases); Success Metrics (user / business / technical + tracking plan); Technical Considerations (tooling/CI, UI, API, rules corpus, prototype freeze, hosting, performance, integrations, risks); Narrative
+### Sections Missing: None
+### Story Coverage: 0 of 9 (by convention — criteria live in Functional Requirements; independently verified: the FGs do cover all nine stories)
+
+### Overall Assessment
+The round-7 core is still tight, but v3.3's new "Rules Corpus & Data Sources" subsection was bolted on without reconciling it against the document it joined — it contradicts FG1, FG3, and the equally-new freeze subsection on who seeds the corpus, and it rides alongside a factually false claim about the prototype's condition map. Fix the seeding-authority conflict and the two derivative contradictions (licensing, importer-vs-manual-tier) and this is agent-ready again.
+
+---
+
+## Detailed Findings
+
+### 1. Conflicting Information
+
+**🔴 Two contradictory seeding authorities for the rules corpus (new v3.3 section vs FG1, FG3, and the freeze section)**
+- **Where:** "Rules Corpus & Data Sources" (lines 430–441) vs FG1 "Rules tooltips" (lines 120–123), FG3 "Seeded spell library" (lines 229–232), and "Reference Prototype — FROZEN" (lines 453–454).
+- **What:** Three sections each claim, in totalizing language, to define how the rules corpus is seeded:
+  - Corpus section (line 430): "**The rules DB is seeded by import, not hand-entry.** One-time ETL from the Foundry VTT pf2e system packs (…conditions, items, spells, feats, bestiary)" — and line 439: "conditions/traits land as condition→stat-modifier rows the buff engine computes from (FG3)".
+  - FG1 (lines 120–123): "**The content corpus is seeded from Dave's prototype** — its condition and rules text (paraphrased, AoN-linked, page-cited) is the starting corpus, **not a scrape** and not model-generated." (An ETL from GitHub packs *is* a scrape-shaped import — "not a scrape" now contradicts the sanctioned path.)
+  - Freeze section (lines 453–454): the frozen prototype is "the seed corpus for tooltips/conditions/items" — assigning the prototype as seed for exactly the content ("conditions, items") the ETL section says it imports.
+  - FG3 (lines 229–232) adds a third content stream: P1 spell outcome templates "hand-authored by Dave in the prototype's paraphrase style … never model-generated" — while the ETL imports "spells" from Foundry packs that carry structured spell data.
+- **Why it matters:** A coding agent cannot determine what populates the conditions/spells/items tables. Depending on which section it obeys, it builds a Foundry ETL, a prototype-port importer, or both, and the two will collide at runtime (duplicate rows, divergent prose, undefined precedence). This is exactly the class of failure the seeding language was written to prevent.
+- **Suggested fix:** Pick one architecture and state the split explicitly, e.g.: "Foundry ETL seeds structured condition/spell/item **rows** (engine data); the frozen prototype is the seed for **tooltip prose and page/AoN citations**; Dave's hand-authoring covers only P1 spell outcome templates; where Foundry rows and prototype prose disagree, X wins." Or collapse to a single authority and rewrite the other two sections. Every "seeded from/by" sentence in the document must then agree with it.
+
+**🔴 FG1's condition-map claim is false against the frozen prototype it cites (prior-round finding independently re-verified and confirmed)**
+- **Where:** FG1 "Rules tooltips," lines 123–127.
+- **What:** "The prototype's 28-condition map is missing four POC conditions (sickened, enfeebled, drained, slowed): those entries are **hand-authored by Dave in the same style** (paraphrase + AoN link + page cite) and reviewed by Josh before they ship." Verified against the artifact: the `const CONDITIONS` map at `docs/reference/lorum_ipsum_dashboard.html` lines 655–698 contains **42 entries**, and **all four "missing" conditions are present** — `drained` (line 688), `enfeebled` (689), `sickened` (695), `slowed` (696) — each already exactly in the mandated style (`{p:<page>, id:<AoN condition ID>, t:<paraphrase>}`). Root cause checked: the pre-freeze revision (`597e803`) also had 42 entries including all four, so the claim was never true of any committed prototype version — it was not a freeze-drift artifact.
+- **Why it matters:** The requirement mandates hand-authoring four entries that already exist — guaranteed duplicate/colliding content, wasted review cycles, and wrong corpus accounting (28 vs 42). It also poisons the provenance ruling: existing Dave-authored entries would be re-authored to satisfy a false premise. Note FG3 already treats sickened as an *automatic engine seed*; its corpus entry demonstrably exists.
+- **Suggested fix:** Delete the hand-authoring mandate for the four conditions; correct the count to 42; state that the frozen map already satisfies FG1's "every Player Core condition" POC coverage. If the intent was a different four conditions, name the actually-missing ones with line-verified evidence.
+
+**🟡 Licensing notices: two regimes, no reconciliation**
+- **Where:** FG1 line 128–129 vs corpus section lines 445–448.
+- **What:** FG1: "Paraphrased rules text ships under the Paizo Community Use Policy / ORC notice in the repo." Corpus section: "remaster content is ORC-licensed, pre-remaster OGL 1.0a; the license notice ships from day one. The importer epic contains a gated verify-the-pack-license task." Two different license framings (CUP+ORC vs ORC+OGL) each claim to govern shipped rules content — and the shipped conditions corpus is precisely the content whose source is contested in the 🔴 above.
+- **Why it matters:** The licensing gate is a v3.3 headline feature; an agent can't produce "the license notice" when two sections define it differently, and compliance reviewers can't tell which content each notice covers (prototype-derived paraphrase vs Foundry-derived rows).
+- **Suggested fix:** One table or paragraph: content stream → license/notice → owner. Resolve jointly with the seeding-authority ruling — whichever source wins for conditions determines which notice covers them.
+
+**🟡 Importer behavior contradicts FG3's manual-tracking tier for non-expressible conditions**
+- **Where:** Corpus section line 439 vs FG3 "Seeded effect library," lines 207–213.
+- **What:** Corpus section: "conditions/traits land as condition→stat-modifier rows **the buff engine computes from** (FG3)." FG3: clumsy, enfeebled, stupefied, drained, slowed, stunned ship "**tracked manually** … **no engine math**" because "ability-scoped check/DC subsets the closed vocabulary can't express." So what does the importer do when the Foundry pack hands it structured modifier data for enfeebled — rows the engine "computes from" (contradicting FG3) or rows that dead-end (contradicting line 439)?
+- **Why it matters:** The importer epic is scheduled "after scaffold, before FG3" (line 449); its contract for the majority of valued conditions is undefined, and the two sections give opposite answers.
+- **Suggested fix:** State it: "Imported condition rows land regardless of expressibility; the POC engine consumes only rows expressible in the FG3 stat vocabulary; the rest are display-only until engine-v2" (or equivalent).
+
+**🔵 Second-campaign success metric is prejudiced by FG6**
+- **Where:** Business Metrics lines 368–369 vs FG2 line 139–140 and FG6 line 270.
+- **What:** Metric: "whether it onboards via config row (schema works) or demands engineering (schema failed)." But FG2 says "the POC UI only ever exposes one party," and FG6 says "Multi-party UI (Dave's second campaign **will force this**…)" — so the campaign demands engineering (UI) regardless of schema verdict, and the metric's "demands engineering" arm fires even when the schema is perfect.
+- **Why it matters:** The discriminator as worded can never return a clean "schema works" at the product level; the go/no-go signal is muddied.
+- **Suggested fix:** Scope the metric to the data layer: "Dave's campaign is creatable via config/DB rows with zero schema migration (schema works) vs. requires migration (schema failed); UI exposure is FG6 either way."
+
+### 2. Ambiguous Requirements
+
+**🟡 "The v2.4 authorship ruling stands" — ruling content absent; in-app authoring redirect has no requirement home**
+- **Where:** Freeze section, lines 456–458.
+- **What:** "Dave's prototype lane redirects in-app: tooltip authoring, curated entries, custom content — the v2.4 authorship ruling stands." The ruling itself appears nowhere in this document, and "tooltip authoring, curated entries, custom content" as in-app product surface appears in no FG — is it POC, FG6-later, or aspiration? "Curated entries" is also never defined.
+- **Why it matters:** An agent can't honor a ruling it can't read, and can't tell whether in-app authoring is build scope. As written it's either a phantom feature or an untraceable deferral.
+- **Suggested fix:** Either state the ruling in one sentence and give the authoring surface a home ("out of POC scope; FG6 candidate"), or cut the sentence to "Dave's future prototype work targets in-app authoring tools, not this file."
+
+**🔵 "the 09-26 table tool" — undefined referent with an odd date**
+- **Where:** Freeze section, line 453.
+- **What:** "frozen at merge `cb0f397`: the 09-26 table tool, the design language…" — the freeze is dated 2026-09-18 (commit verified: merged 2026-09-18 19:24), so "09-26" post-dates the freeze; presumably a game session on Sept 26, but the reader must guess.
+- **Why it matters:** Minor — an agent doesn't act on this — but it's the first noun in the sentence defining what is frozen, and it's opaque.
+- **Suggested fix:** "the table tool built for the 2026-09-26 session" (or whatever it means).
+
+**🔵 "seed the top ~20 the table actually uses — Bless, Fear, Guidance, Heal…" — open list, undefined selection method**
+- **Where:** FG3, lines 220–221.
+- **What:** Tilde-count plus ellipsis list; the actual 20 spells and how "actually uses" is determined (session tally? Josh's call?) are unstated. Content owner exists (Dave authors, Josh reviews) but the list itself has no source.
+- **Why it matters:** The P1 library epic can't start without the list; two implementers would seed two different libraries.
+- **Suggested fix:** "Josh supplies the final list (target ~20) from session tallies before the P1 epic starts; the PRD's examples are illustrative, not the spec."
+
+### 3. Technical Agnosticism
+
+Zero findings. The heavy stack prescriptions (Svelte, Rust/axum, Postgres-on-Asgard, sqlx, grizzly-gate, rust-toolkit) are explicitly framed as "settled house constraints, decided by the owners — they are not negotiable requirements open for rediscovery" (lines 391–392) and all trace to real constraints (existing lab assets, the zero-new-infrastructure business goal). Constraints, not prescriptions, under the rules' distinction.
+
+### 4. Traceability
+
+**🟡 "Manual level adjust" is an orphan requirement with no UX coverage**
+- **Where:** FG1, lines 130–133; User Stories (lines 64–89); User Experience (lines 275–335).
+- **What:** No user story cites or implies it (US-1–US-9 never mention level adjustment), and no UX flow shows where the control lives or what the user sees. It's also self-inconsistent in motivation: level-ups properly come from Pathbuilder re-export ("those require a Pathbuilder re-export," line 133), so the mid-cycle use case it serves is never stated.
+- **Why it matters:** Per the rules, requirements that trace to no story and have no UX coverage are either unjustified or missing their story/test — the "how does the user actually do this?" gap. Rounds 1–7 passed it, likely as prototype parity; fresh eyes can't find the hook.
+- **Suggested fix:** Add one story ("As a player, I want to bump my level between exports so my math is right at the table" → FG1) and one UX line (where the control lives, what it re-renders), or mark it supporting-parity explicitly.
+
+**🔵 Session-uptime metric depends on a "service health endpoint" no requirement defines**
+- **Where:** Technical Metrics, lines 377–378.
+- **What:** "measured by the existing house monitoring (Heimdall) against the service health endpoint" — no FG or Technical Considerations entry requires the backend to expose a health endpoint.
+- **Why it matters:** Trivial to build, but it's unstated scope the agent won't know it owns, and the P0 session-night dependency (FG2, line 159–160) silently rides on it.
+- **Suggested fix:** One clause in FG2/API: "the backend exposes a health endpoint for Heimdall" (or fold into the degraded-mode requirement).
+
+### 5. Section Completeness
+
+**🔵 Acceptance-criteria convention noted (not a defect)**
+- **Where:** User Stories preamble, lines 60–62.
+- **What:** "Acceptance criteria for all stories live in the Functional Requirements; each story cites its covering requirement group (FG#)." Per the rules this deliberate convention is 🔵 Info. Verified story-by-story: FG coverage genuinely exists for all nine (US-1→FG1 import/failure classes; US-2→FG2 sync; US-3→FG1 tooltips+FG3 provenance; US-4→FG2 offline tolerance; US-5→FG4 stash/sell/bank/claims; US-6→FG3 stacking; US-7→FG3 manual lifecycle; US-8→FG3 effect visibility; US-9→FG5 GM view incl. "no action required of him, ever").
+- **Why it matters:** It only holds while the FGs keep pace — the convention is one stale FG away from untestable stories (see the corpus conflict, which currently leaves FG1's tooltip criterion ambiguous about its own seed source).
+- **Suggested fix:** None required; keep the convention line and re-verify FG coverage whenever a story or FG changes.
+
+### 6. Scope Creep Detection
+
+**🔵 Foundry ETL breadth exceeds any POC consumer (feats, bestiary; items unconnected)**
+- **Where:** Corpus section, lines 430–433.
+- **What:** The ETL imports "conditions, items, spells, feats, bestiary." At POC: feats are static-from-import per FG3 (line 182–183 — i.e., they come from the *Pathbuilder* character export, not the rules DB); the bestiary serves nothing — enemies are explicit non-goals (FG3 scope fences, lines 226–228); items have no consumer unless they're the unconnected source for FG4's "book value" (see Testability below).
+- **Why it matters:** The importer is scheduled P0-adjacent ("after scaffold, before FG3," line 449); importing unconsumed corpora is machinery without a POC payoff — defensible only under the optionality goal, which the section doesn't cite.
+- **Suggested fix:** Either trim the POC ETL to conditions (+items if they feed book value) with feats/bestiary deferred, or add one sentence tying the breadth to the RPGMastermind-optionality business goal.
+
+**🔵 FG4 serves neither of the PRD's two named friction taxes (conscious P1, but untested by the cut-test)**
+- **Where:** FG4 (lines 234–248) vs tl;dr lines 13–15 / Business Goals lines 21–23.
+- **What:** The primary goal names exactly two friction taxes — buff math and "what does that do again?" — and the validation hypothesis is built on them. FG4 (stash/sell/bank/quartermaster, a story-backed US-5) serves the table's loot workflow, neither tax. The rules' cut-test ("if we cut this entirely, does the PRD still achieve its primary business goal?" — yes) flags it.
+- **Why it matters:** Low — it's P1, story-driven, and appears in the Narrative organically. But it's the one feature group that can silently grow (ledger features always do) without touching the validation hypothesis.
+- **Suggested fix:** One sentence in FG4 naming it as table-convenience scope, P1-gated, with license to cut if it threatens P0 schedule.
+
+### 7. Persona Consistency
+
+Zero findings. Player (five named), Caster (explicitly a role, not a seat), and GM (Bruce) flow consistently through stories, FGs, UX steps, and metrics ("all six accounts active (the GM needs no sheet)" measures the GM persona too). Quartermaster follows the same role pattern as Caster and is defined at point of use.
+
+### 8. Testability
+
+**🟡 FG4 sell "defaults to book value" — the stash schema carries no value field and no source is named**
+- **Where:** FG4, lines 235 and 240–243.
+- **What:** Stash model: "item, quantity, Bulk, and notes" (no value/price). Sell: "prompts for sale value (defaults to book value, editable…)". Where book value comes from is undefined — the Pathbuilder export's item data? The Foundry items corpus (imported per line 432–433 but never connected to FG4)? Nowhere?
+- **Why it matters:** QA cannot write the test for the default without a defined source, and two implementers pick different ones (silent zero vs looked-up price). This is the FG4 item-metadata gap.
+- **Suggested fix:** Name the source: "book value = price field from the Pathbuilder item entry at transfer time" (or "from the imported Foundry item corpus; unmatched items default to blank and require entry").
+
+**🟡 FG4 authorization gaps: who sets the quartermaster, who adjusts the bank**
+- **Where:** FG4, lines 244–248; Party Screens, lines 317–321.
+- **What:** (1) Quartermaster: "owner-set, admin-style toggle" + UX "the quartermaster toggle lives in party settings (owner action)" — *which* owner? The quartermaster-character's owner? Any character owner? No party-owner role is defined anywhere (FG2 defines character owners only). (2) Party bank "feeding from sales and **manual adjustments**" — who may make a manual adjustment, and via what UI? The stash screen UX covers add/transfer/sell/history but no bank-adjustment affordance.
+- **Why it matters:** Neither the happy path nor the negative test (who is refused) can be written as specified; the bank is currency — an undefined writer is an authorization hole, not just an ambiguity.
+- **Suggested fix:** "The quartermaster toggle is set by the designated character's owner (any owner may set it — pick one); manual bank adjustments are quartermaster-only, entered from the stash screen."
+
+### 9. Structural Completeness
+
+Zero findings. All required and expected sections present with required subsections; UX covers entry point, core flow, and an explicit edge-case section; every metric carries a measurement method; priorities are consistent (P0/P1/P2 per FG).
+
+### 10. Cross-PRD Dependencies
+
+Zero findings. Pathbuilder (unofficial schema — failure classes + re-export fallback stated), Foundry pf2e packs (drift risk + versioned/idempotent mitigation + gated license task), AoN (correctly downgraded to outbound links — "no runtime dependency" is now stated, resolving the old runtime-AoN concern), Authentik/Cloudflare/Mimir/Asgard/Heimdall (house-owned), rust-toolkit/grizzly-gate (Bear — vendoring/pinning explicitly removes him from the critical path). Citation spot-checks pass: `cb0f397` exists ("Merge PR #2 … FROZEN baseline", 2026-09-18), the `#pbExport` block exists (line 496), and "500 Toads" is present in the reference export as the corpus section claims.
+
+---
+
+## Gate Detail
+
+- **Specificity test: FAIL** — the corpus-seeding conflict leaves the single most load-bearing data pipeline (what builds the conditions/spells/items tables) unspecified-in-practice despite abundant specification in each individual section; FG1's tooltip requirement currently carries a factually false premise about its own seed artifact.
+- **Completeness test: PASS** — stories carry criteria via the stated FG convention (verified for all nine); UX flows cover entry/happy/error for every user-facing feature except manual level adjust (flagged 🟡); edge cases are enumerated, not deferred.
+- **Unambiguity test: FAIL** — two 🔴 findings survive the checks; priority levels themselves are conflict-free.
+
+**Verdict: ⚠️ CONDITIONAL.** The failures are localized to the v3.3 corpus subsection and its blast radius (FG1's condition-map sentence, licensing wording, FG4 metadata nits aside). One reconciling edit pass — one seeding authority, corrected map facts, one license table, the FG4 source/authorization specifics — restores the round-7 clean state. Route back to prd-builder in update mode; re-check before decomposition.
+
+*Round-8 verification artifacts: prototype condition map counted and name-checked at `docs/reference/lorum_ipsum_dashboard.html` lines 655–698; pre-freeze map checked at git `597e803`; freeze commit `cb0f397` and PRD commit `7493a84` verified (both 2026-09-18).*
