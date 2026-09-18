@@ -1,5 +1,5 @@
 # Hireling PRD
-**Status:** v3.2 (2026-09-16) — AGENT-READY (checker round 7: PASS)
+**Status:** v3.3 (2026-09-18) — rules-corpus architecture (Foundry import, source lanes, licensing) + prototype freeze · AGENT-READY
 (7 findings: layouts, GM stat density, import special-cases, PB write-back ruling,
 seeded spell library, stash sell/bank, conflict pre-warn)
 
@@ -426,6 +426,37 @@ owners — they are not negotiable requirements open for rediscovery.*
   `sqlx migrate`, checked into the repo. Local dev runs a throwaway postgres
   container via compose.
 
+### Rules Corpus & Data Sources
+- **The rules DB is seeded by import, not hand-entry.** One-time ETL from the
+  Foundry VTT pf2e system packs (`foundryvtt/pf2e` on GitHub — the community's
+  maintained machine-readable PF2e corpus: conditions, items, spells, feats,
+  bestiary), landing in an idempotent importer re-run per book release.
+  **No runtime dependency on AoN** (no API, CORS-fragile); AoN remains what
+  the prototype used it for — citation links in tooltips, harvest source for
+  one-off tables.
+- **Ruling 2026-09-18 (Josh):** Foundry import approved; ad-hoc accumulation
+  rejected.
+- **Structured effects, not prose:** conditions/traits land as
+  condition→stat-modifier rows the buff engine computes from (FG3); prose is
+  display-only.
+- **Source lanes on every rules row:** `core | imported | custom`. `custom`
+  is the first-class homebrew lane ("500 Toads" is in the reference export —
+  proof of need); importer re-runs never touch `custom` rows.
+- **Licensing:** remaster content is ORC-licensed, pre-remaster OGL 1.0a;
+  the license notice ships from day one. The importer epic contains a gated
+  verify-the-pack-license task — green before anything public (the
+  dice-roller public gate inherits it).
+- **Epic placement:** importer runs early — after scaffold, before FG3.
+
+### Reference Prototype — FROZEN (2026-09-18, PR #2)
+`docs/reference/lorum_ipsum_dashboard.html` is frozen at merge `cb0f397`:
+the 09-26 table tool, the design language (UI Architecture), and the seed
+corpus for tooltips/conditions/items. Further prototype feature branches are
+held unmerged during the app build (Josh's ruling — the prototype must not
+outgrow the product; Dave's prototype lane redirects in-app: tooltip
+authoring, curated entries, custom content — the v2.4 authorship ruling
+stands).
+
 ### Hosting & Ops
 - **Mimir** (Unraid, existing Docker host) → **cloudflared** tunnel (existing
   pattern: dwarfcampaign wiki) → **`hireling.flinntech.com`** (decided).
@@ -444,6 +475,10 @@ owners — they are not negotiable requirements open for rediscovery.*
   human-readable; unknown fields log and continue. Worst case is a manual
   re-export, never data loss (re-import preserves live state).*
 - **Archives of Nethys** — outbound reference links in tooltips (read-only).
+- **Foundry VTT pf2e system packs** — rules-corpus seed source (one-time ETL
+  per release, no runtime dependency). *Risk: pack schema evolves with
+  Foundry releases. Mitigation: importer is versioned and idempotent; re-runs
+  are additive and never overwrite `custom` rows.*
 - **Authentik** — OIDC provider (existing).
 - **Cloudflare Tunnel** — ingress (existing).
 - **Grizzly-Endeavors** — rust-toolkit (vendored configs) and grizzly-gate
@@ -456,5 +491,7 @@ owners — they are not negotiable requirements open for rediscovery.*
   worked examples. The engine is Constitution Article IV — stop-the-line on bugs.
 - **Pathbuilder schema drift:** FG1 failure classes; worst case is a manual
   re-export, never data loss.
+- **Foundry pack licensing:** ORC/OGL notice compliance — gated verify task
+  inside the importer epic; nothing ships public until it's green.
 - **Scope creep toward a combat tracker:** every roadmap conversation will want
   it. The PRD says no. Point at this line.
