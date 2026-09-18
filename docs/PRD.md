@@ -1,5 +1,5 @@
 # Hireling PRD
-**Status:** v3.0 (2026-09-16) — AGENT-READY v2.4 + Dave's review round incorporated
+**Status:** v3.1 (2026-09-16) — v3.0 + round-6 propagation fixes
 (7 findings: layouts, GM stat density, import special-cases, PB write-back ruling,
 seeded spell library, stash sell/bank, conflict pre-warn)
 
@@ -70,7 +70,8 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   on hover, so I stop interrupting the GM with rules questions. (FG1, FG3)
 - **US-4.** As a player, I want my sheet usable on my phone over spotty
   convention-hall wifi, so a dropped connection doesn't kill my turn. (FG2)
-- **US-5.** As a player, I want to dump the night's loot into a shared stash and see
+- **US-5.** As a player, I want to dump the night's loot into a shared stash —
+  and as quartermaster, sell what we don't keep into the party bank — and see
   who claimed what, so the party loot list stops living in a group chat. (FG4)
 
 ### The Caster (a role any player holds mid-session, not a separate seat)
@@ -224,7 +225,10 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   library covers party-targeted effects; effects landing on *enemies* stay
   player-managed per the non-goals (enemies aren't roster entities — modeling
   them is combat tracking). Spells outside the library stay freeform via the
-  modifier picker, exactly as P0.
+  modifier picker, exactly as P0. **Provenance:** outcome templates follow the
+  FG1 tooltip rule — hand-authored by Dave in the prototype's paraphrase
+  style (rules-accurate, AoN-linked), reviewed by Josh before shipping; never
+  model-generated straight into the product.
 
 ### Feature Group 4 — Shared Inventory (Priority: P1)
 - **Party stash:** A shared loot list with item, quantity, Bulk, and notes.
@@ -250,7 +254,8 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   no notifications, no action required of him, ever. **GM stat density (P1):**
   the party view's per-character cards extend to full glanceable stat blocks —
   current/max HP, AC, saves, Perception, spell/class DCs, initiative *modifier*,
-  key skill modifiers — all read-only. Initiative *order* and turn tracking
+  and the character's three highest skill modifiers ("key skills", auto-selected)
+  — all read-only. Initiative *order* and turn tracking
   remain non-goals (stat display is data, not combat tracking).
   **Cross-member viewing (one
   rule, everywhere):** any account can open any character's full sheet read-only
@@ -279,19 +284,25 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   - UI Elements: **Two purposeful layouts, both P0, desktop built first.** The
     desktop (PC-resolution) layout is the primary build — Dave's three-column
     prototype design. The phone/tablet layout is a dedicated at-table design
-    for one-handed use, not a responsive collapse of the desktop.
+    for one-handed use, not a responsive collapse of the desktop: its floor is
+    the prototype's existing mobile treatment (780px single-column
+    reflow), and it gets its own design pass before frontend build — reviewed
+    by Dave, whose prototype already proves the taste.
 - **Step 2:** Something changes HP — player taps +/-; the change renders locally
   instantly and syncs out.
   - Validation: HP clamped to [0, max]; temp HP absorbs damage first (standard
     PF2e order), shown as a distinct bar segment.
 - **Step 3:** Bear casts *Bless* on Josh and Becky → Bear taps "new effect" →
-  names it Bless (spells are freeform at POC; only conditions are seeded) →
-  modifier `+1 status to attack rolls` via the picker →
+  names it Bless → if it's in the seeded spell library (P1), its outcome
+  template applies automatically; otherwise it's freeform via the picker
+  (`+1 status to attack rolls`) →
   selects targets Josh, Becky → both sheets recompute, and every
   affected number shows its provenance.
   - UI Elements: effect composer (name, modifier picker from the FG3 stat
     vocabulary, duration note, target picker from party roster); effect chips on
-    each sheet.
+    each sheet. **P1 additions:** seeded-spell outcome tapper (pick degree of
+    success → effects auto-apply) and conflict flags in the target picker
+    (same-type suppression warned pre-assignment).
 - **Step 4:** Josh steps out of the aura → Bear removes Josh from targets → Josh's
   sheet reverts. No questions asked, literally.
 
@@ -301,9 +312,11 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   a card opens that character's full sheet, read-only unless you're the owner.
 - **GM view:** the party screen with zero interactive affordances. Bruce's account
   never renders an edit control.
-- **Stash (P1):** one list, three actions — add item, transfer to/from a
-  character (pick from roster), and a claim-history log view. Transfers render
-  live on both inventories.
+- **Stash (P1):** the stash screen — add item, transfer to/from a character
+  (pick from roster), sell (quartermaster only: prompts for sale value,
+  defaults to book; proceeds land in the party bank shown in the stash
+  header), and the claim-history log view. The quartermaster toggle lives in
+  party settings (owner action). Transfers render live on both inventories.
 
 ### Advanced Features & Edge Cases
 - **Conflicting effects:** Bless (+1 status) and a Bard's Inspire Courage (+1

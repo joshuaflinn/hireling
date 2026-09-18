@@ -592,3 +592,251 @@ owners and fallbacks.)*
    with SpecKit prompts, or hand the PRD (plus Dave's prototype as the UX
    reference) directly to engineering — P0 scope is small and the owners are
    the builders.
+
+---
+---
+
+# ROUND 6 RE-CHECK — Hireling PRD (v3.0, 2026-09-16)
+
+Reviewed per the `prd-checker` skill (all 10 check categories + agent-ready
+gate), run fresh against the full document. PRD: `docs/PRD.md` (v3.0 —
+"AGENT-READY v2.4 + Dave's review round incorporated": layouts, GM stat
+density, import special-cases, PB write-back ruling, seeded spell library,
+stash sell/bank, conflict pre-warn). The PRD was not modified; rounds 1–5
+content above is retained; this section is appended.
+
+## Dave's 7 Changes — Landing Verification
+
+| # | Change | Landed? | Coherence notes |
+|---|--------|---------|-----------------|
+| 1 | Two purposeful layouts, both P0, desktop first | **Yes** | UX Step 1 carries the new wording verbatim ("Two purposeful layouts, both P0, desktop built first… not a responsive collapse"); the old "collapsed to a single column" language is gone (grep-verified). FG1's live sheet UI still points at Dave's prototype as the visual/interaction baseline — consistent, since the desktop layout *is* that prototype. Entry point needs no layout mention. ⚠️ Residual: the phone/tablet layout is P0 with no design artifact — see [R6-4] |
+| 2 | GM stat density (P1) + initiative modifier vs. order ruling | **Yes, clean** | FG5 gains the P1 stat-block extension (current/max HP, AC, saves, Perception, spell/class DCs, initiative *modifier*, key skills); Non-Goals now carries the explicit "displaying an initiative *modifier* is a stat, not tracking" carve-out, and FG5 repeats "Initiative *order* and turn tracking remain non-goals." Both sections state the same rule; no contradiction. Read-only end-to-end is preserved ("all read-only"). One small undefined term — see [R6-7] |
+| 3 | Import: per-feature class-feature handling | **Yes, clean** | FG1: "handled per-feature as real imports surface them; every quirk lands as an importer test case — the reference export covers exactly one build, not the feature space." Coherent with the failure-class model (unknown fields log-and-continue) and honest about the single-build contract |
+| 4 | Pathbuilder write-back non-goal | **Yes, clean** | Non-Goals entry is fully reasoned (one-way pipe, unofficial schema, corruption risk, re-import anchoring already preserves session state). Cross-checked: nothing in FG1–FG6 writes back to PB; the re-import anchoring requirement it cites is intact. No Non-Goal→Requirement violation |
+| 5 | Seeded spell library (P1) with scope fences | **Yes, with a cross-section staleness** | FG3 lands the full mechanic (cast → degree-of-success pick → effects auto-apply) and both fences (party-targeted only; enemies aren't roster entities = combat tracking; non-library spells stay freeform "exactly as P0"). FG3 internally reconciles freeform-vs-library via that "exactly as P0" layering. ⚠️ But UX Step 3 and FG3's seed bullet still say "spells are freeform at POC / only conditions are seeded" without the P0 qualifier — and Bless, the UX walkthrough's example, is now a named library seed. See [R6-1]. Traceability: verified — US-6 (apply effect to chosen members, app does the math) covers the library flow; no new story needed. Template content provenance is undeclared — see [R6-3] |
+| 6 | FG4 sell / party bank / quartermaster | **Yes, with a UX gap** | FG4 gains all three, well-specified (sell = quartermaster-only, book-value default editable, proceeds to bank; bank = gp/sp/cp ledger from sales + manual adjustments, visible to all; quartermaster = one character, owner-set toggle, claims stay open to all). ⚠️ UX Party Screens still describes the stash as "one list, three actions" — sell, the bank view, and quartermaster designation have no UX home. See [R6-2]. Story trace is nominally intact via US-5's FG4 citation but the story text predates selling — see [R6-5]. Metrics: no new metric needed — POC metrics are deliberately table-observed and the adoption/question-count metrics already cover FG4 |
+| 7 | FG3 conflict pre-warning (P1) | **Yes, clean in FG3** | Target picker flags same-type suppression at pick time with a worked example ("Becky: +1 status active — Bless would be suppressed"); consistent with the stacking rules and the provenance section's suppressed-source display. Traces to US-6/US-8 via FG3. Minor: not reflected in the UX composer's UI-elements list — see [R6-6] |
+
+## Round 5 Disposition (the one info item)
+
+| # | Sev | Finding | Disposition | Evidence in v3.0 |
+|---|-----|---------|-------------|------------------|
+| R5-1 | 🔵 | Hand-authored tooltip entries had no named author/reviewer | **Fixed** | FG1 now reads "hand-authored **by Dave** in the same style (paraphrase + AoN link + page cite) and **reviewed by Josh** before they ship" — the suggested fix, with the named pair |
+
+**Disposition totals: 1 of 1 fixed. Round-5 baseline regression sweep:** blanket
+expansion sets intact and still partition the vocabulary; "defined expansion
+sets" stacking wording intact; two-tier seed split intact; both provenance
+examples still `Strike +14 = +13 base +1 status (Bless, from Bear)`; story IDs
+US-1…US-9 with FG#-only citations intact; roster-coverage metric grammar
+intact; `sync_roundtrip_ms` scoping intact. **No regressions against the
+round-5 PASS baseline.**
+
+## Part 1: Summary Dashboard (Round 6)
+
+### Agent-Ready Gate: ⚠️ CONDITIONAL — four targeted fixes from PASS
+
+All seven of Dave's changes landed, the round-5 baseline is regression-free,
+and the spell-library scope fences are internally coherent within FG3. The
+blockers are all *cross-section propagation* gaps — v3.0 updated the
+requirement groups but not the UX section that an agent builds screens from:
+
+- **UX Step 3 still declares "spells are freeform at POC; only conditions are
+  seeded"** while FG3's P1 library names Bless (the step's own example) as a
+  seed ([R6-1]).
+- **The stash UX flow predates sell/bank/quartermaster** — "one list, three
+  actions" vs. FG4's four-plus capabilities, with no UX home for the bank
+  ledger or the quartermaster toggle ([R6-2]).
+- **Spell outcome templates have no declared content provenance** — the same
+  class of gap that was the sole round-4 blocker, now on ~20 spells × 4
+  degrees of structured rules-derived content ([R6-3]).
+- **The phone/tablet layout is P0 with no design reference** — desktop has
+  Dave's prototype; the phone layout has one sentence of intent ([R6-4]).
+
+### Summary
+- 🔴 Critical Issues: 0
+- 🟡 Warnings: 4
+- 🔵 Info: 3
+
+### Sections Found:
+tl;dr, Goals (Business/User/Non-Goals), User Stories (US-1–US-9, with
+convention statement), Functional Requirements (P0–P2, six feature groups),
+User Experience (entry point, core flow, party screens, edge cases),
+Narrative, Success Metrics (+ Tracking Plan), Technical Considerations
+(Tooling, UI, API/Backend, Hosting, Performance, Integration Points, Key
+Risks)
+
+### Sections Missing: None
+
+### Story Coverage: 9 of 9 user stories carry acceptance criteria (by
+convention — criteria live in the Functional Requirements; convention stated
+explicitly and every story cites its covering FG#; all nine citations
+re-verified; the new P1 capabilities trace through existing citations — spell
+library and conflict pre-warning via US-6/US-8 → FG3, sell/bank via
+US-5 → FG4)
+
+### Overall Assessment
+v3.0 is a good review round landed slightly shallow: every change is coherent
+inside its home section, the write-back and initiative rulings are stated in
+both places they matter, and nothing regressed — but the UX section wasn't
+updated for three of the seven changes, and the spell library inherited the
+exact content-provenance gap that blocked round 4. Four short fixes (two
+sentences in UX, one provenance line, one design-source line) and this
+returns to PASS.
+
+---
+
+## Part 2: Detailed Findings (Round 6 — fresh full check)
+
+### 2. Conflicting Information
+
+**[R6-1] 🟡 "Spells are freeform at POC; only conditions are seeded" is stale against the P1 spell library**
+- **Where:** UX Core Experience Step 3 — "names it Bless (spells are freeform
+  at POC; only conditions are seeded)"; FG3 seeded effect library — "Spells
+  and other sources are freeform at POC" vs. FG3 seeded spell library (P1) —
+  "seed the top ~20 the table actually uses — Bless, Fear, Guidance, Heal…".
+- **What:** P1 is in POC scope (FG4 stash is P1 and ships in the POC; GM stat
+  density is P1), so "at POC" now includes the spell library — and the UX
+  walkthrough's own example spell, Bless, is a named library seed. FG3
+  internally reconciles the layering ("Spells outside the library stay
+  freeform… exactly as P0"), but the UX step and the seed bullet assert the
+  pre-library world without the priority qualifier. Round 3 flagged the milder
+  inverse of this as [R3-2] 🔵; v3.0 made it materially more wrong.
+- **Why it matters:** An agent building the composer from the UX flow ships a
+  freeform-only Bless; an agent building from FG3 P1 ships a seeded Bless with
+  a degree-of-success picker. The correct layering is recoverable from FG3,
+  but the flagship walkthrough now misstates POC scope on the product's
+  flagship feature.
+- **Suggested fix:** Qualify both spots — UX Step 3: "(spells freeform at P0;
+  the P1 spell library seeds Bless — see FG3)"; FG3 seed bullet: "freeform
+  outside the P1 spell library." One clause each.
+
+### 5. Traceability (Requirements → UX)
+
+**[R6-2] 🟡 UX stash flow predates sell / party bank / quartermaster**
+- **Where:** UX Party Screens — "**Stash (P1):** one list, three actions — add
+  item, transfer to/from a character (pick from roster), and a claim-history
+  log view" vs. FG4 — "**Sell:** Quartermaster-only action…", "**Party
+  bank:** Shared currency ledger (gp/sp/cp)… visible to all party members",
+  "**Quartermaster:** One character is designated quartermaster (owner-set,
+  admin-style toggle)".
+- **What:** FG4 now has four-plus capabilities; the UX flow still enumerates
+  exactly three actions. Sell has no entry point in any described screen; the
+  bank ledger is "visible to all" but has no named home; the quartermaster
+  toggle's location is unspecified; and two edge cases are silent — what
+  happens with no quartermaster designated (sell disabled? blocked at
+  designation?), and whether a sale writes a claim-history entry (the log's
+  shape is `{item, quantity, from, to, actor, timestamp}` — a sale's "to" is
+  the bank, which is not a character).
+- **Why it matters:** The stash screen is built straight from this paragraph;
+  as written the agent builds the v2.4 stash and the three new FG4 bullets
+  have no screen to land on.
+- **Suggested fix:** Extend the stash paragraph: add sell (visible/enabled
+  only to the quartermaster's owner; disabled with a reason when no
+  quartermaster is designated), the bank ledger view (running balance +
+  adjustment entries), where the quartermaster toggle lives, and one line
+  stating sales append to the claim-history log with `to: party bank`.
+
+### 3. Ambiguous Requirements / 6. Section Completeness
+
+**[R6-3] 🟡 Spell outcome templates have no declared content provenance (R4-1-class gap)**
+- **Where:** FG3 seeded spell library — spells "carry structured outcome
+  templates: cast → the composer offers the spell's degrees of success… → the
+  defined effects apply to the chosen targets automatically." No statement of
+  who defines those per-degree effect sets or how they're reviewed.
+- **What:** Round 4's sole gate blocker ([R4-1]) was exactly this shape:
+  rules-derived content with an undeclared source, sitting on the engine.
+  v3.0 re-introduces the pattern at larger scale — ~20 spells × up to 4
+  degrees of structured effect content, where a wrong template is wrong math
+  on the stop-the-line engine. FG1's provenance rule ("hand-authored by Dave,
+  reviewed by Josh, never model-generated") covers tooltip *text* only; the
+  templates are mechanical content and fall outside it.
+- **Why it matters:** An agent's options are to derive the templates from
+  Player Core/AoN itself (model-generated rules content — the thing FG1 bans
+  for tooltips, on a product whose purpose is killing rules errors) or to
+  block and ask. Choosing is a PM call, not an agent call.
+- **Suggested fix:** One sentence in the library bullet, mirroring the FG1
+  carve-out: "Outcome templates are hand-authored by Dave from Player Core
+  and reviewed by Josh before they ship — never model-generated." (Any named
+  pair works.)
+
+**[R6-4] 🟡 Phone/tablet layout declared P0 with no design reference or described flow**
+- **Where:** UX Step 1 — "Two purposeful layouts, both P0, desktop built
+  first… The phone/tablet layout is a dedicated at-table design for one-handed
+  use, not a responsive collapse of the desktop." User Goals — "Use it
+  one-handed on a phone, mid-combat."
+- **What:** The desktop layout has a buildable reference (Dave's prototype,
+  cited in FG1 and UX). The phone layout — same priority — has one sentence of
+  intent and no design artifact, no described flow differences, no named
+  author. The pre-v3.0 wording ("collapsed to a single column") was at least
+  an implementable rule; the new wording raises scope (a second purposeful
+  design) while removing the only implementable guidance.
+- **Why it matters:** An agent asked to build P0 scope must invent the phone
+  UX — product design by agent, the failure mode this document has spent five
+  rounds eliminating. "Desktop built first" defers but does not resolve it.
+- **Suggested fix:** One line naming the source and gate, e.g.: "The phone
+  layout is designed by Dave (prototype artifact to land in `docs/reference/`
+  like the desktop baseline) before phone build starts; agents do not derive
+  it from the desktop layout." Or explicitly mark it "design pending."
+
+### 5. Traceability (Stories → Requirements)
+
+**[R6-5] 🔵 US-5's text predates selling and the party bank**
+- **Where:** User Stories — US-5 "dump the night's loot into a shared stash
+  and see who claimed what, so the party loot list stops living in a group
+  chat" (FG4) vs. FG4's new sell/bank/quartermaster capabilities.
+- **What:** Traceability is nominally intact via the FG# citation convention,
+  and round precedent (finding 13, round 1) accepted story-per-group
+  coverage. But the story's action and benefit describe deposit-and-claim
+  only; quartermaster-gated selling and treasury management are a distinct
+  table need the story text never mentions.
+- **Suggested fix:** Broaden US-5's wording ("…sell loot into a shared party
+  bank, so the party loot list and treasury stop living in a group chat") —
+  one clause, no new story needed.
+
+**[R6-6] 🔵 FG3's P1 composer additions absent from the UX composer's UI-elements list**
+- **Where:** UX Step 3 UI Elements — "effect composer (name, modifier picker
+  from the FG3 stat vocabulary, duration note, target picker from party
+  roster)" vs. FG3's new conflict pre-warning (target-picker conflict flags)
+  and spell library (degree-of-success picker replacing manual modifier
+  definition for library spells).
+- **What:** Both P1 additions change the composer's interaction surface; the
+  UX description lists neither. Lower-stakes than [R6-1]/[R6-2] because FG3
+  fully specifies the behavior — this is a screen-inventory gap, not a
+  behavioral contradiction.
+- **Suggested fix:** Extend the parenthetical: "…target picker from party
+  roster (with same-type conflict flags, P1); for library spells (P1), a
+  degree-of-success picker replaces the modifier picker."
+
+### 3. Ambiguity (minor)
+
+**[R6-7] 🔵 GM stat density "key skills" subset undefined**
+- **Where:** FG5 — "current/max HP, AC, saves, Perception, spell/class DCs,
+  initiative *modifier*, key skill modifiers."
+- **What:** Every other element of the GM card is a defined stat; "key skills"
+  is an undefined subset of the ~17 PF2e skills.
+- **Suggested fix:** Define it in a phrase — e.g. "key skills = the
+  character's trained skills" or "the top 4 skills by modifier."
+
+*(Categories 1, 4, 7, 8, 9, 10: no new findings. Structural completeness is
+full. Stack prescriptions remain marked as settled house constraints. No scope
+creep: the spell library and conflict pre-warning serve the core buff-math
+goal directly; sell/bank serves US-5's loot-list goal; GM stat density serves
+US-9 — every addition traces to a stated goal, and the initiative-order
+re-ban keeps the combat-tracker line held. Personas flow through UX unchanged;
+the GM persona's read-only constraint survived the stat-density addition.
+Testability of pre-existing requirements unaffected. External deps unchanged —
+Pathbuilder, Authentik, Cloudflare, Grizzly-Endeavors, Asgard all still carry
+owners and fallbacks; the PB write-back non-goal strengthens the Pathbuilder
+dependency story rather than adding to it.)*
+
+---
+
+## Round 6 Next Steps
+
+1. Back to **prd-builder** in update mode for the four warnings: [R6-1] and
+   [R6-2] are the cross-section propagation fixes (two UX sentences); [R6-3]
+   is one provenance sentence mirroring the FG1 tooltip carve-out; [R6-4] is
+   one line naming the phone layout's design source/owner (Dave) and gate.
+2. The three 🔵 items are single-line edits; batch them into the same pass.
+3. Re-check after that pass is expected to restore ✅ PASS — the v3.0 content
+   decisions themselves are all sound; only their propagation is incomplete.
