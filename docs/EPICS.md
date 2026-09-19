@@ -30,7 +30,7 @@ endpoints, stash/bank reconciliation granularity, key-skills tie-break.
 | 3 | — | E13 Seeded spell library + conflict pre-warn (FG3 P1) | P1 | E8 | outcome templates, degrees-of-success tapper, pick-time warnings |
 | 3 | — | E14 GM stat density (FG5 P1) | P1 | E10 | full stat-block cards, key skills, initiative modifier |
 | 3 | — | E15 Curation editing (FG1 P1) | P1 | E9 | prose editing on imported rows |
-| 4 | — | P2 parking lot | P2 | — | phone/tablet layout · dice roller · multi-party UI · GM encounter view |
+| 4 | — | P2 parking lot | P2 | — | phone/tablet layout · dice roller · multi-party UI · GM encounter view · scenario-aware sheet views (issue #19) |
 
 ## Parallel Execution Map
 
