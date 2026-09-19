@@ -4,7 +4,8 @@ Party-linked Pathfinder 2e character tracker. Pathbuilder imports, live buff
 propagation across the party, shared inventory, PWA.
 
 Status: scaffolding. Spec: `docs/PRD.md`. Law: `CONSTITUTION.md`.
-Agent rules: `AGENTS.md` + `docs/toolkit-conventions.md`.
+Roadmap: `docs/ROADMAP.md` (includes the ideas inbox — drop anything, no
+format police). Agent rules: `AGENTS.md` + `docs/toolkit-conventions.md`.
 
 ## Development
 
