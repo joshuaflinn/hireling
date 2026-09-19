@@ -1,5 +1,5 @@
 # Hireling PRD
-**Status:** v3.5 (2026-09-18) — round-9 product-level fixes folded (custom-entry write model + UX flow + display-only behavior; spells import tier dropped); builder-level detail deferred to decomposition · ready to decompose
+**Status:** v3.6 (2026-09-18) — phone/tablet layout moved to P2 (desktop is the POC build target); decomposition input for docs/EPICS.md
 (7 findings: layouts, GM stat density, import special-cases, PB write-back ruling,
 seeded spell library, stash sell/bank, conflict pre-warn)
 
@@ -31,7 +31,9 @@ door open to feed RPGMastermind later without committing to it now.
 - Never manually recompute a stat because someone cast something.
 - Never ask "what does that condition do again?" — the answer is one hover away.
 - Trust that what I see on my sheet is what the party sees, right now.
-- Use it one-handed on a phone, mid-combat, without a tutorial.
+- Use it one-handed on a phone, mid-combat, without a tutorial. *(Phone
+  layout deferred to P2 — POC build target is desktop; offline resilience
+  remains P0 and device-agnostic.)*
 
 ### Non-Goals
 - **Character builder.** Pathbuilder owns character creation. Import only, forever
@@ -285,6 +287,9 @@ ever threatens P0 schedule.*
   display mode.
 
 ### Feature Group 6 — Later (Priority: P2)
+- **Phone/tablet layout** (moved from P0, 2026-09-18 — Josh): dedicated
+  one-handed at-table design; floor = the prototype's 780px single-column
+  reflow; design pass reviewed by Dave.
 - **Dice roller** (MVP+1; only if the table asks, which they won't — public-release feature).
 - **Multi-party UI** (Dave's second campaign will force this; schema is ready).
 - **GM encounter view** (only if Bruce asks; default remains zero-GM-work).
@@ -302,13 +307,12 @@ ever threatens P0 schedule.*
 
 ### Core Experience (at the table)
 - **Step 1:** Player opens the PWA → their sheet, current as of last sync.
-  - UI Elements: **Two purposeful layouts, both P0, desktop built first.** The
-    desktop (PC-resolution) layout is the primary build — Dave's three-column
-    prototype design. The phone/tablet layout is a dedicated at-table design
-    for one-handed use, not a responsive collapse of the desktop: its floor is
-    the prototype's existing mobile treatment (780px single-column
-    reflow), and it gets its own design pass before frontend build — reviewed
-    by Dave, whose prototype already proves the taste.
+  - UI Elements: **Desktop layout is the POC build target.** The desktop
+    (PC-resolution) layout is Dave's three-column prototype design. The
+    dedicated phone/tablet one-handed layout is **P2** (moved from P0,
+    Josh 2026-09-18) — its floor is the prototype's existing mobile
+    treatment (780px single-column reflow), with a design pass reviewed by
+    Dave when that epic opens.
 - **Step 2:** Something changes HP — player taps +/-; the change renders locally
   instantly and syncs out.
   - Validation: HP clamped to [0, max]; temp HP absorbs damage first (standard
