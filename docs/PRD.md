@@ -1,5 +1,5 @@
 # Hireling PRD
-**Status:** v3.4 (2026-09-18) — round-8 reconciliation: corpus lane-split supersedes hand-seeding, rules-data de-specified from document (mechanism + ownership only), custom-lane entry P0 · pending re-gate
+**Status:** v3.5 (2026-09-18) — round-9 product-level fixes folded (custom-entry write model + UX flow + display-only behavior; spells import tier dropped); builder-level detail deferred to decomposition · ready to decompose
 (7 findings: layouts, GM stat density, import special-cases, PB write-back ruling,
 seeded spell library, stash sell/bank, conflict pre-warn)
 
@@ -129,9 +129,13 @@ Functional Requirements; each story cites its covering requirement group (FG#).
   custom item, spell, or condition entries with minimal fields (name, level
   or value where applicable, one-line description). This is the homebrew
   path ("500 Toads"-class content must be representable at the first
-  session, or the caster seat fails for the party's actual sheet). Curation
-  editing of prose on imported rows is P1. Dave owns the custom lane's
-  content; the form is available to every character owner.
+  session, or the caster seat fails for the party's actual sheet).
+  **Write model:** custom rows are creator-owned — any character owner may
+  create; the creator is that row's sole writer (FG2 semantics); Dave is
+  the custom lane's curation lead, not its gate. **Runtime behavior:**
+  custom rows are display/tracking entries (badged tracked-manually);
+  homebrew engine math goes through the freeform effect composer at P0.
+  Curation editing of prose on imported rows is P1.
 - **Manual level adjust:** Level up/down control, scoped to **math rescale only** —
   proficiency bonuses, HP, and class DC scaling re-derive from level (the
   prototype's model). Ability boosts, feats, and skill increases are **not**
@@ -336,6 +340,12 @@ ever threatens P0 schedule.*
   party settings (owner action). Transfers render live on both inventories.
 
 ### Advanced Features & Edge Cases
+- **Custom content entry flow:** "Add custom" affordances sit at the point of
+  use — the item context (inventory/stash), the caster's spell composer, and
+  the condition picker. The minimal-fields form (name, level/value, one-line
+  description) creates a `custom`-lane row that surfaces immediately where it
+  was created and joins the relevant picker for the whole party, badged
+  `custom`.
 - **Conflicting effects:** Bless (+1 status) and a Bard's Inspire Courage (+1
   status) don't stack — the sheet shows `+1 status (Bless)` and names the
   suppressed source in the breakdown.
@@ -458,10 +468,10 @@ owners — they are not negotiable requirements open for rediscovery.*
   the prototype used it for — citation links in tooltips, harvest source for
   one-off tables.
 - **POC import tiers:** **conditions and items** import at POC (items feed
-  FG4 book value); **spells** unlock at P1 (seed library); **feats and
-  bestiary** are importer-capable but deferred — no POC consumer (feats
-  arrive via Pathbuilder export; enemies are non-goals). The full breadth
-  serves the optionality business goal, not POC features.
+  FG4 book value); **spells, feats, and bestiary** are importer-capable but
+  deferred until a consumer exists — the P1 seed library is config- and
+  template-driven (Josh's list + Dave's templates), not import-driven; feats
+  arrive via Pathbuilder export; enemies are non-goals.
 - **Ruling 2026-09-18 (Josh):** Foundry import approved; ad-hoc accumulation
   rejected. **This ruling supersedes earlier hand-seeding instructions
   elsewhere in this document.**

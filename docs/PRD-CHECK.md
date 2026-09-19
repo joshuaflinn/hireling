@@ -1345,3 +1345,27 @@ Zero findings. Pathbuilder (unofficial schema — failure classes + re-export fa
 **Verdict: ⚠️ CONDITIONAL.** The failures are localized to the v3.3 corpus subsection and its blast radius (FG1's condition-map sentence, licensing wording, FG4 metadata nits aside). One reconciling edit pass — one seeding authority, corrected map facts, one license table, the FG4 source/authorization specifics — restores the round-7 clean state. Route back to prd-builder in update mode; re-check before decomposition.
 
 *Round-8 verification artifacts: prototype condition map counted and name-checked at `docs/reference/lorum_ipsum_dashboard.html` lines 655–698; pre-freeze map checked at git `597e803`; freeze commit `cb0f397` and PRD commit `7493a84` verified (both 2026-09-18).*
+
+## Round 9 Disposition (2026-09-18, same evening — Josh: "just decompose it now")
+
+Round 9 verified all 12 round-8 fixes hold (both criticals dead). Its
+residue split two ways:
+
+**Product-level → folded into v3.5 (prd-builder, surgical):**
+- CI-1/TR-1/AM-1 (the gate cluster): custom-entry write model = creator-owned
+  rows (FG2 sole-writer semantics; Dave = curation lead, not gate); custom
+  rows = display/tracking entries badged tracked-manually, homebrew math via
+  the freeform composer at P0; UX flow added ("Add custom" at point of use,
+  rows surface inline + in pickers, party-visible, badged `custom`).
+- AM-4: spells dropped from import tiers — the P1 seed library is config-
+  and template-driven, not import-driven.
+
+**Builder-level → deferred to decomposition (the spec-stage owns them):**
+AM-2 metric endpoints/window, AM-3 stash/bank reconciliation granularity,
+AM-5 phone-pass contract floor, AM-6 key-skills tie-break, AM-7 wording,
+AM-8 meta-reference trims, XD-1 Dave fallback clause. Rationale (Josh
+ruling): the PRD had drifted toward spec/plan under nine rounds of the
+agent-ready gate — our pipeline decomposes before building, and SpecKit
+specs/plans are where builder detail lives. The checker reports are
+attached as spec-stage input. No round 10; PRD's bar = decomposable.
+
