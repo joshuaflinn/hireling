@@ -2,6 +2,6 @@
   "version": 1,
   "projects": [
     { "language": "rust", "path": "." },
-    { "language": "node", "path": "web", "tsconfig": "web/tsconfig.json" }
+    { "language": "node", "path": "web", "tsconfig": "tsconfig.json" }
   ]
 }
