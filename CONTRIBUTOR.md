@@ -6,6 +6,10 @@ is the agent side; `CONSTITUTION.md` governs both.
 
 ## The loop
 
+0. **Documentation updates are exempt** (Josh, 2026-09-18). Routine docs —
+   README, ROADMAP, EPICS notes, typo fixes — land directly on `main`. No
+   issue, no branch, no PR. Two exceptions stay inside the loop: `docs/PRD.md`
+   (PRD changes are PRs) and `CONSTITUTION.md` (both owners, always).
 1. **Pick a GitHub Issue.** Work that's not an issue doesn't exist. If you have an
    idea, file it — triage is a conversation, not a gate.
 2. **Branch.** `issue-<n>-<slug>` off `main`. One issue, one branch, one PR.
