@@ -8,20 +8,27 @@
 //! modules always are.
 
 pub mod config;
+pub mod health;
+pub mod http;
 
 use anyhow::Context as _;
 
 use crate::config::Settings;
 
-/// Run the application.
+/// Run the application: load settings, then serve until shutdown.
 ///
 /// # Errors
 ///
-/// Returns an error if settings cannot be read from the environment.
-pub fn run() -> anyhow::Result<()> {
+/// Returns an error if settings cannot be read from the environment, the
+/// port cannot be bound, or the server fails.
+pub async fn run() -> anyhow::Result<()> {
     let settings = Settings::from_process_env().context("failed to load settings")?;
 
-    tracing::info!(log_level = %settings.log_level, "starting");
+    tracing::info!(
+        log_level = %settings.log_level,
+        version = health::VERSION,
+        "starting"
+    );
 
-    Ok(())
+    http::serve(&settings).await
 }

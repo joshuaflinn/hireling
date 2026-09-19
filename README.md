@@ -9,16 +9,32 @@ Agent rules: `AGENTS.md` + `docs/toolkit-conventions.md`.
 ## Development
 
 ```sh
+just dev       # build the frontend, run the backend (serves API + UI on :3000)
+just db        # start the throwaway dev Postgres on :5432
+just test      # tests
+just gate      # the full local gate (same checks as CI)
+```
+
+Every recipe is also a plain cargo/npm command — `just` is convenience, not
+required:
+
+```sh
+npm --prefix web run build                                # build the frontend
 cargo run                                                 # run the server
 cargo test --quiet                                        # tests
 cargo fmt --all                                           # format
 cargo clippy --all-targets --all-features -- -D warnings  # lint
 cargo deny check                                          # audit dependencies
+docker compose up -d db                                   # dev Postgres
 ```
 
-With [just](https://github.com/casey/just) installed, `just ci-local` runs the
-full local gate. Git hooks enforce the same checks on every commit — install
-them once per clone with `./.githooks/install.sh`.
+Configuration is env-var driven, with local-dev defaults — `HIRELING_PORT`
+(3000), `HIRELING_DATABASE_URL` (the compose Postgres), `HIRELING_STATIC_DIR`
+(`web/dist`), `RUST_LOG` (`info`). `GET /healthz` answers 200 with the build
+version and never touches the database.
+
+Git hooks enforce the gate on every commit — install them once per clone with
+`./.githooks/install.sh`.
 
 CI runs [grizzly-gate](https://github.com/Grizzly-Endeavors/grizzly-gate)
 (standalone mode) on every PR. The gate is the first reviewer; a human is the

@@ -9,16 +9,19 @@ use std::process::ExitCode;
 
 use tracing_subscriber::EnvFilter;
 
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     // Tracing comes up before anything else so that even early failures land
-    // somewhere. `RUST_LOG` controls the filter; default to `info`.
+    // somewhere. `RUST_LOG` controls the filter; default to `info`. Logs are
+    // JSON on every environment so whatever scrapes them gets one shape.
     tracing_subscriber::fmt()
+        .json()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
-    match hireling::run() {
+    match hireling::run().await {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             // Both channels on purpose: the structured record is for whatever

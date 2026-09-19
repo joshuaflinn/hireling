@@ -58,6 +58,49 @@ fn non_utf8_log_level_is_an_error() {
     );
 }
 
+#[test]
+fn server_settings_have_dev_defaults() {
+    let settings = Settings::from_env(&env_with(&[])).unwrap();
+
+    assert_eq!(settings.port, 3000, "default port should be 3000");
+    assert_eq!(
+        settings.database_url, "postgres://hireling:hireling@127.0.0.1:5432/hireling",
+        "default database URL should point at the local throwaway Postgres"
+    );
+    assert_eq!(
+        settings.static_dir,
+        std::path::Path::new("web/dist"),
+        "default static dir should be the frontend build output"
+    );
+}
+
+#[test]
+fn server_settings_are_read_from_the_environment() {
+    let settings = Settings::from_env(&env_with(&[
+        ("HIRELING_PORT", "8080"),
+        ("HIRELING_DATABASE_URL", "postgres://example/hireling"),
+        ("HIRELING_STATIC_DIR", "/srv/hireling/static"),
+    ]))
+    .unwrap();
+
+    assert_eq!(settings.port, 8080);
+    assert_eq!(settings.database_url, "postgres://example/hireling");
+    assert_eq!(
+        settings.static_dir,
+        std::path::Path::new("/srv/hireling/static")
+    );
+}
+
+#[test]
+fn a_non_numeric_port_is_an_error() {
+    let result = Settings::from_env(&env_with(&[("HIRELING_PORT", "not-a-port")]));
+
+    assert!(
+        result.is_err(),
+        "a HIRELING_PORT that is not a number should be reported, not silently dropped"
+    );
+}
+
 /// An `OsString` that cannot be converted to a `String`.
 #[cfg(unix)]
 fn invalid_utf8() -> OsString {
