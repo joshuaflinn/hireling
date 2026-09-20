@@ -1,13 +1,18 @@
 # Hireling — Epic Decomposition
 
-Generated 2026-09-18 from PRD v3.6 (`docs/PRD.md`). SpecKit's two-step
-specify→plan flow is retired (Josh) — each epic carries **one specify
-prompt**, with the PRD's settled tech constraints folded in as a
-**Constraints** block so nothing is lost by skipping the plan step. AI
-Guardrails carry the implicit engineering requirements the PRD doesn't spell
-out. Checker reports (rounds 8–9, `docs/PRD-CHECK.md`) flagged builder-level
-detail that intentionally lives HERE and downstream, not in the PRD: metric
-endpoints, stash/bank reconciliation granularity, key-skills tie-break.
+Generated 2026-09-18 from PRD v3.6 (`docs/PRD.md`). Each epic carries **one
+specify prompt**, with the PRD's settled tech constraints folded in as a
+**Constraints** block. AI Guardrails carry the implicit engineering
+requirements the PRD doesn't spell out. Checker reports (rounds 8–9,
+`docs/PRD-CHECK.md`) flagged builder-level detail that intentionally lives
+HERE and downstream, not in the PRD: metric endpoints, stash/bank
+reconciliation granularity, key-skills tie-break.
+
+**The feature pipeline (Josh, 2026-09-18):** every epic runs
+**specify → clarify → brainstorm → plan → subagent development**, with a
+human approval gate at each arrow. The specify prompt in each issue feeds
+step one; the spec is not a build order. (E1 was grandfathered in as
+scaffolding before this ruling.)
 
 **Build order:** Phase 0 → 1 → 2 (go-live) → 3 (P1) → 4 (P2 placeholders).
 
