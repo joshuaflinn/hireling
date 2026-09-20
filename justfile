@@ -5,9 +5,30 @@ set shell := ["bash", "-cu"]
 
 default: ci-local
 
-# Run the binary. Args after `--` go to the program: `just run --help`
+# Run the full local stack: build the frontend, then run the backend
+# (which serves API + the built bundle on :3000).
+dev: web-build
+    cargo run
+
+# Run the backend only, against an already-built frontend.
 run *args:
     cargo run -- {{ args }}
+
+# Build the frontend bundle into web/dist.
+web-build:
+    npm --prefix web run build
+
+# Vite dev server for frontend-only iteration (proxies nothing; use `just dev`
+# for the real full-stack path).
+web-dev:
+    npm --prefix web run dev
+
+# Start the throwaway dev Postgres on :5432 (destroyed by `just db-down`).
+db:
+    docker compose up -d db
+
+db-down:
+    docker compose down
 
 test:
     cargo test --quiet
@@ -26,6 +47,9 @@ deny:
 
 # The full local gate. Run this before pushing.
 ci-local: fmt-check lint test deny
+
+# Alias — same gate, the name the spec calls it by.
+gate: ci-local
 
 # Install the git hooks (once per clone, and once per new worktree is harmless).
 hooks:

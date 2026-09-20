@@ -1,0 +1,12 @@
+# Local development only. The production database is a dedicated hall on the
+# house Postgres (Asgard); this container is the throwaway twin for the dev
+# loop — no volume, so `docker compose down` destroys everything in it.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hireling
+      POSTGRES_PASSWORD: hireling
+      POSTGRES_DB: hireling
+    ports:
+      - "5432:5432"

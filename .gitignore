@@ -14,3 +14,10 @@
 
 # grizzly-gate local report output
 grizzly-gate-report/
+
+# Frontend
+web/node_modules/
+web/dist/
+
+# grizzly-gate local toolchain install dir
+web/.grizzly-gate.node_modules/
