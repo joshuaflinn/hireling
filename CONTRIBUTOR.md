@@ -34,12 +34,15 @@ is the agent side; `CONSTITUTION.md` governs both.
 
 - **Rust** stable via [rustup](https://rustup.rs) — `rust-toolchain.toml` pins the
   channel and pulls `rustfmt` + `clippy` automatically.
+- **Node.js 20+ with npm** — the frontend build (`npm --prefix web run build`,
+  wrapped by `just dev`) needs it.
 - **cargo-deny** — prebuilt binary from EmbarkStudios/cargo-deny releases, or
   `cargo install cargo-deny`. The pre-commit hook skips the audit without it, but
   CI doesn't.
 - **just** — optional convenience; every recipe is also a plain cargo command.
-- **docker** — for running the grizzly-gate check locally exactly as CI does:
+- **docker** — two uses: the throwaway dev Postgres (`just db` wraps
+  `docker compose up -d db`), and running the grizzly-gate check locally exactly
+  as CI does:
   `docker run --rm -v "$PWD:/src" -v grizzly-gate-cache:/cache -w /src <pinned image> --source /src`
 - **Git hooks:** `./.githooks/install.sh` once per clone. Bypassing with
   `--no-verify` is forbidden.
-- **Local postgres** for backend dev lands with the database work (compose).

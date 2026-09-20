@@ -35,8 +35,10 @@ async fn healthz_returns_200_with_the_version_payload() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["status"], "ok");
-    assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(
+        json,
+        serde_json::json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") })
+    );
 }
 
 #[tokio::test]

@@ -34,8 +34,10 @@ const DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
 /// frontend bundle is missing. Everything else is served from `static_dir`;
 /// paths that match no file get the shell page so client-side routing works.
 pub fn router(static_dir: &Path) -> Router {
+    // `.fallback`, not `.not_found_service`: the latter wraps the fallback in
+    // a forced 404 status, which serves the shell page marked as an error.
     let frontend =
-        ServeDir::new(static_dir).not_found_service(ServeFile::new(static_dir.join("index.html")));
+        ServeDir::new(static_dir).fallback(ServeFile::new(static_dir.join("index.html")));
 
     // Layer order reads bottom-up on the request path: the request-id setter
     // runs first (so the header exists), propagation copies it to the
@@ -143,3 +145,7 @@ async fn shutdown_signal() {
         _received = terminate.recv() => {}
     }
 }
+
+#[cfg(test)]
+#[path = "tests/http.rs"]
+mod tests;
