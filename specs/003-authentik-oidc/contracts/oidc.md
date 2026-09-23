@@ -17,7 +17,9 @@ read-only `GET`s only; Authentik is never written from this repo.
 ## 1. Captured fixture — discovery (verbatim)
 
 `GET https://auth.flinntech.com/application/o/hireling/.well-known/openid-configuration`
-→ 200, captured 2026-09-23:
+→ 200, captured 2026-09-23 (re-captured after the §4 scope-mapping fix; the
+initial capture, with `scopes_supported: ["openid"]` only, is in commit
+`bcd2478`):
 
 ```json
 {
@@ -69,7 +71,9 @@ read-only `GET`s only; Authentik is never written from this repo.
         "goauthentik.io/providers/oauth2/default"
     ],
     "scopes_supported": [
-        "openid"
+        "openid",
+        "email",
+        "profile"
     ],
     "request_parameter_supported": false,
     "claims_supported": [
@@ -81,7 +85,14 @@ read-only `GET`s only; Authentik is never written from this repo.
         "auth_time",
         "acr",
         "amr",
-        "nonce"
+        "nonce",
+        "email",
+        "email_verified",
+        "name",
+        "given_name",
+        "preferred_username",
+        "nickname",
+        "groups"
     ],
     "claims_parameter_supported": false,
     "code_challenge_methods_supported": [
@@ -136,33 +147,20 @@ Instance version: Authentik **2026.5.6** (from the `x5c` certificate CN).
 | Client credentials | 1Password `op://vex-lab/authentik-mimir`, fields `hireling-oidc-client-id` / `hireling-oidc-client-secret` → deploy env `HIRELING_OIDC_CLIENT_ID` / `HIRELING_OIDC_CLIENT_SECRET`. Never in-repo. |
 | End-session endpoint | `https://auth.flinntech.com/application/o/hireling/end-session/` — exists but **unused**: logout is local-only (design review decision; the house IdP session is shared with other apps) |
 
-## 4. ⚠ Captured delta: profile claims are not currently offered
+## 4. Resolved delta: profile scope mappings (recorded for the next provisioner)
 
-The `chat` shape-probe advertised `scopes_supported: [openid, email, profile]`
-and claims including `preferred_username`, `name`, `email`. The **hireling**
-provider as provisioned advertises **`scopes_supported: ["openid"]` only**, and
-its `claims_supported` is the base set (`sub, iss, aud, exp, iat, auth_time,
-acr, amr, nonce`) — **no `preferred_username`, no `name`**. The design's account
-upsert (design.md §2) maps `preferred_username` → username and `name` → display
-name, per the spec's account-mapping Assumption; as captured today, an ID token
-from this provider will not carry those claims.
+As first provisioned, the provider advertised `scopes_supported: ["openid"]`
+only — no `preferred_username` or `name` claims (initial capture in commit
+`bcd2478`). **Resolved 2026-09-23**: the three default scope mappings
+(`openid`, `profile`, `email`) were attached to provider pk 5 via the admin API
+(Josh-delegated), and the discovery document re-captured in §1 now advertises
+the full scope and claim sets. The design's claim mapping (§7) runs
+claims-first per the spec's account-mapping Assumption.
 
-Two resolutions:
-
-- **(a) Operational (recommended)** — attach Authentik's default `profile`
-  scope mapping to provider pk 5 (the UI wizard attaches it by default; the
-  API-driven provisioning did not). The login request then uses
-  `scope=openid profile` and the claims arrive as designed. This is an
-  Authentik write — Josh's call, per the house rule.
-- **(b) App-side fallback** — drop the profile-claim dependency: the allowlist
-  config carries `sub:display-name` pairs for the six seats (they are static
-  and known), and the account upsert sources username/display name from config
-  instead of claims. Deviation from the spec's account-mapping Assumption —
-  also Josh's call.
-
-Until one lands, design.md §2's claim-mapping step reads "claims first, config
-fallback" and requests `scope=openid profile` (a provider that lacks the mapping
-simply omits those claims; the `openid` scope itself is unaffected).
+**Why it happened**: providers created through the Authentik admin API do NOT
+receive the scope mappings the UI wizard auto-attaches — an API-driven
+provisioner must attach them explicitly. Recorded so the next house provider
+doesn't ship the same gap.
 
 ## 5. Token endpoint request/response — assumed (unprobed)
 
@@ -188,13 +186,13 @@ to captured the first time a real login round trip is observed in dev.
 6. `nonce` equal to the value in the transaction cookie set at
    `/api/auth/login`.
 
-## 7. Claim mapping (spec Assumption; contingent on §4)
+## 7. Claim mapping (spec Assumption)
 
 | Claim | Maps to |
 |---|---|
 | `sub` | `accounts.sub` — allowlist key, session binding, all ownership bindings |
-| `preferred_username` | `accounts.username` (requires §4 resolution (a)) |
-| `name` (fallback `preferred_username`) | `accounts.display_name` (requires §4 resolution (a)) |
+| `preferred_username` | `accounts.username` |
+| `name` (fallback `preferred_username`) | `accounts.display_name` |
 
 ## 8. Provisioning status
 
@@ -209,4 +207,3 @@ Remaining:
    emails). Bear, Dave, Bruce, and flinn exist.
 2. Once all six exist: copy the six user UUIDs from the Authentik directory
    into `HIRELING_ALLOWLIST` (and Bruce's into `HIRELING_GM_SUB`).
-3. Resolve the §4 profile-claims delta — Josh picks (a) or (b).

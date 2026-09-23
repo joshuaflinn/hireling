@@ -59,11 +59,8 @@ IdP is down (spec edge case: provider unreachable).
    from `HIRELING_COOKIE_KEY`). 302 to the configured authorize endpoint with
    `response_type=code`, `scope=openid profile`, `client_id`,
    `redirect_uri`, `state`, `nonce`, `code_challenge` (S256),
-   `code_challenge_method=S256`. The captured hireling provider currently
-   advertises only the `openid` scope (its `profile` scope mapping is pending —
-   contracts/oidc.md §4); a provider without the mapping simply omits those
-   claims, and the claim mapping below degrades to the config fallback rather
-   than failing.
+   `code_challenge_method=S256`. The captured provider advertises both scopes
+   and the full claim set (contracts/oidc.md §1, §4).
 2. Authentik authenticates the user (house accounts; Hireling never renders a
    password field — FR-1) and redirects to `/api/auth/callback?code=…&state=…`.
 3. `GET /api/auth/callback` (public).
@@ -78,10 +75,10 @@ IdP is down (spec edge case: provider unreachable).
      configured issuer, `aud` equal to `client_id`, `exp` unexpired, `nonce`
      equal to the transaction cookie.
    - Map claims: `sub` → account key; `preferred_username` → username;
-     `name` (falling back to `preferred_username`) → display name. If the
-     provider omits the profile claims (contracts/oidc.md §4), username and
-     display name fall back to the seat name paired with that `sub` in the
-     allowlist config — identity (`sub`) never depends on profile claims.
+     `name` (falling back to `preferred_username`) → display name. (If a
+     profile claim is ever absent, the seat name paired with that `sub` in the
+     allowlist config is the fallback — identity (`sub`) never depends on
+     profile claims.)
    - **Allowlist check**: `sub` must appear in `HIRELING_ALLOWLIST` (spec
      Assumption: the allowlist keys on `sub`). Denial → human-readable "not on
      the list" page, `login_allowlist_denied` audit record, **no session** (FR-2).
