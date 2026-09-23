@@ -18,8 +18,8 @@ off this key.
 | Field | Type | Rules |
 |---|---|---|
 | `sub` | TEXT **PRIMARY KEY** | Provider `sub` claim; non-empty. The stable identifier the allowlist and every ownership binding key on (spec Assumption). |
-| `username` | TEXT NOT NULL | From `preferred_username`. |
-| `display_name` | TEXT NOT NULL | From `name`, falling back to `preferred_username`. |
+| `username` | TEXT NOT NULL | From `preferred_username`; config seat-name fallback while the provider's `profile` scope mapping is pending (contracts/oidc.md §4). |
+| `display_name` | TEXT NOT NULL | From `name`, falling back to `preferred_username`, then to the same config fallback. |
 | `role` | TEXT NOT NULL | `CHECK (role IN ('player','gm'))`. Set at login: `gm` iff `sub = HIRELING_GM_SUB`, else `player`. |
 | `created_at` / `updated_at` | timestamptz NOT NULL | E2 guardrail: timestamps on all entities. `updated_at` bumps on login upsert. |
 

@@ -1,26 +1,31 @@
 # Contract: House Authentik OIDC (E3)
 
-**Status**: instance shape **captured** (verbatim fixture below, probed read-only
-2026-09-23); hireling application URLs **assumed-until-probed** (slug
-substitutions of the captured pattern — the `hireling` application does not exist
-yet).
+**Status**: hireling application **captured** (verbatim fixtures below, probed
+read-only 2026-09-23). The token-endpoint response shape remains **assumed**
+(cannot be probed without completing an authenticated code exchange).
 
-Probing discipline: read-only `GET`s only. The house rule against writing to
-Authentik was honored; no token-endpoint exchange was attempted (impossible
-without client credentials anyway), so the token response shape is **assumed**.
+**Provenance**: the instance shape was first established from the live
+application `chat` (same-day, pre-provisioning) — that fixture is preserved in
+commit `d8ef5c9`. Provisioning (Josh-delegated, via the Authentik admin API,
+2026-09-23) created provider pk 5 `hireling` (confidential client,
+`sub_mode=user_uuid`, house signing key, strict redirect
+`https://hireling.flinntech.com/api/auth/callback`) and application "Hireling",
+slug `hireling`, launch_url `https://hireling.flinntech.com`. The fixtures below
+replace the slug-substituted assumptions from `d8ef5c9`. Probing discipline:
+read-only `GET`s only; Authentik is never written from this repo.
 
-## 1. Captured fixture — application `chat` (verbatim)
+## 1. Captured fixture — discovery (verbatim)
 
-`GET https://auth.flinntech.com/application/o/chat/.well-known/openid-configuration`
+`GET https://auth.flinntech.com/application/o/hireling/.well-known/openid-configuration`
 → 200, captured 2026-09-23:
 
 ```json
 {
-    "issuer": "https://auth.flinntech.com/application/o/chat/",
+    "issuer": "https://auth.flinntech.com/application/o/hireling/",
     "authorization_endpoint": "https://auth.flinntech.com/application/o/authorize/",
     "token_endpoint": "https://auth.flinntech.com/application/o/token/",
     "userinfo_endpoint": "https://auth.flinntech.com/application/o/userinfo/",
-    "end_session_endpoint": "https://auth.flinntech.com/application/o/chat/end-session/",
+    "end_session_endpoint": "https://auth.flinntech.com/application/o/hireling/end-session/",
     "introspection_endpoint": "https://auth.flinntech.com/application/o/introspect/",
     "revocation_endpoint": "https://auth.flinntech.com/application/o/revoke/",
     "device_authorization_endpoint": "https://auth.flinntech.com/application/o/device/",
@@ -41,14 +46,14 @@ without client credentials anyway), so the token response shape is **assumed**.
         "fragment",
         "form_post"
     ],
-    "jwks_uri": "https://auth.flinntech.com/application/o/chat/jwks/",
+    "jwks_uri": "https://auth.flinntech.com/application/o/hireling/jwks/",
     "grant_types_supported": [
         "authorization_code",
         "refresh_token",
         "implicit",
         "client_credentials",
         "password",
-        "urn:ietf:params:oauth2:grant-type:device_code"
+        "urn:ietf:params:oauth:grant-type:device_code"
     ],
     "id_token_signing_alg_values_supported": [
         "RS256"
@@ -64,9 +69,7 @@ without client credentials anyway), so the token response shape is **assumed**.
         "goauthentik.io/providers/oauth2/default"
     ],
     "scopes_supported": [
-        "openid",
-        "email",
-        "profile"
+        "openid"
     ],
     "request_parameter_supported": false,
     "claims_supported": [
@@ -78,14 +81,7 @@ without client credentials anyway), so the token response shape is **assumed**.
         "auth_time",
         "acr",
         "amr",
-        "nonce",
-        "email",
-        "email_verified",
-        "name",
-        "given_name",
-        "preferred_username",
-        "nickname",
-        "groups"
+        "nonce"
     ],
     "claims_parameter_supported": false,
     "code_challenge_methods_supported": [
@@ -95,8 +91,12 @@ without client credentials anyway), so the token response shape is **assumed**.
 }
 ```
 
-`GET https://auth.flinntech.com/application/o/chat/jwks/` → 200, captured
-2026-09-23 (single signing key, public key material):
+## 2. Captured fixture — JWKS (verbatim)
+
+`GET https://auth.flinntech.com/application/o/hireling/jwks/` → 200, captured
+2026-09-23 (single signing key, public key material). Captured fact: `kid`,
+modulus, and certificate are **identical to the `chat` application's key** — both
+providers sign with the same house signing key, as provisioned.
 
 ```json
 {
@@ -118,89 +118,95 @@ without client credentials anyway), so the token response shape is **assumed**.
 }
 ```
 
-Supporting observations (read-only):
+Instance version: Authentik **2026.5.6** (from the `x5c` certificate CN).
 
-- `GET https://auth.flinntech.com/.well-known/openid-configuration` → **404**:
-  no root issuer; a per-application slug is mandatory.
-- `GET https://auth.flinntech.com/application/o/hireling/.well-known/openid-configuration`
-  → **404**: the hireling application is not yet provisioned.
-- `GET https://auth.flinntech.com/` → 302 to
-  `/flows/-/default/authentication/?next=/` (instance is live and serving).
-- Instance version: Authentik **2026.5.6** (from the JWKS `x5c` certificate CN).
+## 3. Contract facts the design relies on (captured)
 
-## 2. Instance-shape facts the design relies on (captured)
-
-| Fact | Value (from fixture) |
-|---|---|
-| Issuer pattern | `https://auth.flinntech.com/application/o/<slug>/` — per-application |
-| Authorization endpoint | `https://auth.flinntech.com/application/o/authorize/` — **shared across applications** |
-| Token endpoint | `https://auth.flinntech.com/application/o/token/` — shared |
-| Token endpoint auth | `client_secret_basic`, `client_secret_post` → confidential client; design uses `client_secret_basic` |
-| JWKS URI pattern | `https://auth.flinntech.com/application/o/<slug>/jwks/` — per-application |
-| ID token signing | **RS256 only** |
-| PKCE | `plain` and `S256`; design uses `S256` |
-| Scopes | `openid`, `email`, `profile` |
-| Claims | `sub`, `iss`, `aud`, `exp`, `iat`, `auth_time`, `acr`, `amr`, `nonce`, `email`, `email_verified`, `name`, `given_name`, `preferred_username`, `nickname`, `groups` |
-| Subject type | `public` |
-| End-session | `https://auth.flinntech.com/application/o/<slug>/end-session/` — exists but **unused**: logout is local-only (design review decision; the house IdP session is shared with other apps) |
-
-## 3. Hireling application contract — `assumed-until-probed`
-
-Every URL below is the captured pattern with slug `hireling` substituted. None
-has been observed live; each promotes to **captured** when the application exists
-and the discovery document is re-fetched.
-
-| Item | Assumed value |
+| Fact | Value |
 |---|---|
 | Issuer (`HIRELING_OIDC_ISSUER`) | `https://auth.flinntech.com/application/o/hireling/` |
-| Authorization endpoint | `https://auth.flinntech.com/application/o/authorize/` (shared — this one IS captured) |
-| Token endpoint | `https://auth.flinntech.com/application/o/token/` (shared — captured) |
+| Authorization endpoint | `https://auth.flinntech.com/application/o/authorize/` (shared across applications) |
+| Token endpoint | `https://auth.flinntech.com/application/o/token/` (shared) |
+| Token endpoint auth | `client_secret_basic`, `client_secret_post` → confidential client; design uses `client_secret_basic` |
 | JWKS URI | `https://auth.flinntech.com/application/o/hireling/jwks/` |
-| Redirect URI to register | `{HIRELING_BASE_URL}/api/auth/callback` (prod: `https://hireling.flinntech.com/api/auth/callback`) |
+| ID token signing | **RS256 only** |
+| PKCE | `plain` and `S256`; design uses `S256` |
+| Subject type | `public`; provider sub mode `user_uuid` → `sub` is the stable user UUID visible in the Authentik directory |
+| Registered redirect URI | `https://hireling.flinntech.com/api/auth/callback` (strict match, as provisioned) |
+| Client credentials | 1Password `op://vex-lab/authentik-mimir`, fields `hireling-oidc-client-id` / `hireling-oidc-client-secret` → deploy env `HIRELING_OIDC_CLIENT_ID` / `HIRELING_OIDC_CLIENT_SECRET`. Never in-repo. |
+| End-session endpoint | `https://auth.flinntech.com/application/o/hireling/end-session/` — exists but **unused**: logout is local-only (design review decision; the house IdP session is shared with other apps) |
 
-**Token endpoint request/response shape — assumed** (not probed; requires client
-credentials): standard OAuth 2.0 — `POST application/x-www-form-urlencoded` with
+## 4. ⚠ Captured delta: profile claims are not currently offered
+
+The `chat` shape-probe advertised `scopes_supported: [openid, email, profile]`
+and claims including `preferred_username`, `name`, `email`. The **hireling**
+provider as provisioned advertises **`scopes_supported: ["openid"]` only**, and
+its `claims_supported` is the base set (`sub, iss, aud, exp, iat, auth_time,
+acr, amr, nonce`) — **no `preferred_username`, no `name`**. The design's account
+upsert (design.md §2) maps `preferred_username` → username and `name` → display
+name, per the spec's account-mapping Assumption; as captured today, an ID token
+from this provider will not carry those claims.
+
+Two resolutions:
+
+- **(a) Operational (recommended)** — attach Authentik's default `profile`
+  scope mapping to provider pk 5 (the UI wizard attaches it by default; the
+  API-driven provisioning did not). The login request then uses
+  `scope=openid profile` and the claims arrive as designed. This is an
+  Authentik write — Josh's call, per the house rule.
+- **(b) App-side fallback** — drop the profile-claim dependency: the allowlist
+  config carries `sub:display-name` pairs for the six seats (they are static
+  and known), and the account upsert sources username/display name from config
+  instead of claims. Deviation from the spec's account-mapping Assumption —
+  also Josh's call.
+
+Until one lands, design.md §2's claim-mapping step reads "claims first, config
+fallback" and requests `scope=openid profile` (a provider that lacks the mapping
+simply omits those claims; the `openid` scope itself is unaffected).
+
+## 5. Token endpoint request/response — assumed (unprobed)
+
+Cannot be probed read-only (requires an authenticated code exchange). Assumed
+standard OAuth 2.0: `POST application/x-www-form-urlencoded` with
 `grant_type=authorization_code`, `code`, `redirect_uri`, `code_verifier`, client
 auth via `client_secret_basic`; JSON response carrying `access_token`,
 `id_token`, `token_type`, `expires_in`. The implementation consumes only
-`id_token`; no refresh token is requested or stored (data-model.md).
+`id_token`; no refresh token is requested or stored (data-model.md). Promotes
+to captured the first time a real login round trip is observed in dev.
 
-**ID-token validation requirements** (the design's hard rules, grounded in the
-captured fixture):
+## 6. ID-token validation requirements (design hard rules, grounded in §1–§2)
 
 1. Signature verified against the JWKS at the configured `jwks_uri`; keys cached
-   in memory, refetched on unknown `kid`.
+   in memory, refetched on unknown `kid`. (The current house key is shared
+   across providers — §2 — so a `kid` collision across issuers is possible;
+   `iss` validation below, not the key, is what binds the token to hireling.)
 2. **Algorithm pinned to RS256** — the fixture advertises RS256 only; pinning
    forecloses the alg-confusion class.
-3. `iss` string-equal to the configured issuer.
+3. `iss` string-equal to `https://auth.flinntech.com/application/o/hireling/`.
 4. `aud` equal to the configured client id.
 5. `exp` unexpired (small clock-skew leeway).
-6. `nonce` equal to the value in the transaction cookie set at `/api/auth/login`.
+6. `nonce` equal to the value in the transaction cookie set at
+   `/api/auth/login`.
 
-**Claim mapping** (spec Assumption):
+## 7. Claim mapping (spec Assumption; contingent on §4)
 
 | Claim | Maps to |
 |---|---|
 | `sub` | `accounts.sub` — allowlist key, session binding, all ownership bindings |
-| `preferred_username` | `accounts.username` |
-| `name` (fallback `preferred_username`) | `accounts.display_name` |
+| `preferred_username` | `accounts.username` (requires §4 resolution (a)) |
+| `name` (fallback `preferred_username`) | `accounts.display_name` (requires §4 resolution (a)) |
 
-## 4. What Josh must supply to promote assumed → captured
+## 8. Provisioning status
 
-1. **Provision the Authentik provider + application** with slug `hireling`
-   (authorization-code flow, confidential client).
-2. **Provider sub mode: "Based on User's UUID"** — so `sub` is the stable user
-   UUID visible in the Authentik directory (this is what makes the sub-keyed
-   allowlist writable at provisioning time: the six UUIDs are copied from the
-   directory into `HIRELING_ALLOWLIST`).
-3. **Register the redirect URI** `https://hireling.flinntech.com/api/auth/callback`
-   (plus the dev origin if local login against the real IdP is ever wanted).
-4. **Provision the six users** (Josh, Bear, Dave, Becky, Jake, Bruce) — already
-   his operational task per spec.
-5. **Stash the client id + secret in 1Password**; they reach the app as
-   `HIRELING_OIDC_CLIENT_ID` / `HIRELING_OIDC_CLIENT_SECRET` via deploy env.
-   The secret never enters the repo.
-6. Tell the E3 implementer it's done → re-probe
-   `…/application/o/hireling/.well-known/openid-configuration`, replace §3's
-   assumed values with the captured document, and drop the
-   `assumed-until-probed` marker.
+Done (2026-09-23, Josh-delegated): provider pk 5 `hireling` (confidential,
+`sub_mode=user_uuid`, house signing key, strict redirect URI), application
+"Hireling" slug `hireling` with launch_url, client id/secret stashed at
+`op://vex-lab/authentik-mimir`.
+
+Remaining:
+
+1. **Users Becky and Jake have no Authentik accounts yet** (Josh owes their
+   emails). Bear, Dave, Bruce, and flinn exist.
+2. Once all six exist: copy the six user UUIDs from the Authentik directory
+   into `HIRELING_ALLOWLIST` (and Bruce's into `HIRELING_GM_SUB`).
+3. Resolve the §4 profile-claims delta — Josh picks (a) or (b).
