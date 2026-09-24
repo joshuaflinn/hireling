@@ -10,17 +10,22 @@
 //! stays plumbing.
 
 use anyhow::Context as _;
-use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 
 /// Pool ceiling — deliberate headroom under the production role's
 /// `CONNECTION LIMIT 20` (db/provision.sql), shared across every consumer.
 const MAX_CONNECTIONS: u32 = 10;
 
 /// The embedded migrations, checked in under `migrations/`.
+#[must_use]
 pub fn migrator() -> sqlx::migrate::Migrator {
     sqlx::migrate!("./migrations")
 }
+
+#[cfg(test)]
+#[path = "tests/db.rs"]
+mod tests;
 
 /// Connect to Postgres and bring the schema to the current migration.
 ///
