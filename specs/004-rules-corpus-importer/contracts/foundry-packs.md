@@ -283,3 +283,45 @@ sha256 in `licenses/foundry-pf2e/SOURCE.md` at archive time).
   required-paths contract (sections 3–4), enforced per document, plus the
   pinned release tag. Drift shows up as validation failure → new importer
   version, exactly as the spec intends.
+
+---
+
+## 7. Probe at implementation (2026-09-24, importer build)
+
+The `json-assets.zip` asset was downloaded and inspected at `pf2e-8.5.1`
+(sha256 verified against the API digest — it matches §1). Several
+`assumed-until-probed` marks above are now **resolved**, two of them
+corrections:
+
+- **Zip layout (was assumed, now captured):** the archive does NOT carry a
+  `packs/pf2e/<pack>/*.json` tree. It carries **one JSON file per compendium
+  pack, each file a JSON ARRAY of documents**: `packs/conditions.json` (43
+  docs), `packs/equipment.json` (5869 docs), plus ~160 other entries (lang/,
+  other packs, `_folders` metadata, sf2e packs) the importer ignores. The
+  `_id` values match the per-file fixtures in §3–§4 exactly
+  (`TBSHQspnbcqxsmjL` frightened, `gbwr57aT9ou8yKWT` wayfinder), so §3–§4
+  remain the document-shape truth. The one-GET zip strategy stands.
+- **Document-shape delta:** pack-array documents carry two extra top-level
+  fields vs the repo-tree files (`_stats`, `effects`). The importer's
+  required-path validation ignores them; the parsed document (including
+  them) is stored as the row's upstream content, and the content hash is
+  computed over the canonical (compact, key-sorted) re-serialization —
+  stable across runs, independent of upstream whitespace.
+- **Item `type` (corrects §4):** the equipment pack is NOT all
+  `type == "equipment"`. Captured distribution at `pf2e-8.5.1`:
+  equipment 2394, consumable 1703, weapon 1018, treasure 153, armor 211,
+  ammo 216, shield 126, backpack 46, kit 2. Validation accepts exactly
+  these nine item types; anything else is drift and fails the run.
+- **Required paths (corrects §4):** all 5869 equipment docs carry
+  `_id`, `name`, `img`, `type`, `system.description.value`,
+  `system.publication.license/title/remaster` — but 3 do NOT carry
+  `system.level.value` (the two kits) and one carries an empty
+  `price.value` (a legacy OGL doc). `level`/`price` are therefore consumer
+  concerns (E12), not import invariants, and are NOT required. 199 docs
+  carry an EMPTY `system.description.value` (precious materials, variants) —
+  presence is the invariant, emptiness is legal. All 43
+  condition docs satisfy the §3 required paths unchanged.
+- **Licenses present in the packs:** conditions are 43/43 ORC; equipment
+  mixes ORC (4135) and OGL (1734) — pre-remaster content ships in remaster
+  releases, and the NOTICE covers both lanes (the license verdict's
+  distinct-value check depends on this).

@@ -5,6 +5,7 @@
 //! `std::process::exit` (the `clippy::exit` lint denies it everywhere else),
 //! which is exactly why it should be too small to hold a bug.
 
+use std::ffi::OsString;
 use std::process::ExitCode;
 
 use tracing_subscriber::EnvFilter;
@@ -21,8 +22,9 @@ async fn main() -> ExitCode {
         )
         .init();
 
-    match hireling::run().await {
-        Ok(()) => ExitCode::SUCCESS,
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    match hireling::dispatch(&args).await {
+        Ok(code) => code,
         Err(err) => {
             // Both channels on purpose: the structured record is for whatever
             // is scraping logs, the `{err:#}` line is for the human staring at

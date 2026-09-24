@@ -33,6 +33,26 @@ Configuration is env-var driven, with local-dev defaults — `HIRELING_PORT`
 (`web/dist`), `RUST_LOG` (`info`). `GET /healthz` answers 200 with the build
 version and never touches the database.
 
+## Rules corpus import (operator)
+
+The rules corpus is seeded by import from the Foundry VTT pf2e system packs,
+pinned by release tag — never `latest`, never `sf2e-*`:
+
+```sh
+just import RELEASE=pf2e-8.5.1       # import conditions + items (idempotent re-runs)
+just license-archive RELEASE=pf2e-8.5.1   # archive upstream license texts (commit the result)
+just license-verdict                 # the license gate: exit 0 green / 1 red
+```
+
+Re-running the same release changes zero rows; changed rows update in place
+(provenance advances); rows removed upstream are kept and reported stale —
+never deleted. Party homebrew (`custom` lane) is structurally untouchable.
+Every imported condition is tiered by the human-reviewed seed in
+`data/seed/condition-tiers.json` (engine math vs tracked-manually); unmapped
+conditions default display-only and are listed in the run report. The license
+gate (`NOTICE.md`, `licenses/foundry-pf2e/`) gates public exposure only — the
+private POC deploys regardless.
+
 Git hooks enforce the gate on every commit — install them once per clone with
 `./.githooks/install.sh`.
 

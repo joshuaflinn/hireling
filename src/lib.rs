@@ -10,10 +10,15 @@
 pub mod config;
 pub mod health;
 pub mod http;
+pub mod import;
+
+use std::ffi::OsString;
+use std::process::ExitCode;
 
 use anyhow::Context as _;
 
 use crate::config::Settings;
+use crate::import::args::Command;
 
 /// Run the application: load settings, then serve until shutdown.
 ///
@@ -31,4 +36,44 @@ pub async fn run() -> anyhow::Result<()> {
     );
 
     http::serve(&settings).await
+}
+
+/// Parse command-line arguments and dispatch to the matching mode.
+///
+/// No arguments means the default mode: serve the app. The importer,
+/// license archive, and license verdict subcommands are operator jobs —
+/// they run once against a target database and exit.
+///
+/// `args` excludes argv[0].
+///
+/// # Errors
+///
+/// Returns an error for unusable arguments or a failing operator job;
+/// the caller maps errors to the process exit code.
+pub async fn dispatch(args: &[OsString]) -> anyhow::Result<ExitCode> {
+    match import::args::parse(args)? {
+        Command::Serve => run().await.map(|()| ExitCode::SUCCESS),
+        Command::Usage(text) => {
+            println!("{text}");
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Import { release } => {
+            let settings = Settings::from_process_env().context("failed to load settings")?;
+            import::run_import(&settings, &release).await?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::LicenseVerdict => {
+            let settings = Settings::from_process_env().context("failed to load settings")?;
+            let green = import::run_license_verdict(&settings).await?;
+            if green {
+                Ok(ExitCode::SUCCESS)
+            } else {
+                Ok(ExitCode::FAILURE)
+            }
+        }
+        Command::LicenseArchive { release } => {
+            import::run_license_archive(&release).await?;
+            Ok(ExitCode::SUCCESS)
+        }
+    }
 }

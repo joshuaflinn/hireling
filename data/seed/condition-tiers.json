@@ -1,0 +1,50 @@
+{
+  "_readme": [
+    "Condition tier seed (epic E4, FR-8..FR-11): the human-reviewed verdict",
+    "for which conditions the buff engine (E8) computes and which are",
+    "tracked manually. Checked in, PR-reviewed by the owners; the importer",
+    "never derives math from pack documents (Constitution Article IV).",
+    "",
+    "A condition with NO entry here defaults to display-only (fail-safe)",
+    "and is listed in every import run report under `unmapped conditions`.",
+    "Extend this file by PR to move a condition into the engine tier.",
+    "",
+    "Entry shape:",
+    "  upstream_id   the Foundry pack document _id (stable across releases)",
+    "  name          display name, for human readers of this file",
+    "  tier          \"engine_math\" (with mappings) or \"display_only\" (without)",
+    "  valued        optional expectation that the condition carries a value;",
+    "                 a mismatch with the upstream document warns in the run report",
+    "  modifiers     engine-math only: [{modifier_type, stat, value_kind, value?}]",
+    "    modifier_type  circumstance | status | item | untyped",
+    "    stat           closed vocabulary: ac, fort, ref, will, perception, speed,",
+    "                   attack, damage, spell_attack, spell_dc, class_dc,",
+    "                   all_checks, all_dcs, all_checks_and_dcs, skill:<name>",
+    "    value_kind     \"constant\" (value: integer, negative = penalty)",
+    "                   or \"condition_value\" (one parameterized mapping serves",
+    "                   every value of the condition — frightened 1..4 share it)",
+    "  note          optional human note"
+  ],
+  "conditions": [
+    {
+      "upstream_id": "TBSHQspnbcqxsmjL",
+      "name": "Frightened",
+      "tier": "engine_math",
+      "valued": true,
+      "modifiers": [
+        {
+          "modifier_type": "status",
+          "stat": "all_checks_and_dcs",
+          "value_kind": "condition_value"
+        }
+      ],
+      "note": "Player Core: 'You take a status penalty equal to this value to all your checks and DCs.' Verified against the captured pack document."
+    },
+    {
+      "upstream_id": "DmAIPqOBomZ7H95W",
+      "name": "Concealed",
+      "tier": "display_only",
+      "note": "The DC 5 flat check to target a concealed creature is not expressible in the closed stat vocabulary — the importer must not fabricate it. Tracked manually."
+    }
+  ]
+}
