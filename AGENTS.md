@@ -43,6 +43,16 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
 
 - Work comes from **GitHub Issues** on this repo. One issue, one branch, one PR.
   Small PRs win.
+- **Board of record.** GitHub is the record of the work; your task tracker
+  (Paperclip, whatever harness you run in) is the record of who is doing it.
+  Each issue stays canonical — no mirroring, and no second verdict on done
+  anywhere else.
+- **Claim before you code.** Only start an issue that is *unassigned*, and
+  self-assign it on GitHub before writing any code. If a human holds it, it's
+  theirs — pick another.
+- **Three sync points, nothing continuous.** Pickup: self-assign and comment
+  the branch name. PR open: `Closes #N` plus a link back to your tracking task.
+  Merge: GitHub closes the issue.
 - **Gate yourself before the PR.** Run `just ci-local` (fmt / clippy-deny block /
   tests / cargo-deny) and paste the result. CI runs **grizzly-gate** (standalone
   mode, pinned image) on every PR — a red gate is a red PR, no exceptions. The

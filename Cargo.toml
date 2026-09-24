@@ -10,6 +10,19 @@ anyhow = "1.0.104"
 axum = "0.8.9"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+# Postgres driver + the `sqlx migrate` tool the settled stack mandates
+# (epic E2; Constitution V). Minimal features: no TLS — the database is
+# reached over the trusted house bridge (asgard-net), not the public internet.
+# 0.9, not 0.8: the gate's osv-scanner flags RUSTSEC-2023-0071 against rsa
+# 0.9.x, which 0.8's (unactivated) sqlx-mysql optional chain pins into the
+# lockfile; 0.9's mysql chain uses rsa 0.10.0-rc, outside the advisory.
+sqlx = { version = "0.9", default-features = false, features = [
+    "runtime-tokio",
+    "tls-none",
+    "postgres",
+    "migrate",
+    "macros",
+] }
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal"] }
 tower-http = { version = "0.7.1", features = ["fs", "request-id", "trace"] }
 tracing = "0.1.44"

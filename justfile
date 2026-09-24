@@ -30,7 +30,42 @@ db:
 db-down:
     docker compose down
 
+# Apply pending migrations with sqlx-cli (`cargo install sqlx-cli --locked
+# --features postgres`). The app also migrates itself at boot — these are
+# for driving the schema directly.
+export DATABASE_URL := "postgres://hireling:hireling@127.0.0.1:5432/hireling"
+
+db-migrate:
+    sqlx migrate run
+
+# Revert the most recent migration — keeps the down files honest.
+db-revert:
+    sqlx migrate revert
+
+# Destroy and recreate the throwaway database, then migrate up from empty.
+db-reset: db
+    docker compose exec db psql -U hireling -d postgres -c \
+        "DROP DATABASE IF EXISTS hireling WITH (FORCE)"
+    docker compose exec db psql -U hireling -d postgres -c \
+        "CREATE DATABASE hireling OWNER hireling"
+    just db-migrate
+
 test:
+    #!/usr/bin/env bash
+    # The schema tests need the throwaway Postgres. Start it when docker is
+    # available and nothing is listening yet; otherwise the tests skip
+    # loudly (never silently green).
+    if ! pg_isready -h 127.0.0.1 -p 5432 -q; then
+        if command -v docker >/dev/null 2>&1; then
+            just db
+            for _ in $(seq 1 30); do
+                pg_isready -h 127.0.0.1 -p 5432 -q && break
+                sleep 1
+            done
+        else
+            echo "WARNING: no Postgres on :5432 and no docker — schema tests will SKIP loudly"
+        fi
+    fi
     cargo test --quiet
 
 fmt:
