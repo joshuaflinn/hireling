@@ -24,7 +24,10 @@ tower-http = { version = "0.7.1", features = ["fs", "request-id", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 # Release-asset archive reading (json-assets.zip) for the extract stage.
-zip = "8.6.0"
+# Deflate only: the upstream pack assets are plain deflate zips, so the
+# default features (bzip2/lzma/zstd/aes-crypto) are dead weight — and the
+# bzip2 leg carried a license the deny allow list rightly didn't know.
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 http-body-util = "0.1.5"
