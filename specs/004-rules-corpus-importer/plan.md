@@ -77,12 +77,20 @@ makes the coverage gap visible instead.
 
 ## Verification
 
-- 65 unit tests (pure layers, captured fixtures + labeled mutations).
-- 9 integration tests against a real Postgres (throwaway database per test,
+- 72 unit tests (pure layers, captured fixtures + labeled mutations).
+- 12 integration tests against a real Postgres (throwaway database per test,
   compose-throwaway pattern): clean import + provenance, same-release no-op
   byte-compare, A→B rename/stale/update-in-place, custom-lane survival
   across success AND failure, zero-row tripwire, schema-drift-fails-before-
   any-write, unmapped→display-only + report, older-release freshness note,
-  license verdict green/red flips.
-- A live `just import RELEASE=pf2e-8.5.1` run against a real database, and
-  a live `license-archive` + `license-verdict`, recorded in the PR.
+  seed-tier convergence without a version bump, numeric release ordering,
+  failed-apply rolls back the whole category, license verdict green/red flips.
+- Live `import --release pf2e-8.5.1` against a real Postgres: 43/43
+  conditions + 5,869/5,869 items inserted, exit 0; immediate re-run skipped
+  all 5,912 rows (0 inserted, 0 updated, 0 stale) — idempotence shown on the
+  real corpus, not just fixtures. 41 unmapped conditions landed display-only
+  and are named in the run report. Frightened carries the engine-math mapping
+  and full provenance (slug, tier, is_valued, publication, content_hash,
+  importer_version).
+- Live `license-archive --release pf2e-8.5.1` + `license-verdict`: archive
+  committed with sha256s in SOURCE.md; verdict GREEN, exit 0.
