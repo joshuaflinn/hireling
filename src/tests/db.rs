@@ -12,7 +12,18 @@
 //! anything this suite ever leaked.
 
 use sqlx::postgres::PgPoolOptions;
-use sqlx::{PgPool, Row as _};
+use sqlx::{AssertSqlSafe, PgPool, Row as _};
+
+/// Execute a dynamically-built statement.
+///
+/// Every dynamic SQL string in this harness interpolates only ids and
+/// literals generated inside the test itself — there is no user input — so
+/// the [`AssertSqlSafe`] audit passes. Static SQL stays on plain `query`.
+macro_rules! dyn_sql {
+    ($sql:expr) => {
+        sqlx::query(AssertSqlSafe($sql))
+    };
+}
 
 /// Base URL of the local throwaway Postgres (no database component).
 /// Overridable so the skip path can be exercised deliberately.
@@ -79,7 +90,7 @@ impl TestDb {
             .subsec_nanos();
         let name = format!("hireling_e2_{test}_{}_{}", std::process::id(), nanos);
 
-        let created = sqlx::query(&format!("CREATE DATABASE {name}"))
+        let created = dyn_sql!(format!("CREATE DATABASE {name}").as_str())
             .execute(&admin)
             .await;
         if let Err(err) = created {
@@ -103,7 +114,7 @@ impl TestDb {
     /// Drop the database: close pools first, then DROP ... FORCE.
     async fn drop_self(self) {
         self.pool.close().await;
-        let dropped = sqlx::query(&format!("DROP DATABASE {} WITH (FORCE)", self.name))
+        let dropped = dyn_sql!(format!("DROP DATABASE {} WITH (FORCE)", self.name).as_str())
             .execute(&self.admin)
             .await;
         if let Err(err) = dropped {
@@ -114,7 +125,7 @@ impl TestDb {
 
     /// Assert one statement fails with the given SQLSTATE.
     async fn assert_fails_with(&self, sql: &str, state: &str, label: &str) {
-        let result = sqlx::query(sql).execute(&self.pool).await;
+        let result = dyn_sql!(sql).execute(&self.pool).await;
         assert!(
             result.is_err(),
             "{label}: statement unexpectedly succeeded (sql: {sql})"
@@ -133,7 +144,7 @@ impl TestDb {
 
 /// Count rows of a single-count select.
 async fn count(db: &TestDb, sql: &str) -> i64 {
-    let row = sqlx::query(sql)
+    let row = dyn_sql!(sql)
         .fetch_one(&db.pool)
         .await
         .unwrap_or_else(|err| panic!("count query failed ({sql}): {err}"));
@@ -142,7 +153,7 @@ async fn count(db: &TestDb, sql: &str) -> i64 {
 
 /// Fetch the first column of the first row of a select as a `String`.
 async fn one_string(db: &TestDb, sql: &str) -> String {
-    let row = sqlx::query(sql)
+    let row = dyn_sql!(sql)
         .fetch_one(&db.pool)
         .await
         .unwrap_or_else(|err| panic!("query failed ({sql}): {err}"));
@@ -151,7 +162,7 @@ async fn one_string(db: &TestDb, sql: &str) -> String {
 
 /// Execute one statement, panicking with context when it fails.
 async fn exec(db: &TestDb, sql: &str, label: &str) {
-    sqlx::query(sql)
+    dyn_sql!(sql)
         .execute(&db.pool)
         .await
         .unwrap_or_else(|err| panic!("{label}: {err}"));
