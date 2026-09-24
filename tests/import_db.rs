@@ -12,6 +12,9 @@
 
 use anyhow::Context as _;
 use hireling::import::import_from_bytes;
+use hireling::import::model::Kind;
+use hireling::import::store;
+use hireling::import::transform::{CategoryPlan, RowWrite};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use sqlx::postgres::PgConnectOptions;
@@ -249,10 +252,13 @@ async fn count_rows(pool: &PgPool, lane: &str) -> anyhow::Result<i64> {
 }
 
 /// Snapshot every corpus row as text lines — byte-for-byte comparisons.
+/// Includes both timestamps: a no-op run must leave even provenance time
+/// untouched, and an update must visibly advance `updated_at`.
 async fn snapshot(pool: &PgPool) -> anyhow::Result<Vec<String>> {
     let rows = sqlx::query(
         "SELECT kind, name, lane, data::text AS data, modifiers::text AS modifiers, \
-                source_id, pack_version, created_by_sub \
+                source_id, pack_version, created_by_sub, \
+                imported_at::text AS imported_at, updated_at::text AS updated_at \
          FROM corpus_entries ORDER BY id",
     )
     .fetch_all(pool)
@@ -262,7 +268,7 @@ async fn snapshot(pool: &PgPool) -> anyhow::Result<Vec<String>> {
         .iter()
         .map(|row| {
             format!(
-                "{}|{}|{}|{}|{}|{}|{}|{}",
+                "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
                 row.get::<String, _>("kind"),
                 row.get::<String, _>("name"),
                 row.get::<String, _>("lane"),
@@ -274,6 +280,10 @@ async fn snapshot(pool: &PgPool) -> anyhow::Result<Vec<String>> {
                 row.get::<Option<String>, _>("pack_version")
                     .unwrap_or_default(),
                 row.get::<Option<String>, _>("created_by_sub")
+                    .unwrap_or_default(),
+                row.get::<Option<String>, _>("imported_at")
+                    .unwrap_or_default(),
+                row.get::<Option<String>, _>("updated_at")
                     .unwrap_or_default(),
             )
         })
@@ -806,4 +816,189 @@ async fn license_verdict_flips_on_db_coverage() {
         .await
         .expect("verdict runs");
     assert!(!red, "an uncovered license flips the verdict red");
+}
+
+async fn frightened_tier_and_modifiers(pool: &PgPool) -> anyhow::Result<(String, bool)> {
+    let row = sqlx::query(
+        "SELECT data->'import'->>'tier' AS tier, modifiers FROM corpus_entries \
+         WHERE kind = 'condition' AND source_id = 'TBSHQspnbcqxsmjL'",
+    )
+    .fetch_one(pool)
+    .await
+    .context("frightened row is present")?;
+    Ok((
+        row.get::<String, _>("tier"),
+        row.get::<Option<serde_json::Value>, _>("modifiers")
+            .is_none(),
+    ))
+}
+
+/// The stored tier converges to the seed's current verdict even when the
+/// content hash and importer version both still match — a seed correction
+/// (retiring or promoting engine math) must never depend on a human
+/// remembering a version bump. FR-8/FR-10/FR-11.
+#[tokio::test]
+async fn seed_tier_change_converges_without_a_version_bump() {
+    let Some(db) = test_db().await.expect("test database harness") else {
+        return;
+    };
+    let seed = seed_json().expect("seed loads");
+    import_from_bytes(
+        &db.pool,
+        RELEASE_A,
+        &release_a_zip().expect("fixture zip"),
+        &seed,
+    )
+    .await
+    .expect("initial import succeeds");
+
+    // Retire the math: frightened's seed entry flips to display-only with
+    // an empty modifier list, same release, no version bump.
+    let mut retired_seed = serde_json::from_str::<serde_json::Value>(&seed)
+        .expect("the checked-in seed is valid JSON");
+    for entry in retired_seed
+        .get_mut("conditions")
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("the seed carries a conditions array")
+    {
+        if entry.get("upstream_id").and_then(serde_json::Value::as_str) == Some("TBSHQspnbcqxsmjL")
+        {
+            entry["tier"] = serde_json::json!("display_only");
+            entry["modifiers"] = serde_json::json!([]);
+        }
+    }
+    let retired = serde_json::to_string(&retired_seed).expect("mutated seed serializes");
+    import_from_bytes(
+        &db.pool,
+        RELEASE_A,
+        &release_a_zip().expect("fixture zip"),
+        &retired,
+    )
+    .await
+    .expect("the retired-seed import succeeds");
+    let (tier, no_modifiers) = frightened_tier_and_modifiers(&db.pool)
+        .await
+        .expect("row readable");
+    assert_eq!(
+        tier, "display_only",
+        "the retired condition's stored tier converges to the seed"
+    );
+    assert!(
+        no_modifiers,
+        "retired math means the live modifier rows are gone (FR-10) — \
+         E8 would otherwise compute math the owners just retired"
+    );
+
+    // Flip back: the mapping rows return, same release, no bump.
+    import_from_bytes(
+        &db.pool,
+        RELEASE_A,
+        &release_a_zip().expect("fixture zip"),
+        &seed,
+    )
+    .await
+    .expect("the restored-seed import succeeds");
+    let (tier_after, math_still_gone) = frightened_tier_and_modifiers(&db.pool)
+        .await
+        .expect("row readable");
+    assert_eq!(
+        tier_after, "engine_math",
+        "promotion converges just the same"
+    );
+    assert!(
+        !math_still_gone,
+        "promoted conditions carry their mapping rows again"
+    );
+
+    db.drop().await;
+}
+
+/// The freshness check's "newest release" ordering is numeric, not
+/// lexicographic — text `max()` ranks pf2e-9.9.0 above pf2e-9.10.0 and
+/// pf2e-8.5.1 above pf2e-10.0.0. FR-13's honest freshness note depends on
+/// the right winner.
+#[tokio::test]
+async fn max_imported_release_orders_numerically() {
+    let Some(db) = test_db().await.expect("test database harness") else {
+        return;
+    };
+    for (source_id, version) in [
+        ("condAAAAAAAAA", "pf2e-9.9.0"),
+        ("condBBBBBBBBB", "pf2e-9.10.0"),
+    ] {
+        sqlx::query(
+            "INSERT INTO corpus_entries (kind, name, lane, data, source_id, pack_version, imported_at) \
+             VALUES ('condition', 'probe', 'imported', '{}', $1, $2, now())",
+        )
+        .bind(source_id)
+        .bind(version)
+        .execute(&db.pool)
+        .await
+        .expect("probe row inserted");
+    }
+    let newest = store::max_imported_release(&db.pool)
+        .await
+        .expect("max release readable")
+        .expect("a stamped corpus has a newest release");
+    assert_eq!(
+        newest, "pf2e-9.10.0",
+        "9.10.0 is newer than 9.9.0 — lexicographic max() would disagree"
+    );
+    db.drop().await;
+}
+
+/// FR-5 / SC-2: a failure mid-transaction rolls the whole category back.
+/// An UPDATE that matches no row fails the apply; the INSERT planned
+/// alongside it must vanish with it, and custom rows must not notice.
+#[tokio::test]
+async fn failed_apply_rolls_back_the_whole_category() {
+    let Some(db) = test_db().await.expect("test database harness") else {
+        return;
+    };
+    sqlx::query(
+        "INSERT INTO corpus_entries (kind, name, lane, data) \
+         VALUES ('condition', 'Homebrew Doom', 'custom', '{\"homebrew\": true}')",
+    )
+    .execute(&db.pool)
+    .await
+    .expect("custom row inserted");
+
+    let plan = CategoryPlan {
+        inserts: vec![RowWrite {
+            source_id: "freshCondition1".to_owned(),
+            name: "Fresh".to_owned(),
+            data: serde_json::json!({"import": {"tier": "display_only"}}),
+            modifiers: None,
+        }],
+        updates: vec![RowWrite {
+            // Matches no imported row — the apply must fail mid-transaction.
+            source_id: "vanishedFromCorpus".to_owned(),
+            name: "Ghost".to_owned(),
+            data: serde_json::json!({}),
+            modifiers: None,
+        }],
+        ..Default::default()
+    };
+    let outcome = store::apply_category(&db.pool, Kind::Condition, RELEASE_A, &plan).await;
+    assert!(
+        outcome.is_err(),
+        "an update matching no row fails the category loudly"
+    );
+
+    let imported = count_rows(&db.pool, "imported").await.expect("count");
+    assert_eq!(
+        imported, 0,
+        "the planned INSERT rolled back with the transaction — never half-written (FR-5)"
+    );
+    let custom = sqlx::query("SELECT name, data FROM corpus_entries WHERE lane = 'custom'")
+        .fetch_one(&db.pool)
+        .await
+        .expect("the custom row survives");
+    assert_eq!(custom.get::<String, _>("name"), "Homebrew Doom");
+    assert_eq!(
+        custom.get::<serde_json::Value, _>("data"),
+        serde_json::json!({"homebrew": true})
+    );
+
+    db.drop().await;
 }

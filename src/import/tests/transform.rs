@@ -29,6 +29,7 @@ fn existing_row(hash: &str, version: i64) -> ExistingRow {
         name: "Frightened".to_owned(),
         content_hash: hash.to_owned(),
         importer_version: version,
+        tier: Some("engine_math".to_owned()),
     }
 }
 
@@ -58,6 +59,21 @@ fn seed_entry(upstream_id: &str, tier: &str, valued: Option<bool>) -> String {
         }}]}}"#
     )
 }
+
+/// A one-condition seed whose modifier list is spelled out — display-only
+/// entries must carry an empty list (the seed validator enforces that).
+fn seed_single(upstream_id: &str, tier: &str, modifiers_json: &str) -> String {
+    format!(
+        r#"{{"conditions": [{{
+            "upstream_id": "{upstream_id}",
+            "name": "Frightened",
+            "tier": "{tier}",
+            "modifiers": {modifiers_json}
+        }}]}}"#
+    )
+}
+
+const FRIGHTENED_ID: &str = "TBSHQspnbcqxsmjL";
 
 #[test]
 fn clean_import_plans_inserts() {
@@ -182,6 +198,130 @@ fn same_hash_and_version_skips_without_a_write() {
 }
 
 #[test]
+fn seed_tier_flip_to_display_only_replans_despite_matching_hash_and_version() {
+    let frightened = doc_from_fixture("frightened.json");
+    let mut existing = empty_existing();
+    // The row was imported as engine_math; hash and version still match.
+    existing.insert(
+        frightened.source_id.clone(),
+        existing_row(&frightened.content_hash, IMPORTER_VERSION),
+    );
+    // The owners retire the math in the seed — without a version bump.
+    let retired = seed_from_json(&seed_single(FRIGHTENED_ID, "display_only", "[]"));
+    let plan = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&frightened),
+        &existing,
+        Some(&retired),
+    );
+    assert_eq!(
+        plan.updates.len(),
+        1,
+        "a seed tier flip must re-plan the row even when hash and version match — \
+         otherwise retired math survives forever on human discipline alone"
+    );
+    assert_eq!(plan.skipped, 0, "a divergent tier is not a skip");
+    let write = plan.updates.first().expect("update planned");
+    assert!(
+        write.modifiers.is_none(),
+        "retiring the math means the modifier rows go too (FR-10)"
+    );
+    assert_eq!(
+        nested_str(&write.data, &["import", "tier"]),
+        Some("display_only"),
+        "the stored tier converges to the seed's verdict"
+    );
+}
+
+#[test]
+fn seed_tier_flip_to_engine_math_replans_with_mapping_rows() {
+    let frightened = doc_from_fixture("frightened.json");
+    let mut existing = empty_existing();
+    // The row was imported before the condition was seeded: display-only.
+    existing.insert(
+        frightened.source_id.clone(),
+        ExistingRow {
+            name: frightened.name.clone(),
+            content_hash: frightened.content_hash.clone(),
+            importer_version: IMPORTER_VERSION,
+            tier: Some("display_only".to_owned()),
+        },
+    );
+    let plan = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&frightened),
+        &existing,
+        Some(&real_seed()),
+    );
+    assert_eq!(
+        plan.updates.len(),
+        1,
+        "promoting a condition to engine-math must re-plan it"
+    );
+    let write = plan.updates.first().expect("update planned");
+    assert!(
+        write.modifiers.is_some(),
+        "the promoted condition carries its mapping rows"
+    );
+    assert_eq!(
+        nested_str(&write.data, &["import", "tier"]),
+        Some("engine_math")
+    );
+}
+
+#[test]
+fn unmapped_condition_with_matching_stored_tier_still_skips() {
+    let frightened = doc_from_fixture("frightened.json");
+    let mut existing = empty_existing();
+    existing.insert(
+        frightened.source_id.clone(),
+        ExistingRow {
+            name: frightened.name.clone(),
+            content_hash: frightened.content_hash.clone(),
+            importer_version: IMPORTER_VERSION,
+            tier: Some("display_only".to_owned()),
+        },
+    );
+    let plan = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&frightened),
+        &existing,
+        Some(&seed_from_json(r#"{"conditions": []}"#)),
+    );
+    assert_eq!(
+        plan.skipped, 1,
+        "no seed entry + stored display-only agree — the no-op case stays a no-op"
+    );
+    assert!(plan.updates.is_empty(), "agreement never churns a row");
+}
+
+#[test]
+fn missing_stored_tier_never_skips() {
+    let frightened = doc_from_fixture("frightened.json");
+    let mut existing = empty_existing();
+    existing.insert(
+        frightened.source_id.clone(),
+        ExistingRow {
+            name: frightened.name.clone(),
+            content_hash: frightened.content_hash.clone(),
+            importer_version: IMPORTER_VERSION,
+            tier: None,
+        },
+    );
+    let plan = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&frightened),
+        &existing,
+        Some(&real_seed()),
+    );
+    assert_eq!(
+        plan.updates.len(),
+        1,
+        "a row without stored tier metadata is re-stamped honestly, never skipped"
+    );
+}
+
+#[test]
 fn changed_content_updates_in_place() {
     let frightened = doc_from_fixture("frightened.json");
     let mut existing = empty_existing();
@@ -240,6 +380,7 @@ fn absent_upstream_rows_are_reported_stale() {
             name: "Vanished".to_owned(),
             content_hash: "x".to_owned(),
             importer_version: IMPORTER_VERSION,
+            tier: Some("display_only".to_owned()),
         },
     );
     let plan = plan_category(Kind::Condition, &[frightened], &existing, None);

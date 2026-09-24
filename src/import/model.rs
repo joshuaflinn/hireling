@@ -61,8 +61,10 @@ pub const ITEM_TYPES: [&str; 9] = [
 
 /// The importer version stamped on every row this build writes.
 ///
-/// Bump when the declared document shapes, the tier seed, or the stored
-/// row shapes change, so re-runs honestly refresh provenance (FR-13).
+/// Bump when the declared document shapes or the stored row shapes change,
+/// so re-runs honestly refresh provenance (FR-13). Tier-seed corrections
+/// do NOT need a bump — the transform re-plans conditions whose stored
+/// tier disagrees with the seed's current verdict on the next run.
 pub const IMPORTER_VERSION: i64 = 1;
 
 /// A validated pack document, ready for transform.

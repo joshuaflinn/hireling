@@ -6,7 +6,11 @@
 //! Idempotence model (FR-3): identity is the upstream `source_id`; the
 //! change detector is the content hash. A row whose stored hash AND
 //! importer version match the incoming document is skipped without a
-//! write, so provenance never churns on no-op re-runs.
+//! write, so provenance never churns on no-op re-runs. Conditions add one
+//! more skip gate: the stored tier must agree with the seed's current
+//! verdict, so a seed correction converges the corpus on the next run
+//! even without an importer-version bump — a retired engine-math mapping
+//! can never survive a re-run by accident.
 
 use std::collections::{HashMap, HashSet};
 
@@ -71,6 +75,9 @@ pub struct ExistingRow {
     pub content_hash: String,
     /// Stored importer version.
     pub importer_version: i64,
+    /// Stored tier (`data.import.tier`); `None` when missing or malformed —
+    /// such rows never skip, so the run re-stamps them honestly.
+    pub tier: Option<String>,
 }
 
 /// One row the plan writes (insert or update — the two carry the same
@@ -130,13 +137,12 @@ pub fn plan_category(
     let mut present_ids: HashSet<&str> = HashSet::new();
     for doc in docs {
         present_ids.insert(doc.source_id.as_str());
-        let hash_changed_or_new = match existing.get(doc.source_id.as_str()) {
-            None => true,
-            Some(row) => {
-                row.content_hash != doc.content_hash || row.importer_version != IMPORTER_VERSION
-            }
-        };
-        if !hash_changed_or_new {
+        let unchanged = existing.get(doc.source_id.as_str()).is_some_and(|row| {
+            row.content_hash == doc.content_hash
+                && row.importer_version == IMPORTER_VERSION
+                && !tier_diverges(kind, doc, seed, row.tier.as_deref())
+        });
+        if unchanged {
             plan.skipped += 1;
             continue;
         }
@@ -163,6 +169,18 @@ pub fn plan_category(
     }
     plan.stale.sort_by(|a, b| a.source_id.cmp(&b.source_id));
     plan
+}
+
+/// Whether the stored tier disagrees with the seed's current verdict for
+/// this condition. Items carry no tier and never diverge.
+fn tier_diverges(kind: Kind, doc: &PackDoc, seed: Option<&TierSeed>, stored: Option<&str>) -> bool {
+    if kind != Kind::Condition {
+        return false;
+    }
+    let expected = seed
+        .and_then(|seed| seed.get(doc.source_id.as_str()))
+        .map_or(Tier::DisplayOnly, |entry| entry.tier);
+    stored != Some(expected.as_str())
 }
 
 /// Build the stored `data` payload and `modifiers` value for one document.

@@ -12,6 +12,7 @@ use anyhow::{Context as _, anyhow};
 use serde_json::Value;
 use sqlx::{PgPool, Row as _};
 
+use crate::import::args::release_triple;
 use crate::import::model::Kind;
 use crate::import::transform::{CategoryPlan, ExistingRows, RowWrite};
 
@@ -26,7 +27,8 @@ use crate::import::transform::{CategoryPlan, ExistingRows, RowWrite};
 /// (which the lane contract forbids for imported rows).
 pub async fn existing_rows(pool: &PgPool, kind: Kind) -> anyhow::Result<ExistingRows> {
     let rows = sqlx::query(
-        "SELECT source_id, name, data->'import' AS import \
+        "SELECT source_id, name, data->'import' AS import, \
+                data->'import'->>'tier' AS tier \
          FROM corpus_entries WHERE kind = $1 AND lane = 'imported' AND source_id IS NOT NULL",
     )
     .bind(kind.as_str())
@@ -51,12 +53,14 @@ pub async fn existing_rows(pool: &PgPool, kind: Kind) -> anyhow::Result<Existing
             .and_then(|meta| meta.get("importer_version"))
             .and_then(Value::as_i64)
             .unwrap_or_default();
+        let tier: Option<String> = row.try_get("tier").ok().flatten();
         map.insert(
             source_id,
             crate::import::transform::ExistingRow {
                 name,
                 content_hash,
                 importer_version,
+                tier,
             },
         );
     }
@@ -84,9 +88,9 @@ pub async fn apply_category(
     }
     for write in &plan.updates {
         let changed = update_row(&mut tx, kind, write, release).await?;
-        if changed == 0 {
+        if changed != 1 {
             return Err(anyhow!(
-                "expected to update {} `{}` but it matched no imported row — \
+                "expected to update exactly one {} `{}` but the statement matched {changed} rows — \
                  the corpus changed during the run; refusing",
                 write.source_id,
                 kind.as_str()
@@ -133,7 +137,8 @@ async fn update_row(
 ) -> anyhow::Result<u64> {
     let result = sqlx::query(
         "UPDATE corpus_entries \
-         SET name = $3, data = $4, modifiers = $5, pack_version = $6, imported_at = now() \
+         SET name = $3, data = $4, modifiers = $5, pack_version = $6, \
+             imported_at = now(), updated_at = now() \
          WHERE kind = $1 AND source_id = $2 AND lane = 'imported'",
     )
     .bind(kind.as_str())
@@ -172,15 +177,23 @@ pub async fn imported_license_counts(pool: &PgPool) -> anyhow::Result<Vec<(Strin
 
 /// The newest pack version stamped on any imported row (None when empty).
 ///
+/// Release order is numeric (major, minor, patch), not lexicographic —
+/// text `max()` would rank `pf2e-9.9.0` above `pf2e-9.10.0` — so the
+/// comparison happens in Rust over the distinct stamped versions.
+///
 /// # Errors
 ///
 /// Returns an error when the query fails.
 pub async fn max_imported_release(pool: &PgPool) -> anyhow::Result<Option<String>> {
-    let row = sqlx::query(
-        "SELECT max(pack_version) AS newest FROM corpus_entries WHERE lane = 'imported'",
+    let rows = sqlx::query(
+        "SELECT DISTINCT pack_version FROM corpus_entries \
+         WHERE lane = 'imported' AND pack_version IS NOT NULL",
     )
-    .fetch_one(pool)
+    .fetch_all(pool)
     .await
-    .context("failed to read the newest imported pack version")?;
-    Ok(row.try_get::<Option<String>, _>(0)?)
+    .context("failed to read the imported pack versions")?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| row.try_get::<Option<String>, _>(0).ok().flatten())
+        .max_by(|a, b| release_triple(a).cmp(&release_triple(b))))
 }

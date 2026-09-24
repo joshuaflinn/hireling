@@ -116,7 +116,7 @@ E4 reads **only** `conditions` and `equipment` (FR-1).
 ```
 
 **Required paths the importer validates (conditions)** — presence of:
-`_id`, `name`, `type == "condition"`, `system.description.value`,
+`_id`, `name`, `img` (non-empty), `type == "condition"`, `system.description.value`,
 `system.publication.license`, `system.publication.remaster`,
 `system.publication.title`, `system.value.isValued`.
 
@@ -178,7 +178,7 @@ structure verbatim):
 ```
 
 **Required paths the importer validates (items)** — presence of:
-`_id`, `name`, `type == "equipment"`, `system.level.value`,
+`_id`, `name`, `img` (non-empty), `type == "equipment"`, `system.level.value`,
 `system.price.value`, `system.publication.license`,
 `system.publication.title`.
 
