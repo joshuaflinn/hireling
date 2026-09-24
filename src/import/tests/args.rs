@@ -1,11 +1,9 @@
 //! Unit tests for CLI argument parsing.
 
-use std::ffi::OsString;
-
 use super::*;
 
-fn args(items: &[&str]) -> Vec<OsString> {
-    items.iter().map(OsString::from).collect()
+fn args(items: &[&str]) -> Vec<String> {
+    items.iter().copied().map(String::from).collect()
 }
 
 #[test]

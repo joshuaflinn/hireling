@@ -12,7 +12,6 @@ pub mod health;
 pub mod http;
 pub mod import;
 
-use std::ffi::OsString;
 use std::process::ExitCode;
 
 use anyhow::Context as _;
@@ -44,13 +43,14 @@ pub async fn run() -> anyhow::Result<()> {
 /// license archive, and license verdict subcommands are operator jobs —
 /// they run once against a target database and exit.
 ///
-/// `args` excludes argv[0].
+/// `args` excludes argv[0] and must be UTF-8 (the binary collects it via
+/// [`std::env::args`], which enforces that).
 ///
 /// # Errors
 ///
 /// Returns an error for unusable arguments or a failing operator job;
 /// the caller maps errors to the process exit code.
-pub async fn dispatch(args: &[OsString]) -> anyhow::Result<ExitCode> {
+pub async fn dispatch(args: &[String]) -> anyhow::Result<ExitCode> {
     match import::args::parse(args)? {
         Command::Serve => run().await.map(|()| ExitCode::SUCCESS),
         Command::Usage(text) => {

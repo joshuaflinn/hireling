@@ -5,7 +5,6 @@
 //! `std::process::exit` (the `clippy::exit` lint denies it everywhere else),
 //! which is exactly why it should be too small to hold a bug.
 
-use std::ffi::OsString;
 use std::process::ExitCode;
 
 use tracing_subscriber::EnvFilter;
@@ -22,7 +21,12 @@ async fn main() -> ExitCode {
         )
         .init();
 
-    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    // argv must be UTF-8 (`std::env::args` panics otherwise): every input
+    // this CLI accepts — subcommand names, `--release`, pinned `pf2e-N.N.N`
+    // tags — is ASCII by contract, so non-UTF-8 argv has no legitimate use
+    // and fails loudly at the boundary instead of being lossy-mangled into
+    // a tag.
+    let args: Vec<String> = std::env::args().skip(1).collect();
     match hireling::dispatch(&args).await {
         Ok(code) => code,
         Err(err) => {

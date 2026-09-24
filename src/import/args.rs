@@ -3,8 +3,10 @@
 //! Hand-rolled on purpose: two subcommands and a flag each do not justify a
 //! parser dependency (Constitution Article V). The escape hatch stands — if
 //! the CLI grows past ~3 subcommands, adopt `clap` with a written reason.
-
-use std::ffi::OsString;
+//!
+//! Arguments are UTF-8 `String`s, collected by the binary via
+//! [`std::env::args`] (which panics on non-UTF-8 argv rather than mangling
+//! it) — every accepted input is ASCII by contract.
 
 /// What the binary should do this run.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,16 +36,16 @@ pub enum Command {
 /// Returns an error naming the problem for unknown subcommands, missing or
 /// duplicated `--release` flags, and release tags that are not pinned
 /// `pf2e-*` semantic tags.
-pub fn parse(args: &[OsString]) -> anyhow::Result<Command> {
+pub fn parse(args: &[String]) -> anyhow::Result<Command> {
     let Some(first) = args.first() else {
         return Ok(Command::Serve);
     };
-    let first = first.to_string_lossy();
+    let first = first.as_str();
     if first == "--help" || first == "-h" || first == "help" {
         return Ok(Command::Usage(USAGE_TEXT.to_owned()));
     }
     let rest = args.get(1..).unwrap_or(&[]);
-    match first.as_ref() {
+    match first {
         "import" => Ok(Command::Import {
             release: release_arg(rest)?,
         }),
@@ -57,7 +59,7 @@ pub fn parse(args: &[OsString]) -> anyhow::Result<Command> {
     }
 }
 
-fn flagless(rest: &[OsString], name: &str) -> anyhow::Result<Command> {
+fn flagless(rest: &[String], name: &str) -> anyhow::Result<Command> {
     if rest.is_empty() {
         Ok(Command::LicenseVerdict)
     } else {
@@ -65,18 +67,13 @@ fn flagless(rest: &[OsString], name: &str) -> anyhow::Result<Command> {
     }
 }
 
-fn release_arg(rest: &[OsString]) -> anyhow::Result<String> {
-    if rest.len() != 2
-        || rest.first().map(|arg| arg.to_string_lossy()).as_deref() != Some("--release")
-    {
+fn release_arg(rest: &[String]) -> anyhow::Result<String> {
+    if rest.len() != 2 || rest.first().map(String::as_str) != Some("--release") {
         return Err(anyhow::anyhow!("expected exactly `--release <tag>`"));
     }
-    let tag = rest
-        .get(1)
-        .map(|arg| arg.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    validate_release(&tag)?;
-    Ok(tag)
+    let tag = rest.get(1).map(String::as_str).unwrap_or_default();
+    validate_release(tag)?;
+    Ok(tag.to_owned())
 }
 
 /// Validate a pinned release tag: `pf2e-<major>.<minor>.<patch>`.
