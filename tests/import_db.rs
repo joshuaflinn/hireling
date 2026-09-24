@@ -12,9 +12,16 @@
 
 use anyhow::Context as _;
 use hireling::import::import_from_bytes;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use sqlx::postgres::PgConnectOptions;
 use sqlx::{PgPool, Row as _};
+
+/// Process-unique suffix for throwaway database names. Wall clocks on some
+/// hosts tick coarser than the test scheduler, so nanos alone collided when
+/// parallel tests raced `CREATE DATABASE`; the counter makes names unique by
+/// construction instead of by luck.
+static DB_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Admin connection string used to create throwaway databases.
 fn admin_url() -> String {
@@ -87,7 +94,8 @@ async fn test_db() -> anyhow::Result<Option<TestDb>> {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_nanos());
-    let name = format!("hireling_e4_{nanos}");
+    let seq = DB_SEQ.fetch_add(1, Ordering::Relaxed);
+    let name = format!("hireling_e4_{nanos}_{seq:04}");
     // Generated name, no user input — audited: safe to interpolate.
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}")))
         .execute(&admin)
