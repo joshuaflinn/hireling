@@ -28,7 +28,8 @@ use crate::import::transform::{CategoryPlan, ExistingRows, RowWrite};
 pub async fn existing_rows(pool: &PgPool, kind: Kind) -> anyhow::Result<ExistingRows> {
     let rows = sqlx::query(
         "SELECT source_id, name, data->'import' AS import, \
-                data->'import'->>'tier' AS tier, modifiers AS modifiers \
+                data->'import'->>'tier' AS tier, modifiers AS modifiers, \
+                pack_version AS pack_version \
          FROM corpus_entries WHERE kind = $1 AND lane = 'imported' AND source_id IS NOT NULL",
     )
     .bind(kind.as_str())
@@ -55,6 +56,7 @@ pub async fn existing_rows(pool: &PgPool, kind: Kind) -> anyhow::Result<Existing
             .unwrap_or_default();
         let tier: Option<String> = row.try_get("tier").ok().flatten();
         let modifiers: Option<Value> = row.try_get("modifiers").ok().flatten();
+        let pack_version: Option<String> = row.try_get("pack_version").ok().flatten();
         map.insert(
             source_id,
             crate::import::transform::ExistingRow {
@@ -63,6 +65,7 @@ pub async fn existing_rows(pool: &PgPool, kind: Kind) -> anyhow::Result<Existing
                 importer_version,
                 tier,
                 modifiers,
+                pack_version,
             },
         );
     }

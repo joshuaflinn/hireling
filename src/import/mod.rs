@@ -28,7 +28,8 @@ use crate::config::Settings;
 use crate::import::args::{release_triple, validate_release};
 use crate::import::model::{IMPORTER_VERSION, Kind};
 use crate::import::pack::PackCategory;
-use crate::import::report::{CategoryCounts, RunReport};
+use crate::import::report::CategoryCounts;
+pub use crate::import::report::RunReport;
 use crate::import::seed::TierSeed;
 use crate::import::transform::{CategoryPlan, plan_category};
 
@@ -125,7 +126,7 @@ async fn import_inner(
     // Plan every category before the first write: one bad document or a
     // zero-document category fails the whole run with the corpus untouched
     // (FR-12, FR-13).
-    let plans = plan_all(&categories, pool, &seed).await?;
+    let plans = plan_all(&categories, pool, &seed, release).await?;
 
     for (kind, docs, plan) in plans {
         let counts = store::apply_category(pool, kind, release, &plan).await?;
@@ -139,6 +140,7 @@ async fn plan_all(
     categories: &[PackCategory],
     pool: &PgPool,
     seed: &TierSeed,
+    release: &str,
 ) -> anyhow::Result<Vec<(Kind, u64, CategoryPlan)>> {
     let mut plans = Vec::with_capacity(categories.len());
     for category in categories {
@@ -155,7 +157,13 @@ async fn plan_all(
             Kind::Condition => Some(seed),
             Kind::Item => None,
         };
-        let plan = plan_category(category.kind, &category.docs, &existing, seed_for_kind);
+        let plan = plan_category(
+            category.kind,
+            &category.docs,
+            &existing,
+            seed_for_kind,
+            release,
+        );
         plans.push((category.kind, docs, plan));
     }
     Ok(plans)

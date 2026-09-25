@@ -83,6 +83,9 @@ pub struct ExistingRow {
     pub tier: Option<String>,
     /// Stored mapping rows (`modifiers` column); `None` when NULL.
     pub modifiers: Option<Value>,
+    /// Stored release stamp (`pack_version` column); `None` when NULL —
+    /// such rows never skip, so the run re-stamps them honestly.
+    pub pack_version: Option<String>,
 }
 
 /// One row the plan writes (insert or update — the two carry the same
@@ -106,7 +109,8 @@ pub struct CategoryPlan {
     pub inserts: Vec<RowWrite>,
     /// Rows to UPDATE in place (present, changed or re-stamped).
     pub updates: Vec<RowWrite>,
-    /// Rows whose hash and importer version match — untouched.
+    /// Rows whose hash, importer version, tier, mappings, and release
+    /// stamp all match the request — untouched.
     pub skipped: u64,
     /// Corpus rows for this kind absent from this release — kept, never
     /// deleted, reported for human reconciliation (FR-15).
@@ -130,13 +134,17 @@ pub struct StaleRow {
 /// Build the write plan for one category.
 ///
 /// `existing` maps `source_id` → stored row for this kind (lane
-/// `imported`); `seed` is the tier seed (conditions only).
+/// `imported`); `seed` is the tier seed (conditions only); `release` is
+/// the requested release stamp — rows stamped with a different release
+/// are re-stamped even when their content is unchanged, so per-row
+/// provenance always names the release this run imported.
 #[must_use]
 pub fn plan_category(
     kind: Kind,
     docs: &[PackDoc],
     existing: &ExistingRows,
     seed: Option<&TierSeed>,
+    release: &str,
 ) -> CategoryPlan {
     let mut plan = CategoryPlan::default();
     let mut present_ids: HashSet<&str> = HashSet::new();
@@ -161,6 +169,7 @@ pub fn plan_category(
                 && row.importer_version == IMPORTER_VERSION
                 && !tier_diverges(kind, doc, seed, row.tier.as_deref())
                 && row.modifiers == write.modifiers
+                && row.pack_version.as_deref() == Some(release)
         });
         if is_noop {
             plan.skipped += 1;

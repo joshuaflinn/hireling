@@ -4,6 +4,10 @@ use super::*;
 use crate::import::SEED_JSON;
 use crate::import::model::parse_doc;
 
+/// The release every pre-existing test row is stamped with; plan calls
+/// below import the same release unless a test says otherwise.
+const TEST_RELEASE: &str = "pf2e-test-release";
+
 fn nested_str<'a>(value: &'a Value, path: &[&str]) -> Option<&'a str> {
     let mut current = value;
     for key in path {
@@ -31,6 +35,7 @@ fn existing_row(hash: &str, version: i64) -> ExistingRow {
         importer_version: version,
         tier: Some("engine_math".to_owned()),
         modifiers: None,
+        pack_version: Some(TEST_RELEASE.to_owned()),
     }
 }
 
@@ -95,6 +100,7 @@ fn clean_import_plans_inserts() {
         &docs,
         &empty_existing(),
         Some(&real_seed()),
+        TEST_RELEASE,
     );
     assert_eq!(plan.inserts.len(), 2, "both docs insert on a clean corpus");
     assert!(plan.updates.is_empty(), "nothing to update yet");
@@ -110,6 +116,7 @@ fn seedless_conditions_land_display_only_and_are_reported() {
         std::slice::from_ref(&frightened),
         &empty_existing(),
         Some(&seed_from_json(r#"{"conditions": []}"#)),
+        TEST_RELEASE,
     );
     assert_eq!(
         plan.unmapped,
@@ -136,6 +143,7 @@ fn engine_math_condition_carries_vocabulary_only_parameterized_rows() {
         std::slice::from_ref(&frightened),
         &empty_existing(),
         Some(&real_seed()),
+        TEST_RELEASE,
     );
     let write = plan.inserts.first().expect("insert planned");
     assert_eq!(
@@ -181,6 +189,7 @@ fn frightened_values_resolve_to_signed_penalties() {
         std::slice::from_ref(&frightened),
         &empty_existing(),
         Some(&real_seed()),
+        TEST_RELEASE,
     );
     let mapping = planned_modifiers(&plan)
         .expect("engine-math carries mappings")
@@ -244,6 +253,7 @@ fn constant_mappings_resolve_to_their_signed_value() {
         std::slice::from_ref(&fixture),
         &empty_existing(),
         Some(&seed),
+        TEST_RELEASE,
     );
     let mapping = planned_modifiers(&plan)
         .expect("engine-math carries mappings")
@@ -274,6 +284,7 @@ fn valued_mismatch_warns() {
         std::slice::from_ref(&frightened),
         &empty_existing(),
         Some(&inverted_seed),
+        TEST_RELEASE,
     );
     assert!(
         !plan.warnings.is_empty(),
@@ -291,6 +302,7 @@ fn same_hash_and_version_skips_without_a_write() {
         std::slice::from_ref(&frightened),
         &empty_existing(),
         Some(&real_seed()),
+        TEST_RELEASE,
     );
     let mut existing = empty_existing();
     existing.insert(
@@ -301,6 +313,7 @@ fn same_hash_and_version_skips_without_a_write() {
             importer_version: IMPORTER_VERSION,
             tier: Some("engine_math".to_owned()),
             modifiers: planned_modifiers(&first),
+            pack_version: Some(TEST_RELEASE.to_owned()),
         },
     );
     let plan = plan_category(
@@ -308,6 +321,7 @@ fn same_hash_and_version_skips_without_a_write() {
         std::slice::from_ref(&frightened),
         &existing,
         Some(&real_seed()),
+        TEST_RELEASE,
     );
     assert_eq!(
         plan.skipped, 1,
@@ -335,6 +349,7 @@ fn seed_tier_flip_to_display_only_replans_despite_matching_hash_and_version() {
         std::slice::from_ref(&frightened),
         &existing,
         Some(&retired),
+        TEST_RELEASE,
     );
     assert_eq!(
         plan.updates.len(),
@@ -368,6 +383,7 @@ fn seed_tier_flip_to_engine_math_replans_with_mapping_rows() {
             importer_version: IMPORTER_VERSION,
             tier: Some("display_only".to_owned()),
             modifiers: None,
+            pack_version: Some(TEST_RELEASE.to_owned()),
         },
     );
     let plan = plan_category(
@@ -375,6 +391,7 @@ fn seed_tier_flip_to_engine_math_replans_with_mapping_rows() {
         std::slice::from_ref(&frightened),
         &existing,
         Some(&real_seed()),
+        TEST_RELEASE,
     );
     assert_eq!(
         plan.updates.len(),
@@ -404,6 +421,7 @@ fn unmapped_condition_with_matching_stored_tier_still_skips() {
             importer_version: IMPORTER_VERSION,
             tier: Some("display_only".to_owned()),
             modifiers: None,
+            pack_version: Some(TEST_RELEASE.to_owned()),
         },
     );
     let plan = plan_category(
@@ -411,6 +429,7 @@ fn unmapped_condition_with_matching_stored_tier_still_skips() {
         std::slice::from_ref(&frightened),
         &existing,
         Some(&seed_from_json(r#"{"conditions": []}"#)),
+        TEST_RELEASE,
     );
     assert_eq!(
         plan.skipped, 1,
@@ -438,6 +457,7 @@ fn stored_mapping_change_replans_despite_matching_hash_version_and_tier() {
                 "value_kind": "condition_value"
             }
         ])),
+        pack_version: Some(TEST_RELEASE.to_owned()),
     };
     let mut existing = empty_existing();
     existing.insert(frightened.source_id.clone(), stale_row);
@@ -446,6 +466,7 @@ fn stored_mapping_change_replans_despite_matching_hash_version_and_tier() {
         std::slice::from_ref(&frightened),
         &existing,
         Some(&real_seed()),
+        TEST_RELEASE,
     );
     assert_eq!(
         plan.updates.len(),
@@ -474,13 +495,17 @@ fn stored_mapping_change_replans_despite_matching_hash_version_and_tier() {
 }
 
 #[test]
-fn unchanged_stored_mapping_still_skips() {
+fn different_requested_release_restamps_an_unchanged_row() {
+    // Hash, importer version, tier and mappings all agree — but the row
+    // was stamped by another release. Per-row provenance must name the
+    // release this run imported, so the row is re-stamped, never skipped.
     let frightened = doc_from_fixture("frightened.json");
     let first = plan_category(
         Kind::Condition,
         std::slice::from_ref(&frightened),
         &empty_existing(),
         Some(&real_seed()),
+        TEST_RELEASE,
     );
     let mut existing = empty_existing();
     existing.insert(
@@ -491,6 +516,7 @@ fn unchanged_stored_mapping_still_skips() {
             importer_version: IMPORTER_VERSION,
             tier: Some("engine_math".to_owned()),
             modifiers: planned_modifiers(&first),
+            pack_version: Some("pf2e-8.4.0".to_owned()),
         },
     );
     let plan = plan_category(
@@ -498,6 +524,83 @@ fn unchanged_stored_mapping_still_skips() {
         std::slice::from_ref(&frightened),
         &existing,
         Some(&real_seed()),
+        TEST_RELEASE,
+    );
+    assert_eq!(
+        plan.updates.len(),
+        1,
+        "an unchanged row stamped by another release is re-stamped"
+    );
+    assert_eq!(plan.skipped, 0, "a release mismatch is never a no-op");
+}
+
+#[test]
+fn unstamped_row_is_never_skipped() {
+    // A NULL pack_version cannot prove the row came from this release —
+    // the fail-safe direction is to re-stamp it honestly.
+    let frightened = doc_from_fixture("frightened.json");
+    let first = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&frightened),
+        &empty_existing(),
+        Some(&real_seed()),
+        TEST_RELEASE,
+    );
+    let mut existing = empty_existing();
+    existing.insert(
+        frightened.source_id.clone(),
+        ExistingRow {
+            name: frightened.name.clone(),
+            content_hash: frightened.content_hash.clone(),
+            importer_version: IMPORTER_VERSION,
+            tier: Some("engine_math".to_owned()),
+            modifiers: planned_modifiers(&first),
+            pack_version: None,
+        },
+    );
+    let plan = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&frightened),
+        &existing,
+        Some(&real_seed()),
+        TEST_RELEASE,
+    );
+    assert_eq!(
+        plan.updates.len(),
+        1,
+        "a row without a release stamp is re-stamped"
+    );
+    assert_eq!(plan.skipped, 0);
+}
+
+#[test]
+fn unchanged_stored_mapping_still_skips() {
+    let frightened = doc_from_fixture("frightened.json");
+    let first = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&frightened),
+        &empty_existing(),
+        Some(&real_seed()),
+        TEST_RELEASE,
+    );
+    let mut existing = empty_existing();
+    existing.insert(
+        frightened.source_id.clone(),
+        ExistingRow {
+            name: frightened.name.clone(),
+            content_hash: frightened.content_hash.clone(),
+            importer_version: IMPORTER_VERSION,
+            tier: Some("engine_math".to_owned()),
+            modifiers: planned_modifiers(&first),
+            pack_version: Some(TEST_RELEASE.to_owned()),
+        },
+    );
+    let plan = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&frightened),
+        &existing,
+        Some(&real_seed()),
+        TEST_RELEASE,
     );
     assert_eq!(
         plan.skipped, 1,
@@ -518,6 +621,7 @@ fn skipped_rerun_still_reports_unmapped_conditions() {
             importer_version: IMPORTER_VERSION,
             tier: Some("display_only".to_owned()),
             modifiers: None,
+            pack_version: Some(TEST_RELEASE.to_owned()),
         },
     );
     let plan = plan_category(
@@ -525,6 +629,7 @@ fn skipped_rerun_still_reports_unmapped_conditions() {
         std::slice::from_ref(&frightened),
         &existing,
         Some(&seed_from_json(r#"{"conditions": []}"#)),
+        TEST_RELEASE,
     );
     assert_eq!(plan.skipped, 1, "the row itself is a no-op");
     assert_eq!(
@@ -547,6 +652,7 @@ fn missing_stored_tier_never_skips() {
             importer_version: IMPORTER_VERSION,
             tier: None,
             modifiers: None,
+            pack_version: Some(TEST_RELEASE.to_owned()),
         },
     );
     let plan = plan_category(
@@ -554,6 +660,7 @@ fn missing_stored_tier_never_skips() {
         std::slice::from_ref(&frightened),
         &existing,
         Some(&real_seed()),
+        TEST_RELEASE,
     );
     assert_eq!(
         plan.updates.len(),
@@ -575,6 +682,7 @@ fn changed_content_updates_in_place() {
         std::slice::from_ref(&frightened),
         &existing,
         Some(&real_seed()),
+        TEST_RELEASE,
     );
     assert_eq!(plan.updates.len(), 1, "changed content updates in place");
     assert_eq!(
@@ -599,6 +707,7 @@ fn importer_version_bump_restamps_unchanged_rows() {
         std::slice::from_ref(&frightened),
         &existing,
         Some(&real_seed()),
+        TEST_RELEASE,
     );
     assert_eq!(
         plan.updates.len(),
@@ -623,9 +732,16 @@ fn absent_upstream_rows_are_reported_stale() {
             importer_version: IMPORTER_VERSION,
             tier: Some("display_only".to_owned()),
             modifiers: None,
+            pack_version: Some(TEST_RELEASE.to_owned()),
         },
     );
-    let plan = plan_category(Kind::Condition, &[frightened], &existing, None);
+    let plan = plan_category(
+        Kind::Condition,
+        &[frightened],
+        &existing,
+        None,
+        TEST_RELEASE,
+    );
     assert_eq!(
         plan.stale.len(),
         1,
@@ -652,6 +768,7 @@ fn items_ignore_the_seed_and_carry_no_mappings() {
         std::slice::from_ref(&wayfinder),
         &empty_existing(),
         Some(&real_seed()),
+        TEST_RELEASE,
     );
     let write = plan.inserts.first().expect("insert planned");
     assert!(
@@ -681,6 +798,7 @@ fn row_payload_stamps_provenance_per_row() {
         std::slice::from_ref(&frightened),
         &empty_existing(),
         Some(&real_seed()),
+        TEST_RELEASE,
     );
     let write = plan.inserts.first().expect("insert planned");
     assert_eq!(

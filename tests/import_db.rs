@@ -251,6 +251,20 @@ async fn count_rows(pool: &PgPool, lane: &str) -> anyhow::Result<i64> {
     Ok(row.get::<i64, _>(0))
 }
 
+/// A row's provenance as of a moment: release stamp + import epoch.
+async fn stamp_of(pool: &PgPool, source_id: &str) -> anyhow::Result<(String, f64)> {
+    let row = sqlx::query(
+        "SELECT pack_version, EXTRACT(EPOCH FROM imported_at)::double precision AS stamp \
+         FROM corpus_entries WHERE source_id = $1",
+    )
+    .bind(source_id)
+    .fetch_one(pool)
+    .await
+    .context("provenance query runs")?;
+    let version: Option<String> = row.try_get("pack_version")?;
+    Ok((version.unwrap_or_default(), row.get::<f64, _>("stamp")))
+}
+
 /// Snapshot every corpus row as text lines — byte-for-byte comparisons.
 /// Includes both timestamps: a no-op run must leave even provenance time
 /// untouched, and an update must visibly advance `updated_at`.
@@ -444,28 +458,36 @@ async fn rerunning_same_release_changes_zero_rows() {
 
 /// US-2 / FR-15: a newer release updates changed rows in place, keeps
 /// removed rows and reports them stale, and never forks duplicates.
+/// Import release A, snapshot the unchanged row's provenance, then import
+/// release B. Returns `(report_b, concealed_stamp_after_a)`.
+async fn corpus_through_release_b(
+    pool: &sqlx::PgPool,
+) -> anyhow::Result<(hireling::import::RunReport, (String, f64))> {
+    import_from_bytes(pool, RELEASE_A, &release_a_zip()?, &seed_json()?)
+        .await
+        .context("release A import in shared setup")?;
+    let stamp_a = stamp_of(pool, "DmAIPqOBomZ7H95W").await?;
+    let report = import_from_bytes(pool, RELEASE_B, &release_b_zip()?, &seed_json()?)
+        .await
+        .context("release B import in shared setup")?;
+    Ok((report, stamp_a))
+}
+
+/// A→B: changed rows update in place, the UNCHANGED row is re-stamped to
+/// the release that now holds it (with a fresh `imported_at`), removed rows
+/// are kept and named, and nothing forks.
 #[tokio::test]
 async fn newer_release_updates_in_place_and_reports_stale() {
     let Some(db) = test_db().await.expect("test database harness") else {
         return;
     };
-    import_from_bytes(
-        &db.pool,
-        RELEASE_A,
-        &release_a_zip().expect("fixture zip"),
-        &seed_json().expect("seed loads"),
-    )
-    .await
-    .expect("initial import succeeds");
-
-    let report = import_from_bytes(
-        &db.pool,
-        RELEASE_B,
-        &release_b_zip().expect("fixture zip"),
-        &seed_json().expect("seed loads"),
-    )
-    .await
-    .expect("release B import succeeds");
+    let (report, (concealed_version_a, concealed_stamp_a)) = corpus_through_release_b(&db.pool)
+        .await
+        .expect("A then B imports");
+    assert_eq!(
+        concealed_version_a, RELEASE_A,
+        "provenance stamps honestly on first import"
+    );
 
     let conditions = report
         .categories
@@ -473,10 +495,14 @@ async fn newer_release_updates_in_place_and_reports_stale() {
         .find(|(k, _)| k.as_str() == "condition")
         .expect("conditions reported");
     assert_eq!(
-        conditions.1.updated, 1,
-        "renamed frightened updates in place"
+        conditions.1.updated, 2,
+        "renamed frightened updates in place AND unchanged concealed is \
+         re-stamped — per-row provenance must name the release this run imported"
     );
-    assert_eq!(conditions.1.skipped, 1, "unchanged concealed skips");
+    assert_eq!(
+        conditions.1.skipped, 0,
+        "a release change is never a no-op for a previously stamped row"
+    );
     let items = report
         .categories
         .iter()
@@ -514,6 +540,110 @@ async fn newer_release_updates_in_place_and_reports_stale() {
         name.get::<String, _>("pack_version"),
         RELEASE_B,
         "provenance advanced to B"
+    );
+
+    let (concealed_version_b, concealed_stamp_b) = stamp_of(&db.pool, "DmAIPqOBomZ7H95W")
+        .await
+        .expect("concealed row after B");
+    assert_eq!(
+        concealed_version_b, RELEASE_B,
+        "the UNCHANGED row is re-stamped to the release that now holds it"
+    );
+    assert!(
+        concealed_stamp_b > concealed_stamp_a,
+        "the re-stamp also refreshes imported_at — freshness is per row"
+    );
+
+    db.drop().await;
+}
+
+/// B→A and back again: stamps follow the requested release in both
+/// directions; a stale-kept row keeps its last honest stamp; and the
+/// same-release rerun still skips everything (idempotence survives
+/// re-stamping).
+#[tokio::test]
+async fn returning_to_an_older_release_restamps_back() {
+    let Some(db) = test_db().await.expect("test database harness") else {
+        return;
+    };
+    let (_, (_, concealed_stamp_b)) = corpus_through_release_b(&db.pool)
+        .await
+        .expect("A then B imports");
+
+    let report_back = import_from_bytes(
+        &db.pool,
+        RELEASE_A,
+        &release_a_zip().expect("fixture zip"),
+        &seed_json().expect("seed loads"),
+    )
+    .await
+    .expect("release A re-import succeeds");
+    let conditions_back = report_back
+        .categories
+        .iter()
+        .find(|(k, _)| k.as_str() == "condition")
+        .expect("conditions reported");
+    assert_eq!(
+        conditions_back.1.updated, 2,
+        "frightened renames back and concealed re-stamps to A"
+    );
+    let items_back = report_back
+        .categories
+        .iter()
+        .find(|(k, _)| k.as_str() == "item")
+        .expect("items reported");
+    assert_eq!(
+        items_back.1.updated, 0,
+        "the returned wayfinder already carries its honest A stamp — a \
+         stale-kept row was never stamped by the release that dropped it"
+    );
+    assert_eq!(
+        items_back.1.skipped, 1,
+        "wayfinder is a plain skip on return"
+    );
+    assert_eq!(
+        items_back.1.stale, 1,
+        "the mutant item is now the kept stale row"
+    );
+
+    let (concealed_version_again, concealed_stamp_again) = stamp_of(&db.pool, "DmAIPqOBomZ7H95W")
+        .await
+        .expect("concealed row after returning to A");
+    assert_eq!(
+        concealed_version_again, RELEASE_A,
+        "the stamp follows the requested release in both directions"
+    );
+    assert!(
+        concealed_stamp_again > concealed_stamp_b,
+        "returning to A also refreshes the unchanged row's imported_at"
+    );
+
+    // Same-release rerun after all that: everything skips again.
+    let report_same = import_from_bytes(
+        &db.pool,
+        RELEASE_A,
+        &release_a_zip().expect("fixture zip"),
+        &seed_json().expect("seed loads"),
+    )
+    .await
+    .expect("same-release rerun succeeds");
+    let conditions_same = report_same
+        .categories
+        .iter()
+        .find(|(k, _)| k.as_str() == "condition")
+        .expect("conditions reported");
+    assert_eq!(
+        conditions_same.1.updated, 0,
+        "same-release rerun writes nothing"
+    );
+    assert_eq!(
+        conditions_same.1.skipped, 2,
+        "same-release rerun still skips (idempotence survives re-stamping)"
+    );
+    assert_eq!(
+        count_rows(&db.pool, "imported").await.expect("count"),
+        4,
+        "still nothing deleted, nothing forked"
     );
 
     db.drop().await;
