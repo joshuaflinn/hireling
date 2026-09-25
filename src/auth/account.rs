@@ -2,19 +2,25 @@
 //! (the cross-epic keying contract). Rows are upserted at login — nothing
 //! else writes them; E2 owns the domain tables that reference this key.
 
-use sqlx::PgPool;
+use sqlx::Executor;
 
 use crate::auth::authz::Role;
 use crate::auth::oidc::AccountIdentity;
 
 /// Insert or refresh the account for a successfully authenticated identity.
 /// `role` is recomputed on every login from the configured GM `sub`, so a GM
-/// designation change in config takes effect at the next login.
+/// designation change in config takes effect at the next login. Takes any
+/// executor so it can join the caller's transaction (the login path writes
+/// the account, the session, and the audit record as one unit).
 ///
 /// # Errors
 ///
 /// Returns an error if the write fails.
-pub async fn upsert(pool: &PgPool, identity: &AccountIdentity, gm_sub: &str) -> anyhow::Result<()> {
+pub async fn upsert(
+    executor: impl Executor<'_, Database = sqlx::Postgres>,
+    identity: &AccountIdentity,
+    gm_sub: &str,
+) -> anyhow::Result<()> {
     let role = if identity.sub == gm_sub {
         Role::Gm
     } else {
@@ -33,7 +39,7 @@ pub async fn upsert(pool: &PgPool, identity: &AccountIdentity, gm_sub: &str) -> 
     .bind(&identity.username)
     .bind(&identity.display_name)
     .bind(role.as_str())
-    .execute(pool)
+    .execute(executor)
     .await
     .map_err(|err| anyhow::Error::new(err).context("failed to upsert account"))?;
     Ok(())

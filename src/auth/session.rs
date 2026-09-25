@@ -50,14 +50,16 @@ impl SessionRecord {
     }
 }
 
-/// Persist a new session row.
+/// Persist a new session row. Takes any executor so it can join the
+/// caller's transaction (the login path writes the account, the session,
+/// and the audit record as one unit).
 ///
 /// # Errors
 ///
 /// Returns an error if the insert fails (database unreachable, FK missing —
 /// the account row must already exist).
 pub async fn insert(
-    pool: &PgPool,
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     id: &str,
     account_sub: &str,
     now: DateTime<Utc>,
@@ -73,7 +75,7 @@ pub async fn insert(
     .bind(now)
     .bind(now + chrono::Duration::seconds(idle_secs))
     .bind(now + chrono::Duration::seconds(absolute_secs))
-    .execute(pool)
+    .execute(executor)
     .await
     .map_err(|err| anyhow::Error::new(err).context("failed to insert session"))?;
     Ok(())

@@ -142,7 +142,10 @@ pub async fn callback(
             response
         }
         Err(LoginFailure::Denied(identity)) => {
-            audit::record(
+            // SC-8 counts allowlist denials in "100% of logins": if the
+            // record cannot be written, the denial is not delivered — the
+            // login fails closed with no session and a loud log line.
+            if let Err(err) = audit::try_record(
                 &state.pool,
                 AuditEvent::LoginAllowlistDenied,
                 Some(&identity.sub),
@@ -150,7 +153,20 @@ pub async fn callback(
                 AuditOutcome::Denied,
                 None,
             )
-            .await;
+            .await
+            {
+                tracing::error!(
+                    error = %err,
+                    sub = %identity.sub,
+                    "allowlist denial could not be audit-recorded; failing the login"
+                );
+                return html_page(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Login failed",
+                    "The login could not be recorded. Try again; if it keeps \
+                     failing, the administrator should check the server logs.",
+                );
+            }
             html_page(
                 StatusCode::FORBIDDEN,
                 "Not on the list",
@@ -166,6 +182,16 @@ pub async fn callback(
                 "The sign-in service could not complete the login. Try again; \
                  if it keeps failing, the administrator should check the \
                  identity provider.",
+            )
+        }
+        Err(LoginFailure::Storage(err)) => {
+            tracing::error!(error = %err, "login could not be persisted");
+            html_page(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Login failed",
+                "The login could not be recorded, so no session was created. \
+                 Try again; if it keeps failing, the administrator should \
+                 check the server logs.",
             )
         }
     }
@@ -199,13 +225,23 @@ async fn complete_login(
     if !state.allowlist.contains(&identity.sub) {
         return Err(LoginFailure::Denied(identity));
     }
-    account::upsert(&state.pool, &identity, &state.gm_sub)
+
+    // One transaction holds the whole success write: the account row, the
+    // session row, and the login audit record (SC-8 — one record per login).
+    // If any leg fails, none persists and the login fails closed: a session
+    // without its audit record is exactly the bug this ordering forbids.
+    let mut tx = state
+        .pool
+        .begin()
         .await
-        .map_err(LoginFailure::Provider)?;
+        .map_err(|err| LoginFailure::Storage(anyhow::anyhow!("login transaction: {err}")))?;
+    account::upsert(&mut *tx, &identity, &state.gm_sub)
+        .await
+        .map_err(|err| LoginFailure::Storage(err.context("login transaction: account upsert")))?;
 
     let session_id = oidc::random_token().map_err(LoginFailure::Provider)?;
     session::insert(
-        &state.pool,
+        &mut *tx,
         &session_id,
         &identity.sub,
         Utc::now(),
@@ -213,16 +249,20 @@ async fn complete_login(
         state.session_absolute_secs,
     )
     .await
-    .map_err(LoginFailure::Provider)?;
-    audit::record(
-        &state.pool,
+    .map_err(|err| LoginFailure::Storage(err.context("login transaction: session insert")))?;
+    audit::try_record(
+        &mut *tx,
         AuditEvent::LoginSuccess,
         Some(&identity.sub),
         "login",
         AuditOutcome::Allowed,
         None,
     )
-    .await;
+    .await
+    .map_err(|err| LoginFailure::Storage(anyhow::anyhow!("login transaction: audit: {err}")))?;
+    tx.commit()
+        .await
+        .map_err(|err| LoginFailure::Storage(anyhow::anyhow!("login transaction commit: {err}")))?;
     Ok(session_id)
 }
 
@@ -232,6 +272,10 @@ enum LoginFailure {
     Denied(oidc::AccountIdentity),
     /// Anything on the provider round trip.
     Provider(anyhow::Error),
+    /// The provider approved the login but the local write (account,
+    /// session, audit — one transaction) failed. Nothing persisted; the
+    /// browser retries the login.
+    Storage(anyhow::Error),
 }
 
 /// The query parameters the callback leg consumes. Anything else the provider
@@ -387,7 +431,16 @@ pub mod dev {
             username: username.clone(),
             display_name: username.clone(),
         };
-        if let Err(err) = account::upsert(&state.pool, &identity, &state.gm_sub).await {
+        // Same contract as the real login: account, session, and audit as
+        // one transaction — a dev session without its record must not exist.
+        let mut tx = match state.pool.begin().await {
+            Ok(tx) => tx,
+            Err(err) => {
+                tracing::error!(error = %err, "dev session could not begin transaction");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
+        if let Err(err) = account::upsert(&mut *tx, &identity, &state.gm_sub).await {
             tracing::error!(error = %err, "dev session could not upsert account");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
@@ -395,7 +448,7 @@ pub mod dev {
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         };
         if let Err(err) = session::insert(
-            &state.pool,
+            &mut *tx,
             &session_id,
             &identity.sub,
             Utc::now(),
@@ -407,15 +460,23 @@ pub mod dev {
             tracing::error!(error = %err, "dev session could not insert session");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
-        audit::record(
-            &state.pool,
+        if let Err(err) = audit::try_record(
+            &mut *tx,
             AuditEvent::LoginSuccess,
             Some(&identity.sub),
             "dev-session",
             AuditOutcome::Allowed,
             None,
         )
-        .await;
+        .await
+        {
+            tracing::error!(error = %err, "dev session could not write its audit record");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        if let Err(err) = tx.commit().await {
+            tracing::error!(error = %err, "dev session could not commit");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
 
         let mut cookie = Cookie::new(oidc::SESSION_COOKIE, session_id);
         harden_cookie(&mut cookie);
