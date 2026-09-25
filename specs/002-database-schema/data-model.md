@@ -100,7 +100,7 @@ One campaign; the scoping root for nearly everything (FR-4).
 | column | type | constraints | notes |
 |---|---|---|---|
 | `name` | text | NOT NULL | |
-| `quartermaster_character_id` | bigint | NULL, FK → `characters(id)` ON DELETE SET NULL | the quartermaster designation as data — present now, activated by E12, no schema change then (spec edge case) |
+| `quartermaster_character_id` | bigint | NULL, FK `(id, quartermaster_character_id)` → `characters(party_id, id)` ON DELETE SET NULL (`quartermaster_character_id`) | the quartermaster designation as data — present now, activated by E12, no schema change then (spec edge case). The composite pin makes a cross-party designation unstorable (FR-4); deleting the pinned character clears only the designation (PG15+ column-list SET NULL) |
 
 ### `characters`
 
@@ -119,6 +119,10 @@ Relationships: `parties 1—N characters`; `accounts 1—0..1 characters`
 (bound by `owner_sub` → `accounts.sub`).
 The `parties.quartermaster_character_id` ↔ `characters.party_id` pair is a
 deliberate nullable cycle (insert party → characters → set quartermaster).
+`characters` carries a `UNIQUE (party_id, id)` pin target: every
+character-touching edge elsewhere (effects source, effect targets,
+quartermaster) FKs through `(party_id, id)`, so cross-party links are
+rejected by the schema itself, not only by application code (FR-4).
 
 State transitions: **imported** (row + vitals created by E5) → **live**
 (normal operation) → **re-imported** (`payload_raw` + `base_sheet` replaced;
@@ -193,7 +197,7 @@ contents read base-sheet data (E6/E8).
 | column | type | constraints | notes |
 |---|---|---|---|
 | `party_id` | bigint | NOT NULL, FK → `parties(id)` | FR-4 scoping (denormalized from source character so party queries never join through) |
-| `source_character_id` | bigint | NOT NULL, FK → `characters(id)` ON DELETE RESTRICT | the creator/owner; RESTRICT forces a human decision before a creator's removal destroys effects (spec edge case: the effect is not silently destroyed) |
+| `source_character_id` | bigint | NOT NULL, FK `(party_id, source_character_id)` → `characters(party_id, id)` ON DELETE RESTRICT | the creator/owner, pinned to the effect's own party — party A cannot hold an effect created by party B's character (FR-4). RESTRICT forces a human decision before a creator's removal destroys effects (spec edge case: the effect is not silently destroyed) |
 | `name` | text | NOT NULL | |
 | `duration_note` | text | NOT NULL DEFAULT '' | free text ("10 rounds", "while in aura") — displayed, never enforced (PRD: no countdown automation) |
 | `active` | boolean | NOT NULL DEFAULT true | ended = `false`, kept queryable — state, not deletion (FR-15) |
@@ -209,8 +213,9 @@ an administrative escape hatch (FR-15).
 
 | column | type | constraints | notes |
 |---|---|---|---|
-| `effect_id` | bigint | FK → `effects(id)` ON DELETE CASCADE | |
-| `character_id` | bigint | FK → `characters(id)` ON DELETE CASCADE | the **link** may die with a removed roster character; the effect row may not (spec edge case). Roster characters only — companions/minions are not targetable (PRD FG3) |
+| `party_id` | bigint | NOT NULL | the effect's party, carried on the link so both same-party pins below are plain composite FKs (FR-4) |
+| `effect_id` | bigint | FK `(party_id, effect_id)` → `effects(party_id, id)` ON DELETE CASCADE | |
+| `character_id` | bigint | FK `(party_id, character_id)` → `characters(party_id, id)` ON DELETE CASCADE | the **link** may die with a removed roster character; the effect row may not (spec edge case). Roster characters only — companions/minions are not targetable (PRD FG3). Both pins resolve `(party_id, X)` pairs, so a target outside the effect's party is unstorable |
 
 ### `effect_modifiers` — PK (`effect_id`, `ord`)
 

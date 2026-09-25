@@ -8,8 +8,10 @@
 //! Gating: tests need a reachable Postgres at the documented local URL
 //! (default `postgres://hireling:hireling@127.0.0.1:5432`, the compose
 //! throwaway). With no server, every test SKIPS LOUDLY on stderr — never a
-//! silent green. `just db` starts the throwaway; `just db-reset` wipes
-//! anything this suite ever leaked.
+//! silent green. That is the ONLY skip: once the server answers, a failed
+//! CREATE DATABASE, connect, or migration run panics the test red — a
+//! broken schema must never pass for a skip. `just db` starts the
+//! throwaway; `just db-reset` wipes anything this suite ever leaked.
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{AssertSqlSafe, PgPool, Row as _};
@@ -72,7 +74,8 @@ impl TestDb {
     ///
     /// `Err` carries the loud skip reason when no Postgres is reachable —
     /// each test prints it to stderr and returns, visibly, without passing
-    /// any assertion.
+    /// any assertion. That is the only skip: on a *reachable* server, a
+    /// failed CREATE DATABASE, connect, or migration run panics red.
     async fn provision(test: &str) -> Result<TestDb, String> {
         let base = base_url();
         let admin = PgPoolOptions::new()
@@ -90,22 +93,29 @@ impl TestDb {
             .subsec_nanos();
         let name = format!("hireling_e2_{test}_{}_{}", std::process::id(), nanos);
 
-        let created = dyn_sql!(format!("CREATE DATABASE {name}").as_str())
+        // Past this line the server is reachable: every failure is a broken
+        // environment or schema, and the test must go RED — never ride the
+        // skip path (a green suite must not absorb a broken migration).
+        if let Err(err) = dyn_sql!(format!("CREATE DATABASE {name}").as_str())
             .execute(&admin)
-            .await;
-        if let Err(err) = created {
-            return Err(format!("failed to create test database {name}: {err}"));
+            .await
+        {
+            admin.close().await;
+            panic!("failed to create test database {name} (server reachable): {err}");
         }
 
         let pool = PgPoolOptions::new()
             .max_connections(5)
             .connect(&format!("{base}/{name}"))
             .await
-            .map_err(|err| format!("failed to connect to {name}: {err}"))?;
+            .unwrap_or_else(|err| {
+                panic!("failed to connect to fresh database {name} (server reachable): {err}")
+            });
 
-        let migrated = crate::db::migrator().run(&pool).await;
-        if let Err(err) = migrated {
-            return Err(format!("migrations failed on {name}: {err}"));
+        if let Err(err) = crate::db::migrator().run(&pool).await {
+            pool.close().await;
+            admin.close().await;
+            panic!("migrations failed on {name} (server reachable) — schema is broken: {err}");
         }
 
         Ok(TestDb { name, pool, admin })
@@ -433,6 +443,112 @@ async fn seed_party_state(db: &TestDb, party: i64, character: i64) {
 }
 
 // ---------------------------------------------------------------------------
+// SC-2b — cross-party links are unstorable: the schema pins every
+// character-touching edge to its own party's roster (FR-4).
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn sc2b_cross_party_links_are_rejected() {
+    let db = provision_or_skip!("sc2b");
+    let (party_a, char_a) = seed_character(&db, "sub-a", "Alpha").await;
+    let (party_b, char_b) = seed_character(&db, "sub-b", "Beta").await;
+
+    // Baseline: an in-party effect stores fine.
+    let effect_a = one_string(
+        &db,
+        &format!(
+            "INSERT INTO effects (party_id, source_character_id, name)\n             VALUES ({party_a}, {char_a}, 'Bless') RETURNING id::text"
+        ),
+    )
+    .await
+    .parse::<i64>()
+    .expect("effect id parses");
+
+    // An effect of party B created by party A's character: rejected.
+    db.assert_fails_with(
+        &format!(
+            "INSERT INTO effects (party_id, source_character_id, name)\n             VALUES ({party_b}, {char_a}, 'Cross-Created')"
+        ),
+        FK_VIOLATION,
+        "an effect's creator must belong to the effect's party",
+    )
+    .await;
+
+    // An effect of party A targeting party B's character: rejected.
+    db.assert_fails_with(
+        &format!(
+            "INSERT INTO effect_targets (party_id, effect_id, character_id)\n             VALUES ({party_a}, {effect_a}, {char_b})"
+        ),
+        FK_VIOLATION,
+        "an effect target must belong to the effect's party",
+    )
+    .await;
+
+    // Control: the same-party target stores — the pins bind the edge, not
+    // the table.
+    exec(
+        &db,
+        &format!(
+            "INSERT INTO effect_targets (party_id, effect_id, character_id)\n             VALUES ({party_a}, {effect_a}, {char_a})"
+        ),
+        "same-party target must store",
+    )
+    .await;
+
+    // Party A naming party B's character quartermaster: rejected.
+    db.assert_fails_with(
+        &format!("UPDATE parties SET quartermaster_character_id = {char_b} WHERE id = {party_a}"),
+        FK_VIOLATION,
+        "the quartermaster must belong to the party",
+    )
+    .await;
+
+    // Control: the same-party designation stores, and hard-deleting that
+    // character clears the designation (SET NULL survives the composite pin).
+    exec(
+        &db,
+        "INSERT INTO accounts (sub, username, display_name, role)\n         VALUES ('sub-c', 'sub-c', 'Display sub-c', 'player')",
+        "seed third account",
+    )
+    .await;
+    let char_c = one_string(
+        &db,
+        &format!(
+            "INSERT INTO characters (party_id, owner_sub, payload_raw, base_sheet)\n             VALUES ({party_a}, 'sub-c', '{{}}', '{{}}') RETURNING id::text"
+        ),
+    )
+    .await
+    .parse::<i64>()
+    .expect("third character id parses");
+
+    exec(
+        &db,
+        &format!("UPDATE parties SET quartermaster_character_id = {char_c} WHERE id = {party_a}"),
+        "same-party quartermaster must store",
+    )
+    .await;
+    exec(
+        &db,
+        &format!("DELETE FROM characters WHERE id = {char_c}"),
+        "hard delete of the quartermaster",
+    )
+    .await;
+    assert_eq!(
+        count(
+            &db,
+            &format!(
+                "SELECT count(*) FROM parties\n                 WHERE id = {party_a} AND quartermaster_character_id IS NULL"
+            )
+        )
+        .await,
+        1,
+        "deleting the quartermaster must clear the designation (SET NULL), not touch the party"
+    );
+
+    db.drop_self().await;
+}
+
+// ---------------------------------------------------------------------------
 // SC-3 — every join path rejects orphaned references at the database level.
 // ---------------------------------------------------------------------------
 
@@ -508,13 +624,13 @@ fn orphan_cases(party: i64, character: i64, effect: i64) -> Vec<(&'static str, S
         (
             "effect target → effect",
             format!(
-                "INSERT INTO effect_targets (effect_id, character_id) VALUES (999999, {character})"
+                "INSERT INTO effect_targets (party_id, effect_id, character_id)\n                 VALUES ({party}, 999999, {character})"
             ),
         ),
         (
             "effect target → character",
             format!(
-                "INSERT INTO effect_targets (effect_id, character_id) VALUES ({effect}, 999999)"
+                "INSERT INTO effect_targets (party_id, effect_id, character_id)\n                 VALUES ({party}, {effect}, 999999)"
             ),
         ),
         (
