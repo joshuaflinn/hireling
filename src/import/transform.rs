@@ -261,6 +261,7 @@ fn classify_condition(
                 "type": modifier.modifier_type,
                 "stat": modifier.stat,
                 "value": modifier.value,
+                "value_kind": modifier.value_kind.as_str(),
             }),
         })
         .collect();

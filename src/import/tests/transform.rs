@@ -223,6 +223,49 @@ fn frightened_values_resolve_to_signed_penalties() {
 }
 
 #[test]
+fn constant_mappings_resolve_to_their_signed_value() {
+    // The seed parser accepts constants only with a signed value and no
+    // polarity; the stored row must therefore name `value_kind` for the
+    // canonical reader to reach that value. Proven on what the writer
+    // actually wrote, so the pair cannot drift.
+    let fixture = doc_from_fixture("frightened.json");
+    let seed = seed_from_json(&seed_single(
+        FRIGHTENED_ID,
+        "engine_math",
+        r#"[{
+            "modifier_type": "item",
+            "stat": "all_checks_and_dcs",
+            "value_kind": "constant",
+            "value": -2
+        }]"#,
+    ));
+    let plan = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&fixture),
+        &empty_existing(),
+        Some(&seed),
+    );
+    let mapping = planned_modifiers(&plan)
+        .expect("engine-math carries mappings")
+        .as_array()
+        .expect("mappings are an array")
+        .first()
+        .expect("one mapping")
+        .clone();
+    assert_eq!(
+        mapping.get("value_kind").and_then(Value::as_str),
+        Some("constant"),
+        "the stored constant row names its value kind — the reader requires it"
+    );
+    assert_eq!(
+        resolve_mapping_value(&mapping, 7),
+        Some(-2),
+        "a constant mapping resolves to its signed value regardless of the \
+         condition's current value"
+    );
+}
+
+#[test]
 fn valued_mismatch_warns() {
     let frightened = doc_from_fixture("frightened.json");
     let inverted_seed = seed_from_json(&seed_entry("TBSHQspnbcqxsmjL", "engine_math", Some(false)));
