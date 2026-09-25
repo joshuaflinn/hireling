@@ -458,19 +458,23 @@ async fn rerunning_same_release_changes_zero_rows() {
 
 /// US-2 / FR-15: a newer release updates changed rows in place, keeps
 /// removed rows and reports them stale, and never forks duplicates.
-/// Import release A, snapshot the unchanged row's provenance, then import
-/// release B. Returns `(report_b, concealed_stamp_after_a)`.
+/// Import release A, import release B, snapshotting the unchanged row's
+/// provenance after each. Returns
+/// `(report_b, concealed_stamp_after_a, concealed_stamp_after_b)` — both
+/// stamps are read from the database at the moment named, so each caller
+/// asserts freshness against the true prior state, not a stale capture.
 async fn corpus_through_release_b(
     pool: &sqlx::PgPool,
-) -> anyhow::Result<(hireling::import::RunReport, (String, f64))> {
+) -> anyhow::Result<(hireling::import::RunReport, (String, f64), (String, f64))> {
     import_from_bytes(pool, RELEASE_A, &release_a_zip()?, &seed_json()?)
         .await
         .context("release A import in shared setup")?;
-    let stamp_a = stamp_of(pool, "DmAIPqOBomZ7H95W").await?;
+    let stamp_after_a = stamp_of(pool, "DmAIPqOBomZ7H95W").await?;
     let report = import_from_bytes(pool, RELEASE_B, &release_b_zip()?, &seed_json()?)
         .await
         .context("release B import in shared setup")?;
-    Ok((report, stamp_a))
+    let stamp_after_b = stamp_of(pool, "DmAIPqOBomZ7H95W").await?;
+    Ok((report, stamp_after_a, stamp_after_b))
 }
 
 /// A→B: changed rows update in place, the UNCHANGED row is re-stamped to
@@ -481,9 +485,10 @@ async fn newer_release_updates_in_place_and_reports_stale() {
     let Some(db) = test_db().await.expect("test database harness") else {
         return;
     };
-    let (report, (concealed_version_a, concealed_stamp_a)) = corpus_through_release_b(&db.pool)
-        .await
-        .expect("A then B imports");
+    let (report, (concealed_version_a, concealed_stamp_a), _stamp_after_b) =
+        corpus_through_release_b(&db.pool)
+            .await
+            .expect("A then B imports");
     assert_eq!(
         concealed_version_a, RELEASE_A,
         "provenance stamps honestly on first import"
@@ -566,9 +571,14 @@ async fn returning_to_an_older_release_restamps_back() {
     let Some(db) = test_db().await.expect("test database harness") else {
         return;
     };
-    let (_, (_, concealed_stamp_b)) = corpus_through_release_b(&db.pool)
-        .await
-        .expect("A then B imports");
+    let (_, (_, _unused_a_stamp), (concealed_version_b, concealed_stamp_b)) =
+        corpus_through_release_b(&db.pool)
+            .await
+            .expect("A then B imports");
+    assert_eq!(
+        concealed_version_b, RELEASE_B,
+        "shared setup left the unchanged row stamped by B"
+    );
 
     let report_back = import_from_bytes(
         &db.pool,
@@ -615,7 +625,8 @@ async fn returning_to_an_older_release_restamps_back() {
     );
     assert!(
         concealed_stamp_again > concealed_stamp_b,
-        "returning to A also refreshes the unchanged row's imported_at"
+        "returning to A also refreshes the unchanged row's imported_at past \
+         B's actual stamp — a pack_version-only rewrite would fail here"
     );
 
     // Same-release rerun after all that: everything skips again.
