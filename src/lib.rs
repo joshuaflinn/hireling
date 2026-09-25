@@ -7,10 +7,14 @@
 //! where the logic lives. The shell is usually not unit-tested; the pure
 //! modules always are.
 
+pub mod auth;
 pub mod config;
 pub mod db;
 pub mod health;
 pub mod http;
+
+#[cfg(test)]
+pub mod testing;
 
 use anyhow::Context as _;
 
@@ -26,6 +30,16 @@ use crate::config::Settings;
 /// server fails.
 pub async fn run() -> anyhow::Result<()> {
     let settings = Settings::from_process_env().context("failed to load settings")?;
+
+    // Fail closed on incomplete release configuration: a release binary that
+    // boots without its OIDC legs and cookie key is an app nobody can log
+    // into. Debug builds may run without them (dev-session auth stands in).
+    if cfg!(not(debug_assertions)) {
+        settings
+            .auth
+            .validate_release()
+            .context("release configuration incomplete")?;
+    }
 
     tracing::info!(
         log_level = %settings.log_level,
