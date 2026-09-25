@@ -30,6 +30,7 @@ fn existing_row(hash: &str, version: i64) -> ExistingRow {
         content_hash: hash.to_owned(),
         importer_version: version,
         tier: Some("engine_math".to_owned()),
+        modifiers: None,
     }
 }
 
@@ -46,16 +47,15 @@ fn seed_entry(upstream_id: &str, tier: &str, valued: Option<bool>) -> String {
         Some(flag) => format!("\"valued\": {flag},"),
         None => String::new(),
     };
+    let modifiers_json = r#"[{"modifier_type": "status", "stat": "all_checks_and_dcs",
+                 "value_kind": "condition_value", "polarity": "negative"}]"#;
     format!(
         r#"{{"conditions": [{{
             "upstream_id": "{upstream_id}",
             "name": "Frightened",
             "tier": "{tier}",
             {valued_json}
-            "modifiers": [
-                {{"modifier_type": "status", "stat": "all_checks_and_dcs",
-                 "value_kind": "condition_value"}}
-            ]
+            "modifiers": {modifiers_json}
         }}]}}"#
     )
 }
@@ -74,6 +74,16 @@ fn seed_single(upstream_id: &str, tier: &str, modifiers_json: &str) -> String {
 }
 
 const FRIGHTENED_ID: &str = "TBSHQspnbcqxsmjL";
+
+/// The stored modifier rows of the first write a plan produces, for use as
+/// an existing row's mapping payload in skip-gate tests.
+fn planned_modifiers(plan: &CategoryPlan) -> Option<Value> {
+    plan.inserts
+        .first()
+        .expect("insert planned")
+        .modifiers
+        .clone()
+}
 
 #[test]
 fn clean_import_plans_inserts() {
@@ -155,6 +165,61 @@ fn engine_math_condition_carries_vocabulary_only_parameterized_rows() {
         Some("condition_value"),
         "frightened 1 and frightened 2 share this mapping"
     );
+    assert_eq!(
+        row.get("polarity").and_then(Value::as_str),
+        Some("negative"),
+        "the stored row carries the sign explicitly — `status` is a stacking \
+         type, not a sign, and a positive frightened value must not read as a bonus"
+    );
+}
+
+#[test]
+fn frightened_values_resolve_to_signed_penalties() {
+    let frightened = doc_from_fixture("frightened.json");
+    let plan = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&frightened),
+        &empty_existing(),
+        Some(&real_seed()),
+    );
+    let mapping = planned_modifiers(&plan)
+        .expect("engine-math carries mappings")
+        .as_array()
+        .expect("mappings are an array")
+        .first()
+        .expect("one mapping")
+        .clone();
+    assert_eq!(
+        resolve_mapping_value(&mapping, 1),
+        Some(-1),
+        "frightened 1 is −1, straight from the stored mapping"
+    );
+    assert_eq!(
+        resolve_mapping_value(&mapping, 2),
+        Some(-2),
+        "frightened 2 is −2 — same stored row, no per-value special case"
+    );
+    assert_eq!(resolve_mapping_value(&mapping, 4), Some(-4));
+    let mut bonus = mapping.clone();
+    bonus
+        .as_object_mut()
+        .expect("mapping is an object")
+        .insert("polarity".to_owned(), Value::String("positive".to_owned()));
+    assert_eq!(
+        resolve_mapping_value(&bonus, 2),
+        Some(2),
+        "a positive polarity resolves through the same contract"
+    );
+    let mut signless = mapping;
+    signless
+        .as_object_mut()
+        .expect("mapping is an object")
+        .remove("polarity");
+    assert_eq!(
+        resolve_mapping_value(&signless, 2),
+        None,
+        "a mapping without polarity cannot resolve — the engine never guesses a sign"
+    );
 }
 
 #[test]
@@ -176,10 +241,24 @@ fn valued_mismatch_warns() {
 #[test]
 fn same_hash_and_version_skips_without_a_write() {
     let frightened = doc_from_fixture("frightened.json");
+    // The stored row is what a previous run of THIS seed wrote — tier and
+    // mapping rows included — so the skip gate has full agreement.
+    let first = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&frightened),
+        &empty_existing(),
+        Some(&real_seed()),
+    );
     let mut existing = empty_existing();
     existing.insert(
         frightened.source_id.clone(),
-        existing_row(&frightened.content_hash, IMPORTER_VERSION),
+        ExistingRow {
+            name: frightened.name.clone(),
+            content_hash: frightened.content_hash.clone(),
+            importer_version: IMPORTER_VERSION,
+            tier: Some("engine_math".to_owned()),
+            modifiers: planned_modifiers(&first),
+        },
     );
     let plan = plan_category(
         Kind::Condition,
@@ -245,6 +324,7 @@ fn seed_tier_flip_to_engine_math_replans_with_mapping_rows() {
             content_hash: frightened.content_hash.clone(),
             importer_version: IMPORTER_VERSION,
             tier: Some("display_only".to_owned()),
+            modifiers: None,
         },
     );
     let plan = plan_category(
@@ -280,6 +360,7 @@ fn unmapped_condition_with_matching_stored_tier_still_skips() {
             content_hash: frightened.content_hash.clone(),
             importer_version: IMPORTER_VERSION,
             tier: Some("display_only".to_owned()),
+            modifiers: None,
         },
     );
     let plan = plan_category(
@@ -296,6 +377,122 @@ fn unmapped_condition_with_matching_stored_tier_still_skips() {
 }
 
 #[test]
+fn stored_mapping_change_replans_despite_matching_hash_version_and_tier() {
+    let frightened = doc_from_fixture("frightened.json");
+    // A row written before the seed carried polarity: hash, importer
+    // version and tier all agree with the current run, but the stored
+    // mapping predates the seed's current verdict.
+    let stale_row = ExistingRow {
+        name: frightened.name.clone(),
+        content_hash: frightened.content_hash.clone(),
+        importer_version: IMPORTER_VERSION,
+        tier: Some("engine_math".to_owned()),
+        modifiers: Some(serde_json::json!([
+            {
+                "type": "status",
+                "stat": "all_checks_and_dcs",
+                "value": null,
+                "value_kind": "condition_value"
+            }
+        ])),
+    };
+    let mut existing = empty_existing();
+    existing.insert(frightened.source_id.clone(), stale_row);
+    let plan = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&frightened),
+        &existing,
+        Some(&real_seed()),
+    );
+    assert_eq!(
+        plan.updates.len(),
+        1,
+        "a seed mapping correction must re-plan the row even when hash, version \
+         and tier match — otherwise the correction never reaches the corpus"
+    );
+    assert_eq!(plan.skipped, 0, "a divergent mapping is not a skip");
+    let row = plan
+        .updates
+        .first()
+        .expect("update planned")
+        .modifiers
+        .as_ref()
+        .expect("engine-math carries mappings")
+        .as_array()
+        .expect("mappings are an array")
+        .first()
+        .expect("one mapping")
+        .clone();
+    assert_eq!(
+        row.get("polarity").and_then(Value::as_str),
+        Some("negative"),
+        "the corrected mapping — not the stale one — is what lands"
+    );
+}
+
+#[test]
+fn unchanged_stored_mapping_still_skips() {
+    let frightened = doc_from_fixture("frightened.json");
+    let first = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&frightened),
+        &empty_existing(),
+        Some(&real_seed()),
+    );
+    let mut existing = empty_existing();
+    existing.insert(
+        frightened.source_id.clone(),
+        ExistingRow {
+            name: frightened.name.clone(),
+            content_hash: frightened.content_hash.clone(),
+            importer_version: IMPORTER_VERSION,
+            tier: Some("engine_math".to_owned()),
+            modifiers: planned_modifiers(&first),
+        },
+    );
+    let plan = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&frightened),
+        &existing,
+        Some(&real_seed()),
+    );
+    assert_eq!(
+        plan.skipped, 1,
+        "an identical stored mapping must stay a no-op (FR-3)"
+    );
+    assert!(plan.updates.is_empty());
+}
+
+#[test]
+fn skipped_rerun_still_reports_unmapped_conditions() {
+    let frightened = doc_from_fixture("frightened.json");
+    let mut existing = empty_existing();
+    existing.insert(
+        frightened.source_id.clone(),
+        ExistingRow {
+            name: frightened.name.clone(),
+            content_hash: frightened.content_hash.clone(),
+            importer_version: IMPORTER_VERSION,
+            tier: Some("display_only".to_owned()),
+            modifiers: None,
+        },
+    );
+    let plan = plan_category(
+        Kind::Condition,
+        std::slice::from_ref(&frightened),
+        &existing,
+        Some(&seed_from_json(r#"{"conditions": []}"#)),
+    );
+    assert_eq!(plan.skipped, 1, "the row itself is a no-op");
+    assert_eq!(
+        plan.unmapped,
+        vec!["Frightened".to_owned()],
+        "the gap is release-vs-seed state, not a write side effect — \
+         every run report lists it (FR-11)"
+    );
+}
+
+#[test]
 fn missing_stored_tier_never_skips() {
     let frightened = doc_from_fixture("frightened.json");
     let mut existing = empty_existing();
@@ -306,6 +503,7 @@ fn missing_stored_tier_never_skips() {
             content_hash: frightened.content_hash.clone(),
             importer_version: IMPORTER_VERSION,
             tier: None,
+            modifiers: None,
         },
     );
     let plan = plan_category(
@@ -381,6 +579,7 @@ fn absent_upstream_rows_are_reported_stale() {
             content_hash: "x".to_owned(),
             importer_version: IMPORTER_VERSION,
             tier: Some("display_only".to_owned()),
+            modifiers: None,
         },
     );
     let plan = plan_category(Kind::Condition, &[frightened], &existing, None);

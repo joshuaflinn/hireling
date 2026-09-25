@@ -49,8 +49,8 @@ fn frightened_seed_loads_with_parameterized_mapping() {
     );
     assert_eq!(
         mapping.value_kind,
-        ValueKind::ConditionValue,
-        "frightened 1..4 share one parameterized mapping (FR-9)"
+        ValueKind::ConditionValue(Polarity::Negative),
+        "frightened 1..4 share one parameterized mapping (FR-9), signed negative"
     );
     let concealed = seed
         .get("DmAIPqOBomZ7H95W")
@@ -63,6 +63,61 @@ fn frightened_seed_loads_with_parameterized_mapping() {
     assert!(
         concealed.modifiers.is_empty(),
         "display-only conditions carry zero mappings"
+    );
+}
+
+#[test]
+fn frightened_polarity_is_negative() {
+    let seed = load_seed(SEED_JSON).expect("the checked-in seed must be valid");
+    let mapping = seed
+        .get("TBSHQspnbcqxsmjL")
+        .expect("seed maps frightened")
+        .modifiers
+        .first()
+        .expect("one mapping");
+    assert_eq!(
+        mapping.value_kind,
+        ValueKind::ConditionValue(Polarity::Negative),
+        "a status penalty is negative — the sign is stored data, never derived"
+    );
+}
+
+#[test]
+fn condition_value_mappings_need_explicit_polarity() {
+    let err = load_seed(&entry_json(
+        "engine_math",
+        r#"[{"modifier_type":"status","stat":"all_checks_and_dcs","value_kind":"condition_value"}]"#,
+    ))
+    .expect_err("a parameterized mapping without polarity cannot encode its sign");
+    assert!(
+        err.to_string().contains("polarity"),
+        "error must name the missing polarity, got: {err}"
+    );
+}
+
+#[test]
+fn condition_value_polarity_must_be_known() {
+    let err = load_seed(&entry_json(
+        "engine_math",
+        r#"[{"modifier_type":"status","stat":"all_checks_and_dcs","value_kind":"condition_value","polarity":"sideways"}]"#,
+    ))
+    .expect_err("an unknown polarity is a seed typo");
+    assert!(
+        err.to_string().contains("sideways"),
+        "error must name the bad polarity, got: {err}"
+    );
+}
+
+#[test]
+fn constant_mappings_must_not_carry_polarity() {
+    let err = load_seed(&entry_json(
+        "engine_math",
+        r#"[{"modifier_type":"status","stat":"ac","value_kind":"constant","value":-1,"polarity":"negative"}]"#,
+    ))
+    .expect_err("a constant carries its own sign; polarity would be a second, contradictory one");
+    assert!(
+        err.to_string().contains("polarity"),
+        "error must explain the polarity rule, got: {err}"
     );
 }
 

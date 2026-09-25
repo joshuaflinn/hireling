@@ -59,13 +59,16 @@ impl Tier {
     }
 }
 
-/// Where a modifier's value comes from.
+/// Where a modifier's value comes from. The payload makes the invariant
+/// a type: a condition-value mapping cannot exist without its sign, so
+/// the writer can never emit the corrupt signless row the review found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueKind {
     /// A fixed integer (negative = penalty).
     Constant,
-    /// The condition's own value (frightened 1..4 share one mapping; FR-9).
-    ConditionValue,
+    /// The condition's own value (frightened 1..4 share one mapping; FR-9)
+    /// scaled by the stored sign.
+    ConditionValue(Polarity),
 }
 
 impl ValueKind {
@@ -74,7 +77,31 @@ impl ValueKind {
     pub fn as_str(self) -> &'static str {
         match self {
             ValueKind::Constant => "constant",
-            ValueKind::ConditionValue => "condition_value",
+            ValueKind::ConditionValue(_) => "condition_value",
+        }
+    }
+}
+
+/// The sign a parameterized mapping applies to the condition's value.
+/// Stored data, never derived: `status` names a stacking type, not a
+/// direction, so "frightened 2 is −2" is only knowable because the seed
+/// says so (review finding — a positive frightened value must not be able
+/// to read as a bonus).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Polarity {
+    /// The condition's value applies as a bonus (`+value`).
+    Positive,
+    /// The condition's value applies as a penalty (`−value`).
+    Negative,
+}
+
+impl Polarity {
+    /// The stored value in a mapping row's `polarity`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Polarity::Positive => "positive",
+            Polarity::Negative => "negative",
         }
     }
 }
@@ -86,9 +113,10 @@ pub struct ModifierSeed {
     pub modifier_type: String,
     /// One of the closed vocabulary stats, or `skill:<name>`.
     pub stat: String,
-    /// Where the value comes from.
+    /// Where the value comes from — for [`ValueKind::ConditionValue`], the
+    /// sign rides in the variant.
     pub value_kind: ValueKind,
-    /// Set iff `value_kind` is [`ValueKind::Constant`].
+    /// Set iff `value_kind` is [`ValueKind::Constant`] — the signed value.
     pub value: Option<i64>,
 }
 
@@ -172,6 +200,8 @@ struct RawModifier {
     value_kind: String,
     #[serde(default)]
     value: Option<i64>,
+    #[serde(default)]
+    polarity: Option<String>,
 }
 
 /// Load and validate the tier seed from its JSON text.
@@ -241,49 +271,7 @@ fn validate_entry(entry: SeedEntry) -> Result<ConditionSeed, SeedError> {
     };
     let mut modifiers = Vec::new();
     for raw in entry.modifiers {
-        if !MODIFIER_TYPES.contains(&raw.modifier_type.as_str()) {
-            return Err(SeedError {
-                problem: format!(
-                    "entry `{}` has unknown modifier_type `{}`",
-                    entry.name, raw.modifier_type
-                ),
-            });
-        }
-        validate_stat(&raw.stat)?;
-        let value_kind = match raw.value_kind.as_str() {
-            "constant" => ValueKind::Constant,
-            "condition_value" => ValueKind::ConditionValue,
-            other => {
-                return Err(SeedError {
-                    problem: format!("entry `{}` has unknown value_kind `{other}`", entry.name),
-                });
-            }
-        };
-        match (value_kind, raw.value) {
-            (ValueKind::Constant, Some(_)) | (ValueKind::ConditionValue, None) => {}
-            (ValueKind::Constant, None) => {
-                return Err(SeedError {
-                    problem: format!(
-                        "entry `{}` mapping to `{}` is constant but has no value",
-                        entry.name, raw.stat
-                    ),
-                });
-            }
-            (ValueKind::ConditionValue, Some(_)) => {
-                return Err(SeedError {
-                    problem: format!(
-                        "entry `{}` mapping to `{}` is condition-valued but carries a value",
-                        entry.name, raw.stat
-                    ),
-                });
-            }
-        }
-        modifiers.push(ModifierSeed {
-            modifier_type: raw.modifier_type,
-            stat: raw.stat,
-            value_kind,
-            value: raw.value,
-        });
+        modifiers.push(validate_modifier(&entry.name, raw)?);
     }
     match (tier, modifiers.is_empty()) {
         (Tier::EngineMath, true) => {
@@ -310,6 +298,85 @@ fn validate_entry(entry: SeedEntry) -> Result<ConditionSeed, SeedError> {
         tier,
         valued: entry.valued,
         modifiers,
+    })
+}
+
+/// Validate one seed mapping against the vocabularies and the shape
+/// rules: constants carry a signed value and no polarity; condition-value
+/// mappings carry a polarity and no value (the sign is the polarity).
+fn validate_modifier(entry_name: &str, raw: RawModifier) -> Result<ModifierSeed, SeedError> {
+    if !MODIFIER_TYPES.contains(&raw.modifier_type.as_str()) {
+        return Err(SeedError {
+            problem: format!(
+                "entry `{entry_name}` has unknown modifier_type `{}`",
+                raw.modifier_type
+            ),
+        });
+    }
+    validate_stat(&raw.stat)?;
+    let value_kind = match raw.value_kind.as_str() {
+        "constant" => {
+            if raw.polarity.is_some() {
+                return Err(SeedError {
+                    problem: format!(
+                        "entry `{entry_name}` mapping to `{}` is constant and carries its own \
+                         signed value — remove the redundant polarity",
+                        raw.stat
+                    ),
+                });
+            }
+            if raw.value.is_none() {
+                return Err(SeedError {
+                    problem: format!(
+                        "entry `{entry_name}` mapping to `{}` is constant but has no value",
+                        raw.stat
+                    ),
+                });
+            }
+            ValueKind::Constant
+        }
+        "condition_value" => {
+            if raw.value.is_some() {
+                return Err(SeedError {
+                    problem: format!(
+                        "entry `{entry_name}` mapping to `{}` is condition-valued but carries a value",
+                        raw.stat
+                    ),
+                });
+            }
+            let raw_polarity = raw.polarity.ok_or_else(|| SeedError {
+                problem: format!(
+                    "entry `{entry_name}` mapping to `{}` is condition-valued but has no polarity — \
+                     the sign is stored data, never derived (use positive or negative)",
+                    raw.stat
+                ),
+            })?;
+            let polarity = match raw_polarity.as_str() {
+                "positive" => Polarity::Positive,
+                "negative" => Polarity::Negative,
+                other => {
+                    return Err(SeedError {
+                        problem: format!(
+                            "entry `{entry_name}` mapping to `{}` has unknown polarity `{other}` \
+                             (expected positive or negative)",
+                            raw.stat
+                        ),
+                    });
+                }
+            };
+            ValueKind::ConditionValue(polarity)
+        }
+        other => {
+            return Err(SeedError {
+                problem: format!("entry `{entry_name}` has unknown value_kind `{other}`"),
+            });
+        }
+    };
+    Ok(ModifierSeed {
+        modifier_type: raw.modifier_type,
+        stat: raw.stat,
+        value_kind,
+        value: raw.value,
     })
 }
 

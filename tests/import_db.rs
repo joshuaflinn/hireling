@@ -913,6 +913,147 @@ async fn seed_tier_change_converges_without_a_version_bump() {
     db.drop().await;
 }
 
+/// Review finding: a seed mapping correction (tier unchanged) must reach
+/// rows whose hash, version and tier all match — the correction converges
+/// on the next run without an importer-version bump.
+#[tokio::test]
+async fn seed_mapping_correction_converges_without_a_version_bump() {
+    let Some(db) = test_db().await.expect("test database harness") else {
+        return;
+    };
+    let seed = seed_json().expect("seed loads");
+    import_from_bytes(
+        &db.pool,
+        RELEASE_A,
+        &release_a_zip().expect("fixture zip"),
+        &seed,
+    )
+    .await
+    .expect("initial import succeeds");
+
+    // Correct frightened's mapping in the seed: same release, same tier,
+    // no version bump — only the mapping changes.
+    let mut corrected = serde_json::from_str::<serde_json::Value>(&seed)
+        .expect("the checked-in seed is valid JSON");
+    for entry in corrected
+        .get_mut("conditions")
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("the seed carries a conditions array")
+    {
+        if entry.get("upstream_id").and_then(serde_json::Value::as_str) == Some("TBSHQspnbcqxsmjL")
+        {
+            entry["modifiers"] = serde_json::json!([
+                {
+                    "modifier_type": "status",
+                    "stat": "all_checks_and_dcs",
+                    "value_kind": "condition_value",
+                    "polarity": "positive"
+                }
+            ]);
+        }
+    }
+    let corrected = serde_json::to_string(&corrected).expect("mutated seed serializes");
+    let report = import_from_bytes(
+        &db.pool,
+        RELEASE_A,
+        &release_a_zip().expect("fixture zip"),
+        &corrected,
+    )
+    .await
+    .expect("the correction run succeeds");
+    let conditions = report
+        .categories
+        .iter()
+        .find(|(k, _)| k.as_str() == "condition")
+        .expect("conditions reported");
+    assert_eq!(conditions.1.updated, 1, "exactly the corrected row updates");
+    assert_eq!(
+        conditions.1.skipped, 1,
+        "the untouched condition still skips"
+    );
+
+    let stored = sqlx::query(
+        "SELECT modifiers FROM corpus_entries \
+         WHERE source_id = 'TBSHQspnbcqxsmjL' AND lane = 'imported'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .expect("frightened row exists");
+    let modifiers: serde_json::Value = stored.get("modifiers");
+    assert_eq!(
+        modifiers
+            .get(0)
+            .and_then(|row| row.get("polarity"))
+            .and_then(serde_json::Value::as_str),
+        Some("positive"),
+        "the corrected mapping — not the stale one — lives in the corpus"
+    );
+
+    db.drop().await;
+}
+
+/// Review finding: the unmapped-condition gap list is release-vs-seed
+/// state, not a write side effect — an idempotent re-run still lists it.
+#[tokio::test]
+async fn idempotent_rerun_still_reports_unmapped_conditions() {
+    let Some(db) = test_db().await.expect("test database harness") else {
+        return;
+    };
+    // Release A plus one unseeded condition.
+    let mutant = {
+        let mut doc: serde_json::Value =
+            serde_json::from_str(&captured("frightened.json").expect("fixture"))
+                .expect("fixture is JSON");
+        let object = doc.as_object_mut().expect("document is an object");
+        object.insert("_id".to_owned(), serde_json::json!("mutatedConditionId01"));
+        object.insert("name".to_owned(), serde_json::json!("Test Sorrow"));
+        serde_json::to_string(&doc).expect("mutation serializes")
+    };
+    let conditions = format!(
+        "[{}, {}, {mutant}]",
+        captured("frightened.json").expect("fixture"),
+        captured("concealed.json").expect("fixture")
+    );
+    let zip = build_zip(vec![
+        ("packs/conditions.json", conditions.into_bytes()),
+        (
+            "packs/equipment.json",
+            pack_array(&["wayfinder.json"]).expect("pack array"),
+        ),
+    ])
+    .expect("fixture zip");
+    let seed = seed_json().expect("seed loads");
+
+    let first = import_from_bytes(&db.pool, RELEASE_A, &zip, &seed)
+        .await
+        .expect("first run succeeds");
+    assert_eq!(
+        first.unmapped_conditions,
+        vec!["Test Sorrow".to_owned()],
+        "the first run names the gap"
+    );
+
+    let second = import_from_bytes(&db.pool, RELEASE_A, &zip, &seed)
+        .await
+        .expect("second run succeeds");
+    assert_eq!(
+        second
+            .categories
+            .iter()
+            .map(|(_, c)| c.skipped)
+            .sum::<u64>(),
+        4,
+        "the re-run is a full no-op: 3 conditions + 1 item, all skipped"
+    );
+    assert_eq!(
+        second.unmapped_conditions,
+        vec!["Test Sorrow".to_owned()],
+        "the gap list survives the no-op re-run (FR-11)"
+    );
+
+    db.drop().await;
+}
+
 /// The freshness check's "newest release" ordering is numeric, not
 /// lexicographic — text `max()` ranks pf2e-9.9.0 above pf2e-9.10.0 and
 /// pf2e-8.5.1 above pf2e-10.0.0. FR-13's honest freshness note depends on

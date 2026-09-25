@@ -15,7 +15,7 @@
     "  tier          \"engine_math\" (with mappings) or \"display_only\" (without)",
     "  valued        optional expectation that the condition carries a value;",
     "                 a mismatch with the upstream document warns in the run report",
-    "  modifiers     engine-math only: [{modifier_type, stat, value_kind, value?}]",
+    "  modifiers     engine-math only: [{modifier_type, stat, value_kind, value?, polarity?}]",
     "    modifier_type  circumstance | status | item | untyped",
     "    stat           closed vocabulary: ac, fort, ref, will, perception, speed,",
     "                   attack, damage, spell_attack, spell_dc, class_dc,",
@@ -23,6 +23,10 @@
     "    value_kind     \"constant\" (value: integer, negative = penalty)",
     "                   or \"condition_value\" (one parameterized mapping serves",
     "                   every value of the condition — frightened 1..4 share it)",
+    "    polarity       condition_value ONLY: \"positive\" or \"negative\" — the",
+    "                   sign applied to the condition's value; stored data, never",
+    "                   derived (frightened is \"negative\": a status PENALTY).",
+    "                   constant mappings must not carry it (value is signed).",
     "  note          optional human note"
   ],
   "conditions": [
@@ -35,10 +39,11 @@
         {
           "modifier_type": "status",
           "stat": "all_checks_and_dcs",
-          "value_kind": "condition_value"
+          "value_kind": "condition_value",
+          "polarity": "negative"
         }
       ],
-      "note": "Player Core: 'You take a status penalty equal to this value to all your checks and DCs.' Verified against the captured pack document."
+      "note": "Player Core: 'You take a status penalty equal to this value to all your checks and DCs.' Verified against the captured pack document. The penalty sign is the stored polarity — frightened 1 resolves to −1, frightened 2 to −2, never a bonus."
     },
     {
       "upstream_id": "DmAIPqOBomZ7H95W",

@@ -5,12 +5,15 @@
 //!
 //! Idempotence model (FR-3): identity is the upstream `source_id`; the
 //! change detector is the content hash. A row whose stored hash AND
-//! importer version match the incoming document is skipped without a
-//! write, so provenance never churns on no-op re-runs. Conditions add one
-//! more skip gate: the stored tier must agree with the seed's current
-//! verdict, so a seed correction converges the corpus on the next run
-//! even without an importer-version bump — a retired engine-math mapping
-//! can never survive a re-run by accident.
+//! importer version match the incoming document is a skip candidate, but
+//! the candidate is only a true no-op when the stored tier AND the stored
+//! mapping rows agree with what the seed would write today — so a seed
+//! correction (tier or mapping) converges the corpus on the next run even
+//! without an importer-version bump, and an incompletely written row is
+//! repaired rather than revered. The unmapped-condition gap list is
+//! release-vs-seed state: it is collected for every document, so an
+//! idempotent re-run's report names the same gaps as the first run
+//! (FR-11).
 
 use std::collections::{HashMap, HashSet};
 
@@ -78,6 +81,8 @@ pub struct ExistingRow {
     /// Stored tier (`data.import.tier`); `None` when missing or malformed —
     /// such rows never skip, so the run re-stamps them honestly.
     pub tier: Option<String>,
+    /// Stored mapping rows (`modifiers` column); `None` when NULL.
+    pub modifiers: Option<Value>,
 }
 
 /// One row the plan writes (insert or update — the two carry the same
@@ -137,15 +142,13 @@ pub fn plan_category(
     let mut present_ids: HashSet<&str> = HashSet::new();
     for doc in docs {
         present_ids.insert(doc.source_id.as_str());
-        let unchanged = existing.get(doc.source_id.as_str()).is_some_and(|row| {
-            row.content_hash == doc.content_hash
-                && row.importer_version == IMPORTER_VERSION
-                && !tier_diverges(kind, doc, seed, row.tier.as_deref())
-        });
-        if unchanged {
-            plan.skipped += 1;
-            continue;
-        }
+        let existing_row = existing.get(doc.source_id.as_str());
+        // Compute the payload for every document, skip candidates included:
+        // the skip decision itself compares the planned tier and mapping
+        // rows against the stored ones (a seed correction must reach rows
+        // whose hash, version and tier match), and the unmapped gap list
+        // must survive idempotent re-runs — it is release-vs-seed state,
+        // not a write side effect.
         let (data, modifiers) = row_payload(kind, doc, seed, &mut plan);
         let write = RowWrite {
             source_id: doc.source_id.clone(),
@@ -153,7 +156,17 @@ pub fn plan_category(
             data,
             modifiers,
         };
-        if existing.get(doc.source_id.as_str()).is_some() {
+        let is_noop = existing_row.is_some_and(|row| {
+            row.content_hash == doc.content_hash
+                && row.importer_version == IMPORTER_VERSION
+                && !tier_diverges(kind, doc, seed, row.tier.as_deref())
+                && row.modifiers == write.modifiers
+        });
+        if is_noop {
+            plan.skipped += 1;
+            continue;
+        }
+        if existing_row.is_some() {
             plan.updates.push(write);
         } else {
             plan.inserts.push(write);
@@ -237,11 +250,12 @@ fn classify_condition(
         .modifiers
         .iter()
         .map(|modifier| match modifier.value_kind {
-            ValueKind::ConditionValue => json!({
+            ValueKind::ConditionValue(polarity) => json!({
                 "type": modifier.modifier_type,
                 "stat": modifier.stat,
                 "value": Value::Null,
                 "value_kind": modifier.value_kind.as_str(),
+                "polarity": polarity.as_str(),
             }),
             ValueKind::Constant => json!({
                 "type": modifier.modifier_type,
@@ -251,6 +265,31 @@ fn classify_condition(
         })
         .collect();
     (Tier::EngineMath, Some(Value::Array(mappings)))
+}
+
+/// Resolve one stored mapping row against a condition's value — the
+/// canonical reading of the stored `modifiers` shape. `None` means the
+/// row cannot be resolved as stored (a parameterized row without
+/// polarity, or an unknown value kind): the engine must treat that as
+/// corrupt data, never guess a sign.
+///
+/// This lives beside the writer so the two cannot drift: the transform
+/// tests resolve what `plan_category` wrote, proving the stored row alone
+/// is sufficient to reproduce frightened 1 → −1 .. 4 → −4.
+#[must_use]
+pub fn resolve_mapping_value(mapping: &Value, condition_value: i64) -> Option<i64> {
+    match mapping.get("value_kind").and_then(Value::as_str)? {
+        "constant" => mapping.get("value").and_then(Value::as_i64),
+        "condition_value" => {
+            let polarity = mapping.get("polarity").and_then(Value::as_str)?;
+            match polarity {
+                "negative" => Some(-condition_value),
+                "positive" => Some(condition_value),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 fn publication_json(publication: &Publication) -> Value {
