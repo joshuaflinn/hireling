@@ -7,11 +7,15 @@
 //!
 //! Gating: tests need a reachable Postgres at the documented local URL
 //! (default `postgres://hireling:hireling@127.0.0.1:5432`, the compose
-//! throwaway). With no server, every test SKIPS LOUDLY on stderr — never a
-//! silent green. That is the ONLY skip: once the server answers, a failed
-//! CREATE DATABASE, connect, or migration run panics the test red — a
-//! broken schema must never pass for a skip. `just db` starts the
-//! throwaway; `just db-reset` wipes anything this suite ever leaked.
+//! throwaway). The ONLY skip is a server unreachable at the transport
+//! level — connection refused, no route, DNS, or no connection established
+//! within the acquire budget: every test then SKIPS LOUDLY on stderr,
+//! never a silent green. A server that ANSWERS never skips: a rejected
+//! password, a permission failure, or a missing maintenance database is a
+//! red test — and so are failed CREATE DATABASE, connect, or migration
+//! runs. A misconfigured test database must never pass for a skip
+//! (MOR-10/MOR-13). `just db` starts the throwaway; `just db-reset` wipes
+//! anything this suite ever leaked.
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{AssertSqlSafe, PgPool, Row as _};
@@ -32,6 +36,72 @@ macro_rules! dyn_sql {
 fn base_url() -> String {
     std::env::var("HIRELING_TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://hireling:hireling@127.0.0.1:5432".to_owned())
+}
+
+/// Outcome of the maintenance-pool connection attempt.
+enum MaintenanceConnect {
+    /// Connected: the server is up and answered.
+    Up(PgPool),
+    /// The server is confirmed unreachable at the transport level — the
+    /// one legitimate loud-skip case ("no Postgres — run `just db`").
+    Skip(String),
+    /// The attempt was rejected by something that answered: authentication,
+    /// permission, a missing maintenance database, or an unparseable URL.
+    /// This is a broken environment or config and must fail RED.
+    Fatal(String),
+}
+
+/// Is this connect failure proof that no server answered?
+///
+/// Only transport-class errors count: an OS-level I/O failure (connection
+/// refused, network unreachable, DNS) or a pool that could not establish
+/// any connection within the acquire budget (a firewalled, silently
+/// dropping host surfaces as `PoolTimedOut`). Anything else means either
+/// the server spoke (`Database` — auth/permission/missing-database) or our
+/// own URL/config is broken (`Configuration`, TLS, protocol) — neither of
+/// which may ride the skip path.
+fn is_transport_unreachable(err: &sqlx::Error) -> bool {
+    matches!(err, sqlx::Error::Io(_) | sqlx::Error::PoolTimedOut)
+}
+
+/// Connect the maintenance pool at `{base}/postgres`, classifying the
+/// outcome so the suite can skip only genuine no-server environments.
+async fn connect_maintenance(base: &str, test: &str) -> MaintenanceConnect {
+    let url = format!("{base}/postgres");
+    let attempt = PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(std::time::Duration::from_secs(2))
+        .connect(&url)
+        .await;
+    match attempt {
+        Ok(pool) => MaintenanceConnect::Up(pool),
+        Err(err) if is_transport_unreachable(&err) => MaintenanceConnect::Skip(format!(
+            "SKIPPED (no Postgres at {base} — run `just db`): {test}: {err}"
+        )),
+        Err(err) => MaintenanceConnect::Fatal(format!(
+            "maintenance connection to {url} failed but the server answered \
+             (auth, permission, or missing database — server reachable): {err}"
+        )),
+    }
+}
+
+/// The same URL with a password no server should accept. Used by the
+/// regression test that pins the reachable-server-rejection path.
+fn corrupt_password(url: &str) -> String {
+    let (scheme, rest) = url.split_once("://").unwrap_or(("postgres", url));
+    let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let bad_authority = match authority.rsplit_once('@') {
+        Some((userinfo, hostport)) => {
+            let user = userinfo.split(':').next().unwrap_or("hireling");
+            format!("{user}:definitely-wrong-password@{hostport}")
+        }
+        None => format!("hireling:definitely-wrong-password@{authority}"),
+    };
+    if path.is_empty() {
+        format!("{scheme}://{bad_authority}")
+    } else {
+        format!("{scheme}://{bad_authority}/{path}")
+    }
 }
 
 /// Every application table the migrations must create.
@@ -72,20 +142,21 @@ struct TestDb {
 impl TestDb {
     /// Provision one migrated database.
     ///
-    /// `Err` carries the loud skip reason when no Postgres is reachable —
-    /// each test prints it to stderr and returns, visibly, without passing
-    /// any assertion. That is the only skip: on a *reachable* server, a
-    /// failed CREATE DATABASE, connect, or migration run panics red.
+    /// `Err` carries the loud skip reason when no Postgres is reachable at
+    /// the transport level — each test prints it to stderr and returns,
+    /// visibly, without passing any assertion. That is the only skip: on a
+    /// *reachable* server, a rejected password, a failed CREATE DATABASE,
+    /// connect, or migration run panics red.
     async fn provision(test: &str) -> Result<TestDb, String> {
         let base = base_url();
-        let admin = PgPoolOptions::new()
-            .max_connections(2)
-            .acquire_timeout(std::time::Duration::from_secs(2))
-            .connect(&format!("{base}/postgres"))
-            .await
-            .map_err(|err| {
-                format!("SKIPPED (no Postgres at {base} — run `just db`): {test}: {err}")
-            })?;
+        let admin = match connect_maintenance(&base, test).await {
+            MaintenanceConnect::Up(pool) => pool,
+            MaintenanceConnect::Skip(reason) => {
+                eprintln!("{reason}");
+                return Err(reason);
+            }
+            MaintenanceConnect::Fatal(context) => panic!("{context}"),
+        };
 
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1177,4 +1248,144 @@ async fn assert_modifier_vocabulary(db: &TestDb) {
         "negative modifier value must store",
     )
     .await;
+}
+
+// ---------------------------------------------------------------------------
+// Suite gating — a reachable server must never be skippable (MOR-13):
+// wrong credentials, permission failures, or a missing maintenance
+// database are RED; only transport-level unreachability skips.
+// ---------------------------------------------------------------------------
+
+/// Live regression: with a reachable server, connecting with a wrong
+/// password must classify Fatal (red), never Skip. If the good URL cannot
+/// connect at all, there is no server here — skip loudly like every test.
+#[tokio::test]
+async fn setup_wrong_password_fails_red_on_reachable_server() {
+    let base = base_url();
+
+    // Prove the environment: correct credentials must connect.
+    match connect_maintenance(&base, "setup-auth").await {
+        MaintenanceConnect::Up(pool) => pool.close().await,
+        MaintenanceConnect::Skip(reason) => {
+            eprintln!("{reason}");
+            return;
+        }
+        MaintenanceConnect::Fatal(context) => {
+            panic!("correct credentials must connect; got a fatal classification: {context}")
+        }
+    }
+
+    // Same host and port, wrong password: the server answers with an
+    // authentication error, which must be Fatal — a red — and never Skip.
+    let bad = corrupt_password(&base);
+    match connect_maintenance(&bad, "setup-auth").await {
+        MaintenanceConnect::Fatal(_) => {} // the required outcome
+        MaintenanceConnect::Skip(reason) => panic!(
+            "a reachable server's password rejection classified as a skip — \
+             a misconfigured database would pass the suite: {reason}"
+        ),
+        MaintenanceConnect::Up(pool) => {
+            pool.close().await;
+            // The host accepts any password (trust auth), so there is no
+            // server rejection to classify here. Say so — never fake a pass.
+            eprintln!(
+                "note: server at {base} accepted a wrong password (trust auth); \
+                 the auth-rejection classification is pinned by the unit tests below"
+            );
+        }
+    }
+}
+
+#[test]
+fn transport_failures_classify_as_skip() {
+    assert!(is_transport_unreachable(&sqlx::Error::Io(
+        std::io::Error::from(std::io::ErrorKind::ConnectionRefused)
+    )));
+    assert!(is_transport_unreachable(&sqlx::Error::Io(
+        std::io::Error::from(std::io::ErrorKind::TimedOut)
+    )));
+    // A firewalled host that silently drops SYNs surfaces as PoolTimedOut.
+    assert!(is_transport_unreachable(&sqlx::Error::PoolTimedOut));
+}
+
+#[test]
+fn server_answered_failures_classify_as_fatal() {
+    // A password rejection (28P01) is the server SPEAKING — reachable.
+    let auth = sqlx::Error::Database(Box::new(MockDbError::auth_failed()));
+    assert!(
+        !is_transport_unreachable(&auth),
+        "an authentication rejection must never ride the skip path"
+    );
+    // A broken URL is our config bug, not the server's absence.
+    let config = sqlx::Error::Configuration("no host in url".into());
+    assert!(
+        !is_transport_unreachable(&config),
+        "a configuration error must never ride the skip path"
+    );
+}
+
+#[test]
+fn corrupt_password_swaps_only_the_password() {
+    assert_eq!(
+        corrupt_password("postgres://hireling:hireling@127.0.0.1:5432"),
+        "postgres://hireling:definitely-wrong-password@127.0.0.1:5432"
+    );
+    // No password in the URL: one is injected, so password-verifying hosts
+    // reject the connection even when the operator URL omitted credentials.
+    assert_eq!(
+        corrupt_password("postgres://127.0.0.1:5432"),
+        "postgres://hireling:definitely-wrong-password@127.0.0.1:5432"
+    );
+}
+
+/// Stand-in for a Postgres server error: `PgDatabaseError` cannot be
+/// constructed outside the driver, so the classifier's Database branch is
+/// pinned with the trait's minimal implementation carrying a real SQLSTATE.
+#[derive(Debug)]
+struct MockDbError {
+    code: &'static str,
+    message: String,
+}
+
+impl MockDbError {
+    fn auth_failed() -> Self {
+        Self {
+            code: "28P01",
+            message: "password authentication failed for user \"hireling\"".to_owned(),
+        }
+    }
+}
+
+impl std::fmt::Display for MockDbError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for MockDbError {}
+
+impl sqlx::error::DatabaseError for MockDbError {
+    fn message(&self) -> &str {
+        &self.message
+    }
+
+    fn code(&self) -> Option<std::borrow::Cow<'_, str>> {
+        Some(self.code.into())
+    }
+
+    fn kind(&self) -> sqlx::error::ErrorKind {
+        sqlx::error::ErrorKind::Other
+    }
+
+    fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+        self
+    }
+
+    fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+        self
+    }
+
+    fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+        self
+    }
 }
