@@ -7,6 +7,11 @@
 //! notice and passes — the pure-matrix suite still runs everywhere, and the
 //! database suite runs in any environment with a Postgres (locally: `just db`,
 //! or any Postgres 16+).
+//!
+//! Reachable but broken is a different case: a fresh test database that
+//! cannot be created, connected to, or migrated panics. A skipped test that
+//! reports green proves nothing about the schema — that is how a
+//! fresh-boot-breaking migration once slipped through as "1 passed".
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -37,6 +42,12 @@ static DB_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// A fresh, migrated database for one test. Returns `None` (after a loud
 /// notice) when no Postgres is reachable — see the module docs.
+///
+/// # Panics
+///
+/// Panics when the test Postgres **is** reachable but the fresh test
+/// database cannot be created, connected to, or migrated — a reachable-but-
+/// broken schema is a defect to fail on, never to skip.
 pub async fn test_pool() -> Option<PgPool> {
     let url = maintenance_url();
     let options: PgConnectOptions = url.parse().ok()?;
@@ -61,13 +72,17 @@ pub async fn test_pool() -> Option<PgPool> {
         DB_COUNTER.fetch_add(1, Ordering::Relaxed)
     );
     // The database name comes from our own generator, not user input — the
-    // SQL-safety assertion is honest here.
+    // SQL-safety assertion is honest here. From here on the Postgres is
+    // reachable, so every failure below is a real defect and must fail the
+    // test, never skip it.
     if let Err(err) = sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}")))
         .execute(&maintenance)
         .await
     {
-        eprintln!("skipping database-backed test: could not create {name} ({err})");
-        return None;
+        panic!(
+            "test Postgres is reachable but the test database {name} could not \
+             be created: {err}"
+        );
     }
 
     let options = options.database(&name);
@@ -75,13 +90,10 @@ pub async fn test_pool() -> Option<PgPool> {
         .max_connections(5)
         .connect_with(options)
         .await
-        .ok()?;
+        .unwrap_or_else(|err| {
+            panic!("test database {name} was created but could not be connected to: {err}")
+        });
     if let Err(err) = db::migrator().run(&pool).await {
-        eprintln!(
-            "skipping database-backed test: migrations failed on {name} ({err:?}) — \
-             migrator holds {} migrations",
-            db::migrator().iter().count()
-        );
         if let Err(drop_err) = sqlx::query(sqlx::AssertSqlSafe(format!(
             "DROP DATABASE {name} WITH (FORCE)"
         )))
@@ -90,7 +102,12 @@ pub async fn test_pool() -> Option<PgPool> {
         {
             eprintln!("warning: could not drop {name} after a failed run: {drop_err}");
         }
-        return None;
+        panic!(
+            "migrations failed on a FRESH test database ({name}): {err:?} — the \
+             migrator holds {} migrations; a fresh boot is broken, fix the \
+             migrations instead of skipping the test",
+            db::migrator().iter().count()
+        );
     }
     Some(pool)
 }
@@ -203,13 +220,24 @@ pub async fn seed_account(pool: &PgPool, sub: &str, role: &str) {
         .expect("seed account");
 }
 
-/// Insert a live session row and return its id.
+/// Insert a live session row and return its id. Upserts the account row for
+/// `sub` first (player role) — production sessions always hang off an
+/// upserted login, and the sessions FK enforces the same invariant in
+/// tests. For a GM-seat session, seed the account yourself first.
 ///
 /// # Panics
 ///
 /// Panics if token generation or the insert fails — the seeding contract of
 /// every calling test.
 pub async fn seed_session(pool: &PgPool, sub: &str, now: chrono::DateTime<chrono::Utc>) -> String {
+    sqlx::query(
+        "INSERT INTO accounts (sub, username, display_name, role) VALUES ($1, $1, $1, 'player') \
+         ON CONFLICT (sub) DO NOTHING",
+    )
+    .bind(sub)
+    .execute(pool)
+    .await
+    .expect("seed session's account");
     let id = crate::auth::oidc::random_token().expect("random token");
     crate::auth::session::insert(pool, &id, sub, now, 86_400, 7 * 86_400)
         .await

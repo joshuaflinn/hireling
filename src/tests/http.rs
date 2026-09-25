@@ -556,6 +556,7 @@ async fn the_absolute_cap_holds_even_inside_the_idle_window() {
     // Seeded "now" is 8 days ago with a 30-day idle window and a 7-day
     // absolute cap: the idle deadline is in the future, the cap is past.
     let old = chrono::Utc::now() - chrono::Duration::days(8);
+    testing::seed_account(&pool, "dev-sub-josh", "player").await;
     crate::auth::session::insert(
         &pool,
         "abs-cap-session",
@@ -770,6 +771,35 @@ mod stub_provider {
         Json((*stub.jwks).clone())
     }
 
+    /// Percent-decode an `application/x-www-form-urlencoded` value — what the
+    /// token endpoint receives, `reqwest`'s `.form()` sends properly encoded.
+    fn form_decode(value: &str) -> String {
+        let spaced = value.replace('+', " ");
+        let bytes = spaced.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut index = 0;
+        while let Some(byte) = bytes.get(index) {
+            if *byte == b'%'
+                && let Some([high, low]) = bytes.get(index + 1..index + 3)
+                && let Some(decoded) = hex_byte([*high, *low])
+            {
+                out.push(decoded);
+                index += 3;
+            } else {
+                out.push(*byte);
+                index += 1;
+            }
+        }
+        String::from_utf8(out).unwrap_or(spaced)
+    }
+
+    /// One `%XX` byte, or `None` when the pair is not two hex digits.
+    fn hex_byte([high, low]: [u8; 2]) -> Option<u8> {
+        let high = u8::try_from((high as char).to_digit(16)?).ok()?;
+        let low = u8::try_from((low as char).to_digit(16)?).ok()?;
+        Some(high * 16 + low)
+    }
+
     async fn serve_token(
         State(stub): State<Stub>,
         headers: axum::http::HeaderMap,
@@ -784,7 +814,7 @@ mod stub_provider {
             .split('&')
             .filter_map(|pair| {
                 let (key, value) = pair.split_once('=')?;
-                Some((key.to_owned(), value.to_owned()))
+                Some((key.to_owned(), form_decode(value)))
             })
             .collect();
         let form = serde_json::to_value(form).unwrap_or(serde_json::Value::Null);
@@ -961,6 +991,134 @@ async fn the_full_oidc_round_trip_establishes_a_session() {
         "login_success must be recorded, got {rows:?}"
     );
     testing::drop_test_db(pool, "oidc_round_trip").await;
+}
+
+/// SC-8: one record per login. With the audit sink broken, the callback must
+/// fail the login and persist nothing — no session, no account row.
+#[tokio::test]
+async fn a_login_without_its_audit_record_leaves_no_session() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (base, stub) = stub_provider::spawn().await;
+    let auth = testing::auth_settings_with_oidc(
+        {
+            let mut auth = testing::auth_settings();
+            auth.allowlist.insert("stub-sub".to_owned());
+            auth
+        },
+        stub_oidc_settings(&base),
+    );
+    let app = testing::router_for(pool.clone(), &auth);
+
+    // Break the audit sink: with the record unwritable, the login must not
+    // produce a session.
+    sqlx::query("DROP TABLE audit_events")
+        .execute(&pool)
+        .await
+        .expect("drop audit_events");
+
+    let (location, transaction_cookie) = start_login(&app).await;
+    {
+        let mut config = stub.config.lock().await;
+        config.sub = "stub-sub".to_owned();
+        config.nonce = query_param(&location, "nonce");
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/auth/callback?code=the-code&state={}",
+                    query_param(&location, "state")
+                ))
+                .header(
+                    "cookie",
+                    format!("{}={}", oidc::TRANSACTION_COOKIE, transaction_cookie),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "a login whose audit record cannot be written must fail, not silently pass"
+    );
+
+    let (session_rows,): (i64,) = sqlx::query_as("SELECT count(*) FROM sessions")
+        .fetch_one(&pool)
+        .await
+        .expect("count sessions");
+    let (account_rows,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM accounts WHERE sub = 'stub-sub'")
+            .fetch_one(&pool)
+            .await
+            .expect("count accounts");
+    assert_eq!(session_rows, 0, "no session without its audit record");
+    assert_eq!(
+        account_rows, 0,
+        "the account upsert rolled back with the session"
+    );
+
+    testing::drop_test_db(pool, "audit_failure_login").await;
+}
+
+/// SC-8 counts allowlist denials in "100% of logins": a denial whose record
+/// cannot be written is not delivered — the browser gets a server error
+/// instead of the denial page.
+#[tokio::test]
+async fn an_allowlist_denial_without_its_audit_record_is_a_server_error() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (base, stub) = stub_provider::spawn().await;
+    let auth =
+        testing::auth_settings_with_oidc(testing::auth_settings(), stub_oidc_settings(&base));
+    let app = testing::router_for(pool.clone(), &auth);
+
+    sqlx::query("DROP TABLE audit_events")
+        .execute(&pool)
+        .await
+        .expect("drop audit_events");
+
+    let (location, transaction_cookie) = start_login(&app).await;
+    {
+        let mut config = stub.config.lock().await;
+        config.sub = "stranger-sub".to_owned();
+        config.nonce = query_param(&location, "nonce");
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/auth/callback?code=the-code&state={}",
+                    query_param(&location, "state")
+                ))
+                .header(
+                    "cookie",
+                    format!("{}={}", oidc::TRANSACTION_COOKIE, transaction_cookie),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "a denial that cannot be recorded must not be delivered as a 403"
+    );
+
+    let (session_rows,): (i64,) = sqlx::query_as("SELECT count(*) FROM sessions")
+        .fetch_one(&pool)
+        .await
+        .expect("count sessions");
+    assert_eq!(session_rows, 0, "denied logins never mint sessions");
+
+    testing::drop_test_db(pool, "audit_failure_denial").await;
 }
 
 /// The token request the app made must match the captured house contract:
