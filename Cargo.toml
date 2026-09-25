@@ -11,7 +11,11 @@ axum = "0.8.9"
 base64 = "0.23.1"
 chrono = "0.4.45"
 cookie = { version = "0.18.2", features = ["signed", "key-expansion"] }
-jsonwebtoken = "11.1.0"
+# `aws_lc_rs` pins the CryptoProvider: with no feature, jsonwebtoken 11
+# panics at the first key operation (ID-token verify) instead of choosing.
+# The `rust_crypto` alternative is banned — it pulls `rsa`
+# (RUSTSEC-2023-0071), which the gate fail-closes on.
+jsonwebtoken = { version = "11.1.0", features = ["aws_lc_rs"] }
 rand = "0.10.3"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "form", "charset"] }
 serde = { version = "1.0.229", features = ["derive"] }
