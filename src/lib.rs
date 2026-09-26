@@ -13,6 +13,7 @@ pub mod db;
 pub mod health;
 pub mod http;
 pub mod import;
+pub mod pbimport;
 
 use std::process::ExitCode;
 
