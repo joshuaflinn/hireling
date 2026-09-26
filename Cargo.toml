@@ -8,10 +8,20 @@ license = "MIT"
 [dependencies]
 anyhow = "1.0.104"
 axum = "0.8.9"
+base64 = "0.23.1"
+chrono = "0.4.45"
+cookie = { version = "0.18.2", features = ["signed", "key-expansion"] }
+# `aws_lc_rs` pins the CryptoProvider: with no feature, jsonwebtoken 11
+# panics at the first key operation (ID-token verify) instead of choosing.
+# The `rust_crypto` alternative is banned — it pulls `rsa`
+# (RUSTSEC-2023-0071), which the gate fail-closes on.
+jsonwebtoken = { version = "11.1.0", features = ["aws_lc_rs"] }
+rand = "0.10.3"
 # HTTP client for the pinned-release fetch (api.github.com + release asset
 # download) — std has no HTTP story; reqwest on rustls keeps the boring stack
 # and avoids the OpenSSL toolchain. Retry/backoff is hand-rolled on top.
-reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "charset"] }
+# E3 adds the `json`/`form` features for the OIDC token exchange.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "form", "charset"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 # sha256 for the asset digest check and per-row content hashes
@@ -25,12 +35,15 @@ sha2 = "0.11.0"
 # 0.9, not 0.8: the gate's osv-scanner flags RUSTSEC-2023-0071 against rsa
 # 0.9.x, which 0.8's (unactivated) sqlx-mysql optional chain pins into the
 # lockfile; 0.9's mysql chain uses rsa 0.10.0-rc, outside the advisory.
+# `chrono` (E3): session rows carry timestamptz idle/absolute deadlines that
+# bind and read back as `chrono::DateTime<Utc>`.
 sqlx = { version = "0.9", default-features = false, features = [
     "runtime-tokio",
     "tls-none",
     "postgres",
     "migrate",
     "macros",
+    "chrono",
     "json",
 ] }
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal"] }

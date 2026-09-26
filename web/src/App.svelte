@@ -1,23 +1,85 @@
 <script>
-  async function checkHealth() {
-    status = 'checking…';
+  import { entryAction } from './lib/entry.js';
+  import { logoutAction } from './lib/logout.js';
+
+  // NOTE: never name a runes-mode variable `state` — svelte-check's
+  // transform trips over the name (TDZ-style false errors) and fails the
+  // CI gate. `view` names what it is: which screen is on display.
+  // account mirrors the /api/me payload; only display_name is rendered.
+  /** @type {{ display_name?: string } | null} */
+  let account = $state(null);
+  let view = $state('probing');
+
+  // Entry flow (E3 Story 1 AC1): probe the session on load. A visitor
+  // without one is sent to the login leg; a broken backend says so.
+  async function probe() {
+    view = 'probing';
     try {
-      const response = await fetch('/healthz');
-      const body = await response.json();
-      status = `backend ${body.status} · version ${body.version}`;
+      const response = await fetch('/api/me');
+      if (response.ok) {
+        account = await response.json();
+        view = 'signed-in';
+        return;
+      }
+      if (entryAction(response.status) === 'enter') {
+        view = 'entering';
+        window.location.assign('/api/auth/login');
+        return;
+      }
+      view = 'offline';
     } catch {
-      status = 'backend unreachable';
+      view = 'offline';
     }
   }
 
-  let status = $state('not checked');
+  // Logout (E3 Story 6 AC3): a confirmed logout lands on a signed-out
+  // screen with an explicit Sign in action — never an automatic probe, or
+  // the probe's redirect would ride the surviving house IdP session right
+  // back in. Anything unconfirmed keeps the signed-in view with an error.
+  async function logout() {
+    let status = null;
+    try {
+      const response = await fetch('/api/auth/logout', { method: 'POST' });
+      status = response.status;
+    } catch {
+      status = null; // the request never completed; the session is unknown
+    }
+    if (logoutAction(status) === 'signed-out') {
+      account = null;
+      view = 'signed-out';
+      return;
+    }
+    view = 'logout-failed';
+  }
+
+  function signIn() {
+    view = 'entering';
+    window.location.assign('/api/auth/login');
+  }
+
+  probe();
 </script>
 
 <main>
   <h1>Hireling</h1>
   <p class="tagline">Party-linked PF2e character tracking. The sheet is being built.</p>
-  <button onclick={checkHealth}>Check backend</button>
-  <p class="status">{status}</p>
+  {#if view === 'entering'}
+    <p class="status">Taking you to sign in…</p>
+  {:else if view === 'signed-out'}
+    <p class="status">You are signed out.</p>
+    <button onclick={signIn}>Sign in</button>
+  {:else if view === 'signed-in' || view === 'logout-failed'}
+    {#if view === 'logout-failed'}
+      <p class="error">Logging out failed — the session is still live. Try again.</p>
+    {/if}
+    <p class="status">Signed in as {account?.display_name}</p>
+    <button onclick={logout}>Log out</button>
+  {:else if view === 'offline'}
+    <p class="status">The server is unreachable right now.</p>
+    <button onclick={probe}>Try again</button>
+  {:else}
+    <p class="status">Checking your session…</p>
+  {/if}
 </main>
 
 <style>
@@ -62,6 +124,13 @@
   .status {
     margin-top: 1rem;
     color: #9aa4b2;
+    font-family: ui-monospace, monospace;
+    font-size: 0.9rem;
+  }
+
+  .error {
+    margin-top: 1rem;
+    color: #e07a6a;
     font-family: ui-monospace, monospace;
     font-size: 0.9rem;
   }

@@ -918,6 +918,19 @@ async fn license_verdict_flips_on_db_coverage() {
             db.name()
         ),
         static_dir: "web/dist".into(),
+        // Inert here: the license verdict never touches auth paths. The
+        // `testing::auth_settings()` helper is cfg(test) and unreachable
+        // from integration tests, so spell out a valid value.
+        auth: hireling::config::AuthSettings {
+            oidc: None,
+            cookie_key: vec![0x2a; 32],
+            allowlist: std::collections::HashSet::new(),
+            seat_names: std::collections::HashMap::new(),
+            gm_sub: String::new(),
+            session_idle_secs: 86_400,
+            session_absolute_secs: 7 * 86_400,
+            dev_sessions: false,
+        },
     };
 
     // No rows: vacuous coverage — the artifact checks pass (real files in
