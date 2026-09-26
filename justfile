@@ -18,6 +18,10 @@ run *args:
 web-build:
     npm --prefix web run build
 
+# Frontend unit tests (dependency-free, node's built-in runner).
+web-test:
+    npm --prefix web test
+
 # Vite dev server for frontend-only iteration (proxies nothing; use `just dev`
 # for the real full-stack path).
 web-dev:

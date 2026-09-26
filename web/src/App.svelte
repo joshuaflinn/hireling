@@ -1,23 +1,54 @@
 <script>
-  async function checkHealth() {
-    status = 'checking…';
+  import { entryAction } from './lib/entry.js';
+
+  let account = $state(null);
+  let state = $state('probing');
+
+  // Entry flow (E3 Story 1 AC1): probe the session on load. A visitor
+  // without one is sent to the login leg; a broken backend says so.
+  async function probe() {
+    state = 'probing';
     try {
-      const response = await fetch('/healthz');
-      const body = await response.json();
-      status = `backend ${body.status} · version ${body.version}`;
+      const response = await fetch('/api/me');
+      if (response.ok) {
+        account = await response.json();
+        state = 'signed-in';
+        return;
+      }
+      if (entryAction(response.status) === 'enter') {
+        state = 'entering';
+        window.location.assign('/api/auth/login');
+        return;
+      }
+      state = 'offline';
     } catch {
-      status = 'backend unreachable';
+      state = 'offline';
     }
   }
 
-  let status = $state('not checked');
+  async function logout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    account = null;
+    probe();
+  }
+
+  probe();
 </script>
 
 <main>
   <h1>Hireling</h1>
   <p class="tagline">Party-linked PF2e character tracking. The sheet is being built.</p>
-  <button onclick={checkHealth}>Check backend</button>
-  <p class="status">{status}</p>
+  {#if state === 'entering'}
+    <p class="status">Taking you to sign in…</p>
+  {:else if state === 'signed-in'}
+    <p class="status">Signed in as {account.display_name}</p>
+    <button onclick={logout}>Log out</button>
+  {:else if state === 'offline'}
+    <p class="status">The server is unreachable right now.</p>
+    <button onclick={probe}>Try again</button>
+  {:else}
+    <p class="status">Checking your session…</p>
+  {/if}
 </main>
 
 <style>
