@@ -14,6 +14,7 @@
 
 pub mod caps;
 pub mod error;
+pub mod model;
 
 #[cfg(test)]
 #[path = "tests/fixtures.rs"]
