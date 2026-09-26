@@ -12,6 +12,9 @@
 //! (captured from `docs/reference/lorum_ipsum_dashboard.html`, `#pbExport`);
 //! `contracts/pb-export.md` cites it, never prose memory.
 
+pub mod caps;
+pub mod error;
+
 #[cfg(test)]
 #[path = "tests/fixtures.rs"]
 pub(crate) mod fixtures;
