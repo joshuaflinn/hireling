@@ -16,6 +16,7 @@ pub mod anchor;
 pub mod caps;
 pub mod error;
 pub mod model;
+pub mod store;
 pub mod transform;
 
 #[cfg(test)]
