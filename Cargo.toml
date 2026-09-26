@@ -14,11 +14,25 @@ axum = "0.8.9"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "charset"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-# sha256 for the asset digest check and per-row content hashes (FR-3, FR-6).
+# sha256 for the asset digest check and per-row content hashes
+# (E4: FR-3, FR-6).
 sha2 = "0.11.0"
-# Postgres driver (the settled stack's `sqlx`); E4 carries no migrations —
-# E2 owns all DDL — so no `migrate` feature.
-sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "json"] }
+# Postgres driver + the `sqlx migrate` tool the settled stack mandates
+# (epic E2; Constitution V). Minimal features: no TLS — the database is
+# reached over the trusted house bridge (asgard-net), not the public internet.
+# `json` for E4's serde_json bindings into jsonb columns. E4 carries no
+# migrations — E2 owns all DDL — so `migrate` stays in this feature set.
+# 0.9, not 0.8: the gate's osv-scanner flags RUSTSEC-2023-0071 against rsa
+# 0.9.x, which 0.8's (unactivated) sqlx-mysql optional chain pins into the
+# lockfile; 0.9's mysql chain uses rsa 0.10.0-rc, outside the advisory.
+sqlx = { version = "0.9", default-features = false, features = [
+    "runtime-tokio",
+    "tls-none",
+    "postgres",
+    "migrate",
+    "macros",
+    "json",
+] }
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal"] }
 tower-http = { version = "0.7.1", features = ["fs", "request-id", "trace"] }
 tracing = "0.1.44"

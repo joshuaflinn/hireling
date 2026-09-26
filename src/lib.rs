@@ -8,6 +8,7 @@
 //! modules always are.
 
 pub mod config;
+pub mod db;
 pub mod health;
 pub mod http;
 pub mod import;
@@ -19,12 +20,14 @@ use anyhow::Context as _;
 use crate::config::Settings;
 use crate::import::args::Command;
 
-/// Run the application: load settings, then serve until shutdown.
+/// Run the application: load settings, connect to Postgres and migrate, then
+/// serve until shutdown.
 ///
 /// # Errors
 ///
 /// Returns an error if settings cannot be read from the environment, the
-/// port cannot be bound, or the server fails.
+/// database cannot be reached or migrated, the port cannot be bound, or the
+/// server fails.
 pub async fn run() -> anyhow::Result<()> {
     let settings = Settings::from_process_env().context("failed to load settings")?;
 
@@ -34,7 +37,13 @@ pub async fn run() -> anyhow::Result<()> {
         "starting"
     );
 
-    http::serve(&settings).await
+    // Schema before traffic: a database the app can't reach or migrate fails
+    // the boot here, never at first query. The pool lives for the server's
+    // lifetime; the first pool-consuming endpoint (E5) moves it into router
+    // state.
+    let pool = db::connect_and_migrate(&settings.database_url).await?;
+
+    http::serve(&settings, pool).await
 }
 
 /// Parse command-line arguments and dispatch to the matching mode.

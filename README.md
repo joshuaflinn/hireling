@@ -12,7 +12,7 @@ format police). Agent rules: `AGENTS.md` + `docs/toolkit-conventions.md`.
 ```sh
 just dev       # build the frontend, run the backend (serves API + UI on :3000)
 just db        # start the throwaway dev Postgres on :5432
-just test      # tests
+just test      # tests (starts the throwaway Postgres first when docker exists)
 just gate      # the full local gate (same checks as CI)
 ```
 
@@ -61,9 +61,53 @@ CI runs [grizzly-gate](https://github.com/Grizzly-Endeavors/grizzly-gate)
 (standalone mode) on every PR. The gate is the first reviewer; a human is the
 second.
 
+## Database
+
+The app migrates itself: on boot it applies the embedded `migrations/`
+(`sqlx::migrate!`), so a fresh database comes up to current schema with just
+`just db && just dev`. A database it cannot reach or migrate fails the boot
+loudly, before traffic. Local development only ever touches the compose
+throwaway (`docker compose down` destroys it) — never Asgard, the production
+hall.
+
+To drive the schema directly instead, install
+[`sqlx-cli`](https://crates.io/crates/sqlx-cli):
+
+```sh
+cargo install sqlx-cli --locked --features postgres
+just db-migrate   # sqlx migrate run — apply pending migrations
+just db-revert    # sqlx migrate revert — undo the most recent migration
+just db-reset     # drop + recreate the throwaway, then migrate from empty
+```
+
+Every migration is a reversible up/down pair, exercised by the test suite
+(`tests/db.rs` cycles up and down three times and verifies the object set
+each way).
+
+The schema tests need a Postgres on :5432 (the compose throwaway). When none
+is reachable they skip loudly on stderr — never silently green.
+
+### Production (Asgard)
+
+The production database is a dedicated hall on the house Postgres: database
+`hireling`, role `hireling` capped at `CONNECTION LIMIT 20`, reachable only
+over the `asgard-net` bridge (no published ports; rides Asgard's backup
+rotation). Provisioning is a checked-in artifact — run once by the operator,
+no click-ops:
+
+```sh
+psql -h asgard -f db/provision.sql   # then set the role password interactively
+ALTER ROLE hireling PASSWORD '<from the house secret store>';  # never in git
+```
+
+Schema migrations are not run by hand in production: the deployed binary
+applies its embedded migrations at boot, as it does locally.
+
 ## Layout
 
 - `src/` — the Rust backend (axum, single binary)
+- `migrations/` — reversible sqlx up/down pairs, applied at boot
+- `db/` — production provisioning artifacts
 - `web/` — the Svelte PWA (lands with the frontend skeleton)
 - `docs/` — PRD, checker reports, ADRs (`docs/decisions/`), vendored tooling
   references (`toolkit.md`, `toolkit-conventions.md`)
