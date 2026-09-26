@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain — **two remain by design (Q1 sync-field scope, Q2 E7/E10 boundary); resolution cards posted with the clarify gate**
+- [x] No [NEEDS CLARIFICATION] markers remain — **both resolved 2026-09-26 via clarify card `225f6a21`: Q1 → "everything E2 versioned" (all-versioned), Q2 → "boundary as stated"**
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -44,6 +44,6 @@
   (FR-5); the backoff curve and liveness intervals (FR-10); idempotent
   replay incl. durable operation ledger (FR-8); granularity adopted verbatim
   from E2's version columns (FR-6).
-- The two open markers carry recommended defaults (Q1: sync everything E2
-  versioned; Q2: boundary as stated in FR-12) — the spec is buildable either
-  way; answers change field scope and one contract boundary, not structure.
+- The two markers that existed at the specify gate were resolved by the
+  human clarify card on 2026-09-26, choosing both recommended defaults
+  (Q1: all-versioned; Q2: as-stated). Folded into FR-6 and FR-12.

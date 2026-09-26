@@ -2,7 +2,7 @@
 
 **Epic**: E7 — Phase 1, Lane B, P0 · depends on E2 (schema) + E3 (auth) · parallel with E5 (Lane A) · blocks E8, E10 · GitHub issue #9
 **Created**: 2026-09-26
-**Status**: Draft — specify step complete; two clarification questions open (Q1, Q2 below)
+**Status**: Approved at the specify gate (2026-09-26); clarify answers folded in the same day — Q1: everything E2 versioned syncs; Q2: E7/E10 boundary as stated
 **Input**: `docs/EPICS.md` Epic E7 specify prompt + Constraints + AI Guardrails; PRD v3.6 Feature Group 2 + Technical Metrics; E2's `specs/002-database-schema/data-model.md` (per-field version columns — consumed, not re-designed)
 
 ---
@@ -218,10 +218,10 @@ server with traffic and observe a histogram consistent with the logs.
   client-receipt instrumentation in production is productization, out of POC
   scope).
 - **FR-6 — version granularity (adopted from E2, not re-designed)**: The
-  unit of versioning and conflict is exactly the field set E2 versioned:
-  `hp`; `temp_hp`; money as one four-denomination unit; `level_adjust`
-  [NEEDS CLARIFICATION: Q1 — confirm money and level_adjust sync at POC, or
-  HP/temp-HP/slots/inventory/effects only]; each spell slot individually
+  unit of versioning and conflict is exactly the field set E2 versioned
+  (human-settled at clarify, Q1 2026-09-26: everything versioned syncs):
+  `hp`; `temp_hp`; money as one four-denomination unit; `level_adjust`;
+  each spell slot individually
   (`caster_key` + `rank` + `slot_index`); each inventory item's quantity
   (`item_name`-keyed); each effect as a whole (any target, modifier, or
   active change is one version bump). Effects are whole-row versioned —
@@ -262,10 +262,10 @@ server with traffic and observe a histogram consistent with the logs.
   replay rules, catch-up merge rule, and indicator contract MUST be
   published as contract documents under `specs/007-party-sync/contracts/` at
   the design step, written so E10's service worker can be built against them
-  without re-deriving any decision [NEEDS CLARIFICATION: Q2 — confirm the
-  E7/E10 boundary: E7 owns in-session degraded mode and the durable
-  client-side queue; E10 owns the service-worker offline shell and
-  cross-session caching].
+  without re-deriving any decision (human-settled at clarify, Q2 2026-09-26:
+  boundary as stated — E7 owns in-session degraded mode, the durable
+  client-side queue, and the contract docs; E10 owns everything
+  service-worker: offline shell, cross-session cache, install behavior).
 - **FR-13 — extensibility (E12)**: The sync mechanism MUST be table-agnostic:
   any live-state row carrying a `field_version_seq`-fed version column joins
   broadcast, catch-up, and conflict handling by construction. E12 opts the
@@ -330,8 +330,8 @@ server with traffic and observe a histogram consistent with the logs.
   (multi-party is config, not change).
 - Queue durability means browser storage surviving reload; anything
   surviving browser-data wipe or offline app boot is E10's service worker.
-- Money-as-one-unit and `level_adjust` syncing are E2-uniformity defaults,
-  pending Q1.
+- Money-as-one-unit and `level_adjust` sync are settled (Q1, 2026-09-26) —
+  the sync field set is exactly E2's versioned columns.
 
 ### Out of scope (guarded)
 
