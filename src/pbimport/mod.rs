@@ -12,6 +12,7 @@
 //! (captured from `docs/reference/lorum_ipsum_dashboard.html`, `#pbExport`);
 //! `contracts/pb-export.md` cites it, never prose memory.
 
+pub mod anchor;
 pub mod caps;
 pub mod error;
 pub mod model;
