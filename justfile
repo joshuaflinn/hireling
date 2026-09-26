@@ -59,6 +59,20 @@ db-reset: db
         "CREATE DATABASE hireling OWNER hireling"
     just db-migrate
 
+# Import the rules corpus from a pinned upstream pack release (epic E4).
+# Target database comes from HIRELING_DATABASE_URL. Re-runs are idempotent.
+import RELEASE:
+    cargo run -- import --release {{ RELEASE }}
+
+# Archive the upstream pack license texts at a pinned release into
+# licenses/foundry-pf2e/ (commit the result).
+license-archive RELEASE:
+    cargo run -- license-archive --release {{ RELEASE }}
+
+# Check the license gate (exit 0 green / 1 red; gates public exposure only).
+license-verdict:
+    cargo run -- license-verdict
+
 test:
     #!/usr/bin/env bash
     # The schema tests need the throwaway Postgres. Start it when docker is

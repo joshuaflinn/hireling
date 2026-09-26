@@ -54,13 +54,24 @@ CREATE TABLE characters (
     payload_raw text NOT NULL,
     base_sheet  jsonb NOT NULL,
     created_at  timestamptz NOT NULL DEFAULT now(),
-    updated_at  timestamptz NOT NULL DEFAULT now()
+    updated_at  timestamptz NOT NULL DEFAULT now(),
+    -- The same-party pin target: every character-touching edge elsewhere
+    -- (effects source, effect targets, quartermaster) FKs through
+    -- (party_id, id), so no child row can reach across the party roster
+    -- boundary (FR-4).
+    CONSTRAINT characters_party_id_id_key UNIQUE (party_id, id)
 );
 
 CREATE INDEX characters_party_id_idx ON characters (party_id);
 
--- Closing the nullable quartermaster cycle (party → character → party).
+-- Closing the nullable quartermaster cycle (party → character → party),
+-- pinned to the party's own roster: the referencing pair (id,
+-- quartermaster_character_id) must match characters (party_id, id), so
+-- naming another party's character is unstorable (FR-4). When the pinned
+-- character is hard-deleted, only the designation clears (PG15+ column-list
+-- SET NULL) — the party row itself stays.
 ALTER TABLE parties
     ADD CONSTRAINT parties_quartermaster_character_id_fkey
-    FOREIGN KEY (quartermaster_character_id) REFERENCES characters (id)
-    ON DELETE SET NULL;
+    FOREIGN KEY (id, quartermaster_character_id)
+    REFERENCES characters (party_id, id)
+    ON DELETE SET NULL (quartermaster_character_id);

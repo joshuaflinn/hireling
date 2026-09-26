@@ -12,10 +12,13 @@ CREATE TABLE effects (
     -- Denormalized from the source character so party queries never join
     -- through (FR-4).
     party_id bigint NOT NULL REFERENCES parties (id) ON DELETE CASCADE,
-    -- The creator/owner. RESTRICT, not CASCADE: removing a creator while
+    -- The creator/owner, pinned to the effect's own party by the composite
+    -- FK below: (party_id, source_character_id) must match characters
+    -- (party_id, id), so party A cannot hold an effect created by party B's
+    -- character (FR-4). RESTRICT, not CASCADE: removing a creator while
     -- their effects exist is a human decision (end or reassign first) — an
     -- effect is never silently destroyed by another entity's removal.
-    source_character_id bigint NOT NULL REFERENCES characters (id) ON DELETE RESTRICT,
+    source_character_id bigint NOT NULL,
     name                text NOT NULL,
     -- Free text ("10 rounds", "while in aura") — displayed, never enforced
     -- (PRD: no countdown automation).
@@ -24,7 +27,15 @@ CREATE TABLE effects (
     active              boolean NOT NULL DEFAULT true,
     version             bigint NOT NULL DEFAULT nextval('field_version_seq'),
     created_at          timestamptz NOT NULL DEFAULT now(),
-    updated_at          timestamptz NOT NULL DEFAULT now()
+    updated_at          timestamptz NOT NULL DEFAULT now(),
+    -- Same-party pin target for effect_targets, and the creator pin itself:
+    -- both edges resolve (party_id, X) pairs, so a cross-party link is
+    -- unstorable at the database level (FR-4).
+    CONSTRAINT effects_party_id_id_key UNIQUE (party_id, id),
+    CONSTRAINT effects_source_party_fkey
+        FOREIGN KEY (party_id, source_character_id)
+        REFERENCES characters (party_id, id)
+        ON DELETE RESTRICT
 );
 
 CREATE INDEX effects_party_id_idx ON effects (party_id);
@@ -33,11 +44,26 @@ CREATE INDEX effects_source_character_id_idx ON effects (source_character_id);
 -- Roster characters only — companions/minions are not targetable (PRD FG3).
 -- The link may die with a removed roster character; the effect row may not.
 CREATE TABLE effect_targets (
-    effect_id    bigint NOT NULL REFERENCES effects (id) ON DELETE CASCADE,
-    character_id bigint NOT NULL REFERENCES characters (id) ON DELETE CASCADE,
+    -- The effect's party, carried on the link so both pins below are plain
+    -- composite FKs: a target outside the effect's party is unstorable, and
+    -- party queries never join through (FR-4).
+    party_id     bigint NOT NULL,
+    effect_id    bigint NOT NULL,
+    character_id bigint NOT NULL,
     created_at   timestamptz NOT NULL DEFAULT now(),
     updated_at   timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (effect_id, character_id)
+    PRIMARY KEY (effect_id, character_id),
+    -- Same-party pins, resolved as (party_id, X) pairs against the pinned
+    -- parents: party_id must match the effect's party AND the target
+    -- character's party (FR-4). CASCADE on both: the link may die with a
+    -- removed effect or roster character; the effect row may not (spec
+    -- edge case).
+    CONSTRAINT effect_targets_effect_party_fkey
+        FOREIGN KEY (party_id, effect_id) REFERENCES effects (party_id, id)
+        ON DELETE CASCADE,
+    CONSTRAINT effect_targets_character_party_fkey
+        FOREIGN KEY (party_id, character_id) REFERENCES characters (party_id, id)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX effect_targets_character_id_idx ON effect_targets (character_id);
