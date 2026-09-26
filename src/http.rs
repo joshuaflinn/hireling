@@ -54,11 +54,23 @@ pub(crate) struct ApiRoute {
     not(test),
     expect(dead_code, reason = "consumed by the router-test suite")
 )]
-pub(crate) const API_ROUTES: &[ApiRoute] = &[ApiRoute {
-    method: "GET",
-    path: "/api/me",
-    writes: false,
-}];
+pub(crate) const API_ROUTES: &[ApiRoute] = &[
+    ApiRoute {
+        method: "GET",
+        path: "/api/me",
+        writes: false,
+    },
+    ApiRoute {
+        method: "POST",
+        path: "/api/characters/import",
+        writes: true,
+    },
+    ApiRoute {
+        method: "GET",
+        path: "/api/characters/me",
+        writes: false,
+    },
+];
 
 /// Build the application router.
 ///
@@ -76,7 +88,13 @@ pub fn router(auth: Arc<AuthState>, static_dir: &Path) -> Router {
     let frontend =
         ServeDir::new(static_dir).fallback(ServeFile::new(static_dir.join("index.html")));
 
-    let protected = Router::new().route("/me", get(handlers::me));
+    let protected = Router::new()
+        .route("/me", get(handlers::me))
+        .route(
+            "/characters/import",
+            post(crate::pbimport::handlers::import_character),
+        )
+        .route("/characters/me", get(crate::pbimport::handlers::me));
 
     // Public inside the nest: the auth legs. Logout is session-aware but
     // idempotent, so it needs no guard of its own.

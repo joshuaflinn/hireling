@@ -43,11 +43,30 @@ impl ValidExport {
 /// [`ImportError::InvalidJson`] when the body is not JSON at all;
 /// [`ImportError::NotPathbuilder`] when the required shape is violated.
 pub fn parse_and_validate(body: &str) -> Result<ValidExport, ImportError> {
-    let value: Value = serde_json::from_str(body)
-        .ok()
-        .ok_or(ImportError::InvalidJson)?;
+    let value = parse_body(body)?;
     validate_shape(&value)?;
     Ok(ValidExport { value })
+}
+
+/// Class (a) alone: the body parsed as JSON, whatever its shape.
+///
+/// # Errors
+///
+/// [`ImportError::InvalidJson`] when the body is not JSON at all.
+pub fn parse_body(body: &str) -> Result<Value, ImportError> {
+    serde_json::from_str(body)
+        .ok()
+        .ok_or(ImportError::InvalidJson)
+}
+
+/// Class (b) alone, on an already-parsed document — the orchestrator runs
+/// the depth cap between parse and shape, per contract §4's order
+/// (size → depth → parse (a) → shape (b)).
+/// # Errors
+///
+/// [`ImportError::NotPathbuilder`] when the required shape is violated.
+pub fn validate_shape_of(value: &Value) -> Result<(), ImportError> {
+    validate_shape(value)
 }
 
 /// The class-(b) detector: the six-path required shape (contract §2).

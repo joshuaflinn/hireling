@@ -19,7 +19,7 @@ use crate::auth::authz::Actor;
 use crate::pbimport::anchor::{self, Diff, ItemDelta, PreparedMap, SlotRow};
 use crate::pbimport::caps;
 use crate::pbimport::error::ImportError;
-use crate::pbimport::model::{parse_and_validate, unknown_fields};
+use crate::pbimport::model::{ValidExport, parse_body, unknown_fields, validate_shape_of};
 use crate::pbimport::transform::transform;
 
 /// How one import attempt failed: the body's fault (4xx class) or the
@@ -98,11 +98,13 @@ pub async fn run_import(
     request_id: Option<&str>,
     body: &str,
 ) -> Result<ImportOutcome, RunImportError> {
-    // Pure gatekeeping first — classes size, depth, (a), (b), and the
-    // class-(c) walk on whatever survives.
+    // Pure gatekeeping first — classes size, (a), depth, (b) in contract
+    // §4's order, and the class-(c) walk on whatever survives.
     caps::check_size(body.len())?;
-    let export = parse_and_validate(body)?;
-    caps::check_depth(&export.value)?;
+    let value = parse_body(body)?;
+    caps::check_depth(&value)?;
+    validate_shape_of(&value)?;
+    let export = ValidExport { value };
     let unknown_count = unknown_fields(&export).len();
     let (sheet, skips) = transform(&export);
 
