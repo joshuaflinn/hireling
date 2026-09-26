@@ -21,8 +21,20 @@ async fn main() -> ExitCode {
         )
         .init();
 
-    match hireling::run().await {
-        Ok(()) => ExitCode::SUCCESS,
+    // argv must be UTF-8 (`std::env::args` panics otherwise): every input
+    // this CLI accepts — subcommand names, `--release`, pinned `pf2e-N.N.N`
+    // tags — is ASCII by contract, so non-UTF-8 argv has no legitimate use
+    // and fails loudly at the boundary instead of being lossy-mangled into
+    // a tag.
+    //
+    // nosemgrep: `rust.lang.security.args` fires on any binary that reads
+    // its own arguments (CWE-807). Nothing here makes a security decision
+    // from argv — it selects a subcommand; the security-relevant inputs
+    // (the release tag grammar, the digest, the database URL) are each
+    // validated downstream. There is no argv access that avoids this rule.
+    let args: Vec<String> = std::env::args().skip(1).collect(); // nosemgrep
+    match hireling::dispatch(&args).await {
+        Ok(code) => code,
         Err(err) => {
             // Both channels on purpose: the structured record is for whatever
             // is scraping logs, the `{err:#}` line is for the human staring at

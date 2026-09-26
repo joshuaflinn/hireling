@@ -21,3 +21,4 @@ web/dist/
 
 # grizzly-gate local toolchain install dir
 web/.grizzly-gate.node_modules/
+.pr-body.md
