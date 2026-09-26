@@ -1,6 +1,7 @@
 <script>
   import { entryAction } from './lib/entry.js';
   import { logoutAction } from './lib/logout.js';
+  import ImportPage from './lib/import/ImportPage.svelte';
 
   // NOTE: never name a runes-mode variable `state` — svelte-check's
   // transform trips over the name (TDZ-style false errors) and fails the
@@ -73,7 +74,11 @@
       <p class="error">Logging out failed — the session is still live. Try again.</p>
     {/if}
     <p class="status">Signed in as {account?.display_name}</p>
+    <button onclick={() => (view = 'import')}>Import a character</button>
     <button onclick={logout}>Log out</button>
+  {:else if view === 'import'}
+    <ImportPage />
+    <button onclick={() => (view = 'signed-in')}>Back</button>
   {:else if view === 'offline'}
     <p class="status">The server is unreachable right now.</p>
     <button onclick={probe}>Try again</button>
