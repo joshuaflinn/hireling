@@ -2,28 +2,33 @@
   import { entryAction } from './lib/entry.js';
   import { logoutAction } from './lib/logout.js';
 
+  // NOTE: never name a runes-mode variable `state` — svelte-check's
+  // transform trips over the name (TDZ-style false errors) and fails the
+  // CI gate. `view` names what it is: which screen is on display.
+  // account mirrors the /api/me payload; only display_name is rendered.
+  /** @type {{ display_name?: string } | null} */
   let account = $state(null);
-  let state = $state('probing');
+  let view = $state('probing');
 
   // Entry flow (E3 Story 1 AC1): probe the session on load. A visitor
   // without one is sent to the login leg; a broken backend says so.
   async function probe() {
-    state = 'probing';
+    view = 'probing';
     try {
       const response = await fetch('/api/me');
       if (response.ok) {
         account = await response.json();
-        state = 'signed-in';
+        view = 'signed-in';
         return;
       }
       if (entryAction(response.status) === 'enter') {
-        state = 'entering';
+        view = 'entering';
         window.location.assign('/api/auth/login');
         return;
       }
-      state = 'offline';
+      view = 'offline';
     } catch {
-      state = 'offline';
+      view = 'offline';
     }
   }
 
@@ -41,14 +46,14 @@
     }
     if (logoutAction(status) === 'signed-out') {
       account = null;
-      state = 'signed-out';
+      view = 'signed-out';
       return;
     }
-    state = 'logout-failed';
+    view = 'logout-failed';
   }
 
   function signIn() {
-    state = 'entering';
+    view = 'entering';
     window.location.assign('/api/auth/login');
   }
 
@@ -58,18 +63,18 @@
 <main>
   <h1>Hireling</h1>
   <p class="tagline">Party-linked PF2e character tracking. The sheet is being built.</p>
-  {#if state === 'entering'}
+  {#if view === 'entering'}
     <p class="status">Taking you to sign in…</p>
-  {:else if state === 'signed-out'}
+  {:else if view === 'signed-out'}
     <p class="status">You are signed out.</p>
     <button onclick={signIn}>Sign in</button>
-  {:else if state === 'signed-in' || state === 'logout-failed'}
-    {#if state === 'logout-failed'}
+  {:else if view === 'signed-in' || view === 'logout-failed'}
+    {#if view === 'logout-failed'}
       <p class="error">Logging out failed — the session is still live. Try again.</p>
     {/if}
-    <p class="status">Signed in as {account.display_name}</p>
+    <p class="status">Signed in as {account?.display_name}</p>
     <button onclick={logout}>Log out</button>
-  {:else if state === 'offline'}
+  {:else if view === 'offline'}
     <p class="status">The server is unreachable right now.</p>
     <button onclick={probe}>Try again</button>
   {:else}

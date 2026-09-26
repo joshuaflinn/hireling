@@ -22,6 +22,11 @@ web-build:
 web-test:
     npm --prefix web test
 
+# Svelte diagnostics over the frontend — the same check the CI gate runs
+# as node:svelte-check. Needs `npm --prefix web ci` once per clone.
+web-check:
+    npm --prefix web run check
+
 # Vite dev server for frontend-only iteration (proxies nothing; use `just dev`
 # for the real full-stack path).
 web-dev:
@@ -84,8 +89,11 @@ lint:
 deny:
     cargo deny check
 
-# The full local gate. Run this before pushing.
-ci-local: fmt-check lint test deny
+# The full local gate. Run this before pushing. Covers every check this
+# repo owns that the grizzly-gate image also runs: Rust fmt/clippy/tests/
+# cargo-deny, plus web svelte-check, unit tests, and build. (The gate's
+# eslint/tsc and security scans exist only in the pinned image.)
+ci-local: fmt-check lint test deny web-check web-test web-build
 
 # Alias — same gate, the name the spec calls it by.
 gate: ci-local
