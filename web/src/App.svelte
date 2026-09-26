@@ -1,5 +1,6 @@
 <script>
   import { entryAction } from './lib/entry.js';
+  import { logoutAction } from './lib/logout.js';
 
   let account = $state(null);
   let state = $state('probing');
@@ -26,10 +27,29 @@
     }
   }
 
+  // Logout (E3 Story 6 AC3): a confirmed logout lands on a signed-out
+  // screen with an explicit Sign in action — never an automatic probe, or
+  // the probe's redirect would ride the surviving house IdP session right
+  // back in. Anything unconfirmed keeps the signed-in view with an error.
   async function logout() {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    account = null;
-    probe();
+    let status = null;
+    try {
+      const response = await fetch('/api/auth/logout', { method: 'POST' });
+      status = response.status;
+    } catch {
+      status = null; // the request never completed; the session is unknown
+    }
+    if (logoutAction(status) === 'signed-out') {
+      account = null;
+      state = 'signed-out';
+      return;
+    }
+    state = 'logout-failed';
+  }
+
+  function signIn() {
+    state = 'entering';
+    window.location.assign('/api/auth/login');
   }
 
   probe();
@@ -40,7 +60,13 @@
   <p class="tagline">Party-linked PF2e character tracking. The sheet is being built.</p>
   {#if state === 'entering'}
     <p class="status">Taking you to sign in…</p>
-  {:else if state === 'signed-in'}
+  {:else if state === 'signed-out'}
+    <p class="status">You are signed out.</p>
+    <button onclick={signIn}>Sign in</button>
+  {:else if state === 'signed-in' || state === 'logout-failed'}
+    {#if state === 'logout-failed'}
+      <p class="error">Logging out failed — the session is still live. Try again.</p>
+    {/if}
     <p class="status">Signed in as {account.display_name}</p>
     <button onclick={logout}>Log out</button>
   {:else if state === 'offline'}
@@ -93,6 +119,13 @@
   .status {
     margin-top: 1rem;
     color: #9aa4b2;
+    font-family: ui-monospace, monospace;
+    font-size: 0.9rem;
+  }
+
+  .error {
+    margin-top: 1rem;
+    color: #e07a6a;
     font-family: ui-monospace, monospace;
     font-size: 0.9rem;
   }
