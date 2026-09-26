@@ -13,9 +13,11 @@ not the fact.
 
 ## Where we are
 
-**Phase 0 — foundations.** E1 app scaffold in flight (issue #3, branch
-`issue-3-app-scaffold`). When E1 lands: E2 schema, E3 auth, and E4 rules
-importer run in parallel.
+**Phase 1 — the product.** Phase 0 is closed: scaffold, schema, OIDC auth and
+the rules importer are merged (issues #3–#6). Two lanes run in parallel off
+that floor — Lane A opens with E5 Pathbuilder import (#7), Lane B with E7
+party sync (#9). Both converge on E8, the buff engine (#10), which needs E4,
+E5 and E7 before it can start.
 
 ## The shape of the build
 
