@@ -298,7 +298,23 @@ pub async fn logout(State(state): State<Arc<AuthState>>, headers: HeaderMap) -> 
     {
         let jar = oidc::jar_from_header(cookie_header);
         if let Some(cookie) = jar.get(oidc::SESSION_COOKIE) {
-            destroy_session(&state, cookie.value()).await;
+            // The 204 must mean what it says: the server-side row is gone or
+            // was already gone. On failure the cookie is left intact so the
+            // browser can retry; a copied cookie would still authenticate,
+            // which is exactly what a silent 204 here would be hiding.
+            if let Err(err) = invalidate_session(&state, cookie.value()).await {
+                tracing::error!(
+                    error = %err,
+                    "logout could not invalidate the session; reporting failure"
+                );
+                return html_page(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Logout failed",
+                    "The server could not confirm the logout, so the session \
+                     was left in place. Try again; if it keeps failing, the \
+                     administrator should check the server logs.",
+                );
+            }
         }
     }
 
@@ -310,35 +326,27 @@ pub async fn logout(State(state): State<Arc<AuthState>>, headers: HeaderMap) -> 
     response
 }
 
-/// Delete one session row and audit the logout. Failures are logged, never
-/// surfaced: the client's cookie is cleared regardless, so the outcome is
-/// the same for the browser.
-async fn destroy_session(state: &Arc<AuthState>, session_id: &str) {
-    let record = match session::find(&state.pool, session_id).await {
-        Ok(Some(record)) => record,
-        Ok(None) => return,
-        Err(err) => {
-            tracing::error!(error = %err, "logout could not load the session");
-            return;
-        }
+/// Delete one session row and audit the logout. `Ok` means the server-side
+/// invalidation is confirmed: the row is deleted or was already absent.
+/// Failures propagate — the caller must not report success then.
+async fn invalidate_session(state: &Arc<AuthState>, session_id: &str) -> anyhow::Result<()> {
+    let Some(record) = session::find(&state.pool, session_id).await? else {
+        return Ok(());
     };
-    match session::delete(&state.pool, session_id).await {
-        Ok(true) => {
-            audit::record(
-                &state.pool,
-                AuditEvent::Logout,
-                Some(&record.account_sub),
-                "session",
-                AuditOutcome::Allowed,
-                None,
-            )
-            .await;
-        }
-        Ok(false) => {}
-        Err(err) => {
-            tracing::error!(error = %err, "logout could not delete the session");
-        }
+    if session::delete(&state.pool, session_id).await? {
+        // The invalidation already happened; this record is observational,
+        // so a failed audit insert must not un-happen it.
+        audit::record(
+            &state.pool,
+            AuditEvent::Logout,
+            Some(&record.account_sub),
+            "session",
+            AuditOutcome::Allowed,
+            None,
+        )
+        .await;
     }
+    Ok(())
 }
 
 /// Read and verify the transaction cookie.

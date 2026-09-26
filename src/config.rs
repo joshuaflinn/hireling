@@ -64,6 +64,12 @@ pub struct AuthSettings {
     pub session_idle_secs: i64,
     /// Hard absolute session cap, seconds.
     pub session_absolute_secs: i64,
+    /// Opt-in for the debug-only dev-session legs (`/api/dev/session`).
+    /// Defaults to off and has no effect in release builds — the route is
+    /// compiled out there. Off means the route answers 404: an ordinary
+    /// debug run cannot mint a session, and a remote client can never do it
+    /// (the gate also rejects non-loopback peers).
+    pub dev_sessions: bool,
 }
 
 impl AuthSettings {
@@ -128,6 +134,14 @@ impl AuthSettings {
         let oidc = oidc_settings_from_env(get)?;
         let cookie_key = parse_cookie_key(get)?;
 
+        let dev_sessions = match read_string(get, "HIRELING_DEV_SESSIONS", "")?.as_str() {
+            "" | "0" | "false" => false,
+            "1" | "true" => true,
+            other => {
+                anyhow::bail!("HIRELING_DEV_SESSIONS must be 1/true or 0/false, got {other:?}")
+            }
+        };
+
         Ok(Self {
             oidc,
             cookie_key,
@@ -136,6 +150,7 @@ impl AuthSettings {
             gm_sub,
             session_idle_secs,
             session_absolute_secs,
+            dev_sessions,
         })
     }
 

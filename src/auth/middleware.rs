@@ -10,6 +10,7 @@
 use axum::extract::Request;
 use axum::extract::State;
 use axum::http::Method;
+use axum::http::StatusCode;
 use axum::http::header;
 use axum::middleware::Next;
 use axum::response::IntoResponse as _;
@@ -162,7 +163,10 @@ pub async fn gm_read_only(
         if let Some(account) = account {
             let target = request.uri().path().to_owned();
             let request_id = request_id(&request);
-            audit::record(
+            // SC-8 counts every ownership-relevant rejection: if the record
+            // cannot be written, the rejection is not delivered — fail closed
+            // with a server error rather than a silent un-audited denial.
+            if let Err(err) = audit::try_record(
                 &state.pool,
                 AuditEvent::ForbiddenGmWrite,
                 Some(&account.sub),
@@ -170,11 +174,47 @@ pub async fn gm_read_only(
                 AuditOutcome::Denied,
                 request_id.as_deref(),
             )
-            .await;
+            .await
+            {
+                tracing::error!(
+                    error = %err,
+                    sub = %account.sub,
+                    target = %target,
+                    "GM write rejection could not be audit-recorded; failing closed"
+                );
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
             return crate::auth::error::Forbidden.into_response();
         }
     }
     next.run(request).await
+}
+
+/// Gate for the debug-only dev-session legs: requires the explicit
+/// `HIRELING_DEV_SESSIONS` opt-in (otherwise 404 — the route reads as absent)
+/// and rejects any peer that is not loopback (403). Release builds never
+/// mount the route at all, so production is doubly inert.
+pub async fn dev_gate(
+    State(state): State<Arc<AuthState>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if !state.dev_sessions {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let peer = request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>();
+    match peer {
+        Some(peer) if peer.0.ip().is_loopback() => next.run(request).await,
+        _ => {
+            tracing::warn!(
+                peer = ?peer.map(|p| p.0),
+                "dev-session leg reached by a non-loopback peer; rejected"
+            );
+            StatusCode::FORBIDDEN.into_response()
+        }
+    }
 }
 
 /// The correlation id this request already carries (set by the outermost

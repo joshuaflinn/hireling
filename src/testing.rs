@@ -163,6 +163,7 @@ pub fn auth_settings() -> AuthSettings {
         gm_sub: "dev-sub-gm".to_owned(),
         session_idle_secs: 86_400,
         session_absolute_secs: 7 * 86_400,
+        dev_sessions: false,
     }
 }
 
@@ -171,6 +172,25 @@ pub fn auth_settings() -> AuthSettings {
 pub fn auth_settings_with_oidc(mut base: AuthSettings, oidc: OidcSettings) -> AuthSettings {
     base.oidc = Some(oidc);
     base
+}
+
+/// Settings with the dev-session legs explicitly opted in.
+#[must_use]
+pub fn auth_settings_with_dev_sessions(mut base: AuthSettings) -> AuthSettings {
+    base.dev_sessions = true;
+    base
+}
+
+/// Stamp the loopback peer the dev-session gate expects. Real servers get
+/// this from the socket; `oneshot` requests carry no peer, so tests that
+/// exercise the gate add it by hand. Pass `None` to leave the request
+/// peerless (reads as a remote client).
+pub fn with_peer(request: &mut axum::extract::Request, peer: Option<std::net::SocketAddr>) {
+    if let Some(peer) = peer {
+        request
+            .extensions_mut()
+            .insert(axum::extract::ConnectInfo(peer));
+    }
 }
 
 #[must_use]

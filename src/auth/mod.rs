@@ -45,6 +45,9 @@ pub struct AuthState {
     pub gm_sub: String,
     pub session_idle_secs: i64,
     pub session_absolute_secs: i64,
+    /// Dev-session opt-in (see `AuthSettings::dev_sessions`); the legs are
+    /// also compile-time debug-only and peer-gated to loopback.
+    pub dev_sessions: bool,
     /// HTTP client for the token endpoint and JWKS fetches.
     pub http: reqwest::Client,
     /// JWKS keys by `kid`, cached across requests; refetched when an unknown
@@ -78,6 +81,7 @@ impl AuthState {
             gm_sub: auth.gm_sub.clone(),
             session_idle_secs: auth.session_idle_secs,
             session_absolute_secs: auth.session_absolute_secs,
+            dev_sessions: auth.dev_sessions,
             http,
             jwks: tokio::sync::Mutex::new(HashMap::new()),
         }))

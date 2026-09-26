@@ -237,25 +237,30 @@ async fn login_without_oidc_config_says_so_instead_of_erroring() {
 
 // --- session lifecycle over the real router (needs Postgres) ---------------
 
+/// The loopback peer the dev-session gate accepts (real servers supply this
+/// via `ConnectInfo`; `oneshot` tests stamp it by hand).
+fn loopback_peer() -> std::net::SocketAddr {
+    std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 51_515)
+}
+
 #[tokio::test]
 async fn dev_session_authenticates_as_the_seat_end_to_end() {
     let Some(pool) = testing::test_pool().await else {
         return;
     };
-    let app = testing::router_for(pool.clone(), &testing::auth_settings());
+    let app = testing::router_for(
+        pool.clone(),
+        &testing::auth_settings_with_dev_sessions(testing::auth_settings()),
+    );
 
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/dev/session")
-                .header("content-type", "application/json")
-                .body(Body::from(r#"{"seat":"bear"}"#))
-                .unwrap(),
-        )
-        .await
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/dev/session")
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{"seat":"bear"}"#))
         .unwrap();
+    testing::with_peer(&mut request, Some(loopback_peer()));
+    let response = app.clone().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     let session_cookie = set_cookie_value(&response, oidc::SESSION_COOKIE).expect("session cookie");
 
@@ -294,24 +299,91 @@ async fn dev_session_rejects_unknown_seats() {
     let Some(pool) = testing::test_pool().await else {
         return;
     };
-    let app = testing::router_for(pool.clone(), &testing::auth_settings());
+    let app = testing::router_for(
+        pool.clone(),
+        &testing::auth_settings_with_dev_sessions(testing::auth_settings()),
+    );
 
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/dev/session")
-                .body(Body::from(r#"{"seat":"mallory"}"#))
-                .unwrap(),
-        )
-        .await
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/dev/session")
+        .body(Body::from(r#"{"seat":"mallory"}"#))
         .unwrap();
+    testing::with_peer(&mut request, Some(loopback_peer()));
+    let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert!(
         response_body(response).await.contains("unknown seat"),
         "the error names the seat list"
     );
     testing::drop_test_db(pool, "dev_session_unknown_seat").await;
+}
+
+/// Without the explicit opt-in, the dev-session legs read as absent — an
+/// ordinary debug run cannot mint a session. This is the failure that would
+/// let a network neighbour take a seat in a default `just dev`.
+#[tokio::test]
+async fn dev_sessions_are_absent_without_the_opt_in() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let app = testing::router_for(pool.clone(), &testing::auth_settings());
+
+    // Even a loopback peer gets nothing: the flag gates first.
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/dev/session")
+        .body(Body::from(r#"{"seat":"bear"}"#))
+        .unwrap();
+    testing::with_peer(&mut request, Some(loopback_peer()));
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "no opt-in, no dev route"
+    );
+    let (session_rows,): (i64,) = sqlx::query_as("SELECT count(*) FROM sessions")
+        .fetch_one(&pool)
+        .await
+        .expect("count sessions");
+    assert_eq!(session_rows, 0, "no session was minted");
+    testing::drop_test_db(pool, "dev_sessions_off").await;
+}
+
+/// With the opt-in, remote peers are still rejected — only loopback may
+/// mint a dev session.
+#[tokio::test]
+async fn dev_sessions_reject_remote_peers_even_when_enabled() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let app = testing::router_for(
+        pool.clone(),
+        &testing::auth_settings_with_dev_sessions(testing::auth_settings()),
+    );
+
+    let remote = std::net::SocketAddr::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 9, 9, 9)),
+        44_444,
+    );
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/dev/session")
+        .body(Body::from(r#"{"seat":"bear"}"#))
+        .unwrap();
+    testing::with_peer(&mut request, Some(remote));
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "a non-loopback peer cannot take a dev seat"
+    );
+    let (session_rows,): (i64,) = sqlx::query_as("SELECT count(*) FROM sessions")
+        .fetch_one(&pool)
+        .await
+        .expect("count sessions");
+    assert_eq!(session_rows, 0, "no session was minted");
+    testing::drop_test_db(pool, "dev_sessions_remote").await;
 }
 
 #[tokio::test]
@@ -347,20 +419,19 @@ async fn the_gm_reads_everything_and_writes_nothing() {
     let Some(pool) = testing::test_pool().await else {
         return;
     };
-    let app = testing::router_for(pool.clone(), &testing::auth_settings());
+    let app = testing::router_for(
+        pool.clone(),
+        &testing::auth_settings_with_dev_sessions(testing::auth_settings()),
+    );
 
     // GM seat logs in.
-    let login_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/dev/session")
-                .body(Body::from(r#"{"seat":"gm"}"#))
-                .unwrap(),
-        )
-        .await
+    let mut login_request = Request::builder()
+        .method("POST")
+        .uri("/api/dev/session")
+        .body(Body::from(r#"{"seat":"gm"}"#))
         .unwrap();
+    testing::with_peer(&mut login_request, Some(loopback_peer()));
+    let login_response = app.clone().oneshot(login_request).await.unwrap();
     assert_eq!(login_response.status(), StatusCode::NO_CONTENT);
     let session_cookie =
         set_cookie_value(&login_response, oidc::SESSION_COOKIE).expect("session cookie");
@@ -472,6 +543,149 @@ async fn a_player_write_to_a_read_route_is_not_the_gm_rejection() {
         "a player's write attempt is not a GM violation"
     );
     testing::drop_test_db(pool, "player_post_405").await;
+}
+
+// --- boundary: logout must not claim invalidation it did not perform ------
+
+#[tokio::test]
+async fn a_failed_logout_does_not_claim_invalidation() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let app = testing::router_for(pool.clone(), &testing::auth_settings());
+    let session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
+    let cookie = format!("{}={}", oidc::SESSION_COOKIE, session);
+
+    // Break the session store without losing the row: the lookup (and any
+    // delete) fails, while the session itself stays alive.
+    sqlx::query("ALTER TABLE sessions RENAME TO sessions_moved")
+        .execute(&pool)
+        .await
+        .expect("move sessions table away");
+    let failed = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/auth/logout")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        failed.status(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "logout must report failure, not a 204 that lies"
+    );
+
+    // The same cookie still authenticates: nothing was invalidated.
+    sqlx::query("ALTER TABLE sessions_moved RENAME TO sessions")
+        .execute(&pool)
+        .await
+        .expect("restore sessions table");
+    let replay = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/me")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        replay.status(),
+        StatusCode::OK,
+        "a failed logout leaves the session alive — and says so"
+    );
+
+    // Retry with the store back: the logout now succeeds and holds.
+    let retry = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/auth/logout")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(retry.status(), StatusCode::NO_CONTENT);
+    let replay_after = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/me")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(replay_after.status(), StatusCode::UNAUTHORIZED);
+    testing::drop_test_db(pool, "failed_logout").await;
+}
+
+// --- boundary: a GM rejection that cannot be audited fails closed ----------
+
+#[tokio::test]
+async fn a_gm_write_rejection_that_cannot_be_audited_fails_closed() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let app = testing::router_for(pool.clone(), &testing::auth_settings());
+    // GM seat, live session (seed the GM account explicitly; seed_session
+    // would upsert a player role).
+    testing::seed_account(&pool, "dev-sub-gm", "gm").await;
+    let session = testing::seed_session(&pool, "dev-sub-gm", chrono::Utc::now()).await;
+    let cookie = format!("{}={}", oidc::SESSION_COOKIE, session);
+
+    // Sanity first: with the audit sink intact the GM write is a 403.
+    let denied = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/me")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        denied.status(),
+        StatusCode::FORBIDDEN,
+        "a healthy audit sink records the rejection and denies"
+    );
+
+    // Break the audit sink: the rejection cannot be recorded, so it is not
+    // delivered as a 403 — the request fails closed instead.
+    sqlx::query("DROP TABLE audit_events")
+        .execute(&pool)
+        .await
+        .expect("drop audit_events");
+    let failed = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/me")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        failed.status(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "an unrecordable GM rejection must not be delivered as a 403"
+    );
+    testing::drop_test_db(pool, "gm_audit_failclosed").await;
 }
 
 #[tokio::test]

@@ -85,10 +85,17 @@ pub fn router(auth: Arc<AuthState>, static_dir: &Path) -> Router {
         .route("/auth/callback", get(handlers::callback))
         .route("/auth/logout", post(handlers::logout));
 
+    // Dev-session legs are compile-time debug-only, and the gate makes them
+    // runtime-gated: explicit opt-in flag, loopback peers only.
     #[cfg(debug_assertions)]
     let legs = legs.route(
         "/dev/session",
-        post(handlers::dev::create).get(handlers::dev::picker),
+        post(handlers::dev::create)
+            .get(handlers::dev::picker)
+            .layer(axum::middleware::from_fn_with_state(
+                std::sync::Arc::clone(&auth),
+                middleware::dev_gate,
+            )),
     );
 
     let api = protected
@@ -167,8 +174,14 @@ pub async fn serve(settings: &Settings, pool: PgPool) -> anyhow::Result<()> {
         "serving"
     );
 
-    let server = axum::serve(listener, router(auth, &settings.static_dir))
-        .with_graceful_shutdown(shutdown_signal());
+    let server = axum::serve(
+        listener,
+        // ConnectInfo so the dev-session gate can tell loopback peers from
+        // remote ones; harmless for every other route.
+        router(auth, &settings.static_dir)
+            .into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal());
 
     tokio::select! {
         result = server => {
