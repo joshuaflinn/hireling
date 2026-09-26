@@ -8,11 +8,20 @@ license = "MIT"
 [dependencies]
 anyhow = "1.0.104"
 axum = "0.8.9"
+# HTTP client for the pinned-release fetch (api.github.com + release asset
+# download) — std has no HTTP story; reqwest on rustls keeps the boring stack
+# and avoids the OpenSSL toolchain. Retry/backoff is hand-rolled on top.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "charset"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+# sha256 for the asset digest check and per-row content hashes
+# (E4: FR-3, FR-6).
+sha2 = "0.11.0"
 # Postgres driver + the `sqlx migrate` tool the settled stack mandates
 # (epic E2; Constitution V). Minimal features: no TLS — the database is
 # reached over the trusted house bridge (asgard-net), not the public internet.
+# `json` for E4's serde_json bindings into jsonb columns. E4 carries no
+# migrations — E2 owns all DDL — so `migrate` stays in this feature set.
 # 0.9, not 0.8: the gate's osv-scanner flags RUSTSEC-2023-0071 against rsa
 # 0.9.x, which 0.8's (unactivated) sqlx-mysql optional chain pins into the
 # lockfile; 0.9's mysql chain uses rsa 0.10.0-rc, outside the advisory.
@@ -22,11 +31,17 @@ sqlx = { version = "0.9", default-features = false, features = [
     "postgres",
     "migrate",
     "macros",
+    "json",
 ] }
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal"] }
 tower-http = { version = "0.7.1", features = ["fs", "request-id", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+# Release-asset archive reading (json-assets.zip) for the extract stage.
+# Deflate only: the upstream pack assets are plain deflate zips, so the
+# default features (bzip2/lzma/zstd/aes-crypto) are dead weight — and the
+# bzip2 leg carried a license the deny allow list rightly didn't know.
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 http-body-util = "0.1.5"
