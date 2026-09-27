@@ -68,6 +68,12 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   name your intermediate variables.
 - Integration tests are the sweet spot. The modifier engine gets exhaustive unit
   tests; everything else gets a curated end-to-end suite.
+- A test for an audit, log, or other observability requirement must exercise
+  the production path that owns it: send an HTTP request through the configured
+  router for HTTP behavior, or call the public orchestration function for
+  non-HTTP behavior; then assert the persisted record or captured emission.
+  Calling the recorder or emitter helper directly cannot catch a missing call
+  from that production path.
 - Log generously on the backend: major branches, request IDs.
 - Commit messages: imperative, one line, what + why if non-obvious.
 
