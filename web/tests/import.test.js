@@ -13,7 +13,7 @@ import {
 
 test('paste and file paths produce identical POST bodies', async () => {
   const pasted = '{"success":true,"build":{"name":"Lorum Ipsum"}}';
-  const file = new File([pasted], 'export.json', { type: 'application/json' });
+  const file = new globalThis.File([pasted], 'export.json', { type: 'application/json' });
   const fromFile = await readFileToText(file);
   assert.equal(buildBody(fromFile), buildBody(pasted), 'same body either way');
 });
@@ -99,12 +99,12 @@ test('a clean first import renders one line and no diff', () => {
 test('submit posts to the import endpoint and reports ok status', async () => {
   const originalFetch = globalThis.fetch;
   let captured = null;
-  globalThis.fetch = async (url, options) => {
+  globalThis.fetch = (url, options) => {
     captured = { url, options };
     return {
       ok: true,
       status: 200,
-      json: async () => ({
+      json: () => ({
         character: { name: 'X', level: 1, first_import: true },
         diff: { first_import: true, kept_unmatched: [], seeded: [], prep_divergence: [], notices: [] },
         advisory: { skipped_fields: 0 },

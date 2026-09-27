@@ -37,7 +37,7 @@ export function buildBody(text) {
  * @param {File} file
  * @returns {Promise<string>}
  */
-export async function readFileToText(file) {
+export function readFileToText(file) {
   return file.text();
 }
 
@@ -49,7 +49,7 @@ export async function readFileToText(file) {
 export async function submit(body) {
   let response;
   try {
-    response = await fetch('/api/characters/import', {
+    response = await globalThis.fetch('/api/characters/import', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: buildBody(body),
