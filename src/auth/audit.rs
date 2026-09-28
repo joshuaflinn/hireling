@@ -17,6 +17,9 @@ pub enum AuditEvent {
     ForbiddenEffectWrite,
     ForbiddenCustomWrite,
     ForbiddenGmWrite,
+    /// One row per import attempt (E5, FR-16); admitted by migration
+    /// 20260924000009 — the raised CHECK finding (design §5.2).
+    CharacterImport,
 }
 
 impl AuditEvent {
@@ -30,6 +33,7 @@ impl AuditEvent {
             AuditEvent::ForbiddenEffectWrite => "forbidden_effect_write",
             AuditEvent::ForbiddenCustomWrite => "forbidden_custom_write",
             AuditEvent::ForbiddenGmWrite => "forbidden_gm_write",
+            AuditEvent::CharacterImport => "character_import",
         }
     }
 }
