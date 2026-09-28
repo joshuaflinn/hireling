@@ -3,11 +3,15 @@
 //! pinned, concurrent double-import serialization, the six-account roster,
 //! and audit rows per attempt.
 
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use http_body_util::BodyExt as _;
 use sqlx::Row as _;
+use tower::ServiceExt as _;
 
-use super::{RunImportError, run_import};
+use super::run_import;
 use crate::auth::authz::{Actor, Role};
-use crate::pbimport::error::ImportError;
+use crate::auth::oidc;
 use crate::testing::{self, PLAYER_SUB};
 
 fn player(sub: &str) -> Actor {
@@ -15,6 +19,24 @@ fn player(sub: &str) -> Actor {
         sub: sub.to_owned(),
         role: Role::Player,
     }
+}
+
+/// `POST /api/characters/import` over the configured router — the
+/// production path that owns both audit rows (allowed and denied), so an
+/// audit test must drive it rather than call the recorder (gh#31).
+fn post_import(session: &str, body: &str) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri("/api/characters/import")
+        .header("cookie", format!("{}={}", oidc::SESSION_COOKIE, session))
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_owned()))
+        .expect("request builds")
+}
+
+async fn response_json(response: axum::response::Response) -> serde_json::Value {
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    serde_json::from_slice(&bytes).expect("response is JSON")
 }
 
 /// Seed the account row the characters FK requires (store tests bypass the
@@ -409,28 +431,38 @@ async fn every_attempt_is_audited_with_outcome_and_target() {
     let Some(pool) = pool_or_skip().await else {
         return;
     };
-    seed_actor(&pool, PLAYER_SUB).await;
-    seed_actor(&pool, "dev-sub-bear").await;
-    let body = crate::pbimport::fixtures::reference_export();
-    let outcome = run_import(&pool, &player(PLAYER_SUB), Some("req-1"), body)
-        .await
-        .expect("import succeeds");
+    let app = testing::router_for(pool.clone(), &testing::auth_settings());
+    testing::seed_account(&pool, PLAYER_SUB, "player").await;
+    testing::seed_account(&pool, "dev-sub-bear", "player").await;
+    let josh = testing::seed_session(&pool, PLAYER_SUB, chrono::Utc::now()).await;
+    let bear = testing::seed_session(&pool, "dev-sub-bear", chrono::Utc::now()).await;
 
-    // A rejected attempt: class (a) body.
-    let failure = run_import(&pool, &player("dev-sub-bear"), Some("req-2"), "{not json")
+    // The allowed attempt: the reference export over the wire.
+    let allowed_response = app
+        .clone()
+        .oneshot(post_import(
+            &josh,
+            crate::pbimport::fixtures::reference_export(),
+        ))
         .await
-        .expect_err("invalid body rejected");
-    assert!(
-        matches!(failure, RunImportError::Invalid(ImportError::InvalidJson)),
-        "class (a) surfaces as Invalid"
+        .unwrap();
+    assert_eq!(allowed_response.status(), StatusCode::OK, "import succeeds");
+    let character_id = response_json(allowed_response)
+        .await
+        .pointer("/character/id")
+        .and_then(serde_json::Value::as_i64)
+        .expect("character id");
+
+    // The rejected attempt: class (a) body. Recording the denial belongs to
+    // the handler that answers the 400 — asserted through that path, so the
+    // test fails if the audit call goes missing.
+    let denied_response = app.oneshot(post_import(&bear, "{not json")).await.unwrap();
+    assert_eq!(denied_response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response_json(denied_response).await.pointer("/error/code"),
+        Some(&serde_json::json!("invalid-json")),
+        "class (a) answers its envelope"
     );
-    super::record_rejection(
-        &pool,
-        &player("dev-sub-bear"),
-        Some("req-2"),
-        ImportError::InvalidJson,
-    )
-    .await;
 
     let rows: Vec<(String, Option<String>, String, String)> = sqlx::query_as(
         "SELECT event, actor_sub, target, outcome FROM audit_events \
@@ -444,8 +476,9 @@ async fn every_attempt_is_audited_with_outcome_and_target() {
     let denied = rows.get(1).expect("the denied attempt is audited");
     assert_eq!(allowed.0, "character_import");
     assert_eq!(allowed.1.as_deref(), Some(PLAYER_SUB));
-    assert_eq!(allowed.2, format!("character:{}", outcome.character.id));
+    assert_eq!(allowed.2, format!("character:{character_id}"));
     assert_eq!(allowed.3, "allowed");
+    assert_eq!(denied.1.as_deref(), Some("dev-sub-bear"));
     assert_eq!(
         denied.2, "import:invalid-json",
         "failure target names the class"
