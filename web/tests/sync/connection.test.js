@@ -11,7 +11,6 @@ function setup(rng = () => 1) {
     url: 'ws://test/party/1',
     socketFactory: mocks.factory,
     rng,
-    now: clock.now,
     timers: clock.timers,
   });
   return { clock, mocks, conn };
@@ -179,4 +178,18 @@ test('send writes only while live; malformed inbound is dropped without state ch
   assert.deepEqual(mocks.sockets[0].sent, ['{"t":"write","op_id":"op-1"}']);
   mocks.sockets[0].message('not json at all');
   assert.equal(conn.state(), 'live');
+});
+
+test('a manual connect supersedes a still-pending scheduled retry', () => {
+  const { clock, mocks, conn } = setup();
+  conn.connect();
+  handshake(mocks.sockets[0]);
+  mocks.sockets[0].error(); // offline; a retry is now scheduled, not fired
+  assert.equal(mocks.sockets.length, 1);
+
+  conn.connect(); // manual: replaces the pending retry with a live attempt
+  assert.equal(mocks.sockets.length, 2, 'the manual attempt opens at once');
+
+  clock.advance(30000); // the superseded retry must never fire a third socket
+  assert.equal(mocks.sockets.length, 2, 'the cancelled retry stayed cancelled');
 });

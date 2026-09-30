@@ -27,7 +27,7 @@ export function createQueue(options) {
   const { storage, accountSub } = options;
   const key = `hireling:queue:${accountSub}`;
   /** @type {Array<QueueOp>} */
-  let ops = load();
+  const ops = load();
   const listeners = new Set();
 
   function load() {

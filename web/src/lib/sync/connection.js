@@ -55,12 +55,11 @@ const WATCHDOG_MS = 50000;
  *   url: string,
  *   socketFactory: (url: string) => SyncSocket,
  *   rng: () => number,
- *   now: () => number,
  *   timers: { setTimeout: (fn: () => void, ms: number) => *, clearTimeout: (id: *) => void },
  * }} options
  */
 export function createConnection(options) {
-  const { url, socketFactory, rng, now, timers } = options;
+  const { url, socketFactory, rng, timers } = options;
 
   /** @type {'connecting'|'live'|'offline'} */
   let currentState = 'offline';
@@ -73,7 +72,6 @@ export function createConnection(options) {
   let reconnectTimer = null;
   /** @type {* | null} */
   let watchdogTimer = null;
-  let lastInbound = now();
   /** @type {Set<(event: ConnEvent) => void>} */
   const listeners = new Set();
 
@@ -132,12 +130,16 @@ export function createConnection(options) {
   }
 
   function connect() {
+    // A manual connect supersedes a still-pending scheduled retry.
+    if (reconnectTimer !== null) {
+      timers.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
     if (socket !== null) return;
     setState('connecting');
     /** @type {SyncSocket} */
     const mySocket = socketFactory(url);
     socket = mySocket;
-    lastInbound = now();
     mySocket.onopen = () => {
       if (socket === mySocket) {
         socketOpen = true;
@@ -152,7 +154,8 @@ export function createConnection(options) {
   /** @param {SyncSocket} mySocket @param {string} data */
   function handleFrame(mySocket, data) {
     if (socket !== mySocket) return;
-    lastInbound = now();
+    // Every inbound frame re-arms the inbound-silence watchdog — this is
+    // the liveness bookkeeping, there is no separate timestamp to track.
     armWatchdog();
 
     /** @type {Record<string, *> | null} */

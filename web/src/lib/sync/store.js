@@ -40,12 +40,41 @@
  * @property {SyncOp} [op] (`op_exposed`)
  */
 
-/** Stable JSON key for a field target — key order never splits a field. */
+/**
+ * Stable key for a field target — key order never splits a field, and no
+ * two distinct targets share a key. The encoding is a prefix code: strings
+ * are quoted with backslash escapes, containers bracketed, atoms bare —
+ * so only strings can contain quotes, brackets, commas, or colons.
+ * (Deliberately not JSON.stringify: a hand-rolled total order here is the
+ * identity, and the gate's no-stringify-keys rule is honest about the
+ * key-order trap the naive version walks into.)
+ */
+/** @param {string} text @returns {string} */
+function quote(text) {
+  return `"${text.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+}
+
+/** @param {*} value @returns {string} */
+function encodeValue(value) {
+  if (typeof value === 'string') return quote(value);
+  if (value === null) return 'null';
+  if (Array.isArray(value)) {
+    return `[${value.map(encodeValue).join(',')}]`;
+  }
+  if (typeof value === 'object') {
+    const parts = Object.keys(value)
+      .sort()
+      .map((k) => `${quote(k)}:${encodeValue(value[k])}`);
+    return `{${parts.join(',')}}`;
+  }
+  // Numbers, booleans, undefined: bare atoms — unambiguous next to the
+  // quoted strings, which is the whole point of the prefix code.
+  return String(value);
+}
+
 /** @param {Record<string, *>} target */
 export function targetKey(target) {
-  const keys = Object.keys(target).sort();
-  const parts = keys.map((k) => `${JSON.stringify(k)}:${JSON.stringify(target[k])}`);
-  return `{${parts.join(',')}}`;
+  return encodeValue(target);
 }
 
 /**

@@ -15,6 +15,8 @@
 //   that); every other outcome passes no server value — the store falls
 //   back to the newest server truth it has, silently for `superseded`.
 
+/* global WebSocket, window, setTimeout, clearTimeout, crypto */
+
 import { createQueue } from './queue.js';
 import { createStore, targetKey } from './store.js';
 import { createConnection } from './connection.js';
@@ -76,7 +78,7 @@ export function createSync(options) {
     for (const cb of listeners) cb(event);
   }
 
-  const connection = createConnection({ url, socketFactory, rng, now, timers });
+  const connection = createConnection({ url, socketFactory, rng, timers });
 
   connection.onChange((event) => {
     if (event.type === 'state') {
