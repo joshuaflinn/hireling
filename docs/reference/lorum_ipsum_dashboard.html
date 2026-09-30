@@ -334,6 +334,9 @@ h3.chead .mkcont.off{order:6;margin-left:0;font-size:13px;padding:0 3px}
 h3.chead .cnm{font-weight:600;color:var(--text);font-size:13.5px}
 h3.chead .h3s{margin:0 auto 0 0;font-size:11.5px;color:var(--dim)}
 .irow .qty{color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}
+.irow .qty.one{opacity:0}.irow:hover .qty.one{opacity:.6}          /* single items: quantity shows on hover so it can still be edited */
+.qty[data-qedit]{cursor:pointer}
+.irow .qty input{width:52px;background:#2a2f38;border:1px solid var(--line2);border-radius:4px;color:var(--text);padding:0 3px;font:inherit;font-size:12px}
 .bulk{margin-top:8px;padding:6px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;font-size:12.5px;color:var(--muted)}
 .bulk b{color:var(--text)}
 .bulk .meter{height:6px;border-radius:3px;background:#2a2f38;margin-top:5px;position:relative;overflow:hidden}
@@ -1985,6 +1988,21 @@ function normalizeStacks(){
   for(const k of Object.keys(S.qty)){ if(S.qty[k]<0){ S.qty[k]=0; changed=true; } }
   // this runs on every render as passive cleanup, not a user edit — don't write or mark dirty
 }
+function setInvQty(key,v){
+  const sp=(S.splits||[]).find(x=>x.id===key);
+  if(sp) sp.qty=v; else { S.qty=S.qty||{}; S.qty[key]=v; }
+  markDirty();
+}
+function startQtyEdit(el){
+  if(el.querySelector("input")) return;
+  const key=el.dataset.qedit, cur=+el.dataset.cur||1;
+  setHTML(el, `<input type="number" min="0" value="${cur}">`);
+  const inp=el.querySelector("input"); inp.focus(); inp.select();
+  let done=false;
+  const commit=()=>{ if(done) return; done=true; const v=parseInt(inp.value,10); if(!isNaN(v)&&v>=0) setInvQty(key,v); render(); };
+  inp.addEventListener("keydown",ev=>{ if(ev.key==="Enter") commit(); else if(ev.key==="Escape"){ done=true; render(); } });
+  inp.addEventListener("blur",commit);
+}
 function renderInv(){
   normalizeStacks();
   const B=C.B, m=S.coins||B.money||{};
@@ -2084,7 +2102,7 @@ function renderInv(){
   const row=(r,flat)=>{ const loc=at(r), top=loc==="top", where=flat&&!top?contName(loc):"";
     const cb=top?`<input type="checkbox" class="eqcb" data-eqkey="${esc(r.key)}"${r.eq?" checked":""} title="Equipped">`:flat?`<span class="cbsp"></span>`:"";
     const tk=esc(r.tkey||r.key);
-    return `<div class="row irow idrag${cb?" hascb":""}" draggable="true" data-idrag="${r.key}" data-qty="${r.isC?1:r.qty}" data-name="${esc(r.name)}"${r.tip?` data-tip="${reg(r.tip)}"`:""}>${cb}<span class="nm">${esc(r.name)}${r.qty>1?` <span class="qty">×${r.qty}</span>`:""}${r.isC?` <span class="qty">(${inCont(r.id).length} item${inCont(r.id).length===1?"":"s"})</span>`:""}${chips(r)}${where?`<span class="inwhere">in ${esc(where)}</span>`:""}</span><span class="rowbtn"><button class="mkcont" data-tagedit="${tk}" title="Edit tags">#</button>${r.isC?"":`<button class="mkcont" data-mkcont="${r.key}" data-qty="${r.qty}" data-loc="${esc(loc)}" title="Use this as a container">&#9744;</button><button class="mkcont" data-xdel="${r.key}" title="Remove from inventory">&#10005;</button>`}</span><span class="q">${r.b?bulkTxt(r.b):"—"}</span></div>`; };
+    return `<div class="row irow idrag${cb?" hascb":""}" draggable="true" data-idrag="${r.key}" data-qty="${r.isC?1:r.qty}" data-name="${esc(r.name)}"${r.tip?` data-tip="${reg(r.tip)}"`:""}>${cb}<span class="nm">${esc(r.name)}${r.isC?(r.qty>1?` <span class="qty">×${r.qty}</span>`:""):` <span class="qty${r.qty>1?"":" one"}" data-qedit="${esc(r.key)}" data-cur="${r.qty}" title="Click to edit quantity">×${r.qty}</span>`}${r.isC?` <span class="qty">(${inCont(r.id).length} item${inCont(r.id).length===1?"":"s"})</span>`:""}${chips(r)}${where?`<span class="inwhere">in ${esc(where)}</span>`:""}</span><span class="rowbtn"><button class="mkcont" data-tagedit="${tk}" title="Edit tags">#</button>${r.isC?"":`<button class="mkcont" data-mkcont="${r.key}" data-qty="${r.qty}" data-loc="${esc(loc)}" title="Use this as a container">&#9744;</button><button class="mkcont" data-xdel="${r.key}" title="Remove from inventory">&#10005;</button>`}</span><span class="q">${r.b?bulkTxt(r.b):"—"}</span></div>`; };
   const chead=c=>{ const sum=inCont(c.id).reduce((n,i)=>n+i.b,0), relief=c.backpack?Math.min(sum,20):0;
     const cap=c.xd?null:capacityOf(c.name.replace(/\s+×\d+$/,"")), over=cap!=null&&sum>cap;
     return `<h3 class="chead${over?" over":""}" draggable="true" data-idrag="${c.key}" data-idrop="cont:${c.id}" data-collkey="${esc(c.id)}"><input type="checkbox" class="eqcb" data-eqkey="${esc(c.key)}"${c.eq?" checked":""} title="Equipped"><span class="cnm">${esc(c.name)}</span><span class="ccount">(${inCont(c.id).length} item${inCont(c.id).length===1?"":"s"})</span><span class="ctags">${chips(c)}</span><span class="h3s">· ${c.xd?"extradimensional; contents not counted":`${bulkTxt(sum)}${cap!=null?` of ${bulkTxt(cap)}`:""} inside${relief?`, ${bulkTxt(relief)} doesn't count`:""}${over?` · <b class="overcap">over capacity</b>`:""}`}</span><button class="mkcont off tagb" data-tagedit="${esc(c.tkey||c.key)}" title="Edit tags">#</button>${c.user?`<button class="mkcont off unmark" data-mkcontoff="${c.key}" title="Stop using this as a container">&#10554;</button>`:""}<button class="mkcont off del" data-contdel="${c.key}" title="Delete this container">&#10005;</button></h3>`; };
@@ -2775,6 +2793,8 @@ document.addEventListener("click",e=>{
   if(t.closest(".minhp")) return;
   const cond=t.closest(".cond,.crow,.ttrait");
   if(cond){ if(cond.dataset.trait!=null){ if(TRAIT_DB[cond.dataset.trait]) showTrait(cond.dataset.trait,cond,true); } else showCond(cond.dataset.cond,cond,true); return; }
+  const qe=t.closest("[data-qedit]");
+  if(qe){ if(!t.closest("input")) startQtyEdit(qe); return; }
   const coin=t.closest("[data-coin]");
   if(coin && !t.closest("input")){ startCoinEdit(coin); return; }
   const ts=t.closest("[data-tabset]");
