@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use registry::PartyRegistry;
 
+pub mod metrics;
 pub mod protocol;
 pub mod registry;
 pub mod session;
@@ -25,6 +26,8 @@ pub struct SyncState {
     /// The E1 drain signal: `true` means the server is draining. Sessions
     /// answer with `bye` + Close 1001. A dropped sender is "no signal".
     pub drain: tokio::sync::watch::Receiver<bool>,
+    /// The dispatch-time ring behind `/metrics/sync` (contract §7).
+    pub metrics: Arc<metrics::SyncMetrics>,
 }
 
 impl SyncState {
@@ -35,6 +38,7 @@ impl SyncState {
             registry: Arc::new(PartyRegistry::new()),
             settings: SyncSettings::default(),
             drain,
+            metrics: Arc::new(metrics::SyncMetrics::new()),
         }
     }
 }
@@ -67,6 +71,14 @@ mod snapshot_tests;
 #[cfg(test)]
 #[path = "../tests/sync/registry.rs"]
 mod registry_tests;
+
+#[cfg(test)]
+#[path = "../tests/sync/helpers.rs"]
+mod test_helpers;
+
+#[cfg(test)]
+#[path = "../tests/sync/metrics.rs"]
+mod metrics_tests;
 
 #[cfg(test)]
 #[path = "../tests/sync/session.rs"]

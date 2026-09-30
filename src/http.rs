@@ -77,6 +77,11 @@ pub(crate) const API_ROUTES: &[ApiRoute] = &[
         path: "/api/ws/party/{party_id}",
         writes: true,
     },
+    ApiRoute {
+        method: "GET",
+        path: "/api/metrics/sync",
+        writes: false,
+    },
 ];
 
 /// Build the application router.
@@ -105,6 +110,10 @@ pub fn router(auth: Arc<AuthState>, static_dir: &Path, sync: crate::sync::SyncSt
         .route(
             "/ws/party/{party_id}",
             get(crate::sync::session::party_ws),
+        )
+        .route(
+            "/metrics/sync",
+            get(crate::sync::metrics::sync_metrics),
         )
         // Sync's runtime state rides as an Extension; the router's State
         // stays E3's Arc<AuthState> (see SyncState).

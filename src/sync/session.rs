@@ -116,6 +116,7 @@ async fn run_session(
         registry,
         party_id,
         actor: &actor,
+        metrics: &sync.metrics,
     };
 
     // Liveness (contract §5): a protocol-independent app-level ping every
@@ -274,6 +275,7 @@ struct SessionCtx<'a> {
     registry: &'a PartyRegistry,
     party_id: i64,
     actor: &'a SessionAccount,
+    metrics: &'a crate::sync::metrics::SyncMetrics,
 }
 
 /// One inbound text frame. Deny-by-default: malformed JSON, unknown frame
@@ -325,6 +327,9 @@ async fn handle_write(
     base_version: i64,
     value: JsonValue,
 ) {
+    // t0: the write frame is decoded and its payload in hand — the dispatch
+    // budget (p95 ≤ 100 ms) runs from here to post-fan-out.
+    let t0 = std::time::Instant::now();
     let party_id = ctx.party_id;
     let actor = ctx.actor;
     let writer = Actor {
@@ -363,12 +368,24 @@ async fn handle_write(
         ctx.registry.broadcast(
             party_id,
             &ServerFrame::Diff {
-                field: target,
+                field: target.clone(),
                 value,
                 version,
                 actor_sub: actor.sub.clone(),
-                op_id: Some(op_id),
+                op_id: Some(op_id.clone()),
             },
+        );
+        // t1: post-fan-out. Contract §7 — one structured event per applied
+        // write, feeding the /metrics/sync window.
+        let dispatch_ms = t0.elapsed().as_secs_f64() * 1000.0;
+        ctx.metrics.push(dispatch_ms);
+        tracing::info!(
+            target: "sync",
+            sync_dispatch_ms = dispatch_ms,
+            party_id,
+            op_id = %op_id,
+            field = %crate::sync::metrics::field_label(&target),
+            "write dispatched"
         );
     }
 }
