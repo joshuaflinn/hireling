@@ -46,6 +46,19 @@ pub enum VitalsField {
     LevelAdjust,
 }
 
+impl VitalsField {
+    /// The wire/ledger name of this field.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Hp => "hp",
+            Self::TempHp => "temp_hp",
+            Self::Money => "money",
+            Self::LevelAdjust => "level_adjust",
+        }
+    }
+}
+
 /// One row of a snapshot: a field target, its current value, its current
 /// version — the diff shape minus attribution (contract §2, `fields`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -141,6 +154,22 @@ pub enum Outcome {
     AlreadyApplied,
     Rejected,
     Forbidden,
+}
+
+impl Outcome {
+    /// The ledger's stored text for this outcome (`client_ops.outcome`).
+    /// `already_applied` is a read answer — no caller stores it, but the
+    /// mapping is total.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Applied => "applied",
+            Self::Superseded => "superseded",
+            Self::AlreadyApplied => "already_applied",
+            Self::Rejected => "rejected",
+            Self::Forbidden => "forbidden",
+        }
+    }
 }
 
 /// A frame the server sends (contract §2, server → client).
