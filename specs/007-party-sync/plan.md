@@ -106,9 +106,9 @@ Rust test layout follows the house shape (`src/tests/` in-crate, DB-gated like `
 **Interfaces:**
 - Produces: `pub async fn party_snapshot(pool: &PgPool, party_id: i64) -> Result<Vec<SnapshotField>>` — every versioned field of every character in the party, plus effect rows `{effect_id, name, source_character_id, targets, modifiers, duration_note, active, version}`.
 
-- [ ] **Step 1: Failing tests**: seeded party with vitals+slots+inventory+two effects → snapshot contains each field with its exact version (read versions straight from the DB as oracle); second party's data absent (party scoping); `snapshot_bytes` = serialized length.
-- [ ] **Step 2: FAIL** → **Step 3: Implement** (one SELECT per table, all party-scoped, effects joined with targets/modifiers per E2 shapes) → **Step 4: PASS**.
-- [ ] **Step 5: Commit** — `feat: E7 party live-state snapshot with per-field versions (#9)`.
+- [x] **Step 1: Failing tests**: seeded party with vitals+slots+inventory+two effects → snapshot contains each field with its exact version (read versions straight from the DB as oracle); second party's data absent (party scoping); `snapshot_bytes` = serialized length.
+- [x] **Step 2: FAIL** → **Step 3: Implement** (one SELECT per table, all party-scoped, effects joined with targets/modifiers per E2 shapes) → **Step 4: PASS**.
+- [x] **Step 5: Commit** — `feat: E7 party live-state snapshot with per-field versions (#9)`.
 
 ### Task 5: Registry + fan-out isolation
 
@@ -117,9 +117,9 @@ Rust test layout follows the house shape (`src/tests/` in-crate, DB-gated like `
 **Interfaces:**
 - Produces: `pub struct PartyRegistry { … }` with `pub fn subscribe(&self, party_id: i64) -> ConnHandle`, `pub fn unsubscribe(&self, party_id: i64, handle_id: u64)`, `pub fn broadcast(&self, party_id: i64, frame: &ServerFrame) -> FanOutReport` where `ConnHandle { pub rx: mpsc::Receiver<ServerFrame>, id: u64 }` and `FanOutReport { delivered: usize, overflowed: usize }`. Channel capacity **64**.
 
-- [ ] **Step 1: Failing tests**: two subscribers receive a broadcast; a subscriber whose channel is full (fill 64, don't drain) is dropped from the registry by the next broadcast (overflow close is the session's job — registry reports it) and the other subscriber still received everything (isolation); no `await` on any send path (compile-level: `broadcast` is sync).
-- [ ] **Step 2: FAIL** → **Step 3: Implement** `RwLock<HashMap<i64, Vec<ConnHandle>>>`, `try_send`, overflow → remove handle → **Step 4: PASS**.
-- [ ] **Step 5: Commit** — `feat: E7 party registry, try_send fan-out, overflow eviction (#9)`.
+- [x] **Step 1: Failing tests**: two subscribers receive a broadcast; a subscriber whose channel is full (fill 64, don't drain) is dropped from the registry by the next broadcast (overflow close is the session's job — registry reports it) and the other subscriber still received everything (isolation); no `await` on any send path (compile-level: `broadcast` is sync).
+- [x] **Step 2: FAIL** → **Step 3: Implement** `RwLock<HashMap<i64, Vec<ConnHandle>>>`, `try_send`, overflow → remove handle → **Step 4: PASS**.
+- [x] **Step 5: Commit** — `feat: E7 party registry, try_send fan-out, overflow eviction (#9)`.
 
 ### Task 6: WS session — route, handshake, write loop
 
@@ -129,21 +129,21 @@ Rust test layout follows the house shape (`src/tests/` in-crate, DB-gated like `
 - Consumes: Tasks 2–5; E3 middleware Actor extension.
 - Produces: route `GET /api/ws/party/{party_id}`; on upgrade: `hello` then `snapshot`; write frames → `apply_write` → ack (+ broadcast of `diff` on `applied`); `ping`→`pong`.
 
-- [ ] **Step 1: Failing tests** (drive the real router over a real socket — PR #30 rule):
+- [x] **Step 1: Failing tests** (drive the real router over a real socket — PR #30 rule):
   1. member connects to own party → `hello` + `snapshot`; outsider → HTTP 403 pre-upgrade; GM connects → `hello`/`snapshot` arrive.
   2. member writes hp → ack `applied` + every connected client (2nd socket) receives `diff` with version and `actor_sub`; writer receives own diff too.
   3. GM write → ack `forbidden`, no diff.
   4. garbage frame → connection stays open, frame ignored (assert via subsequent successful ping/pong); `kind:"effect"` write → ignored likewise.
-- [ ] **Step 2: FAIL** → **Step 3: Implement** handshake authz (owner-in-party or GM), the select loop (inbound socket | outbound rx | shutdown), `bye`+Close on drain paths, Close 1013 on rx-closed (overflow), liveness timer armed here. **Step 4: PASS.**
-- [ ] **Step 5: Commit** — `feat: E7 party WS session, handshake authz, write/ack/diff loop (#9)`.
+- [x] **Step 2: FAIL** → **Step 3: Implement** handshake authz (owner-in-party or GM), the select loop (inbound socket | outbound rx | shutdown), `bye`+Close on drain paths, Close 1013 on rx-closed (overflow), liveness timer armed here. **Step 4: PASS.**
+- [x] **Step 5: Commit** — `feat: E7 party WS session, handshake authz, write/ack/diff loop (#9)`.
 
 ### Task 7: Liveness + drain numbers
 
 **Files:** Modify `src/sync/session.rs` + `src/sync/mod.rs` (config: `SyncSettings { ping_interval, pong_timeout }` overridable in tests). Test: extend `src/tests/sync/session.rs`.
 
-- [ ] **Step 1: Failing tests** (short intervals, e.g. 100 ms/50 ms): server pings at interval; a client that never pongs is closed (1011) within timeout; well-behaved client stays connected across several cycles; drain signal mid-connection → client receives `bye` then Close 1001 (assert frame + close code) — drive the drain via the same shutdown channel `http.rs` uses, not a second path.
-- [ ] **Step 2: FAIL** → **Step 3: Implement** (`tokio::time::interval`, `select!` on shutdown broadcast receiver from the server's `with_graceful_shutdown` wiring — reuse, do not create a new signal) → **Step 4: PASS**.
-- [ ] **Step 5: Commit** — `feat: E7 liveness ping/pong + drain joins E1 shutdown (#9)`.
+- [x] **Step 1: Failing tests** (short intervals, e.g. 100 ms/50 ms): server pings at interval; a client that never pongs is closed (1011) within timeout; well-behaved client stays connected across several cycles; drain signal mid-connection → client receives `bye` then Close 1001 (assert frame + close code) — drive the drain via the same shutdown channel `http.rs` uses, not a second path.
+- [x] **Step 2: FAIL** → **Step 3: Implement** (`tokio::time::interval`, `select!` on shutdown broadcast receiver from the server's `with_graceful_shutdown` wiring — reuse, do not create a new signal) → **Step 4: PASS**.
+- [x] **Step 5: Commit** — `feat: E7 liveness ping/pong + drain joins E1 shutdown (#9)`.
 
 ### Task 8: Dispatch metrics
 
