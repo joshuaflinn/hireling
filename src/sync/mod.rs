@@ -2,6 +2,7 @@
 //! sessions, metrics. See `specs/007-party-sync/` for the binding contracts.
 
 pub mod protocol;
+pub mod registry;
 pub mod snapshot;
 pub mod write;
 
@@ -12,3 +13,7 @@ mod write_tests;
 #[cfg(test)]
 #[path = "../tests/sync/snapshot.rs"]
 mod snapshot_tests;
+
+#[cfg(test)]
+#[path = "../tests/sync/registry.rs"]
+mod registry_tests;
