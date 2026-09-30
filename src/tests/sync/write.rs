@@ -63,6 +63,23 @@ async fn ledger_row(pool: &sqlx::PgPool, op_id: &str) -> (String, Option<i64>) {
     (outcome, version)
 }
 
+/// How many ledger rows the `op_id` holds (exactly one is the contract).
+async fn ledger_count(pool: &sqlx::PgPool, op_id: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM client_ops WHERE op_id = $1")
+        .bind(op_id)
+        .fetch_one(pool)
+        .await
+        .expect("ledger count")
+}
+
+/// The POC party's id — the party every write-engine test is bound to.
+async fn poc_party(pool: &sqlx::PgPool) -> i64 {
+    sqlx::query_scalar("SELECT id FROM parties ORDER BY id LIMIT 1")
+        .fetch_one(pool)
+        .await
+        .expect("POC party")
+}
+
 fn player(sub: &str) -> Actor {
     Actor {
         sub: sub.to_owned(),
@@ -93,6 +110,7 @@ async fn an_owner_write_at_the_current_version_applies() {
     let result = apply_write(
         &pool,
         &player("sub-owner"),
+        poc_party(&pool).await,
         hp_op("op-1", character_id, base, 14),
     )
     .await
@@ -137,6 +155,7 @@ async fn a_replayed_op_is_already_applied_with_the_original_version() {
     let first = apply_write(
         &pool,
         &player("sub-owner"),
+        poc_party(&pool).await,
         hp_op("op-1", character_id, base, 14),
     )
     .await
@@ -146,6 +165,7 @@ async fn a_replayed_op_is_already_applied_with_the_original_version() {
     let replay = apply_write(
         &pool,
         &player("sub-owner"),
+        poc_party(&pool).await,
         hp_op("op-1", character_id, base, 14),
     )
     .await
@@ -176,6 +196,7 @@ async fn a_stale_base_write_is_superseded() {
     let winning = apply_write(
         &pool,
         &player("sub-owner"),
+        poc_party(&pool).await,
         hp_op("op-1", character_id, base, 14),
     )
     .await
@@ -185,6 +206,7 @@ async fn a_stale_base_write_is_superseded() {
     let stale = apply_write(
         &pool,
         &player("sub-owner"),
+        poc_party(&pool).await,
         hp_op("op-2", character_id, base, 20),
     )
     .await
@@ -218,6 +240,7 @@ async fn out_of_bounds_values_are_rejected_never_applied() {
     let negative = apply_write(
         &pool,
         &player("sub-owner"),
+        poc_party(&pool).await,
         hp_op("op-neg", character_id, base, -1),
     )
     .await
@@ -235,6 +258,7 @@ async fn out_of_bounds_values_are_rejected_never_applied() {
     let level = apply_write(
         &pool,
         &player("sub-owner"),
+        poc_party(&pool).await,
         ClientOp {
             op_id: "op-level".to_owned(),
             target: FieldTarget::Vitals {
@@ -273,9 +297,14 @@ async fn the_gm_and_non_owners_are_forbidden() {
         sub: "sub-gm".to_owned(),
         role: Role::Gm,
     };
-    let gm_write = apply_write(&pool, &gm, hp_op("op-gm", character_id, base, 10))
-        .await
-        .expect("gm write resolves");
+    let gm_write = apply_write(
+        &pool,
+        &gm,
+        poc_party(&pool).await,
+        hp_op("op-gm", character_id, base, 10),
+    )
+    .await
+    .expect("gm write resolves");
     assert_eq!(
         gm_write.outcome,
         Outcome::Forbidden,
@@ -285,6 +314,7 @@ async fn the_gm_and_non_owners_are_forbidden() {
     let outsider = apply_write(
         &pool,
         &player("sub-other"),
+        poc_party(&pool).await,
         hp_op("op-out", character_id, base, 10),
     )
     .await
@@ -311,8 +341,18 @@ async fn concurrent_same_field_writes_produce_exactly_one_winner() {
     let writer = player("sub-owner");
 
     let (a, b) = tokio::join!(
-        apply_write(&pool, &writer, hp_op("op-a", character_id, base, 11)),
-        apply_write(&pool, &writer, hp_op("op-b", character_id, base, 22)),
+        apply_write(
+            &pool,
+            &writer,
+            poc_party(&pool).await,
+            hp_op("op-a", character_id, base, 11),
+        ),
+        apply_write(
+            &pool,
+            &writer,
+            poc_party(&pool).await,
+            hp_op("op-b", character_id, base, 22),
+        ),
     );
     let a = a.expect("writer a resolves");
     let b = b.expect("writer b resolves");
@@ -345,13 +385,204 @@ async fn concurrent_same_field_writes_produce_exactly_one_winner() {
     testing::drop_test_db(pool, "write_race").await;
 }
 
+/// Two concurrent transactions reuse ONE `op_id` on TWO different fields
+/// (hp and money of the same character). The ledger's PK must serialize
+/// them: at most one field commits, the loser never claims `applied`, and
+/// the ledger holds exactly one row — a DO NOTHING insert after the CAS
+/// would commit both fields and silently drop one ledger row (review
+/// finding, PR #34).
+#[tokio::test]
+async fn concurrent_reuse_of_an_op_id_commits_at_most_one_field() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let character_id = seed_character(&pool, "sub-owner").await;
+    let hp_base = vitals_version(&pool, character_id, "hp_version").await;
+    let money_base = vitals_version(&pool, character_id, "money_version").await;
+    let writer = player("sub-owner");
+    let shared = "op-dupe";
+
+    let (hp, money) = tokio::join!(
+        apply_write(
+            &pool,
+            &writer,
+            poc_party(&pool).await,
+            ClientOp {
+                op_id: shared.to_owned(),
+                target: FieldTarget::Vitals {
+                    character_id,
+                    field: VitalsField::Hp,
+                },
+                base_version: hp_base,
+                value: json!(42),
+            },
+        ),
+        apply_write(
+            &pool,
+            &writer,
+            poc_party(&pool).await,
+            ClientOp {
+                op_id: shared.to_owned(),
+                target: FieldTarget::Vitals {
+                    character_id,
+                    field: VitalsField::Money,
+                },
+                base_version: money_base,
+                value: json!({"pp": 1, "gp": 2, "sp": 3, "cp": 4}),
+            },
+        ),
+    );
+    let hp = hp.expect("hp twin resolves");
+    let money = money.expect("money twin resolves");
+
+    let applied = [
+        hp.outcome == Outcome::Applied,
+        money.outcome == Outcome::Applied,
+    ]
+    .into_iter()
+    .filter(|won| *won)
+    .count();
+    assert_eq!(
+        applied, 1,
+        "the shared op_id commits at most one field: hp={:?} money={:?}",
+        hp.outcome, money.outcome
+    );
+
+    let (hp_version, money_version): (i64, i64) = sqlx::query_as(
+        "SELECT hp_version, money_version FROM character_vitals WHERE character_id = $1",
+    )
+    .bind(character_id)
+    .fetch_one(&pool)
+    .await
+    .expect("vitals row");
+    let hp_moved = hp_version > hp_base;
+    let money_moved = money_version > money_base;
+    assert!(
+        hp_moved ^ money_moved,
+        "exactly one field moved: hp_moved={hp_moved} money_moved={money_moved}"
+    );
+    assert_eq!(
+        ledger_count(&pool, shared).await,
+        1,
+        "the ledger holds exactly one row for the id"
+    );
+
+    testing::drop_test_db(pool, "write_opid_reuse_race").await;
+}
+
+/// The same race, deterministic: a transaction holds the ledger row and the
+/// hp write EXACTLY the way the hp twin's transaction holds them between
+/// reserve and commit (same statements, uncommitted), and the engine's
+/// money twin runs while that window is open. The ledger's PK must
+/// arbitrate: the money twin must not commit a second field under an id
+/// that is already spoken for. Deterministic because the interleaving is
+/// constructed, not won: the mirror commits only once the twin has parked
+/// on the open window.
+#[tokio::test]
+async fn an_op_id_held_by_another_transaction_rejects_a_second_field() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let character_id = seed_character(&pool, "sub-owner").await;
+    let hp_base = vitals_version(&pool, character_id, "hp_version").await;
+    let money_base = vitals_version(&pool, character_id, "money_version").await;
+    let writer = player("sub-owner");
+
+    // The hp twin, mid-transaction and uncommitted — the engine's own
+    // statements, held open. The vitals row lock and the ledger row both
+    // stay private to this transaction until it commits.
+    let mut tx = pool.begin().await.expect("mirror transaction begins");
+    let hp_version: i64 = sqlx::query_scalar(
+        "UPDATE character_vitals SET hp = 42, \
+         hp_version = nextval('field_version_seq') \
+         WHERE character_id = $1 AND hp_version = $2 RETURNING hp_version",
+    )
+    .bind(character_id)
+    .bind(hp_base)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("mirror CAS hp");
+    sqlx::query(
+        "INSERT INTO client_ops (op_id, account_sub, field_path, request, outcome, \
+         resulting_version) VALUES ('op-dupe', $1, 'vitals:hp', $2, 'applied', $3)",
+    )
+    .bind("sub-owner")
+    .bind(serde_json::json!({
+        "target": {"kind": "vitals", "character_id": character_id, "field": "hp"},
+        "base_version": hp_base,
+        "value": 42
+    }))
+    .bind(hp_version)
+    .execute(&mut *tx)
+    .await
+    .expect("mirror ledger row");
+
+    // The money twin runs through the engine while the window is open: it
+    // parks on the mirror's locks at the ledger step (or the money CAS,
+    // same row). The mirror then commits, un-parking it.
+    let twin = tokio::spawn({
+        let pool = pool.clone();
+        async move {
+            apply_write(
+                &pool,
+                &writer,
+                poc_party(&pool).await,
+                ClientOp {
+                    op_id: "op-dupe".to_owned(),
+                    target: FieldTarget::Vitals {
+                        character_id,
+                        field: VitalsField::Money,
+                    },
+                    base_version: money_base,
+                    value: json!({"pp": 1, "gp": 2, "sp": 3, "cp": 4}),
+                },
+            )
+            .await
+        }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    tx.commit().await.expect("mirror commit");
+    let money = twin
+        .await
+        .expect("twin task joins")
+        .expect("money twin resolves");
+
+    assert_eq!(
+        money.outcome,
+        Outcome::Rejected,
+        "the id is spoken for by a different request"
+    );
+    assert!(
+        money
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("op_id")),
+        "the rejection names the reused id, got {:?}",
+        money.reason
+    );
+    let money_version = vitals_version(&pool, character_id, "money_version").await;
+    assert_eq!(money_version, money_base, "the money field never moved");
+    assert_eq!(
+        ledger_count(&pool, "op-dupe").await,
+        1,
+        "one id, one row: the holder's"
+    );
+    let (outcome, version) = ledger_row(&pool, "op-dupe").await;
+    assert_eq!(outcome, "applied", "the holder's disposition stands");
+    assert_eq!(version, Some(hp_version), "the holder's version stands");
+
+    testing::drop_test_db(pool, "write_opid_held").await;
+}
+
 /// One applied write of `op`, asserting the outcome so the caller reads flat.
 async fn applied(
     pool: &sqlx::PgPool,
     actor: &Actor,
     op: ClientOp,
 ) -> crate::sync::write::WriteResult {
-    let result = apply_write(pool, actor, op).await.expect("write resolves");
+    let result = apply_write(pool, actor, poc_party(pool).await, op)
+        .await
+        .expect("write resolves");
     assert_eq!(
         result.outcome,
         Outcome::Applied,
@@ -523,4 +754,73 @@ async fn a_money_write_sets_all_four_denominations_under_one_version() {
         "hp untouched by other fields"
     );
     testing::drop_test_db(pool, "write_money").await;
+}
+
+/// A write whose target lives outside the bound party is forbidden even
+/// when the writer owns it — the socket's party is the addressing scope
+/// (contract §1), and the bound party is a required parameter of the
+/// engine, so the guard cannot be bypassed by any caller (review finding,
+/// PR #34).
+#[tokio::test]
+async fn a_write_outside_the_bound_party_is_forbidden_and_recorded() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let character_id = seed_character(&pool, "sub-owner").await;
+    let base = vitals_version(&pool, character_id, "hp_version").await;
+    let party = poc_party(&pool).await;
+    let other_party: i64 =
+        sqlx::query_scalar("INSERT INTO parties (name) VALUES ('forge-engine') RETURNING id")
+            .fetch_one(&pool)
+            .await
+            .expect("second party");
+    let writer = player("sub-owner");
+
+    let wrong_party = apply_write(
+        &pool,
+        &writer,
+        other_party,
+        hp_op("op-xparty", character_id, base, 9),
+    )
+    .await
+    .expect("cross-party write resolves");
+    assert_eq!(
+        wrong_party.outcome,
+        Outcome::Forbidden,
+        "the bound party scopes the write"
+    );
+    assert!(
+        wrong_party
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("party")),
+        "the denial names the party scope, got {:?}",
+        wrong_party.reason
+    );
+
+    // Nothing moved, and the denial is recorded.
+    assert_eq!(
+        vitals_version(&pool, character_id, "hp_version").await,
+        base,
+        "cross-party writes touch nothing"
+    );
+    let (outcome, _) = ledger_row(&pool, "op-xparty").await;
+    assert_eq!(outcome, "forbidden", "the denial is recorded");
+
+    // The same target under the RIGHT party is the owner's ordinary write.
+    let in_party = apply_write(
+        &pool,
+        &writer,
+        party,
+        hp_op("op-inparty", character_id, base, 9),
+    )
+    .await
+    .expect("in-party write resolves");
+    assert_eq!(
+        in_party.outcome,
+        Outcome::Applied,
+        "the owner writes within the bound party"
+    );
+
+    testing::drop_test_db(pool, "write_party_scope").await;
 }

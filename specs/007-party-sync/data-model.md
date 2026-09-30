@@ -18,9 +18,10 @@ same `op_id`; the server answers from this table without re-writing.
 
 | column | type | constraints | notes |
 |---|---|---|---|
-| `op_id` | text | **PRIMARY KEY** | client-generated UUID per operation; globally unique by construction (v4) — collisions are a client bug the PK catches loudly |
+| `op_id` | text | **PRIMARY KEY** | client-generated UUID per operation; globally unique by construction (v4) — collisions are a client bug the PK catches loudly. The id is **reserved through the PK before the CAS** in the same transaction: a concurrent twin blocks on the reservation and answers from the holder's row — reuse for a different request is rejected, never a second committed write (review hardening, PR #34) |
 | `account_sub` | text | NOT NULL, FK → `accounts(sub)` ON DELETE RESTRICT | who sent it; a replayed op under a different account is not this table's problem (authz rejects before the ledger is consulted) — the FK is provenance, not enforcement |
 | `field_path` | text | NOT NULL | canonical serialized field target (e.g. `vitals:hp`, `slot:Wizard:3:0`, `inv:Chalk`, `effect:42`) — for humans reading the table and for the supersede log correlation; the wire format stays structured JSON |
+| `request` | jsonb | NOT NULL | the exact client request (`{target, base_version, value}`) — what tells a genuine replay apart from reuse of the id for a different request; reuse is refused (`rejected` ack, nothing committed, the holder's row standing) |
 | `outcome` | text | NOT NULL, CHECK IN (`applied`,`superseded`,`rejected`,`forbidden`) | terminal disposition of the op; `already_applied` is never stored (it is a read answer, not a new outcome) |
 | `resulting_version` | bigint | NULL | the field version this op produced; NULL for `superseded`/`rejected`/`forbidden` (nothing was written) — the ack for `already_applied` replays this value |
 | `created_at` | timestamptz | NOT NULL DEFAULT now() | ledger age; no `updated_at` — rows are append-only |

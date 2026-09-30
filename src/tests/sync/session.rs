@@ -5,7 +5,14 @@
 
 use std::time::Duration;
 
+use futures_util::SinkExt as _;
+use futures_util::StreamExt as _;
 use serde_json::json;
+use socket2::SockRef;
+use tokio::net::TcpStream;
+use tokio_tungstenite::client_async;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::auth::oidc;
 use crate::sync::SyncSettings;
@@ -442,4 +449,232 @@ async fn the_drain_signal_sends_bye_then_close_1001() {
     assert_eq!(code, 1001, "drain closes with 1001");
 
     testing::drop_test_db(pool, "ws_drain_bye_1001").await;
+}
+
+/// The writer's socket is closed with `SO_LINGER` 0, so the kernel sends RST
+/// the moment the client vanishes — the server's ack write then fails the
+/// way a peer that died mid-request fails in production. The write is
+/// already committed: the party must still hear about it (spec FR-3) — a
+/// fan-out suppressed by the ack failure strands every other client until
+/// reconnect (review finding, PR #34).
+#[tokio::test]
+async fn a_committed_write_fans_out_even_when_the_writer_vanishes_before_the_ack() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, writer_char) = seed_member(&pool, "dev-sub-josh").await;
+    seed_member(&pool, "dev-sub-becky").await;
+    let writer_session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
+    let witness_session = testing::seed_session(&pool, "dev-sub-becky", chrono::Utc::now()).await;
+    let base = vitals_version(&pool, writer_char, "hp_version").await;
+    let (addr, shutdown) = spawn_server(pool.clone()).await;
+
+    // The witness stays connected; it is the one that must not be starved.
+    let mut witness = connect(addr, party_id, &witness_session).await;
+    read_frame(&mut witness.stream, "witness hello").await;
+    read_frame(&mut witness.stream, "witness snapshot").await;
+
+    // The writer: a raw socket held at SO_LINGER 0, upgraded, never read.
+    let tcp = TcpStream::connect(addr).await.expect("writer tcp connect");
+    SockRef::from(&tcp)
+        .set_linger(Some(std::time::Duration::ZERO))
+        .expect("SO_LINGER 0");
+    let mut request = format!("ws://{addr}/api/ws/party/{party_id}")
+        .into_client_request()
+        .expect("writer ws request builds");
+    request.headers_mut().insert(
+        "cookie",
+        format!("{}={}", oidc::SESSION_COOKIE, writer_session)
+            .parse()
+            .expect("cookie header"),
+    );
+    let (ws, _response) = client_async(request, tcp).await.expect("writer upgrade");
+    let (mut writer_sink, writer_stream) = ws.split();
+
+    // The server's intro (hello + snapshot) is written before it reads —
+    // the write frame must leave only after those writes have landed, or
+    // the RST kills the session before the frame is ever processed. A beat
+    // of sleep gives the server the time; the RST on drop does the rest.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // The write frame leaves; the ack is never read.
+    writer_sink
+        .send(Message::Text(
+            json!({
+                "t": "write",
+                "op_id": "op-vanish",
+                "target": {"kind": "vitals", "character_id": writer_char, "field": "hp"},
+                "base_version": base,
+                "value": 77
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .expect("writer sends the write frame");
+    drop(writer_sink);
+    drop(writer_stream);
+
+    // The commit happened server-side; the witness must receive the diff
+    // even though the ack went to a dead socket.
+    let diff = read_frame(
+        &mut witness.stream,
+        "fan-out diff after the writer vanished",
+    )
+    .await;
+    let ServerFrame::Diff {
+        field,
+        value,
+        version,
+        actor_sub,
+        op_id,
+    } = diff
+    else {
+        panic!("the witness must receive the committed write as a diff, got {diff:?}")
+    };
+    assert_eq!(
+        op_id.as_deref(),
+        Some("op-vanish"),
+        "the vanished writer's op"
+    );
+    assert_eq!(value, json!(77), "the committed value");
+    assert_eq!(actor_sub, "dev-sub-josh", "the vanished writer owns it");
+    assert!(version > base, "strictly newer than base");
+    assert!(matches!(
+        field,
+        crate::sync::protocol::FieldTarget::Vitals {
+            field: VitalsField::Hp,
+            ..
+        }
+    ));
+
+    // The write is durable: the commit preceded the RST.
+    let hp: i32 = sqlx::query_scalar("SELECT hp FROM character_vitals WHERE character_id = $1")
+        .bind(writer_char)
+        .fetch_one(&pool)
+        .await
+        .expect("vitals row");
+    assert_eq!(hp, 77, "the write committed before the writer vanished");
+
+    assert!(
+        shutdown.send(()).is_ok(),
+        "the test server died before shutdown"
+    );
+    testing::drop_test_db(pool, "ws_vanished_writer_fanout").await;
+}
+
+/// Party A's socket, party B's character: the one-party-per-socket
+/// invariant (contract §1) denies the write before ownership is even
+/// asked, no diff reaches either party, and the target row is untouched
+/// (review finding, PR #34).
+#[tokio::test]
+async fn a_write_targeting_another_party_s_character_is_denied_and_fans_out_nothing() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    // The writer and the witness live in the POC party (A).
+    let (party_a, _) = seed_member(&pool, "dev-sub-josh").await;
+    seed_member(&pool, "dev-sub-becky").await;
+    // A second party (B) with its own member and character.
+    testing::seed_account(&pool, "dev-sub-dave", "player").await;
+    let party_b: i64 =
+        sqlx::query_scalar("INSERT INTO parties (name) VALUES ('forge-second') RETURNING id")
+            .fetch_one(&pool)
+            .await
+            .expect("second party");
+    let char_b: i64 = sqlx::query_scalar(
+        "INSERT INTO characters (party_id, owner_sub, payload_raw, base_sheet) \
+         VALUES ($1, 'dev-sub-dave', '{}', '{}') RETURNING id",
+    )
+    .bind(party_b)
+    .fetch_one(&pool)
+    .await
+    .expect("party-B character");
+    sqlx::query("INSERT INTO character_vitals (character_id) VALUES ($1)")
+        .bind(char_b)
+        .execute(&pool)
+        .await
+        .expect("party-B vitals");
+    let (base_b, hp_b): (i64, i32) =
+        sqlx::query_as("SELECT hp_version, hp FROM character_vitals WHERE character_id = $1")
+            .bind(char_b)
+            .fetch_one(&pool)
+            .await
+            .expect("party-B vitals row");
+
+    let writer_session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
+    let same_party_witness_session =
+        testing::seed_session(&pool, "dev-sub-becky", chrono::Utc::now()).await;
+    let other_party_witness_session =
+        testing::seed_session(&pool, "dev-sub-dave", chrono::Utc::now()).await;
+    let (addr, shutdown) = spawn_server(pool.clone()).await;
+
+    let mut writer = connect(addr, party_a, &writer_session).await;
+    read_frame(&mut writer.stream, "writer hello").await;
+    read_frame(&mut writer.stream, "writer snapshot").await;
+    let mut same_party_witness = connect(addr, party_a, &same_party_witness_session).await;
+    read_frame(&mut same_party_witness.stream, "A hello").await;
+    read_frame(&mut same_party_witness.stream, "A snapshot").await;
+    let mut other_party_witness = connect(addr, party_b, &other_party_witness_session).await;
+    read_frame(&mut other_party_witness.stream, "B hello").await;
+    read_frame(&mut other_party_witness.stream, "B snapshot").await;
+
+    send_raw(
+        &mut writer.sink,
+        &json!({
+            "t": "write",
+            "op_id": "op-cross-party",
+            "target": {"kind": "vitals", "character_id": char_b, "field": "hp"},
+            "base_version": base_b,
+            "value": 33
+        })
+        .to_string(),
+    )
+    .await;
+
+    let ack = read_frame(&mut writer.stream, "cross-party ack").await;
+    let ServerFrame::Ack(ack) = ack else {
+        panic!("the cross-party write must be acked, got {ack:?}")
+    };
+    assert_eq!(ack.op_id, "op-cross-party");
+    assert_eq!(
+        ack.outcome,
+        Outcome::Forbidden,
+        "cross-party writes are denied"
+    );
+    assert!(
+        ack.reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("party")),
+        "the denial names the party scope, got {:?}",
+        ack.reason
+    );
+
+    // Neither party sees a diff — no wrong fan-out in either direction.
+    for (who, stream) in [
+        ("the writer's party", &mut same_party_witness.stream),
+        ("the target's party", &mut other_party_witness.stream),
+    ] {
+        let quiet = tokio::time::timeout(Duration::from_millis(300), stream.next()).await;
+        assert!(
+            quiet.is_err(),
+            "{who} must receive no diff for a cross-party write, got {quiet:?}"
+        );
+    }
+
+    // Party B's character is untouched.
+    let (hp, version): (i32, i64) =
+        sqlx::query_as("SELECT hp, hp_version FROM character_vitals WHERE character_id = $1")
+            .bind(char_b)
+            .fetch_one(&pool)
+            .await
+            .expect("party-B vitals row");
+    assert_eq!(hp, hp_b, "the cross-party write touched nothing");
+    assert_eq!(version, base_b, "no version bump on the target");
+
+    assert!(
+        shutdown.send(()).is_ok(),
+        "the test server died before shutdown"
+    );
+    testing::drop_test_db(pool, "ws_cross_party_denied").await;
 }

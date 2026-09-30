@@ -1,11 +1,12 @@
 //! The per-field CAS write engine — E7's core (plan Task 3).
 //!
-//! Bounds → target resolution → E3 authorization → ledger dedupe → CAS →
-//! ledger insert, one transaction. `superseded` is a *fair race loss* (the
-//! field moved past `base_version`); `rejected` is bad input that never
-//! touched a row; `forbidden` is E3's denial (contract §4). Every outcome is
-//! recorded durably in `client_ops` — `already_applied` is a read answer,
-//! never a stored row (data-model.md).
+//! Bounds → target resolution → party scope → E3 authorization → ledger
+//! reservation → CAS → ledger finalize, one transaction. `superseded` is a
+//! *fair race loss* (the field moved past `base_version`); `rejected` is bad
+//! input that never touched a row; `forbidden` is a denial (E3's matrix or
+//! the socket's bound party, contract §4). Every outcome is recorded
+//! durably in `client_ops` — `already_applied` is a read answer, never a
+//! stored row (data-model.md).
 
 use anyhow::Context as _;
 use serde_json::Value as JsonValue;
@@ -34,13 +35,18 @@ pub struct WriteResult {
 }
 
 /// The row a write targets, resolved fresh per operation — ownership comes
-/// from the database, never from the frame (E3's rule).
+/// from the database, never from the frame (E3's rule); `party_id` is the
+/// character's party, the write's addressing scope (contract §1). `None`
+/// only on the unreachable effect arm (bounds rejects effects first).
 struct TargetRow {
     owner_sub: String,
+    party_id: Option<i64>,
     field_path: String,
 }
 
-/// Apply one client operation.
+/// Apply one client operation on behalf of a socket bound to `party_id` —
+/// every write is scoped to the socket's party before ownership is even
+/// asked.
 ///
 /// # Errors
 ///
@@ -50,6 +56,7 @@ struct TargetRow {
 pub async fn apply_write(
     pool: &PgPool,
     actor: &Actor,
+    party_id: i64,
     op: ClientOp,
 ) -> anyhow::Result<WriteResult> {
     // 1. Bounds: pure, before anything touches the database. Rejected means
@@ -58,8 +65,8 @@ pub async fn apply_write(
         return record_denial(pool, actor, &op, Outcome::Rejected, reason).await;
     }
 
-    // 2. Resolve the target row (existence + owner). Unknown targets are
-    //    rejected, not superseded (contract §4).
+    // 2. Resolve the target row (existence, owner, party). Unknown targets
+    //    are rejected, not superseded (contract §4).
     let Some(target) = resolve_target(pool, &op.target).await? else {
         return record_denial(
             pool,
@@ -71,7 +78,23 @@ pub async fn apply_write(
         .await;
     };
 
-    // 3. E3's matrix, per message, deny-by-default (spec FR-1).
+    // 3. The bound party scopes the write (contract §1: one socket, one
+    //    party). A target outside it is forbidden even when the writer owns
+    //    it — a cross-party write would commit data its party never sees
+    //    and leak it into a party that does not own it. Party scope runs
+    //    before ownership: it is the frame's addressing scope.
+    if target.party_id != Some(party_id) {
+        return record_denial(
+            pool,
+            actor,
+            &op,
+            Outcome::Forbidden,
+            "target character is not in this party".to_owned(),
+        )
+        .await;
+    }
+
+    // 4. E3's matrix, per message, deny-by-default (spec FR-1).
     let resource = Resource::Character {
         owner_sub: target.owner_sub,
     };
@@ -84,37 +107,25 @@ pub async fn apply_write(
         return record_denial(pool, actor, &op, Outcome::Forbidden, reason.to_owned()).await;
     }
 
-    // 4. One transaction: ledger dedupe → CAS → ledger insert (design §6
-    //    steps 3–6). The durable ledger is what makes ack-loss replays
+    // 5. One transaction: ledger reservation → CAS → ledger finalize
+    //    (design §6 steps 3–6; review-hardened). The reservation BEFORE the
+    //    CAS serializes the op_id through its primary key: a concurrent
+    //    twin with the same id blocks on the reservation, then answers from
+    //    the holder's committed row — never a second committed write under
+    //    one id. The durable ledger is what makes ack-loss replays
     //    exactly-once across restarts (spec FR-8).
     let mut tx = pool.begin().await.context("begin write transaction")?;
-    let prior_version: Option<Option<i64>> =
-        sqlx::query_scalar("SELECT resulting_version FROM client_ops WHERE op_id = $1 FOR UPDATE")
-            .bind(&op.op_id)
-            .fetch_optional(&mut *tx)
-            .await
-            .context("ledger lookup")?;
-    if let Some(original_version) = prior_version {
-        tx.commit().await.context("commit replay answer")?;
-        return Ok(WriteResult {
-            outcome: Outcome::AlreadyApplied,
-            version: original_version,
-            winning_version: None,
-            reason: None,
-        });
+    let request = request_json(&op);
+    let reserved =
+        reserve_ledger(&mut tx, &op.op_id, &actor.sub, &target.field_path, &request).await?;
+    if reserved.is_none() {
+        tx.rollback().await.context("rollback id race")?;
+        return answer_replay(pool, &op.op_id, &request).await;
     }
 
     let (outcome, version, winning_version) =
         cas(&mut tx, &op.target, op.base_version, &op.value).await?;
-    insert_ledger(
-        &mut tx,
-        &op.op_id,
-        &actor.sub,
-        &target.field_path,
-        outcome,
-        version,
-    )
-    .await?;
+    finalize_ledger(&mut tx, &op.op_id, outcome, version).await?;
     tx.commit().await.context("commit write")?;
 
     Ok(WriteResult {
@@ -122,6 +133,100 @@ pub async fn apply_write(
         version,
         winning_version,
         reason: None,
+    })
+}
+
+/// Reserve the `op_id` inside the write transaction: the primary key is the
+/// serialization point. The placeholder row is uncommitted until the
+/// caller's finalize — on conflict the insert waits for the concurrent
+/// holder and then yields, so the loser can answer from the holder's row
+/// instead of committing a second write under the same id.
+async fn reserve_ledger(
+    tx: &mut Transaction<'_, Postgres>,
+    op_id: &str,
+    account_sub: &str,
+    field_path: &str,
+    request: &JsonValue,
+) -> anyhow::Result<Option<String>> {
+    let reserved: Option<String> = sqlx::query_scalar(
+        "INSERT INTO client_ops (op_id, account_sub, field_path, request, outcome, \
+         resulting_version) VALUES ($1, $2, $3, $4, 'applied', NULL) \
+         ON CONFLICT (op_id) DO NOTHING RETURNING op_id",
+    )
+    .bind(op_id)
+    .bind(account_sub)
+    .bind(field_path)
+    .bind(request)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("ledger reservation")?;
+    Ok(reserved)
+}
+
+/// The `op_id` was held by a concurrent transaction. A genuine replay — the
+/// SAME request resent — is answered `already_applied` from the holder's
+/// row; reuse for anything else is the client bug data-model.md says the PK
+/// catches loudly: rejected, nothing committed, the holder's row standing.
+async fn answer_replay(
+    pool: &PgPool,
+    op_id: &str,
+    request: &JsonValue,
+) -> anyhow::Result<WriteResult> {
+    let (stored_outcome, stored_version, stored_request): (String, Option<i64>, JsonValue) =
+        sqlx::query_as(
+            "SELECT outcome, resulting_version, request FROM client_ops WHERE op_id = $1",
+        )
+        .bind(op_id)
+        .fetch_one(pool)
+        .await
+        .context("ledger row of the id holder")?;
+    if stored_request == *request {
+        return Ok(WriteResult {
+            outcome: Outcome::AlreadyApplied,
+            version: stored_version,
+            winning_version: None,
+            reason: None,
+        });
+    }
+    tracing::warn!(
+        op_id,
+        held_outcome = %stored_outcome,
+        "op_id reused for a different request; rejecting"
+    );
+    Ok(WriteResult {
+        outcome: Outcome::Rejected,
+        version: None,
+        winning_version: None,
+        reason: Some("op_id was already used for a different request".to_owned()),
+    })
+}
+
+/// Replace the reservation's placeholder with the CAS's terminal outcome —
+/// still inside the same transaction, so no committed row ever shows a
+/// placeholder.
+async fn finalize_ledger(
+    tx: &mut Transaction<'_, Postgres>,
+    op_id: &str,
+    outcome: Outcome,
+    resulting_version: Option<i64>,
+) -> anyhow::Result<()> {
+    sqlx::query("UPDATE client_ops SET outcome = $1, resulting_version = $2 WHERE op_id = $3")
+        .bind(outcome.as_str())
+        .bind(resulting_version)
+        .bind(op_id)
+        .execute(&mut **tx)
+        .await
+        .context("ledger finalize")?;
+    Ok(())
+}
+
+/// The ledger's canonical record of one request: `{target, base_version,
+/// value}` — the replay-vs-reuse comparison key (data-model.md).
+fn request_json(op: &ClientOp) -> JsonValue {
+    serde_json::json!({
+        "target": op.target,
+        "base_version": op.base_version,
+        "value": op.value,
     })
 }
 
@@ -140,6 +245,7 @@ async fn record_denial(
         &op.op_id,
         &actor.sub,
         &field_path(&op.target),
+        &request_json(op),
         outcome,
         None,
     )
@@ -153,24 +259,25 @@ async fn record_denial(
     })
 }
 
-/// Resolve the target's owner and ledger field path, or `None` when no such
-/// row exists for the addressing character.
+/// Resolve the target's owner, party, and ledger field path, or `None` when
+/// no such row exists for the addressing character.
 async fn resolve_target(pool: &PgPool, target: &FieldTarget) -> anyhow::Result<Option<TargetRow>> {
     match target {
         FieldTarget::Vitals {
             character_id,
             field,
         } => {
-            let owner_sub: Option<String> = sqlx::query_scalar(
-                "SELECT c.owner_sub FROM characters c \
+            let row: Option<(String, Option<i64>)> = sqlx::query_as(
+                "SELECT c.owner_sub, c.party_id FROM characters c \
                  JOIN character_vitals v ON v.character_id = c.id WHERE c.id = $1",
             )
             .bind(character_id)
             .fetch_optional(pool)
             .await
             .context("resolve vitals target")?;
-            Ok(owner_sub.map(|owner_sub| TargetRow {
+            Ok(row.map(|(owner_sub, party_id)| TargetRow {
                 owner_sub,
+                party_id,
                 field_path: format!("vitals:{}", field.as_str()),
             }))
         }
@@ -180,8 +287,8 @@ async fn resolve_target(pool: &PgPool, target: &FieldTarget) -> anyhow::Result<O
             rank,
             slot_index,
         } => {
-            let owner_sub: Option<String> = sqlx::query_scalar(
-                "SELECT c.owner_sub FROM character_spell_slots s \
+            let row: Option<(String, Option<i64>)> = sqlx::query_as(
+                "SELECT c.owner_sub, c.party_id FROM character_spell_slots s \
                  JOIN characters c ON c.id = s.character_id \
                  WHERE s.character_id = $1 AND s.caster_key = $2 \
                    AND s.rank = $3 AND s.slot_index = $4",
@@ -193,8 +300,9 @@ async fn resolve_target(pool: &PgPool, target: &FieldTarget) -> anyhow::Result<O
             .fetch_optional(pool)
             .await
             .context("resolve slot target")?;
-            Ok(owner_sub.map(|owner_sub| TargetRow {
+            Ok(row.map(|(owner_sub, party_id)| TargetRow {
                 owner_sub,
+                party_id,
                 field_path: format!("slot:{caster_key}:{rank}:{slot_index}"),
             }))
         }
@@ -202,8 +310,8 @@ async fn resolve_target(pool: &PgPool, target: &FieldTarget) -> anyhow::Result<O
             character_id,
             item_name,
         } => {
-            let owner_sub: Option<String> = sqlx::query_scalar(
-                "SELECT c.owner_sub FROM character_inventory_live i \
+            let row: Option<(String, Option<i64>)> = sqlx::query_as(
+                "SELECT c.owner_sub, c.party_id FROM character_inventory_live i \
                  JOIN characters c ON c.id = i.character_id \
                  WHERE i.character_id = $1 AND i.item_name = $2",
             )
@@ -212,8 +320,9 @@ async fn resolve_target(pool: &PgPool, target: &FieldTarget) -> anyhow::Result<O
             .fetch_optional(pool)
             .await
             .context("resolve inv target")?;
-            Ok(owner_sub.map(|owner_sub| TargetRow {
+            Ok(row.map(|(owner_sub, party_id)| TargetRow {
                 owner_sub,
+                party_id,
                 field_path: format!("inv:{item_name}"),
             }))
         }
@@ -221,6 +330,7 @@ async fn resolve_target(pool: &PgPool, target: &FieldTarget) -> anyhow::Result<O
         // the match is honest. Unreachable through `apply_write`.
         FieldTarget::Effect { effect_id } => Ok(Some(TargetRow {
             owner_sub: String::new(),
+            party_id: None,
             field_path: format!("effect:{effect_id}"),
         })),
     }
@@ -472,23 +582,26 @@ async fn read_vitals_version(
     }
 }
 
-/// Append the operation's outcome to the durable ledger. `ON CONFLICT DO
-/// NOTHING`: a concurrent same-`op_id` race keeps the winner's row.
+/// Append one denial outcome to the durable ledger. `ON CONFLICT DO
+/// NOTHING`: the id's first disposition stands (denials write no fields, so
+/// a lost row loses nothing but the duplicate).
 async fn insert_ledger(
     tx: &mut Transaction<'_, Postgres>,
     op_id: &str,
     account_sub: &str,
     field_path: &str,
+    request: &JsonValue,
     outcome: Outcome,
     resulting_version: Option<i64>,
 ) -> anyhow::Result<()> {
     sqlx::query(
-        "INSERT INTO client_ops (op_id, account_sub, field_path, outcome, resulting_version) \
-         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (op_id) DO NOTHING",
+        "INSERT INTO client_ops (op_id, account_sub, field_path, request, outcome, resulting_version) \
+         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (op_id) DO NOTHING",
     )
     .bind(op_id)
     .bind(account_sub)
     .bind(field_path)
+    .bind(request)
     .bind(outcome.as_str())
     .bind(resulting_version)
     .execute(&mut **tx)

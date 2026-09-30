@@ -73,6 +73,11 @@ tower = { version = "0.5.3", features = ["util"] }
 # path touches it.
 # Pinned to axum 0.8.9 ws feature's own tungstenite (0.29) — one copy in the tree.
 tokio-tungstenite = "0.29"
+# The ack-loss race test (review finding): the vanishing writer's socket is
+# closed with SO_LINGER 0 so the kernel sends RST — the server's ack write
+# then fails the way a dead peer makes it fail in production. Already in the
+# dependency graph via tokio; this only exposes it to tests.
+socket2 = "0.6"
 
 # Lint configuration
 #

@@ -198,8 +198,8 @@ async fn client_ops_ledger_holds_its_shape() {
     .await;
     exec(
         &pool,
-        "INSERT INTO client_ops (op_id, account_sub, field_path, outcome, resulting_version) \
-         VALUES ('op-1', 'dev-sub-ops', 'vitals:hp', 'applied', 1043)",
+        "INSERT INTO client_ops (op_id, account_sub, field_path, request, outcome, resulting_version) \
+         VALUES ('op-1', 'dev-sub-ops', 'vitals:hp', '{}', 'applied', 1043)",
         "applied ledger row",
     )
     .await;
@@ -207,8 +207,8 @@ async fn client_ops_ledger_holds_its_shape() {
     // op_id is the dedupe key — a second row with the same id is a client bug
     // the PK catches loudly (data-model.md).
     let duplicate = sqlx::query(
-        "INSERT INTO client_ops (op_id, account_sub, field_path, outcome) \
-         VALUES ('op-1', 'dev-sub-ops', 'vitals:hp', 'superseded')",
+        "INSERT INTO client_ops (op_id, account_sub, field_path, request, outcome) \
+         VALUES ('op-1', 'dev-sub-ops', 'vitals:hp', '{}', 'superseded')",
     )
     .execute(&pool)
     .await;
@@ -217,15 +217,15 @@ async fn client_ops_ledger_holds_its_shape() {
     // Outcome vocabulary is closed; `already_applied` is deliberately absent —
     // it is a read answer, never a stored outcome.
     let bogus = sqlx::query(
-        "INSERT INTO client_ops (op_id, account_sub, field_path, outcome) \
-         VALUES ('op-2', 'dev-sub-ops', 'vitals:hp', 'bogus')",
+        "INSERT INTO client_ops (op_id, account_sub, field_path, request, outcome) \
+         VALUES ('op-2', 'dev-sub-ops', 'vitals:hp', '{}', 'bogus')",
     )
     .execute(&pool)
     .await;
     assert!(bogus.is_err(), "outcome CHECK must reject unknown outcomes");
     let already = sqlx::query(
-        "INSERT INTO client_ops (op_id, account_sub, field_path, outcome) \
-         VALUES ('op-2b', 'dev-sub-ops', 'vitals:hp', 'already_applied')",
+        "INSERT INTO client_ops (op_id, account_sub, field_path, request, outcome) \
+         VALUES ('op-2b', 'dev-sub-ops', 'vitals:hp', '{}', 'already_applied')",
     )
     .execute(&pool)
     .await;
@@ -274,8 +274,8 @@ async fn client_ops_up_down_up_round_trips() {
     .await;
     exec(
         &pool,
-        "INSERT INTO client_ops (op_id, account_sub, field_path, outcome) \
-         VALUES ('op-rt', 'dev-sub-rt', 'inv:Chalk', 'rejected')",
+        "INSERT INTO client_ops (op_id, account_sub, field_path, request, outcome) \
+         VALUES ('op-rt', 'dev-sub-rt', 'inv:Chalk', '{}', 'rejected')",
         "row after round trip",
     )
     .await;
