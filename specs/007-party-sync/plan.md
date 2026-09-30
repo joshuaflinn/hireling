@@ -163,9 +163,9 @@ Rust test layout follows the house shape (`src/tests/` in-crate, DB-gated like `
 **Interfaces:**
 - Produces: `export function createQueue({ storage, accountSub })` → `{ enqueue(op), peekAll(), dequeue(opId), length, onChange(cb) }`; `op = { op_id, target, base_version, value, created_at }`; storage key `hireling:queue:{accountSub}`; FIFO order; unbounded; no drop paths.
 
-- [ ] **Step 1: Failing tests** (in-memory storage fake): enqueue preserves FIFO; persists through fake "reload" (new queue, same storage); per-account isolation (different sub → different key); `onChange` fires on enqueue/dequeue.
-- [ ] **Step 2: FAIL** → **Step 3: Implement** (JSON array in storage; storage interface = `{getItem,setItem}` so `node --test` needs no DOM) → **Step 4: PASS** (`node --test web/tests/sync/queue.test.js`).
-- [ ] **Step 5: Commit** — `feat: E7 durable per-account write queue (#9)`.
+- [x] **Step 1: Failing tests** (in-memory storage fake): enqueue preserves FIFO; persists through fake "reload" (new queue, same storage); per-account isolation (different sub → different key); `onChange` fires on enqueue/dequeue.
+- [x] **Step 2: FAIL** → **Step 3: Implement** (JSON array in storage; storage interface = `{getItem,setItem}` so `node --test` needs no DOM) → **Step 4: PASS** (`node --test web/tests/sync/queue.test.js`).
+- [x] **Step 5: Commit** — `feat: E7 durable per-account write queue (#9)`.
 
 ### Task 10: Client store + merge + echo/revert
 
@@ -174,9 +174,9 @@ Rust test layout follows the house shape (`src/tests/` in-crate, DB-gated like `
 **Interfaces:**
 - Produces: `export function createStore()` → `{ state(), applyServerField(target, value, version), enqueueView(op), ack(opId, outcome, serverVersion, serverValue), isSyncing(), subscribe(cb) }`; merge rule strictly-newer per field; pending tags keyed by `op_id`; superseded/rejected/forbidden revert the field from the pending op to the server value silently; `isSyncing()` = queue length > 0.
 
-- [ ] **Step 1: Failing tests**: older version ignored (state unchanged); newer applied; own-write echo (diff with own op's version) is a no-op after ack applied; superseded ack reverts field to server value and clears pending — and emits **no error event** (assert the event bus stays silent); rejected ack reverts and *does* expose the op record for E6; two devices' interleavings converge regardless of arrival order.
-- [ ] **Step 2: FAIL** → **Step 3: Implement** → **Step 4: PASS**.
-- [ ] **Step 5: Commit** — `feat: E7 client store — strictly-newer merge, echo, silent revert (#9)`.
+- [x] **Step 1: Failing tests**: older version ignored (state unchanged); newer applied; own-write echo (diff with own op's version) is a no-op after ack applied; superseded ack reverts field to server value and clears pending — and emits **no error event** (assert the event bus stays silent); rejected ack reverts and *does* expose the op record for E6; two devices' interleavings converge regardless of arrival order.
+- [x] **Step 2: FAIL** → **Step 3: Implement** → **Step 4: PASS**.
+- [x] **Step 5: Commit** — `feat: E7 client store — strictly-newer merge, echo, silent revert (#9)`.
 
 ### Task 11: Connection + backoff + reconnect sequence
 
@@ -185,9 +185,9 @@ Rust test layout follows the house shape (`src/tests/` in-crate, DB-gated like `
 **Interfaces:**
 - Produces: `export function createConnection({ url, socketFactory, rng, now, timers })` → `{ connect(), send(frame), state(), onChange(cb) }`; backoff = `delay = rng() * min(30000, 1000 * 2**attempt)`; watchdog: no inbound frame for **50 s** → treat dead; reconnect sequence emits `snapshot→merge→drain-queue→live` phases; state `connecting|live|offline` with `offline` covering unreachable and browser-offline identically (one path).
 
-- [ ] **Step 1: Failing tests** (mock socket + fake timers): backoff sequence respects cap and jitter bounds across 10 attempts; reset-to-zero only after drain completion (assert next delay after full cycle = base); 50 s silence triggers reconnect; offline event and socket error produce the **same** state transition; queue drains only after snapshot phase marker.
-- [ ] **Step 2: FAIL** → **Step 3: Implement** → **Step 4: PASS**.
-- [ ] **Step 5: Commit** — `feat: E7 client connection — jittered backoff, watchdog, one-path offline (#9)`.
+- [x] **Step 1: Failing tests** (mock socket + fake timers): backoff sequence respects cap and jitter bounds across 10 attempts; reset-to-zero only after drain completion (assert next delay after full cycle = base); 50 s silence triggers reconnect; offline event and socket error produce the **same** state transition; queue drains only after snapshot phase marker.
+- [x] **Step 2: FAIL** → **Step 3: Implement** → **Step 4: PASS**.
+- [x] **Step 5: Commit** — `feat: E7 client connection — jittered backoff, watchdog, one-path offline (#9)`.
 
 ### Task 12: Public API + indicator + debug page
 
@@ -196,8 +196,8 @@ Rust test layout follows the house shape (`src/tests/` in-crate, DB-gated like `
 **Interfaces:**
 - Produces: `export function createSync({ url, storage, accountSub })` composing Tasks 9–11: `{ state(), write(target, value), subscribe(cb), snapshotForBoot() }`; `isSyncing` derives from queue length only. Debug page: connect/disconnect buttons, queue view, live field table, indicator mock — internal tool, not product UI.
 
-- [ ] **Step 1: Failing tests**: `write()` enqueues + echoes optimistically and survives fake reload; indicator true iff queue non-empty (empty queue + dead socket = false); `snapshotForBoot()` serializes merged state (E10's cold-boot input). **Step 2: FAIL → Step 3: Implement → Step 4: PASS** (`node --test web/tests/sync/` then `just web-check`).
-- [ ] **Step 5: Commit** — `feat: E7 sync public API, indicator signal, debug page (#9)`.
+- [x] **Step 1: Failing tests**: `write()` enqueues + echoes optimistically and survives fake reload; indicator true iff queue non-empty (empty queue + dead socket = false); `snapshotForBoot()` serializes merged state (E10's cold-boot input). **Step 2: FAIL → Step 3: Implement → Step 4: PASS** (`node --test web/tests/sync/` then `just web-check`).
+- [x] **Step 5: Commit** — `feat: E7 sync public API, indicator signal, debug page (#9)`.
 
 ### Task 13: Integration suite — broadcast, supersession, soak, restart
 
