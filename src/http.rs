@@ -70,6 +70,13 @@ pub(crate) const API_ROUTES: &[ApiRoute] = &[
         path: "/api/characters/me",
         writes: false,
     },
+    // The party socket: the GET itself only upgrades — writes ride the
+    // frames, authorized per message through E3's authorize() (spec FR-1).
+    ApiRoute {
+        method: "GET",
+        path: "/api/ws/party/{party_id}",
+        writes: true,
+    },
 ];
 
 /// Build the application router.
@@ -94,7 +101,14 @@ pub fn router(auth: Arc<AuthState>, static_dir: &Path) -> Router {
             "/characters/import",
             post(crate::pbimport::handlers::import_character),
         )
-        .route("/characters/me", get(crate::pbimport::handlers::me));
+        .route("/characters/me", get(crate::pbimport::handlers::me))
+        .route(
+            "/ws/party/{party_id}",
+            get(crate::sync::session::party_ws),
+        )
+        // Sync's runtime state (the fan-out registry) rides as an Extension;
+        // the router's State stays E3's Arc<AuthState> (see SyncState).
+        .layer(axum::Extension(crate::sync::SyncState::new()));
 
     // Public inside the nest: the auth legs. Logout is session-aware but
     // idempotent, so it needs no guard of its own.

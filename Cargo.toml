@@ -7,7 +7,10 @@ license = "MIT"
 
 [dependencies]
 anyhow = "1.0.104"
-axum = "0.8.9"
+# E7 party sync rides axum's WebSocket upgrade (contract §1:
+# GET /api/ws/party/{party_id}); the feature only compiles the extractor —
+# no new server behavior unless a route uses it.
+axum = { version = "0.8.9", features = ["ws"] }
 base64 = "0.23.1"
 chrono = { version = "0.4.45", features = ["serde"] }
 cookie = { version = "0.18.2", features = ["signed", "key-expansion"] }
@@ -56,9 +59,20 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 # bzip2 leg carried a license the deny allow list rightly didn't know.
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
+# Splitting the session socket into read/write halves for the select loop
+# (E7 session). Already in the tree via axum/tungstenite; sink feature only.
+futures-util = { version = "0.3.31", default-features = false, features = ["sink"] }
+
 [dev-dependencies]
 http-body-util = "0.1.5"
 tower = { version = "0.5.3", features = ["util"] }
+# Design-gate blessed (specs/007-party-sync/design.md, plan Task 6): the
+# session tests drive a real socket against a real listener (PR #30 house
+# rule). axum's `ws` feature already pulls tungstenite into the tree — this
+# dev-dependency only exposes a client for the test harness; no production
+# path touches it.
+# Pinned to axum 0.8.9 ws feature's own tungstenite (0.29) — one copy in the tree.
+tokio-tungstenite = "0.29"
 
 # Lint configuration
 #
