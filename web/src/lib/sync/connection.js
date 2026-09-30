@@ -21,6 +21,19 @@
 // `{t:"pong"}` and counts every inbound frame as a heartbeat.
 
 /**
+ * Events the connection emits to its subscribers.
+ *
+ * @typedef {Object} ConnEvent
+ * @property {'state'|'reconnect'|'phase'|'frame'|'malformed'} type
+ * @property {'connecting'|'live'|'offline'} [state]
+ * @property {'snapshot'|'merge'|'drain'|'live'} [phase]
+ * @property {Record<string, *> | null} [frame]
+ * @property {string} [reason]
+ * @property {number} [delay]
+ * @property {string} [data]
+ */
+
+/**
  * The slice of the browser WebSocket surface this module drives; tests hand
  * a mock with the same shape.
  *
@@ -53,16 +66,18 @@ export function createConnection(options) {
   let currentState = 'offline';
   /** @type {SyncSocket | null} */
   let socket = null;
+  /** True between the socket's open and its death — the send window. */
+  let socketOpen = false;
   let attempt = 0;
   /** @type {* | null} */
   let reconnectTimer = null;
   /** @type {* | null} */
   let watchdogTimer = null;
   let lastInbound = now();
-  /** @type {Set<(event: object) => void>} */
+  /** @type {Set<(event: ConnEvent) => void>} */
   const listeners = new Set();
 
-  /** @param {Record<string, *>} event */
+  /** @param {ConnEvent} event */
   function emit(event) {
     for (const cb of listeners) cb(event);
   }
@@ -99,6 +114,7 @@ export function createConnection(options) {
   function handleDisconnect(dying, reason) {
     if (socket !== dying) return;
     socket = null;
+    socketOpen = false;
     clearWatchdog();
     try {
       dying.close(); // a dead link is closed, not left dangling (watchdog path)
@@ -123,7 +139,10 @@ export function createConnection(options) {
     socket = mySocket;
     lastInbound = now();
     mySocket.onopen = () => {
-      if (socket === mySocket) armWatchdog();
+      if (socket === mySocket) {
+        socketOpen = true;
+        armWatchdog();
+      }
     };
     mySocket.onmessage = (event) => handleFrame(mySocket, event.data);
     mySocket.onclose = () => handleDisconnect(mySocket, 'closed');
@@ -189,14 +208,16 @@ export function createConnection(options) {
     },
 
     /**
-     * Sends only while live. False means "not sent" — the caller keeps the
-     * op queued; the connection never queues.
+     * Sends whenever the socket is open — including the drain phase, whose
+     * whole job is replaying queued writes before `live`. Pre-open sends are
+     * refused: the browser's WebSocket.send throws during CONNECTING, and
+     * the queue holds the op until the drain phase instead.
      *
      * @param {object} frame
      * @returns {boolean}
      */
     send(frame) {
-      if (currentState !== 'live' || socket === null) return false;
+      if (!socketOpen || socket === null) return false;
       socket.send(JSON.stringify(frame));
       return true;
     },
@@ -205,7 +226,7 @@ export function createConnection(options) {
       return currentState;
     },
 
-    /** @param {(event: object) => void} cb */
+    /** @param {(event: ConnEvent) => void} cb */
     onChange(cb) {
       listeners.add(cb);
     },

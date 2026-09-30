@@ -2,12 +2,13 @@
   import { entryAction } from './lib/entry.js';
   import { logoutAction } from './lib/logout.js';
   import ImportPage from './lib/import/ImportPage.svelte';
+  import SyncDebug from './lib/sync/SyncDebug.svelte';
 
   // NOTE: never name a runes-mode variable `state` — svelte-check's
   // transform trips over the name (TDZ-style false errors) and fails the
   // CI gate. `view` names what it is: which screen is on display.
   // account mirrors the /api/me payload; only display_name is rendered.
-  /** @type {{ display_name?: string } | null} */
+  /** @type {{ sub?: string, display_name?: string } | null} */
   let account = $state(null);
   let view = $state('probing');
 
@@ -75,9 +76,13 @@
     {/if}
     <p class="status">Signed in as {account?.display_name}</p>
     <button onclick={() => (view = 'import')}>Import a character</button>
+    <button onclick={() => (view = 'sync-debug')}>Sync debug</button>
     <button onclick={logout}>Log out</button>
   {:else if view === 'import'}
     <ImportPage />
+    <button onclick={() => (view = 'signed-in')}>Back</button>
+  {:else if view === 'sync-debug'}
+    <SyncDebug sub={account?.sub ?? ''} />
     <button onclick={() => (view = 'signed-in')}>Back</button>
   {:else if view === 'offline'}
     <p class="status">The server is unreachable right now.</p>
