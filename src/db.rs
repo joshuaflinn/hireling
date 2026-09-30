@@ -53,3 +53,7 @@ pub async fn connect_and_migrate(database_url: &str) -> anyhow::Result<PgPool> {
 
     Ok(pool)
 }
+
+#[cfg(test)]
+#[path = "tests/migrations.rs"]
+mod migration_tests;
