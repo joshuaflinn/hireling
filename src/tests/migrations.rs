@@ -39,10 +39,12 @@ async fn count(pool: &sqlx::PgPool, sql: &str) -> i64 {
 
 /// The verbatim up/down SQL of a migration, read from `migrations/`.
 fn migration_sql(suffix: &str) -> String {
-    let path = format!(
-        "{}/migrations/2026092400000{suffix}",
-        env!("CARGO_MANIFEST_DIR")
-    );
+    migration_file(&format!("2026092400000{suffix}"))
+}
+
+/// The verbatim SQL of a migration file, read from `migrations/` by name.
+fn migration_file(filename: &str) -> String {
+    let path = format!("{}/migrations/{filename}", env!("CARGO_MANIFEST_DIR"));
     std::fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("migration file {path} must be readable: {err}"))
 }
@@ -179,6 +181,106 @@ async fn down_restores_the_seed_and_the_seven_kind_check() {
         "the unoccupied seed row is removed"
     );
     testing::drop_test_db(pool, "migrations_down").await;
+}
+
+// E7: the `client_ops` idempotency ledger (specs/007 data-model.md).
+#[tokio::test]
+async fn client_ops_ledger_holds_its_shape() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    exec(
+        &pool,
+        "INSERT INTO accounts (sub, username, display_name, role) \
+         VALUES ('dev-sub-ops', 'ops', 'ops', 'player')",
+        "account for ledger rows",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO client_ops (op_id, account_sub, field_path, outcome, resulting_version) \
+         VALUES ('op-1', 'dev-sub-ops', 'vitals:hp', 'applied', 1043)",
+        "applied ledger row",
+    )
+    .await;
+
+    // op_id is the dedupe key — a second row with the same id is a client bug
+    // the PK catches loudly (data-model.md).
+    let duplicate = sqlx::query(
+        "INSERT INTO client_ops (op_id, account_sub, field_path, outcome) \
+         VALUES ('op-1', 'dev-sub-ops', 'vitals:hp', 'superseded')",
+    )
+    .execute(&pool)
+    .await;
+    assert!(duplicate.is_err(), "op_id must be the primary key");
+
+    // Outcome vocabulary is closed; `already_applied` is deliberately absent —
+    // it is a read answer, never a stored outcome.
+    let bogus = sqlx::query(
+        "INSERT INTO client_ops (op_id, account_sub, field_path, outcome) \
+         VALUES ('op-2', 'dev-sub-ops', 'vitals:hp', 'bogus')",
+    )
+    .execute(&pool)
+    .await;
+    assert!(bogus.is_err(), "outcome CHECK must reject unknown outcomes");
+    let already = sqlx::query(
+        "INSERT INTO client_ops (op_id, account_sub, field_path, outcome) \
+         VALUES ('op-2b', 'dev-sub-ops', 'vitals:hp', 'already_applied')",
+    )
+    .execute(&pool)
+    .await;
+    assert!(already.is_err(), "already_applied is never stored");
+
+    // FK RESTRICT: removing an account with ledger history is refused.
+    let delete = sqlx::query("DELETE FROM accounts WHERE sub = 'dev-sub-ops'")
+        .execute(&pool)
+        .await;
+    assert!(
+        delete.is_err(),
+        "account delete must be RESTRICTed by ledger rows"
+    );
+
+    testing::drop_test_db(pool, "client_ops_shape").await;
+}
+
+#[tokio::test]
+async fn client_ops_up_down_up_round_trips() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    // Down: the table goes; nothing else references it (data-model.md).
+    exec_script(
+        &pool,
+        &migration_file("20261001000001_client_ops.down.sql"),
+        "client_ops down",
+    )
+    .await;
+    let gone = sqlx::query("SELECT 1 FROM client_ops").execute(&pool).await;
+    assert!(gone.is_err(), "the down migration must drop client_ops");
+
+    // Up again: the table returns and accepts a row.
+    exec_script(
+        &pool,
+        &migration_file("20261001000001_client_ops.sql"),
+        "client_ops up (round trip)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO accounts (sub, username, display_name, role) \
+         VALUES ('dev-sub-rt', 'rt', 'rt', 'player')",
+        "account for round trip",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO client_ops (op_id, account_sub, field_path, outcome) \
+         VALUES ('op-rt', 'dev-sub-rt', 'inv:Chalk', 'rejected')",
+        "row after round trip",
+    )
+    .await;
+
+    testing::drop_test_db(pool, "client_ops_round_trip").await;
 }
 
 #[tokio::test]
