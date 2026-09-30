@@ -15,6 +15,8 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+use tower::ServiceExt as _;
+
 use crate::auth::oidc;
 use crate::sync::protocol::ServerFrame;
 use crate::sync::{SyncSettings, SyncState};
@@ -242,6 +244,22 @@ pub async fn pump_pong(sink: &tokio::sync::Mutex<WsSink>) {
     pump_send(sink, "{\"t\":\"pong\"}").await;
 }
 
+/// Drain a pump client's `hello` -> `snapshot` intro.
+pub async fn pump_intro(client: &mut PumpClient, what: &str) {
+    let what_owned = format!("{what} intro");
+    loop {
+        let frame =
+            read_frame_within(&mut client.stream, Duration::from_secs(10), &what_owned).await;
+        if matches!(frame, ServerFrame::Snapshot { .. }) {
+            break;
+        }
+        assert!(
+            matches!(frame, ServerFrame::Hello { .. }),
+            "{what_owned} must be the greeting sequence: {frame:?}"
+        );
+    }
+}
+
 /// Read the next text frame as a server frame, with the caller's bound —
 /// the shared `read_frame` stays at 5 s; soak ops under DB contention get
 /// their own wider window.
@@ -342,6 +360,7 @@ pub fn install_log_capture() {
     ONCE.get_or_init(|| {
         let buffer = captured_log();
         let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
             .with_writer(move || CaptureWriter(Arc::clone(&buffer)))
             .with_max_level(tracing::Level::TRACE)
             .finish();
@@ -386,4 +405,30 @@ pub async fn spawn_shared_app(
         }
     });
     (app, addr, shutdown_tx)
+}
+
+/// GET /api/metrics/sync through the real router with the session cookie;
+/// the decoded summary JSON.
+pub async fn read_metrics_summary(app: &axum::Router, cookie: &str) -> serde_json::Value {
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/api/metrics/sync")
+                .header("cookie", cookie)
+                .body(axum::body::Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::OK,
+        "the session reads the metrics summary"
+    );
+    let body = http_body_util::BodyExt::collect(response.into_body())
+        .await
+        .expect("body")
+        .to_bytes();
+    serde_json::from_slice(&body).expect("summary json")
 }

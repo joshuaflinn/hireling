@@ -8,7 +8,8 @@ use tower::ServiceExt as _;
 
 use crate::sync::metrics::SyncMetrics;
 use crate::sync::test_helpers::{
-    captured_log, connect, install_log_capture, read_frame, seed_member, send_raw, spawn_shared_app,
+    captured_log, connect, install_log_capture, read_frame, read_metrics_summary, seed_member,
+    send_raw, spawn_shared_app,
 };
 use crate::testing;
 
@@ -84,7 +85,7 @@ async fn the_endpoint_gates_and_a_real_write_feeds_the_metrics_and_the_log() {
     // Authenticated: the contract §7 shape.
     let cookie = format!("__Host-hireling_session={session}");
 
-    let before = read_summary(&app, &cookie).await;
+    let before = read_metrics_summary(&app, &cookie).await;
     assert_eq!(
         before,
         json!({"count": 0, "p50_ms": 0.0, "p95_ms": 0.0, "p99_ms": 0.0}),
@@ -120,7 +121,7 @@ async fn the_endpoint_gates_and_a_real_write_feeds_the_metrics_and_the_log() {
         "the write applies: {ack:?}"
     );
 
-    let after = read_summary(&app, &cookie).await;
+    let after = read_metrics_summary(&app, &cookie).await;
     assert_eq!(
         after.get("count"),
         Some(&json!(1)),
@@ -149,26 +150,4 @@ async fn the_endpoint_gates_and_a_real_write_feeds_the_metrics_and_the_log() {
         "the test server died before shutdown"
     );
     testing::drop_test_db(pool, "metrics_endpoint").await;
-}
-
-/// GET /metrics/sync through the real router with the session cookie; the
-/// decoded summary JSON.
-async fn read_summary(app: &axum::Router, cookie: &str) -> serde_json::Value {
-    let response = app
-        .clone()
-        .oneshot(
-            axum::http::Request::builder()
-                .uri("/api/metrics/sync")
-                .header("cookie", cookie)
-                .body(axum::body::Body::empty())
-                .expect("request"),
-        )
-        .await
-        .expect("response");
-    assert_eq!(response.status(), axum::http::StatusCode::OK);
-    let body = http_body_util::BodyExt::collect(response.into_body())
-        .await
-        .expect("body")
-        .to_bytes();
-    serde_json::from_slice(&body).expect("summary json")
 }

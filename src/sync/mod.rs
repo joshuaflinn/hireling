@@ -87,3 +87,11 @@ mod session_tests;
 #[cfg(test)]
 #[path = "../tests/sync/integration.rs"]
 mod integration_tests;
+
+#[cfg(test)]
+#[path = "../tests/sync/shaper.rs"]
+mod shaper;
+
+#[cfg(test)]
+#[path = "../tests/sync/latency.rs"]
+mod latency_tests;

@@ -15,9 +15,9 @@ use tokio_tungstenite::tungstenite::Message;
 use crate::sync::SyncSettings;
 use crate::sync::protocol::{FieldTarget, Outcome, ServerFrame, VitalsField};
 use crate::sync::test_helpers::{
-    Client, PumpClient, WsSink, WsStream, connect, connect_pump, pump_pong, pump_send, read_frame,
-    read_frame_within, read_until_close, seed_member, seed_spell_slot, send_raw, slot_version,
-    spawn_server, spawn_server_with, vitals_version,
+    Client, PumpClient, WsSink, WsStream, connect, connect_pump, pump_intro, pump_pong, pump_send,
+    read_frame, read_frame_within, read_until_close, seed_member, seed_spell_slot, send_raw,
+    slot_version, spawn_server, spawn_server_with, vitals_version,
 };
 use crate::testing;
 
@@ -36,22 +36,6 @@ async fn intro(client: &mut Client, what: &str) -> ServerFrame {
         "{what} must receive a snapshot: {snapshot:?}"
     );
     snapshot
-}
-
-/// Drain a pump client's `hello` → `snapshot` intro.
-async fn pump_intro(client: &mut PumpClient, what: &str) {
-    let what_owned = format!("{what} intro");
-    loop {
-        let frame =
-            read_frame_within(&mut client.stream, Duration::from_secs(10), &what_owned).await;
-        if matches!(frame, ServerFrame::Snapshot { .. }) {
-            break;
-        }
-        assert!(
-            matches!(frame, ServerFrame::Hello { .. }),
-            "{what_owned} must be the greeting sequence: {frame:?}"
-        );
-    }
 }
 
 /// Send one hp write frame through a plain client.
