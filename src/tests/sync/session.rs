@@ -4,6 +4,7 @@
 //! deny-by-default frame handling.
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::SinkExt;
@@ -16,6 +17,8 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::auth::oidc;
 use crate::sync::protocol::{Outcome, ServerFrame, VitalsField};
+use crate::sync::registry::PartyRegistry;
+use crate::sync::{SyncSettings, SyncState};
 use crate::testing;
 
 /// One connected client. Split so tests can send and read independently.
@@ -98,10 +101,21 @@ async fn send_raw(sink: &mut futures_util::stream::SplitSink<WsSocket, Message>,
         .expect("client send");
 }
 
-/// Spawn the real router on an ephemeral loopback port. Returns the address
-/// and the shutdown trigger (the E1 drain path, same as production).
-async fn spawn_server(pool: sqlx::PgPool) -> (SocketAddr, tokio::sync::oneshot::Sender<()>) {
-    let app = testing::router_for(pool, &testing::auth_settings());
+/// Spawn the real router on an ephemeral loopback port, with the caller's
+/// sync settings and the production drain wiring: the oneshot stands in for
+/// the E1 shutdown signal; on signal the drain watch flips and sessions
+/// bye+close. Returns the address and the shutdown trigger.
+async fn spawn_server_with(
+    pool: sqlx::PgPool,
+    settings: SyncSettings,
+) -> (SocketAddr, tokio::sync::oneshot::Sender<()>) {
+    let (drain_tx, drain_rx) = tokio::sync::watch::channel(false);
+    let sync = SyncState {
+        registry: Arc::new(PartyRegistry::new()),
+        settings,
+        drain: drain_rx,
+    };
+    let app = testing::router_for_with_sync(pool, &testing::auth_settings(), sync);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("ephemeral bind");
@@ -115,12 +129,20 @@ async fn spawn_server(pool: sqlx::PgPool) -> (SocketAddr, tokio::sync::oneshot::
         .with_graceful_shutdown(async move {
             // Fire or drop both stop the server — a dropped sender is teardown.
             shutdown_rx.await.ok();
+            // The E1 drain path: the signal propagates to sessions via the
+            // same watch channel `http::serve` uses.
+            drain_tx.send_replace(true);
         });
         if let Err(err) = server.await {
             eprintln!("test server error: {err}");
         }
     });
     (addr, shutdown_tx)
+}
+
+/// Spawn with the binding default timers.
+async fn spawn_server(pool: sqlx::PgPool) -> (SocketAddr, tokio::sync::oneshot::Sender<()>) {
+    spawn_server_with(pool, SyncSettings::default()).await
 }
 
 /// Seed account + character + vitals in the POC party; return
@@ -467,4 +489,145 @@ async fn garbage_and_effect_writes_are_ignored_and_the_connection_lives() {
     );
     let _ = character_id;
     testing::drop_test_db(pool, "ws_garbage_ignored").await;
+}
+
+// --- liveness + drain (plan Task 7) ---------------------------------------
+
+/// Read the next frame and return its close code (panics on anything else).
+async fn read_close(stream: &mut futures_util::stream::SplitStream<WsSocket>, what: &str) -> u16 {
+    let message = tokio::time::timeout(Duration::from_secs(5), stream.next())
+        .await
+        .unwrap_or_else(|_| panic!("timed out waiting for {what}"))
+        .unwrap_or_else(|| panic!("socket closed waiting for {what}"))
+        .unwrap_or_else(|err| panic!("socket error waiting for {what}: {err}"));
+    match message {
+        Message::Close(Some(frame)) => frame.code.into(),
+        Message::Close(None) => panic!("expected a coded close frame for {what}, got close(None)"),
+        Message::Text(text) => panic!("expected a close frame for {what}, got text {text:?}"),
+        Message::Binary(bytes) => {
+            panic!(
+                "expected a close frame for {what}, got binary({} bytes)",
+                bytes.len()
+            )
+        }
+        Message::Ping(_) => panic!("expected a close frame for {what}, got a protocol ping"),
+        Message::Pong(_) => panic!("expected a close frame for {what}, got a protocol pong"),
+        Message::Frame(raw) => panic!("expected a close frame for {what}, got raw frame {raw:?}"),
+    }
+}
+
+#[tokio::test]
+async fn the_server_pings_and_a_silent_client_is_closed_1011() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, _) = seed_member(&pool, "dev-sub-josh").await;
+    let session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
+    let settings = SyncSettings {
+        ping_interval: Duration::from_millis(100),
+        pong_timeout: Duration::from_millis(50),
+    };
+    let (addr, shutdown) = spawn_server_with(pool.clone(), settings).await;
+
+    let mut client = connect(addr, party_id, &session).await;
+    read_frame(&mut client.stream, "hello").await;
+    read_frame(&mut client.stream, "snapshot").await;
+
+    let ping = read_frame(&mut client.stream, "liveness ping").await;
+    assert!(
+        matches!(ping, ServerFrame::Ping),
+        "the server pings at the interval, got {ping:?}"
+    );
+
+    // No pong follows: the server closes 1011 within its timeout window.
+    let code = read_close(&mut client.stream, "pong-timeout close").await;
+    assert_eq!(code, 1011, "a silent client is closed with 1011");
+
+    assert!(
+        shutdown.send(()).is_ok(),
+        "the test server died before shutdown"
+    );
+    testing::drop_test_db(pool, "ws_liveness_timeout").await;
+}
+
+#[tokio::test]
+async fn a_ponging_client_stays_connected_across_cycles() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, character_id) = seed_member(&pool, "dev-sub-josh").await;
+    let session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
+    let settings = SyncSettings {
+        ping_interval: Duration::from_millis(100),
+        pong_timeout: Duration::from_millis(50),
+    };
+    let (addr, shutdown) = spawn_server_with(pool.clone(), settings).await;
+
+    let mut client = connect(addr, party_id, &session).await;
+    read_frame(&mut client.stream, "hello").await;
+    read_frame(&mut client.stream, "snapshot").await;
+
+    // Three full ping/pong cycles — the connection must survive them all.
+    for cycle in 0..3 {
+        let ping = read_frame(&mut client.stream, "liveness ping").await;
+        assert!(matches!(ping, ServerFrame::Ping), "cycle {cycle}");
+        send_raw(&mut client.sink, r#"{"t":"pong"}"#).await;
+    }
+
+    // Still alive: an application ping is answered, and a write still works.
+    send_raw(&mut client.sink, r#"{"t":"ping"}"#).await;
+    let pong = read_frame(&mut client.stream, "app ping answer").await;
+    assert!(matches!(pong, ServerFrame::Pong));
+
+    let base = vitals_version(&pool, character_id, "hp_version").await;
+    let write = json!({
+        "t": "write",
+        "op_id": "op-after-cycles",
+        "target": {"kind": "vitals", "character_id": character_id, "field": "hp"},
+        "base_version": base,
+        "value": 7
+    });
+    send_raw(&mut client.sink, &write.to_string()).await;
+    let ack = read_frame(&mut client.stream, "ack after cycles").await;
+    assert!(
+        matches!(&ack, ServerFrame::Ack(a) if a.outcome == Outcome::Applied),
+        "the connection still writes after surviving the cycles: {ack:?}"
+    );
+
+    assert!(
+        shutdown.send(()).is_ok(),
+        "the test server died before shutdown"
+    );
+    testing::drop_test_db(pool, "ws_liveness_healthy").await;
+}
+
+#[tokio::test]
+async fn the_drain_signal_sends_bye_then_close_1001() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, _) = seed_member(&pool, "dev-sub-josh").await;
+    let session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
+    let (addr, shutdown) = spawn_server(pool.clone()).await;
+
+    let mut client = connect(addr, party_id, &session).await;
+    read_frame(&mut client.stream, "hello").await;
+    read_frame(&mut client.stream, "snapshot").await;
+
+    // Fire the E1 signal the way production does: the oneshot flips the
+    // drain watch; sessions must say bye, then close 1001 (contract §2/§6).
+    assert!(
+        shutdown.send(()).is_ok(),
+        "the test server died before shutdown"
+    );
+
+    let bye = read_frame(&mut client.stream, "bye").await;
+    assert!(
+        matches!(&bye, ServerFrame::Bye { reason } if reason == "shutdown"),
+        "the drain announces itself with bye, got {bye:?}"
+    );
+    let code = read_close(&mut client.stream, "drain close").await;
+    assert_eq!(code, 1001, "drain closes with 1001");
+
+    testing::drop_test_db(pool, "ws_drain_bye_1001").await;
 }

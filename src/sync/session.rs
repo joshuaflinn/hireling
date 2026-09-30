@@ -47,9 +47,8 @@ pub async fn party_ws(
         return (StatusCode::FORBIDDEN, "not a member of this party").into_response();
     }
     let pool = auth.pool.clone();
-    let registry = Arc::clone(&sync.registry);
     ws.on_upgrade(move |socket| async move {
-        run_session(pool, registry, party_id, account, socket).await;
+        run_session(pool, sync, party_id, account, socket).await;
     })
 }
 
@@ -90,11 +89,14 @@ async fn handshake_allowed(pool: &sqlx::PgPool, account: &SessionAccount, party_
 /// socket or the registry connection ends. Always unsubscribes on exit.
 async fn run_session(
     pool: sqlx::PgPool,
-    registry: Arc<PartyRegistry>,
+    sync: crate::sync::SyncState,
     party_id: i64,
     actor: SessionAccount,
     socket: WebSocket,
 ) {
+    let registry = &sync.registry;
+    let settings = sync.settings;
+    let mut drain = sync.drain.clone();
     let (mut sink, mut stream) = socket.split();
 
     // Subscribe BEFORE the snapshot: a write committing during the snapshot
@@ -111,17 +113,23 @@ async fn run_session(
 
     let ctx = SessionCtx {
         pool: &pool,
-        registry: &registry,
+        registry,
         party_id,
         actor: &actor,
     };
+
+    // Liveness (contract §5): a protocol-independent app-level ping every
+    // `ping_interval`; the connection closes 1011 when no `pong` arrives
+    // within `pong_timeout` of the ping.
+    let (mut pings, mut checks) = liveness_ticks(settings).await;
+    let mut awaiting_pong: Option<tokio::time::Instant> = None;
 
     loop {
         tokio::select! {
             inbound = stream.next() => {
                 match inbound {
                     Some(Ok(Message::Text(text))) => {
-                        handle_inbound(&mut sink, &ctx, &text).await;
+                        handle_inbound(&mut sink, &ctx, &mut awaiting_pong, &text).await;
                     }
                     Some(Ok(Message::Close(_))) | None => break,
                     // Protocol-level ping/pong/binary: tungstenite answers
@@ -151,10 +159,67 @@ async fn run_session(
                     break;
                 }
             }
+            _ = pings.tick() => {
+                if awaiting_pong.is_none() {
+                    if send_frame(&mut sink, &ServerFrame::Ping).await {
+                        awaiting_pong = Some(tokio::time::Instant::now());
+                    } else {
+                        break;
+                    }
+                }
+            }
+            _ = checks.tick() => {
+                if let Some(since) = awaiting_pong
+                    && since.elapsed() >= settings.pong_timeout
+                {
+                    tracing::info!(party_id, "pong timeout; closing 1011");
+                    let close = Message::Close(Some(CloseFrame {
+                        code: 1011,
+                        reason: "pong timeout".into(),
+                    }));
+                    if sink.send(close).await.is_err() {
+                        tracing::debug!(party_id, "1011 close lost to a dead socket");
+                    }
+                    break;
+                }
+            }
+            _ = drain.changed() => {
+                if *drain.borrow() {
+                    // E1 drain (contract §2/§6): announce, then close 1001.
+                    let bye = ServerFrame::Bye {
+                        reason: "shutdown".to_owned(),
+                    };
+                    if !send_frame(&mut sink, &bye).await {
+                        tracing::debug!(party_id, "bye lost to a dead socket");
+                    }
+                    let close = Message::Close(Some(CloseFrame {
+                        code: 1001,
+                        reason: "draining".into(),
+                    }));
+                    if sink.send(close).await.is_err() {
+                        tracing::debug!(party_id, "1001 close lost to a dead socket");
+                    }
+                    break;
+                }
+            }
         }
     }
 
     registry.unsubscribe(party_id, handle.id);
+}
+
+/// The liveness tickers, first (immediate) tick consumed so the first ping
+/// lands one full interval after the intro sequence.
+async fn liveness_ticks(
+    settings: crate::sync::SyncSettings,
+) -> (tokio::time::Interval, tokio::time::Interval) {
+    let mut pings = tokio::time::interval(settings.ping_interval);
+    pings.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    pings.tick().await;
+    let mut checks = tokio::time::interval(settings.pong_timeout);
+    checks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    checks.tick().await;
+    (pings, checks)
 }
 
 /// `hello` then `snapshot` — the mandatory intro sequence (contract §5).
@@ -213,9 +278,18 @@ struct SessionCtx<'a> {
 
 /// One inbound text frame. Deny-by-default: malformed JSON, unknown frame
 /// types, and effect writes (E8's) are dropped with a structured log and
-/// the connection stays open (contract §2).
-async fn handle_inbound(sink: &mut Sink, ctx: &SessionCtx<'_>, text: &str) {
+/// the connection stays open (contract §2). A `pong` clears the liveness
+/// wait; a `ping` is answered.
+async fn handle_inbound(
+    sink: &mut Sink,
+    ctx: &SessionCtx<'_>,
+    awaiting_pong: &mut Option<tokio::time::Instant>,
+    text: &str,
+) {
     match ClientFrame::decode(text) {
+        Ok(ClientFrame::Pong) => {
+            *awaiting_pong = None;
+        }
         Ok(ClientFrame::Ping) => {
             send_frame(sink, &ServerFrame::Pong).await;
         }

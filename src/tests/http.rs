@@ -46,6 +46,7 @@ fn test_router() -> axum::Router {
     router(
         testing::auth_state(pool, &testing::auth_settings()),
         &static_dir(),
+        crate::sync::SyncState::new(testing::never_drain()),
     )
 }
 

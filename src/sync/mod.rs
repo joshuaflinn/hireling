@@ -12,19 +12,47 @@ pub mod snapshot;
 pub mod write;
 
 /// Runtime state for the sync routes. The router's `State` is E3's
-/// `Arc<AuthState>`; sync's own runtime dependency — the fan-out registry
-/// — rides the request as an `Extension`, keeping the auth state type
-/// untouched (E3 continuity: the WS handshake reuses the same session
-/// surface as every REST route).
-#[derive(Clone, Default)]
+/// `Arc<AuthState>`; sync's own runtime dependencies — the fan-out
+/// registry, the liveness timers, and the drain watch — ride the request
+/// as an `Extension`, keeping the auth state type untouched (E3
+/// continuity: the WS handshake reuses the same session surface as every
+/// REST route).
+#[derive(Clone)]
 pub struct SyncState {
     pub registry: Arc<PartyRegistry>,
+    /// Liveness timers; binding values in `Default`, shortened in tests.
+    pub settings: SyncSettings,
+    /// The E1 drain signal: `true` means the server is draining. Sessions
+    /// answer with `bye` + Close 1001. A dropped sender is "no signal".
+    pub drain: tokio::sync::watch::Receiver<bool>,
 }
 
 impl SyncState {
+    /// Production/default state: binding timers, registry fresh per state.
     #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(drain: tokio::sync::watch::Receiver<bool>) -> Self {
+        Self {
+            registry: Arc::new(PartyRegistry::new()),
+            settings: SyncSettings::default(),
+            drain,
+        }
+    }
+}
+
+/// Liveness timers (contract §5 — binding: ping 20 s, pong timeout 10 s).
+/// Tests shorten both; the numbers themselves are never tuned.
+#[derive(Debug, Clone, Copy)]
+pub struct SyncSettings {
+    pub ping_interval: std::time::Duration,
+    pub pong_timeout: std::time::Duration,
+}
+
+impl Default for SyncSettings {
+    fn default() -> Self {
+        Self {
+            ping_interval: std::time::Duration::from_secs(20),
+            pong_timeout: std::time::Duration::from_secs(10),
+        }
     }
 }
 

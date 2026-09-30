@@ -204,15 +204,41 @@ pub fn settings_from(auth: AuthSettings) -> Settings {
     }
 }
 
-/// Router wired to a pool and settings.
+/// Router wired to a pool and settings: default sync state on a drain
+/// channel no test ever fires (the sender lives for the process).
 ///
 /// # Panics
 ///
 /// Panics if the auth state cannot be built — in tests, that is a bug, not
 /// a condition to handle.
 pub fn router_for(pool: PgPool, auth: &AuthSettings) -> Router {
+    router_for_with_sync(pool, auth, crate::sync::SyncState::new(never_drain()))
+}
+
+/// Router wired to a caller-supplied sync state — the session tests' hook
+/// for shortened liveness timers and a live drain channel. Production
+/// wiring lives in `http::serve`.
+///
+/// # Panics
+///
+/// Panics if the auth state cannot be built — in tests, that is a bug, not
+/// a condition to handle.
+pub fn router_for_with_sync(
+    pool: PgPool,
+    auth: &AuthSettings,
+    sync: crate::sync::SyncState,
+) -> Router {
     let auth_state = AuthState::new(pool, auth).expect("test auth state builds");
-    crate::http::router(auth_state, std::path::Path::new("web/dist"))
+    crate::http::router(auth_state, std::path::Path::new("web/dist"), sync)
+}
+
+/// A drain receiver whose sender lives for the whole process — "no signal",
+/// never fired, no busy-loop risk from a dropped sender.
+pub fn never_drain() -> tokio::sync::watch::Receiver<bool> {
+    static NEVER: std::sync::OnceLock<tokio::sync::watch::Sender<bool>> =
+        std::sync::OnceLock::new();
+    let (tx, _rx) = tokio::sync::watch::channel(false);
+    NEVER.get_or_init(|| tx).subscribe()
 }
 
 /// Auth state without a router, for store-level tests.

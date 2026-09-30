@@ -37,6 +37,7 @@ JSON **text** frames, one object per frame, tagged by `"t"`:
 {"t":"write","op_id":"<uuid4>","target":{"kind":"inv","character_id":3,
  "item_name":"Chalk"},"base_version":990,"value":{"qty_delta":-2}}
 {"t":"ping"}                                    // any authenticated conn
+{"t":"pong"}                                    // client → server: answer to the server's liveness ping
 
 // server → client
 {"t":"hello","party_id":1,"you":{"sub":"…","role":"player"},
@@ -50,6 +51,7 @@ JSON **text** frames, one object per frame, tagged by `"t"`:
 {"t":"ack","op_id":"<uuid4>","outcome":"already_applied","version":1043}
 {"t":"ack","op_id":"<uuid4>","outcome":"rejected","reason":"hp must be ≥ 0"}
 {"t":"ack","op_id":"<uuid4>","outcome":"forbidden","reason":"gm is read-only"}
+{"t":"ping"}                                    // server → client: liveness probe (§5)
 {"t":"pong"}
 {"t":"bye","reason":"shutdown"}                 // precedes Close 1001 on drain
 ```
@@ -97,9 +99,11 @@ anchoring rule). Item identity is exact-name; anything fuzzier is E5's.
 
 ## 5. Liveness & reconnect (numbers are binding)
 
-- Server sends `ping` every **20 s**; a conn without `pong` within **10 s**
-  is closed (1011). Client declares the link dead after **50 s** of silence
-  (any frame counts) and enters reconnect.
+- Server sends `ping` every **20 s** (the app-level `{"t":"ping"}` frame,
+  so the client's any-frame watchdog sees it — design.md: protocol-level
+  WS pings are invisible to page JS); a conn without `pong` (`{"t":"pong"}`)
+  within **10 s** is closed (1011). Client declares the link dead after
+  **50 s** of silence (any frame counts) and enters reconnect.
 - Reconnect: **silent**, exponential backoff **1 s ×2, cap 30 s, full
   jitter** (`delay = random() × min(30s, 2^n s)`), reset to n=0 only after
   `snapshot` merge **and** queue drain complete.

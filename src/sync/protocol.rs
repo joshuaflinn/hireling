@@ -86,6 +86,9 @@ pub enum ClientFrame {
         value: JsonValue,
     },
     Ping,
+    /// The client's answer to the server's liveness ping (design.md:
+    /// app-level ping/pong JSON frames both directions).
+    Pong,
 }
 
 impl ClientFrame {
@@ -193,6 +196,9 @@ pub enum ServerFrame {
         op_id: Option<String>,
     },
     Ack(Ack),
+    /// The server's liveness probe (contract §5, binding 20 s / 10 s);
+    /// the client answers with `pong` (any-frame watchdog on its side).
+    Ping,
     Pong,
     Bye {
         reason: String,
@@ -249,7 +255,9 @@ mod tests {
                 assert_eq!(*base_version, 1042);
                 assert_eq!(value, &json!(14));
             }
-            ClientFrame::Ping => panic!("expected a write frame, got ping"),
+            ClientFrame::Ping | ClientFrame::Pong => {
+                panic!("expected a write frame, got a liveness frame")
+            }
         }
         assert_eq!(serde_json::to_value(&frame).expect("encodes"), raw);
     }
@@ -310,6 +318,22 @@ mod tests {
 
         let unknown = serde_json::from_value::<ClientFrame>(json!({"t": "wat"}));
         assert!(unknown.is_err(), "unknown frame type must be denied");
+    }
+
+    #[test]
+    fn the_liveness_frames_round_trip_both_ways() {
+        // Client answers the server's liveness probe.
+        let pong: ClientFrame = serde_json::from_value(json!({"t": "pong"})).expect("pong decodes");
+        assert!(matches!(pong, ClientFrame::Pong));
+        assert_eq!(
+            serde_json::to_value(&pong).expect("encodes"),
+            json!({"t": "pong"})
+        );
+        // The server's liveness probe.
+        assert_eq!(
+            serde_json::to_value(&ServerFrame::Ping).expect("encodes"),
+            json!({"t": "ping"})
+        );
     }
 
     #[test]

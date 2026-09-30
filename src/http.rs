@@ -89,7 +89,7 @@ pub(crate) const API_ROUTES: &[ApiRoute] = &[
 /// `require_auth`, with `resolve_session` wrapping the whole `/api` nest —
 /// see `specs/003-authentik-oidc/design.md` §4. The public set inside `/api`
 /// is exactly the auth legs (plus, in debug builds, the dev-session route).
-pub fn router(auth: Arc<AuthState>, static_dir: &Path) -> Router {
+pub fn router(auth: Arc<AuthState>, static_dir: &Path, sync: crate::sync::SyncState) -> Router {
     // `.fallback`, not `.not_found_service`: the latter wraps the fallback in
     // a forced 404 status, which serves the shell page marked as an error.
     let frontend =
@@ -106,9 +106,9 @@ pub fn router(auth: Arc<AuthState>, static_dir: &Path) -> Router {
             "/ws/party/{party_id}",
             get(crate::sync::session::party_ws),
         )
-        // Sync's runtime state (the fan-out registry) rides as an Extension;
-        // the router's State stays E3's Arc<AuthState> (see SyncState).
-        .layer(axum::Extension(crate::sync::SyncState::new()));
+        // Sync's runtime state rides as an Extension; the router's State
+        // stays E3's Arc<AuthState> (see SyncState).
+        .layer(axum::Extension(sync));
 
     // Public inside the nest: the auth legs. Logout is session-aware but
     // idempotent, so it needs no guard of its own.
@@ -200,6 +200,12 @@ pub async fn serve(settings: &Settings, pool: PgPool) -> anyhow::Result<()> {
 
     let auth = AuthState::new(pool, &settings.auth)?;
 
+    // The drain watch is the one shutdown signal: axum's graceful shutdown
+    // and every live sync session (bye + Close 1001) listen to the same
+    // flip — sessions drain themselves, no second path.
+    let (drain_tx, drain_rx) = tokio::sync::watch::channel(false);
+    let sync = crate::sync::SyncState::new(drain_rx);
+
     tracing::info!(
         port = settings.port,
         static_dir = %settings.static_dir.display(),
@@ -210,10 +216,13 @@ pub async fn serve(settings: &Settings, pool: PgPool) -> anyhow::Result<()> {
         listener,
         // ConnectInfo so the dev-session gate can tell loopback peers from
         // remote ones; harmless for every other route.
-        router(auth, &settings.static_dir)
+        router(auth, &settings.static_dir, sync)
             .into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal());
+    .with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        drain_tx.send_replace(true);
+    });
 
     tokio::select! {
         result = server => {
