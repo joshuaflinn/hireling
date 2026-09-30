@@ -314,11 +314,15 @@ async fn handle_inbound(
     }
 }
 
-/// Apply one write and answer it: the ack goes to the writer's socket; an
-/// applied write fans the diff out to the whole party — the writer
-/// included, via the registry — independently of whether the ack was
-/// delivered (a vanished writer must not strand the party, spec FR-3).
-/// Per-message authz happens inside `apply_write` through E3's
+/// Apply one write and answer it: an applied write fans the diff out to
+/// the whole party — the writer included, via the registry — BEFORE the
+/// ack is attempted, and the ack goes to the writer's socket afterward
+/// (review finding MOR-42: the broadcast is a synchronous `try_send` that
+/// never awaits, so it must not be sequenced behind the ack, whose sink
+/// can be backpressured indefinitely by a stalled writer — spec FR-3,
+/// scenario 2; the wire contract permits either ack/diff order on the
+/// writer's own socket). A vanished or stalled writer must never strand
+/// the party. Per-message authz happens inside `apply_write` through E3's
 /// `authorize()` — the same matrix as REST, one call per frame (spec
 /// FR-1) — and the write is scoped to this socket's party (contract §1).
 async fn handle_write(
@@ -361,11 +365,12 @@ async fn handle_write(
         winning_version: result.winning_version,
         reason: result.reason,
     };
-    // The ack is attempted first, but its failure must NOT strand the
-    // committed write (review fix, PR #34): the diff fans out to the party
-    // independently of ack delivery. A writer that vanishes between commit
-    // and ack — a dead link mid-frame — leaves every other client current.
-    let ack_sent = send_frame(sink, &ServerFrame::Ack(ack)).await;
+    // Fan out FIRST (review finding MOR-42): the broadcast is a
+    // synchronous `try_send` — it never awaits — so a stalled writer's
+    // outbound sink cannot hold the party's committed diff hostage (spec
+    // FR-3, scenario 2). Only then is the ack attempted; a stalled or
+    // vanished writer delays (worst case forever) only its own ack, never
+    // the party's view.
     if result.outcome == Outcome::Applied
         && let Some(version) = result.version
     {
@@ -392,11 +397,12 @@ async fn handle_write(
             "write dispatched"
         );
     }
+    let ack_sent = send_frame(sink, &ServerFrame::Ack(ack)).await;
     if !ack_sent {
         tracing::warn!(
             party_id,
             op_id,
-            "ack lost to a dead socket; the committed diff was dispatched"
+            "ack lost to a stalled or dead socket; the committed diff was dispatched"
         );
     }
 }
