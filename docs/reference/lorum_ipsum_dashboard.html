@@ -6,6 +6,7 @@
 <title>Lorum Ipsum · PF2e Dashboard</title>
 <style>
 :root{
+  color-scheme:dark;
   --bg:#111317; --panel:#1a1d23; --panel2:#21252d; --line:#2e333d; --line2:#3a404c;
   --text:#e9e5d9; --muted:#a2a8b3; --dim:#6d7480;
   --gold:#dcb25b; --gold-dim:#8d7239; --maroon:#5f1d1d; --unc:#9a4f2e; --trad:#2c4a6e; --size:#3b6436;
@@ -21,34 +22,81 @@ a{color:var(--blue)}
 .top h1{font-family:var(--serif);font-size:30px;margin:0;color:var(--gold);letter-spacing:.5px;line-height:1.1}
 .top .sub{color:var(--muted);font-size:13px;margin-top:3px}
 .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.syncstat{color:var(--muted);font-size:11.5px;white-space:nowrap;margin-left:2px}
+.syncstat.notice{color:var(--gold);cursor:pointer}
+.syncstat.err{color:var(--f)}
 .btn{background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:6px 12px}
 .btn:hover{border-color:var(--gold-dim)}
 .btn.gold{border-color:var(--gold-dim);color:var(--gold)}
-.lvl{display:flex;align-items:center;gap:0;border:1px solid var(--line2);border-radius:6px;overflow:hidden;background:var(--panel2)}
-.lvl button{background:none;border:0;padding:6px 11px;font-size:16px;line-height:1}
-.lvl button:disabled{opacity:.3;cursor:default}
-.lvl span{padding:0 8px;font-size:13px;color:var(--muted)}
-.lvl b{color:var(--text);font-size:16px}
+.btn:disabled{opacity:.5;cursor:default}
+.btn:disabled:hover{border-color:var(--line2)}
+#btnSave{position:relative}
+#btnSave.dirty::after{content:"";position:absolute;top:3px;right:3px;width:6px;height:6px;border-radius:50%;background:var(--cf)}
+.splitbtn{position:relative;display:inline-flex}
+.splitbtn #btnSave{border-radius:6px 0 0 6px}
+#btnSaveMenu{border-radius:0 6px 6px 0;border-left:0;padding:6px 8px;font-size:12px;line-height:1.4}
+.tplmenu,.tplsub{background:var(--panel);border:1px solid var(--gold-dim);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.7);padding:4px}
+.tplmenu{position:absolute;top:calc(100% + 4px);right:0;z-index:80;min-width:210px;max-width:min(320px,90vw)}
+.tplmenu[hidden]{display:none}
+.tplitem{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;background:none;border:0;border-radius:5px;padding:7px 10px;text-align:left;font-size:13px}
+.tplitem:hover:not(:disabled),.tplitem:focus-visible{background:var(--panel2)}
+.tplitem:disabled{cursor:default}
+.tplitem .tn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.tplitem .hint{color:var(--muted);font-size:11px;flex:none}
+.tplsep{height:1px;background:var(--line);margin:3px 2px}
+.tplsw{position:relative}
+.tplsub{display:none;position:absolute;top:-5px;right:100%;margin-right:4px;min-width:190px;max-width:min(300px,70vw);max-height:60vh;overflow:auto}
+.tplsw.open>.tplsub{display:block}
+@media (hover:hover){.tplsw:hover>.tplsub{display:block}}
+.tplsub .tplitem.cur{color:var(--gold)}
+#tplDlg{width:min(480px,94vw)}
+.tpllist{margin:8px 0 2px;display:flex;flex-direction:column;gap:2px;max-height:50vh;overflow:auto}
+.tplrow,.tpledit{display:flex;align-items:center;gap:6px;padding:3px 4px;border-radius:6px}
+.tplrow:hover{background:var(--panel2)}
+.tplrow .tplname{flex:1;min-width:0;background:none;border:0;padding:4px 6px;text-align:left;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.tplrow .tplname:hover{color:var(--gold)}
+.tplrow .tplname.cur{cursor:default;color:var(--gold)}
+.tplrow .tplname.cur:hover{color:var(--gold)}
+.tplcur{font-size:10.5px;letter-spacing:.5px;border:1px solid var(--gold-dim);border-radius:10px;padding:1px 7px;color:var(--gold);white-space:nowrap}
+.tplico{padding:2px 8px;line-height:1.4}
+.tpledit input{flex:1;min-width:0;background:#0d0f13;color:var(--text);border:1px solid var(--line2);border-radius:6px;font:inherit;font-size:14px;padding:5px 8px}
+.tpledit input:focus{outline:none;border-color:var(--gold-dim)}
 .namerow{display:flex;align-items:baseline;gap:6px 16px;flex-wrap:wrap}
 .datanote{color:var(--dim);font-size:11.5px;display:flex;gap:4px 10px;flex-wrap:wrap;align-items:baseline;max-width:520px}
 .datanote b{color:var(--muted);font-weight:600}
 .datanote .lnk{background:none;border:0;color:var(--gold);text-decoration:underline;padding:0;font-size:11.5px}
 
-/* independent columns: each panel stacks directly under the one above it */
-.cols{display:flex;gap:12px;padding:12px;align-items:flex-start}
-.col{display:flex;flex-direction:column;gap:12px;min-width:0}
-.col1{flex:0 0 330px}.colMain{flex:1.25 1 0;gap:0}.col3{flex:1 1 0}
-@media (max-width:1250px){.cols{flex-wrap:wrap}.colMain{flex:1 1 0}.col3{flex:1 1 100%;padding-top:0}}
-.maintabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding:0 4px}
-.maintabs button{background:none;border:1px solid transparent;border-bottom:0;border-radius:8px 8px 0 0;padding:7px 16px;color:var(--muted);font-family:var(--serif);font-size:16px;margin-bottom:-1px}
-.maintabs button.on{background:var(--panel);border-color:var(--line);color:var(--gold)}
-.tabpane{border-top-left-radius:0}
-#pNotes{display:flex;flex-direction:column}#pNotes[hidden]{display:none}
+/* widget board: movable, resizable mini-windows (ported from Korgash_Dashboard.html) */
+html{overflow-y:scroll}
+.board{position:relative;margin:5px 5px 0;overflow-x:hidden;overflow-y:hidden}
+.board.stacked{overflow:visible;height:auto!important;display:flex;flex-direction:column;gap:5px}
+.widget{position:absolute}
+.widget.dragging,.widget.resizing{z-index:100;transition:none!important}
+.widget{transition:left .15s ease,top .15s ease}
+.board.noanim .widget{transition:none}
+.widget.autoh>.panel,.widget.autoh>.invwrap{height:auto}
+.widget.fixedh>.panel,.widget.fixedh>.invwrap{height:100%;overflow:auto}
+.rz{position:absolute;z-index:5}
+.rz.n{left:6px;right:6px;top:-3px;height:6px;cursor:ns-resize}
+.rz.s{left:6px;right:6px;bottom:-3px;height:6px;cursor:ns-resize}
+.rz.e{top:6px;bottom:6px;right:-3px;width:6px;cursor:ew-resize}
+.rz.w{top:6px;bottom:6px;left:-3px;width:6px;cursor:ew-resize}
+.rz.ne{right:-3px;top:-3px;width:12px;height:12px;cursor:nesw-resize}
+.rz.nw{left:-3px;top:-3px;width:12px;height:12px;cursor:nwse-resize}
+.rz.se{right:-3px;bottom:-3px;width:12px;height:12px;cursor:nwse-resize}
+.rz.sw{left:-3px;bottom:-3px;width:12px;height:12px;cursor:nesw-resize}
+.board.stacked .widget{position:static!important;width:100%!important;height:auto!important;transition:none}
+.board.stacked .rz{display:none}
+.board.stacked .panel h2{cursor:default}
+.wplaceholder{position:absolute;border:1px dashed var(--gold-dim);background:var(--panel2);opacity:.55;border-radius:10px;pointer-events:none;z-index:1}
+.noselect,.noselect *{user-select:none!important}
+#pNotes{display:flex;flex-direction:column}
 .rtbar{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 6px;padding-bottom:6px;border-bottom:1px solid var(--line)}
 .rtbar button{background:var(--panel2);border:1px solid var(--line2);border-radius:5px;color:var(--muted);font-size:12px;padding:2px 9px;cursor:pointer;min-width:28px}
 .rtbar button:hover{border-color:var(--gold-dim);color:var(--gold)}
 .rtbar button.b{font-weight:700}.rtbar button.i{font-style:italic}.rtbar button.u{text-decoration:underline}.rtbar button.st{text-decoration:line-through}
 .noteed{flex:1;min-height:60vh;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13.5px;line-height:1.55;color:var(--text);overflow:auto}
+.widget.fixedh #pNotes .noteed{min-height:80px}
 .noteed:focus{outline:none;border-color:var(--gold-dim)}
 .row.airow{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) 72px 26px 34px;gap:6px}
 .airow .itags{display:flex;gap:3px;overflow:hidden;white-space:nowrap}
@@ -59,14 +107,19 @@ a{color:var(--blue)}
 .noteed:empty:before{content:"Write anything here: session notes, NPC names, loot, plans.";color:var(--dim)}
 .noteed h4{font-family:var(--serif);color:var(--gold);font-size:16px;font-weight:normal;margin:10px 0 4px}
 .noteed p{margin:0 0 6px}.noteed ul,.noteed ol{margin:4px 0 6px;padding-left:22px}.noteed li{margin:2px 0}
-#pInv.invwrap{display:flex;flex-direction:column;gap:10px;background:none;border:0;padding:0}
+#pInv.invwrap{display:flex;flex-direction:column;gap:5px;background:none;border:0;padding:0}
 #pInv.invwrap[hidden]{display:none}
-#pInvMain{border-top-left-radius:0}
 #pInvBulk{padding:8px 12px}
 #pInvBulk .bulk{margin:0;background:none;border:0;padding:0}
-#pMinions{background:none;border:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto 1fr;gap:10px}#pMinions[hidden]{display:none}
-#pMinPet{grid-column:1;grid-row:1;border-top-left-radius:0}#pMinSum{grid-column:1;grid-row:2}#pMinCur{grid-column:2;grid-row:1 / span 2}
-@media (max-width:900px){#pMinions{grid-template-columns:minmax(0,1fr)}#pMinPet,#pMinSum,#pMinCur{grid-column:1;grid-row:auto}}
+.minwrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto 1fr;gap:5px}
+.minwrap .mblock{background:var(--panel2)}
+#pMinPet{grid-column:1;grid-row:1}#pMinSum{grid-column:1;grid-row:2}#pMinCur{grid-column:2;grid-row:1 / span 2}
+@media (max-width:900px){.minwrap{grid-template-columns:minmax(0,1fr)}#pMinPet,#pMinSum,#pMinCur{grid-column:1;grid-row:auto}}
+#notesSave{font-family:var(--sans);font-size:12.5px;padding:2px 14px;align-self:center}
+.collbtns{display:inline-flex;gap:4px;margin-left:auto}
+.collbtns .collbtn{background:none;border:1px solid var(--muted);border-radius:6px;color:var(--muted);font:600 14px/1 var(--sans);width:26px;height:24px;padding:0}
+.collbtns .collbtn:hover{border-color:var(--gold-dim);color:var(--gold)}
+.panel h2 .collbtns{align-self:center}
 .sumbtn{margin-left:8px;font-size:12px;padding:1px 9px;border-radius:6px;border:1px solid var(--gold-dim);background:var(--panel2);color:var(--gold);cursor:pointer}.sumbtn:hover{background:var(--gold-dim);color:#111}
 .mindel-all{font-family:var(--sans);font-size:12px;padding:1px 8px;border-radius:6px;border:1px solid var(--line2);background:none;color:var(--muted);cursor:pointer}
 .mincard{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 10px 8px;margin:0 0 8px;font-size:12.5px;line-height:1.4}
@@ -78,18 +131,17 @@ a{color:var(--blue)}
 .minhp input{width:2.6em;font-size:21px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15;text-align:right;background:transparent;border:0;border-bottom:1px dotted var(--line2);color:var(--text);padding:0;-moz-appearance:textfield}
 .minhp input::-webkit-outer-spin-button,.minhp input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}.minhp input:focus{outline:none;border-bottom-color:var(--gold)}
 .minstats{display:flex;flex-wrap:wrap;gap:2px 12px;margin:2px 0 3px}.minsm{color:var(--muted)}.minab{color:var(--muted)}.minab b{color:var(--text)}
-@media (max-width:780px){.cols{display:flex;flex-direction:column;align-items:stretch}.col1{flex:none}.colMain{max-width:none}.col3{flex:none}}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px 12px;min-width:0}
 .pet-line{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 8px;padding:5px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;font-size:13px;white-space:nowrap}
 .pet-line span{color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.6px}
-#pMinions .pet-line{max-width:440px}
+.minwrap .pet-line{max-width:440px}
 .pet-line b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums;margin-left:3px}
 .pet-list{margin-top:8px;font-size:13px}
 .pet-list p{margin:3px 0}
 .pet-list b{font-weight:600}
 .pet-note{color:var(--muted);font-size:12.5px;margin-top:6px}
 .pet-src{color:var(--dim);font-size:11.5px;margin-top:4px}
-.panel h2{font-family:var(--serif);font-weight:normal;color:var(--gold);font-size:19px;margin:0 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.panel h2{font-family:var(--serif);font-weight:normal;color:var(--gold);font-size:19px;margin:0 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;gap:8px;position:sticky;top:-10px;margin-top:-10px;padding-top:10px;background:var(--panel);cursor:grab;touch-action:none;z-index:2}
 .panel h2 small{font-family:var(--sans);color:var(--muted);font-size:12px}
 .panel h3{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin:12px 0 5px;font-weight:600}
 
@@ -114,7 +166,7 @@ a{color:var(--blue)}
 .tile .x{grid-area:x;font-size:8px;color:var(--dim);line-height:1.2}
 .tile.gold .v{color:var(--gold)}
 .tile.t-ac .v,.tile.t-ac .k{color:#e8b94f}.tile.t-fort .v,.tile.t-fort .k{color:#7ed99a}.tile.t-reflex .v,.tile.t-reflex .k{color:#63c8f2}.tile.t-will .v,.tile.t-will .k{color:#c49bf5}
-.tile.t-perception .v,.tile.t-perception .k{color:#f5a06a}.tile.t-speed .v,.tile.t-speed .k{color:#ef87b6}.tile.t-classdc .v,.tile.t-classdc .k{color:#8fb8ff}.tile.t-spelldc .v,.tile.t-spelldc .k{color:#ffd35c}.tile.t-size .v,.tile.t-size .k{color:#cfd6de}
+.tile.t-perception .v,.tile.t-perception .k{color:#f5a06a}.tile.t-speed .v,.tile.t-speed .k{color:#f5e98c}.tile.t-classdc .v,.tile.t-classdc .k{color:#8fb8ff}.tile.t-spelldc .v,.tile.t-spelldc .k{color:#ef87b6}.tile.t-size .v,.tile.t-size .k{color:#cfd6de}
 .trackers{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
 .trk{flex:1;min-width:120px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 8px;display:flex;justify-content:space-between;align-items:center;gap:6px}
 .trk .k{font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
@@ -130,13 +182,20 @@ a{color:var(--blue)}
 .sk{display:flex;align-items:center;gap:6px;padding:2px 2px;border-bottom:1px dotted #2a2f38;font-size:13px;min-width:0}
 .sk .rk{width:15px;height:15px;border-radius:3px;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;background:#2a2f38;color:var(--dim);flex:none}
 .sk .rk.r2{background:#34506e;color:#dfe9f5}.sk .rk.r4{background:#6a4f9a;color:#f0eaff}.sk .rk.r6{background:#9a6a20;color:#fff3dc}.sk .rk.r8{background:#8a2a2a;color:#ffe}
+.sk[data-tip]{cursor:pointer}
 .sk .n{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sk .m{font-variant-numeric:tabular-nums;font-weight:600}
 .sk.untr .n,.sk.untr .m{color:var(--dim)}
+.rkl{display:inline-block;padding:0 6px;border-radius:3px;font-weight:700;letter-spacing:.6px;background:#2a2f38;color:var(--dim)}
+.rkl.r2{background:#34506e;color:#dfe9f5}.rkl.r4{background:#6a4f9a;color:#f0eaff}.rkl.r6{background:#9a6a20;color:#fff3dc}.rkl.r8{background:#8a2a2a;color:#ffe}
+.trait.at-str{background:#7a3a2e}.trait.at-dex{background:#2e6b57}.trait.at-con{background:#7a5a24}.trait.at-int{background:#3a5a8f}.trait.at-wis{background:#4a6a34}.trait.at-cha{background:#7a3f6b}
 .sk.wide{grid-column:1/-1}
 .chips{display:flex;flex-wrap:wrap;gap:4px}
 .trait{display:inline-block;background:var(--maroon);color:#f3e6e0;font-size:10.5px;padding:1px 6px;border-radius:3px;letter-spacing:.3px;text-transform:uppercase;font-weight:600}
 .trait.unc{background:var(--unc)}.trait.trad{background:var(--trad)}.trait.size{background:var(--size)}
+.trait.core{background:#3a3f4a;color:#dfe3ea}
+.trait.gh{background:#2c4a6e}
+.trait.camp{background:#3c4f2a}
 .meta{font-size:12.5px;color:var(--muted);margin-top:6px}
 .meta b{color:var(--text);font-weight:600}
 
@@ -197,10 +256,16 @@ details.book.drop-ok>summary{color:var(--gold)}
 
 /* tabs */
 .tabs{display:flex;gap:4px;margin:-2px 0 6px;flex-wrap:wrap}
-.tabs button{background:none;border:1px solid transparent;border-radius:6px;padding:3px 10px;color:var(--muted);font-size:13px}
+.tabs button{background:none;border:1px solid var(--muted);border-radius:6px;padding:3px 10px;color:var(--muted);font-size:13px}
 .tabs button.on{border-color:var(--gold-dim);color:var(--gold);background:var(--panel2)}
 .grp{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin:10px 6px 2px;font-weight:600}
 .arow{grid-template-columns:56px auto minmax(0,1fr)}
+.frow{grid-template-columns:22px auto minmax(0,1fr)}
+#pFeats .row:not(.frow){grid-template-columns:22px minmax(0,1fr) auto auto}
+#pFeats .row:not(.frow)>.use.none{display:none}   /* focus-spell rows share the feature rows' 22px icon column */
+.currlist{margin-left:36px}
+.clab{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--gold);font-weight:600}
+.currlist .unlearned{color:var(--dim);text-decoration-color:rgba(255,255,255,.22)}
 .arow .q{text-align:right;overflow:hidden;text-overflow:ellipsis}
 .crow{grid-template-columns:auto minmax(0,1fr)}.csort{align-items:center;margin:2px 0 4px}.csort span{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin:0 4px 0 6px}.csort button{font-size:12px;padding:1px 8px}.crow .nm{color:#e9c47c}
 
@@ -240,12 +305,22 @@ details.book.drop-ok>summary{color:var(--gold)}
 .coin[data-coin]{cursor:pointer}
 .coin[data-coin]:hover{border-color:var(--gold-dim)}
 .irow{grid-template-columns:minmax(0,1fr) auto auto}
+.irow.hascb{grid-template-columns:auto minmax(0,1fr) auto auto}
+.irow .cbsp{width:13px}
+.irow .itag{margin-left:6px;vertical-align:1px;font-weight:400}
+.irow .inwhere{color:var(--dim);font-size:11.5px;font-weight:400;margin-left:8px}
+h3.chead .eqcb{order:0;flex:none}
+h3.chead .ctags{order:2;display:flex;gap:4px}
+.ckl,#addDlg .ckl{display:flex;flex-direction:row;align-items:center;gap:7px;font-size:13px;color:var(--text)}
+#tagDlg{width:min(320px,92vw)}
+#tagDlg h3{font-size:17px;margin-bottom:8px}
+.tgbox{display:flex;flex-direction:column;gap:8px;margin:6px 0 4px}
 .idrag{cursor:grab}.idrag:active{cursor:grabbing}
 .idragsrc{opacity:.4}
 .idrop-ok{outline:1px dashed var(--gold-dim);outline-offset:-2px}
 .invtabs{padding:2px 0 4px}
 .idrop-hover{outline:1px solid var(--gold);background:rgba(220,178,91,.12)}
-.rowbtn{display:flex;justify-content:flex-end}
+.rowbtn{display:flex;justify-content:flex-end;gap:2px}
 .mkcont{background:none;border:0;color:var(--dim);font-size:13px;line-height:1;padding:0 2px;cursor:pointer;opacity:0;transition:opacity .12s}
 .irow:hover .mkcont{opacity:.75}.mkcont:hover{color:var(--gold);opacity:1}
 h3.chead .mkcont{opacity:.7;font-size:11px}
@@ -280,7 +355,7 @@ h3.chead .h3s{margin:0 auto 0 0;font-size:11.5px;color:var(--dim)}
 .tt-name .glyph{margin-right:7px;color:var(--gold);vertical-align:-1px}
 .tt-name .glyph svg{height:14px}
 .tt-rank{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);white-space:nowrap}
-#tip .traits{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px}
+#tip .traits,#ctip .traits{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px}
 .kv{display:grid;grid-template-columns:1fr 1fr;gap:1px 12px;margin-bottom:6px}
 .kv div{font-size:12.5px}
 .kv b,.line b{color:var(--text);font-weight:600}
@@ -331,6 +406,7 @@ dialog .row2{display:flex;gap:8px;justify-content:space-between;align-items:cent
 #delDlg{width:min(460px,92vw)}
 h3.chead .mkcont.del{color:var(--dim)}h3.chead .mkcont.del:hover{color:var(--f)}
 h3.chead .mkcont.unmark{order:5;margin-left:0;font-size:13px;padding:0 3px}
+h3.chead .mkcont.tagb{order:5;margin-left:0;font-size:13px;padding:0 3px}
 #capDlg{width:min(420px,92vw)}
 .capbody{font-size:13px;line-height:1.5;margin:0 0 4px}
 .overcap{color:var(--f)}
@@ -362,9 +438,11 @@ h3.chead.over .cnm{color:var(--f)}
 
 /* rules clarifications */
 .rule{margin:6px 0 9px}
-.rule .rt{font-weight:600;color:var(--text)}
+.rule .rt{font-weight:600;color:#e3955b}
 .rule .rb{font-size:13px;margin-top:1px}
 .rule .rs{font-size:11px;color:var(--dim);margin-top:1px}
+
+/* inline focus-spell cards on the Feats & Features tab (reuses spellTip() markup outside #tip) */
 </style>
 </head>
 <body>
@@ -375,36 +453,28 @@ h3.chead.over .cnm{color:var(--f)}
     <div id="charSub" class="sub"></div>
   </div>
   <div class="controls">
-    <div class="lvl"><button id="lvlDown" aria-label="Level down">−</button><span>Level <b id="lvlVal"></b></span><button id="lvlUp" aria-label="Level up">+</button></div>
+    <button class="btn" id="btnResetLayout" title="Restore the default widget layout">Reset Layout</button>
     <button class="btn gold" id="btnDaily" title="Clears cast slots, refills Focus Points, resets Drain Bonded Item">New Day</button>
     <button class="btn" id="btnImport">Import Pathbuilder JSON</button>
+    <span id="syncStatus" class="syncstat"></span>
+    <span class="splitbtn" id="saveSplit">
+      <button class="btn gold" id="btnSave" disabled title="Ctrl/Cmd+S">Saved</button><button class="btn gold" id="btnSaveMenu" aria-haspopup="menu" aria-expanded="false" title="Templates">▾</button>
+      <div class="tplmenu" id="tplMenu" role="menu" hidden></div>
+    </span>
   </div>
 </header>
 
-<main class="cols">
-  <div class="col col1">
-    <section class="panel" id="pStats"></section>
+<div id="board" class="board">
+  <section class="panel" id="pStats"></section>
+  <section class="panel" id="pSpells"></section>
+  <div class="invwrap" id="pInv">
+    <section class="panel" id="pInvMain"></section>
+    <section class="panel" id="pInvBulk"></section>
   </div>
-  <div class="col colMain">
-    <nav class="maintabs" id="mainTabs"></nav>
-    <section class="panel tabpane" id="pSpells"></section>
-    <section class="panel tabpane" id="pMinions"></section>
-    <div class="tabpane invwrap" id="pInv">
-      <section class="panel" id="pInvMain"></section>
-      <section class="panel" id="pInvBulk"></section>
-    </div>
-    <section class="panel tabpane" id="pFeats"></section>
-    <section class="panel tabpane" id="pCampaign"></section>
-    <section class="panel tabpane" id="pNotes"></section>
-    <section class="panel tabpane" id="pAllItems"></section>
-  </div>
-  <div class="col col3">
-    <nav class="maintabs" id="sideTabs"></nav>
-    <section class="panel tabpane" id="pActions"></section>
-    <section class="panel tabpane" id="pConditions"></section>
-    <section class="panel tabpane" id="pRules"></section>
-  </div>
-</main>
+  <section class="panel" id="pFeats"></section>
+  <section class="panel" id="pRef"></section>
+  <section class="panel" id="pNotes"></section>
+</div>
 
 <div id="tip" role="tooltip" hidden></div>
 <div id="ctip" role="tooltip" hidden></div>
@@ -421,6 +491,17 @@ h3.chead.over .cnm{color:var(--f)}
   </div>
 </dialog>
 
+
+<dialog id="tplDlg">
+  <h3>Templates</h3>
+  <div id="tplNew"></div>
+  <div id="tplList" class="tpllist"></div>
+  <div class="err" id="tplErr"></div>
+  <div class="row2">
+    <span></span>
+    <button class="btn gold" id="tplClose">Close</button>
+  </div>
+</dialog>
 
 <dialog id="delDlg">
   <h3 id="delTitle">Delete container</h3>
@@ -465,20 +546,26 @@ h3.chead.over .cnm{color:var(--f)}
   </div>
   <div class="row2">
     <label style="flex-direction:row;align-items:center;gap:6px">Qty <input type="number" id="aiQty" min="1" value="1" style="width:56px"></label>
-    <label style="flex-direction:row;align-items:center;gap:6px">Section
-      <select id="aiSection">
-        <option value="equipped">Equipped Items</option>
-        <option value="equipment">Equipment</option>
-        <option value="magic">Magic Items</option>
-        <option value="gems">Gems/Jewelry/Art</option>
-        <option value="trade">Trade Goods</option>
-      </select>
-    </label>
+    <label class="ckl"><input type="checkbox" class="eqcb" id="aiEq"> Equipped</label>
+  </div>
+  <div class="row2" style="justify-content:flex-start;gap:16px">
+    <label class="ckl"><input type="checkbox" class="eqcb" data-aitag="magic"> Magic item</label>
+    <label class="ckl"><input type="checkbox" class="eqcb" data-aitag="gems"> Gem, jewelry or art</label>
+    <label class="ckl"><input type="checkbox" class="eqcb" data-aitag="trade"> Trade good</label>
   </div>
   <div class="err" id="aiErr"></div>
   <div class="row2">
     <span></span>
     <span style="display:flex;gap:8px"><button class="btn" id="aiCancel">Cancel</button><button class="btn gold" id="aiAdd">Add</button></span>
+  </div>
+</dialog>
+
+<dialog id="tagDlg">
+  <h3 id="tgTitle">Tags</h3>
+  <div id="tgBox" class="tgbox"></div>
+  <div class="row2">
+    <button class="btn" id="tgAuto" title="Drop your edits and use the tags worked out from the item data">Use automatic tags</button>
+    <button class="btn gold" id="tgDone">Done</button>
   </div>
 </dialog>
 
@@ -503,7 +590,6 @@ h3.chead.over .cnm{color:var(--f)}
    Settings that live outside the Pathbuilder export
    ============================================================ */
 const EXPORT_LABEL = "Lorum level 3.json, Sep 13 2026";
-const DEFAULT_LEVEL = null;   // null = use the export's level
 const EXTRA_FAMILIAR = null;
 const LS_KEY = "lorum-ipsum-dashboard-v1";
 
@@ -697,7 +783,7 @@ const CONDITIONS = {
   "unnoticed":{p:447,id:98,t:"The creature has no idea you're present, so you're also undetected by it. Some abilities work only against targets that are unaware of you."}
 };
 const COND_RE = new RegExp("\\b("+Object.keys(CONDITIONS).filter(k=>!CONDITIONS[k].nl).sort((a,b)=>b.length-a.length).map(k=>k.replace("-","\\-").replace(" ","\\s+")).join("|")+")\\b(?![- ]actions?\\b)","gi");
-// wrap condition names in hoverable links; only touches text, never tags or attributes
+// wrap condition names in clickable links; only touches text, never tags or attributes
 function linkConds(html, self){
   return String(html).split(/(<[^>]+>)/).map(seg=> seg.startsWith("<") ? seg :
     seg.replace(COND_RE, m=>{ const k=m.toLowerCase().replace(/\s+/g," "); return k===self ? m : `<span class="cond" data-cond="${k}">${m}</span>`; })).join("");
@@ -757,6 +843,13 @@ const SUMMON_MAX_LEVEL = {1:-1,2:1,3:2,4:3,5:5,6:7,7:9,8:11,9:13,10:15};
 /* ============================================================
    Utilities and state
    ============================================================ */
+/* Safe HTML setter: parses inert via DOMParser, then adopts the nodes.
+   Behaviorally equivalent to el.innerHTML = html for these fragments (no script
+   execution either way; inline handler attributes survive adoption). */
+function setHTML(el, html){
+  const d = new DOMParser().parseFromString(html, "text/html");
+  el.replaceChildren(...d.body.childNodes);
+}
 const $ = (s,r=document)=>r.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const sg = n => (n<0?"−":"+")+Math.abs(n);
@@ -784,18 +877,371 @@ function glyph(a){
 }
 function traitsHTML(list){ return (list||[]).map(t=>`<span class="trait ${t==="Uncommon"||t==="Rare"?"unc":""}">${esc(t)}</span>`).join(""); }
 
-function loadState(){ try{ return JSON.parse(localStorage.getItem(LS_KEY))||null; }catch(e){ return null; } }
+// Earlier saves filed items into equipped/equipment/magic/gems/trade sections. Now an item is top level ("top") or in a container, "equipped" is a flag, and the other tabs are filters.
+const OLD_INV_SECS=["equipped","equipment","magic","gems","trade"];
+function migrateInv(st){
+  if(!st || st.invModel>=2) return st;
+  st.equip=st.equip||{}; st.tags=st.tags||{};
+  const flat=(loc,key)=>{ if(!OLD_INV_SECS.includes(loc)) return loc; st.equip[key]=(loc==="equipped"); return "top"; };
+  for(const c of st.custom||[]) c.loc=flat(c.loc,c.key);
+  for(const k of Object.keys(st.loc||{})) st.loc[k]=flat(st.loc[k],k);
+  for(const sp of st.splits||[]) sp.loc=flat(sp.loc,sp.id);
+  if(!st.invTab || st.invTab==="equipment") st.invTab="all";
+  st.invModel=2;
+  return st;
+}
+function loadState(){ try{ return migrateInv(JSON.parse(localStorage.getItem(LS_KEY))||null); }catch(e){ return null; } }
 function saveState(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }catch(e){} }
+
+/* ============================================================
+   Save / dirty tracking — only the Save button (or Ctrl/Cmd+S) writes
+   ============================================================ */
+let dirty=false, saveT=null, booted=false;
+function syncSaveBtn(){
+  const b=$("#btnSave"); if(!b) return;
+  b.disabled=!dirty; b.classList.toggle("dirty",dirty);
+  if(dirty) b.textContent="Save Changes";
+}
+function markDirty(){ dirty=true; syncSaveBtn(); }
+function doSave(){
+  saveState(); dirty=false; clearTimeout(saveT);
+  const at=Date.now(); setLocalSavedAt(at);
+  if(TPL){ TPL.items[TPL.active]={savedAt:at, state:JSON.stringify(S)}; tplPersist(); }
+  const b=$("#btnSave"); b.disabled=true; b.classList.remove("dirty"); b.textContent="Saved ✓";
+  saveT=setTimeout(()=>{ if(!dirty) b.textContent="Saved"; },1200);
+  if(cloudOn) writeCloud(at);
+}
+
+/* ============================================================
+   Cloud sync (claude.ai db capability) — no-op outside the viewer.
+   Doc shape: {savedAt, keys:{[LS_KEY]: "<string value>"}}.
+   ============================================================ */
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+const LS_SAVEDAT=LS_KEY+":savedAt", LS_BACKUP=LS_KEY+":backup";
+function getLocalSavedAt(){ return Number(lsGet(LS_SAVEDAT))||0; }
+function setLocalSavedAt(v){ lsSet(LS_SAVEDAT, String(v)); }
+const TPL_KEY=LS_KEY+":templates";
+function ownedKeys(){ return { [LS_KEY]: lsGet(LS_KEY)||"", [TPL_KEY]: lsGet(TPL_KEY)||"" }; }
+let cloudRef=null, cloudOn=false, cloudWriting=false, cloudWriteQueue=null, cloudNotice=null;
+
+function syncTimeStr(ms){ try{ return new Date(ms).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}); }catch(e){ return ""; } }
+function setSyncStatus(state, extra){
+  const el=$("#syncStatus"); if(!el) return;
+  el.onclick=null; el.title=""; el.className="syncstat";
+  if(state==="off") el.textContent="This browser only";
+  else if(state==="syncing") el.textContent="☁ Syncing…";
+  else if(state==="synced") el.textContent="☁ Synced "+syncTimeStr(extra!=null?extra:getLocalSavedAt());
+  else if(state==="toolarge"){ el.textContent="☁ Sync error"; el.title="too large to sync"; el.className="syncstat err"; }
+  else if(state==="error"){ el.textContent="☁ Sync error"; el.title=extra||""; el.className="syncstat err"; }
+  else if(state==="notice"){ el.textContent="Newer save from another device — Load it"; el.className="syncstat notice"; el.onclick=()=>{ if(cloudNotice && confirm("Discard unsaved changes here and load the newer save?")) adoptRemote(cloudNotice); }; }
+}
+
+async function withRetry(fn){
+  try{ return await fn(); }
+  catch(e){
+    if(e&&e.code==="unavailable"){ await new Promise(r=>setTimeout(r,1000+Math.random()*2000)); return await fn(); }
+    throw e;
+  }
+}
+function handleCloudErr(e){ setSyncStatus("error", (e&&e.code)||"error"); }
+async function writeCloud(savedAt){
+  if(!cloudOn||!cloudRef) return;
+  cloudWriteQueue=savedAt;
+  if(cloudWriting) return;              // a write is already flushing; it'll pick up the latest queued value
+  cloudWriting=true;
+  while(cloudWriteQueue!=null){
+    const at=cloudWriteQueue; cloudWriteQueue=null;
+    let body={savedAt:at, keys:ownedKeys()}, json=JSON.stringify(body), noTpl=false;
+    if(json.length>250000){                // drop templates so the main state still syncs
+      const keys=ownedKeys(); delete keys[TPL_KEY];
+      body={savedAt:at, keys}; json=JSON.stringify(body); noTpl=true;
+    }
+    if(json.length>250000){ setSyncStatus("toolarge"); continue; }
+    setSyncStatus("syncing");
+    try{ await withRetry(()=>cloudRef.set(body)); setLocalSavedAt(at); setSyncStatus("synced", at); if(noTpl) $("#syncStatus").title="templates too large to sync"; }
+    catch(e){ handleCloudErr(e); }
+  }
+  cloudWriting=false;
+}
+function adoptRemote(data){
+  if(!data || !data.keys) return;
+  try{
+    const backup={}; Object.keys(ownedKeys()).forEach(k=>{ backup[k]=lsGet(k); });
+    lsSet(LS_BACKUP, JSON.stringify(backup));
+  }catch(e){}
+  Object.keys(data.keys).forEach(k=>{ lsSet(k, data.keys[k]); });
+  setLocalSavedAt(data.savedAt||0);
+  dirty=false;
+  window.removeEventListener("beforeunload", guardUnload);
+  location.reload();
+}
+function showSyncNotice(data){ cloudNotice=data; setSyncStatus("notice"); }
+function subscribeCloud(){
+  if(!cloudRef) return;
+  cloudRef.onSnapshot(snap=>{
+    if(!snap||!snap.exists||cloudWriting) return;
+    const data=snap.data(), localAt=getLocalSavedAt();
+    if((data.savedAt||0)<=localAt) return;
+    if(!dirty) adoptRemote(data); else showSyncNotice(data);
+  }, handleCloudErr);
+}
+async function initCloud(){
+  if(!(window.claude&&window.claude.use)){ setSyncStatus("off"); return; }
+  let db=null, user=null;
+  try{ [db,user]=await Promise.all([window.claude.use("db").catch(()=>null),window.claude.use("user").catch(()=>null)]); }catch(e){}
+  if(!db||!user){ setSyncStatus("off"); return; }
+  let owner=false;
+  try{ owner=await user.isOwner(); }catch(e){ owner=false; }
+  if(!owner){ setSyncStatus("off"); return; }
+  cloudRef=db.doc("sheet/state"); cloudOn=true;
+  try{
+    const snap=await withRetry(()=>cloudRef.get());
+    const localAt=getLocalSavedAt();
+    let hasLocal=false; try{ hasLocal=lsGet(LS_KEY)!=null; }catch(e){}
+    if(!snap.exists){
+      if(hasLocal) await writeCloud(localAt||Date.now());
+      else setSyncStatus("synced", localAt||Date.now());
+    } else {
+      const data=snap.data();
+      if((data.savedAt||0)>localAt){ adoptRemote(data); return; }
+      if(localAt>(data.savedAt||0)) await writeCloud(localAt);   // a save that never reached the cloud (offline or sync error)
+      else setSyncStatus("synced", localAt||data.savedAt||Date.now());
+    }
+  }catch(e){ handleCloudErr(e); }
+  subscribeCloud();
+}
+
 const EMBEDDED = JSON.parse($("#pbExport").textContent).build;
-let S = Object.assign({level:DEFAULT_LEVEL, imported:null, hp:null, temp:0, hero:1, focus:null, used:{}, drain:false, tab:"encounter", bookOpen:false, mainTab:"spells", coll:{}, coins:null, minions:[], invTab:"equipment", loc:{}, notes:"", userConts:{}, qty:{}, splits:[], added:[], custom:[], removed:{}}, loadState()||{});
+let S = Object.assign({imported:null, hp:null, temp:0, hero:1, focus:null, used:{}, drain:false, tab:"encounter", bookOpen:false, coll:{}, coins:null, minions:[], invTab:"all", invModel:2, equip:{}, tags:{}, loc:{}, notes:"", userConts:{}, qty:{}, splits:[], added:[], custom:[], removed:{}}, loadState()||{});
+delete S.level;
 S.staff = Object.assign({cantrip:null, spell:null, chargeRank:0, spent:0, edit:false}, S.staff||{});
 S.coll = S.coll || {};
 const getBuild = ()=> S.imported || EMBEDDED;
 
 /* ============================================================
+   Templates — named snapshots of the whole state (window positions and contents).
+   Doc shape: {v:1, active:"<name>", items:{[name]:{savedAt, state:"<JSON of S>"}}}
+   ============================================================ */
+let TPL=null, tplNewOpen=false, tplRenaming=null;
+const tplNames = ()=> Object.keys(TPL.items).sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:"base"}));
+function tplPersist(){ lsSet(TPL_KEY, JSON.stringify(TPL)); }
+function tplChanged(){ tplPersist(); if(cloudOn) writeCloud(Date.now()); }
+function tplBtnTitle(){ const b=$("#btnSave"); if(b) b.title=`Save to "${TPL.active}" (Ctrl/Cmd+S)`; }
+function tplBoot(){
+  let t=null; try{ t=JSON.parse(lsGet(TPL_KEY)); }catch(e){}
+  const ok=t && t.v===1 && t.items && typeof t.items==="object" && Object.keys(t.items).length && Object.values(t.items).every(i=>i && typeof i.state==="string");
+  if(ok){ if(!t.items[t.active]) t.active=Object.keys(t.items).sort()[0]; }
+  else t={v:1, active:"Default", items:{Default:{savedAt:Date.now(), state:lsGet(LS_KEY)||JSON.stringify(S)}}};
+  TPL=t; if(!ok) tplPersist();
+  tplBtnTitle();
+}
+tplBoot();
+function tplCheckName(raw, except){
+  const n=raw.trim(), low=n.toLowerCase();
+  if(!n) return {err:"Enter a name."};
+  if(n.length>40) return {err:"Names can be at most 40 characters."};
+  if(n==="__proto__") return {err:"That name is reserved."};
+  if(Object.keys(TPL.items).some(k=>k!==except && k.toLowerCase()===low)) return {err:"A template with that name already exists."};
+  return {name:n};
+}
+function tplSwitch(name){
+  if(!TPL.items[name] || name===TPL.active) return;
+  if(dirty && !confirm(`You have unsaved changes to "${TPL.active}". Switch without saving them?`)) return;
+  lsSet(LS_KEY, TPL.items[name].state); TPL.active=name; tplPersist();
+  setLocalSavedAt(Date.now());           // newer than the cloud copy, so the next boot pushes it
+  dirty=false; window.removeEventListener("beforeunload", guardUnload);
+  location.reload();
+}
+function tplEl(tag, cls, text){ const e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }   // names are user text: textContent only
+
+const tplMenuEl=$("#tplMenu"), tplDlg=$("#tplDlg");
+function tplMenuItem(cls, label, hint, onClick){
+  const b=tplEl("button","tplitem"+(cls?" "+cls:"")); b.type="button"; b.setAttribute("role","menuitem");
+  b.append(tplEl("span","tn",label)); if(hint) b.append(tplEl("span","hint",hint));
+  if(onClick) b.onclick=onClick;
+  return b;
+}
+function tplBuildMenu(){
+  tplMenuEl.textContent="";
+  tplMenuEl.append(tplMenuItem("", TPL.active, "save", ()=>{ tplMenuOpen(false); doSave(); }));
+  const sw=tplEl("div","tplsw"), sub=tplEl("div","tplsub"); sub.setAttribute("role","menu");
+  const head=tplMenuItem("", "Switch templates", "▸", e=>{ e.stopPropagation(); sw.classList.toggle("open"); });
+  head.setAttribute("aria-haspopup","menu");
+  tplNames().forEach(name=>{
+    const cur=name===TPL.active;
+    const it=tplMenuItem(cur?"cur":"", name, cur?"✓":"", cur?null:()=>{ tplMenuOpen(false); tplSwitch(name); });
+    if(cur){ it.disabled=true; it.setAttribute("aria-current","true"); }
+    sub.append(it);
+  });
+  sw.append(head, sub);
+  tplMenuEl.append(sw, tplEl("div","tplsep"), tplMenuItem("", "Manage Templates…", "", ()=>{ tplMenuOpen(false); tplOpenDlg(); }));
+}
+function tplMenuOpen(open){
+  if(open) tplBuildMenu();
+  tplMenuEl.hidden=!open; $("#btnSaveMenu").setAttribute("aria-expanded", String(open));
+}
+$("#btnSaveMenu").onclick=()=>tplMenuOpen(tplMenuEl.hidden);
+document.addEventListener("pointerdown",e=>{ if(!tplMenuEl.hidden && !e.target.closest("#saveSplit")) tplMenuOpen(false); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape" && !tplMenuEl.hidden){ tplMenuOpen(false); $("#btnSaveMenu").focus(); } });
+
+function tplErr(msg){ $("#tplErr").textContent=msg||""; }
+function tplNameEditor(initial, okLabel, placeholder, onOk, onCancel){
+  const row=tplEl("div","tpledit"), inp=tplEl("input"), ok=tplEl("button","btn gold",okLabel), no=tplEl("button","btn",okLabel==="Create"?"Cancel":"✕");
+  inp.type="text"; inp.maxLength=40; inp.value=initial; inp.placeholder=placeholder||""; inp.setAttribute("aria-label",placeholder||"Template name");
+  ok.type="button"; no.type="button"; if(okLabel!=="Create") no.title="Cancel"; else ok.title="Create";
+  ok.onclick=()=>onOk(inp.value); no.onclick=onCancel;
+  inp.addEventListener("keydown",ev=>{
+    if(ev.key==="Enter"){ ev.preventDefault(); onOk(inp.value); }
+    else if(ev.key==="Escape"){ ev.preventDefault(); ev.stopPropagation(); onCancel(); }
+  });
+  row.append(inp, ok, no);
+  queueMicrotask(()=>{ inp.focus(); inp.select(); });
+  return row;
+}
+function tplRender(){
+  const top=$("#tplNew"), list=$("#tplList");
+  top.textContent=""; list.textContent="";
+  if(tplNewOpen) top.append(tplNameEditor("", "Create", "New template name", tplCreate, ()=>{ tplNewOpen=false; tplErr(""); tplRender(); }));
+  else { const b=tplEl("button","btn","+ New template"); b.type="button"; b.onclick=()=>{ tplNewOpen=true; tplRenaming=null; tplErr(""); tplRender(); }; top.append(b); }
+  tplNames().forEach(name=>{
+    const cur=name===TPL.active, row=tplEl("div","tplrow");
+    if(tplRenaming===name){
+      row.append(tplNameEditor(name, "✓", "Template name", raw=>tplRename(name,raw), ()=>{ tplRenaming=null; tplErr(""); tplRender(); }));
+    } else {
+      const nm=tplEl("button","tplname"+(cur?" cur":""),name); nm.type="button";
+      if(cur) nm.disabled=true; else { nm.title="Switch to this template"; nm.onclick=()=>tplSwitch(name); }
+      const pen=tplEl("button","btn tplico","✎"), del=tplEl("button","btn tplico","✕");
+      pen.type="button"; pen.title="Rename"; pen.onclick=()=>{ tplRenaming=name; tplNewOpen=false; tplErr(""); tplRender(); };
+      del.type="button"; del.title=cur?"Switch to another template before deleting this one":"Delete"; del.disabled=cur;
+      del.onclick=()=>tplDelete(name);
+      row.append(nm); if(cur) row.append(tplEl("span","tplcur","current")); row.append(pen, del);
+    }
+    list.append(row);
+  });
+}
+function tplCreate(raw){
+  const r=tplCheckName(raw); if(r.err){ tplErr(r.err); return; }
+  TPL.items[r.name]={savedAt:Date.now(), state:JSON.stringify(S)}; TPL.active=r.name;   // Save-As: the previous template keeps its last saved state
+  tplNewOpen=false; tplErr(""); tplBtnTitle();
+  doSave(); tplRender();
+}
+function tplRename(old, raw){
+  const r=tplCheckName(raw, old); if(r.err){ tplErr(r.err); return; }
+  if(r.name!==old){
+    TPL.items[r.name]=TPL.items[old]; delete TPL.items[old];
+    if(TPL.active===old){ TPL.active=r.name; tplBtnTitle(); }
+    tplChanged();
+  }
+  tplRenaming=null; tplErr(""); tplRender();
+}
+function tplDelete(name){
+  if(!TPL.items[name] || name===TPL.active) return;
+  if(!confirm(`Delete template "${name}"? This can't be undone.`)) return;
+  delete TPL.items[name]; tplChanged(); tplRender();
+}
+function tplOpenDlg(){
+  tplNewOpen=false; tplRenaming=null; tplErr(""); tplRender();
+  if(tplDlg.showModal) tplDlg.showModal(); else tplDlg.setAttribute("open","");
+}
+$("#tplClose").onclick=()=>tplDlg.close();
+tplDlg.addEventListener("click",e=>{ if(e.target===tplDlg) tplDlg.close(); });
+
+/* ============================================================
    Character math
    ============================================================ */
 const SKILLS = [["acrobatics","Acrobatics","dex"],["arcana","Arcana","int"],["athletics","Athletics","str"],["crafting","Crafting","int"],["deception","Deception","cha"],["diplomacy","Diplomacy","cha"],["intimidation","Intimidation","cha"],["medicine","Medicine","wis"],["nature","Nature","wis"],["occultism","Occultism","int"],["performance","Performance","cha"],["religion","Religion","wis"],["society","Society","int"],["stealth","Stealth","dex"],["survival","Survival","wis"],["thievery","Thievery","dex"]];
+
+/* ============================================================
+   Skill popups (Stat Block): what the skill covers, its actions, and the feats that touch it. Descriptions paraphrase Player Core (Archives of Nethys).
+   ============================================================ */
+const SKILL_INFO = {
+  acrobatics:{id:1,pg:233,d:"Balance, tumble and squeeze through tight spots: grace and coordination. It stands in for unarmed attacks when you Escape, and for Reflex saves when you catch yourself in a fall.",u:["Balance","Tumble Through"],t:["Maneuver in Flight","Squeeze"]},
+  arcana:{id:2,pg:234,d:"Knowledge of arcane magic and the creatures tied to it, such as constructs, dragons and elementals. It also identifies, learns and borrows arcane spells.",u:["Recall Knowledge"],t:["Borrow an Arcane Spell","Decipher Writing","Identify Magic","Learn a Spell"]},
+  athletics:{id:3,pg:234,d:"Raw physical prowess: climbing, swimming, jumping and forcing things open, plus controlling foes in melee with grapples, shoves and trips.",u:["Climb","Force Open","Grapple","High Jump","Long Jump","Reposition","Shove","Swim","Trip"],t:["Disarm"]},
+  crafting:{id:4,pg:236,d:"Making and mending items, with know-how in alchemy, engineering and unusual materials.",u:["Repair"],t:["Craft","Identify Alchemy","Earn Income"]},
+  deception:{id:5,pg:237,d:"Tricking and misleading others with lies, disguises and feints.",u:["Create a Diversion","Impersonate","Lie"],t:["Feint"]},
+  diplomacy:{id:6,pg:239,d:"Winning people over through negotiation and flattery, or learning things through friendly conversation.",u:["Gather Information","Make an Impression","Request"],t:[]},
+  intimidation:{id:7,pg:240,d:"Bending others to your will with threats. It is a blunt tool with little room for nuance.",u:["Coerce","Demoralize"],t:[]},
+  lore:{id:8,pg:240,d:"Deep knowledge of one narrow subject. Every Lore is its own skill, and each is narrower than the core skills, so it can't stand in for Arcana, Nature and the like.",u:[],t:["Recall Knowledge","Earn Income"]},
+  medicine:{id:9,pg:241,d:"Patching wounds, helping others recover from diseases and poisons, and examining bodies.",u:["Administer First Aid"],t:["Treat Disease","Treat Poison","Treat Wounds"]},
+  nature:{id:10,pg:242,d:"Knowledge of the natural world and its creatures, plus commanding and training animals. It also identifies and learns primal magic.",u:["Command an Animal","Recall Knowledge"],t:["Identify Magic","Learn a Spell"]},
+  occultism:{id:11,pg:243,d:"Knowledge of esoteric lore, ancient mysteries and strange creatures such as aberrations, spirits and oozes. It also identifies and learns occult magic.",u:["Recall Knowledge"],t:["Decipher Writing","Identify Magic","Learn a Spell"]},
+  performance:{id:12,pg:243,d:"Entertaining an audience with song, dance, acting, oration and other arts.",u:["Perform"],t:["Earn Income"]},
+  religion:{id:13,pg:244,d:"Knowledge of deities, theology and myth, and of celestials, fiends and undead. It also identifies and learns divine magic.",u:["Recall Knowledge"],t:["Decipher Writing","Identify Magic","Learn a Spell"]},
+  society:{id:14,pg:244,d:"Understanding of civilization: its people, institutions, history and customs. It also helps you get by in settlements.",u:["Recall Knowledge","Subsist"],t:["Create Forgery","Decipher Writing"]},
+  stealth:{id:15,pg:244,d:"Slipping past foes unseen: sneaking, hiding, and concealing objects on your person.",u:["Conceal an Object","Hide","Sneak"],t:[]},
+  survival:{id:16,pg:246,d:"Living off the wilderness: finding your way, foraging, sheltering and tracking.",u:["Sense Direction","Subsist"],t:["Cover Tracks","Track"]},
+  thievery:{id:17,pg:246,d:"The thief's trade: lifting small items, picking locks and disabling devices.",u:["Palm an Object","Steal"],t:["Disable a Device","Pick a Lock"]}
+};
+// actions the Reference pane's Skill Actions and Exploration tabs don't carry
+const SK_EXTRA = {
+  "Maneuver in Flight":{a:1,t:["Move"],text:"Needs a fly Speed. Pull off a tricky aerial move, such as a hard turn or a reversal, with an Acrobatics check."},
+  "Squeeze":{a:"1 min/10 ft",t:["Exploration","Move"],text:"Contort through a space barely big enough for you, at a crawl."},
+  "High Jump":{a:2,t:[],text:"Stride, then leap straight up. The GM sets the DC from the height."},
+  "Long Jump":{a:2,t:[],text:"Stride, then leap sideways. The DC equals the distance in feet."},
+  "Reposition":{a:1,t:["Attack"],text:"Move a creature within your reach to another spot within your reach. Athletics against its Fortitude DC."},
+  "Disarm":{a:1,t:["Attack"],text:"Knock an item out of a foe's grip. Athletics against its Reflex DC."},
+  "Repair":{a:"10 min",t:["Exploration","Manipulate"],text:"With a repair toolkit, restore Hit Points to a damaged item."},
+  "Craft":{a:"downtime",t:["Downtime","Manipulate"],text:"Make an item from raw materials, given its formula, the right tools and a workshop."},
+  "Identify Alchemy":{a:"10 min",t:["Concentrate","Exploration","Secret"],text:"With an alchemist's toolkit, work out what an alchemical item is and how it's activated."},
+  "Earn Income":{a:"downtime",t:["Downtime"],text:"Practice a trade with this skill over days of downtime to earn coin."},
+  "Treat Disease":{a:"downtime",t:["Downtime","Manipulate"],text:"Spend 8 hours caring for a diseased creature to help its saves against the disease."},
+  "Treat Poison":{a:1,t:["Manipulate"],text:"Help a poisoned creature by rolling Medicine against the poison's DC."},
+  "Treat Wounds":{a:"10 min",t:["Exploration","Healing","Manipulate"],text:"Spend 10 minutes tending an injured creature with a healer's toolkit to restore its Hit Points. A higher rank heals more."},
+  "Command an Animal":{a:1,t:["Auditory","Concentrate"],text:"Order an animal with a Nature check against its Will DC."},
+  "Perform":{a:1,t:["Concentrate"],text:"Give a short performance, such as a song, a dance or a joke, to impress an audience."},
+  "Sense Direction":{a:"explore",t:["Exploration","Secret"],text:"Use the sun, stars, terrain and plants to keep from getting lost."},
+  "Cover Tracks":{a:"explore",t:["Concentrate","Exploration","Move"],text:"Travel at half speed while hiding your trail. Trackers must beat your Survival DC."},
+  "Track":{a:"explore",t:["Concentrate","Exploration","Move"],text:"Follow a creature's trail at half speed, rolling again each hour or when conditions change."}
+};
+// feats that modify a skill; the ones the character has show up in that skill's popup
+const SK_FEATS = {
+  "Charming Liar":["deception"],"Lie to Me":["deception"],"Confabulator":["deception"],"Quick Disguise":["deception"],"Backup Disguise":["deception"],
+  "Pickpocket":["thievery"],"Subtle Theft":["thievery"],"Wary Disarmament":["thievery"],"Quick Unlock":["thievery"],
+  "Cat Fall":["acrobatics"],"Quick Squeeze":["acrobatics"],"Steady Balance":["acrobatics"],"Kip Up":["acrobatics"],
+  "Combat Climber":["athletics"],"Quick Jump":["athletics"],"Titan Wrestler":["athletics"],"Hefty Hauler":["athletics"],"Underwater Marauder":["athletics"],"Water Sprint":["athletics"],
+  "Arcane Sense":["arcana"],"Trick Magic Item":["arcana","nature","occultism","religion"],"Oddity Identification":["occultism"],"Student of the Canon":["religion"],
+  "Magical Crafting":["crafting"],"Quick Repair":["crafting"],"Specialty Crafting":["crafting"],"Snare Crafting":["crafting"],"Alchemical Crafting":["crafting"],
+  "Group Impression":["diplomacy"],"Hobnobber":["diplomacy"],"Glad-Hand":["diplomacy"],"Bargain Hunter":["diplomacy"],"Discreet Inquiry":["diplomacy"],
+  "Intimidating Glare":["intimidation"],"Group Coercion":["intimidation"],"Lasting Coercion":["intimidation"],"Quick Coercion":["intimidation"],
+  "Battle Medicine":["medicine"],"Continual Recovery":["medicine"],"Ward Medic":["medicine"],"Risky Surgery":["medicine"],"Robust Recovery":["medicine"],"Natural Medicine":["medicine","nature"],"Train Animal":["nature"],
+  "Virtuosic Performer":["performance"],"Fascinating Performance":["performance"],
+  "Courtly Graces":["society"],"Multilingual":["society"],"Read Lips":["society"],"Streetwise":["society"],
+  "Experienced Smuggler":["stealth"],"Terrain Stalker":["stealth"],"Quiet Allies":["stealth"],"Shadow Mark":["stealth"],
+  "Experienced Tracker":["survival"],"Forager":["survival"],"Survey Wildlife":["survival"],"Terrain Expertise":["survival"],
+  "Dubious Knowledge":["lore","arcana","nature","occultism","religion","society"],"Unmistakable Lore":["lore"],"Experienced Professional":["lore"]
+};
+function skillAction(name){
+  for(const g of ACTIONS.skills) { const it=g.items.find(x=>x.n===name); if(it) return it; }
+  for(const g of ACTIONS.exploration) { const it=g.items.find(x=>x.n===name); if(it) return it; }
+  return SK_EXTRA[name]?{n:name,...SK_EXTRA[name]}:null;
+}
+function skillTip(s){
+  const lore=s.key.startsWith("lore:"), info=SKILL_INFO[lore?"lore":s.key]; if(!info) return "";
+  const A=s.attr.toUpperCase(), asr=C.assurance&&C.assurance.key===s.key;
+  let h=`<div class="tt-h"><span class="tt-name">${esc(s.name)}</span><span class="tt-rank">${sg(s.mod)} <span class="rkl r${s.rank}">${RANK[s.rank][1]}</span></span></div>`;
+  h+=`<div class="traits"><span class="trait at-${s.attr}">${A}</span>${tagChip("Player Core")}</div>`;
+  h+=`<div class="line"><b>Modifier</b> ${sg(s.mod)} = ${A} ${sg(C.M[s.attr])} + ${RANK[s.rank][1]} ${sg(s.rank)}${s.rank?` + level ${C.L}`:""}</div>`;
+  if(asr) h+=`<div class="line"><b>Assurance</b> ${C.assurance.value} (10 + proficiency, no other modifiers)</div>`;
+  if(s.bumped) h+=`<p>Additional Lore's extra skill increases (levels 3, 7, 15) raise this to ${RANK[s.rank][1].toLowerCase()}. The export predates that.</p>`;
+  h+=`<p>${esc(info.d)}</p>`;
+  if(lore) h+=`<p>This Lore covers <b>${esc(s.name.replace(/ Lore$/,""))}</b>. Use it to Recall Knowledge on that subject.</p>`;
+  const val=v=>typeof v==="function"?v(C):v;
+  const actHTML=names=>names.map(n=>{ const it=skillAction(n); if(!it) return "";
+    const text=val(it.text);
+    return `<div class="act"><b class="actname">${glyph(it.a)}${esc(it.label?it.label(C):n)}</b> ${traitsHTML(it.t||[])}${text?`<div class="aline">${text}</div>`:""}</div>`; }).join("");
+  if(info.u.length) h+=`<div class="vhead">Untrained actions</div>${actHTML(info.u)}`;
+  if(info.t.length) h+=`<div class="vhead">Trained actions</div>${actHTML(info.t)}`;
+  const feats=(C.B.feats||[]).map(f=>f[0]).filter(n=>{
+    if(n==="Assurance") return asr;
+    if(n==="Additional Lore"||n==="Gnome Obsession") return lore && s.key==="lore:"+C.alName;
+    return (SK_FEATS[n]||[]).includes(lore?"lore":s.key); });
+  if(feats.length) h+=`<div class="vhead">Your feats</div>`+feats.map(n=>{ const fn=FEATURE_TEXT[n], body=fn?fn(C):"";
+    return `<div class="line"><b>${esc(n)}</b>${body?` ${body}`:""}</div>`; }).join("");
+  h+=`<div class="foot"><span>Player Core p. ${info.pg}</span><a href="${AON}Skills.aspx?ID=${info.id}" target="_blank" rel="noopener">AoN ↗</a></div>`;
+  return h;
+}
 
 function computeCtx(B, L){
   const M={}; for(const k of ["str","dex","con","int","wis","cha"]) M[k]=Math.floor((B.abilities[k]-10)/2);
@@ -875,16 +1321,9 @@ const knowsSpell = (C,name) => (C.B.spellCasters||[]).some(sc=>(sc.prepared||[])
 let REG=new Map(), regN=0, C=null;
 const reg = fn => { const id="t"+(regN++); REG.set(id,fn); return id; };
 const tipEl=$("#tip"); let pinned=null, hideT=null, showT=null;
-/* Safe HTML setter: parses inert via DOMParser, then adopts the nodes.
-   Behaviorally equivalent to el.innerHTML = html for these fragments (no script
-   execution either way; inline handler attributes survive adoption). */
-function setHTML(el, html){
-  const d = new DOMParser().parseFromString(html, "text/html");
-  el.replaceChildren(...d.body.childNodes);
-}
 function showTip(el, pin){
   const fn=REG.get(el.dataset.tip); if(!fn) return;
-  setHTML(tipEl, linkConds(fn())+(pin?`<div class="hint">Pinned · hover underlined conditions · click elsewhere or Esc to close</div>`:`<div class="hint">Click to pin</div>`));
+  setHTML(tipEl, linkConds(fn())+(pin?`<div class="hint">Click underlined conditions for details · click elsewhere or press Esc to close</div>`:`<div class="hint">Click to pin</div>`));
   tipEl.classList.toggle("pinned",!!pin); tipEl.hidden=false;
   document.querySelectorAll(".row.pinned").forEach(r=>r.classList.remove("pinned"));
   if(pin) el.classList.add("pinned");
@@ -914,7 +1353,7 @@ let owner=null;
 const ctipEl=$("#ctip"); let cPinned=false, cHideT=null, cShowT=null, cOwner=null;
 function showCond(k, el, pin){
   const c=CONDITIONS[k]; if(!c) return;
-  setHTML(ctipEl, `<div class="tt-h"><span class="tt-name">${esc(cap(k))}</span><span class="tt-rank">Condition</span></div><p>${linkConds(esc(c.t),k)}</p><div class="foot"><span>Player Core p. ${c.p}</span><a href="${AON}Conditions.aspx?ID=${c.id}" target="_blank" rel="noopener">AoN ↗</a></div>${pin?`<div class="hint">Pinned · click another condition to switch · click elsewhere or Esc to close</div>`:""}`);
+  setHTML(ctipEl, `<div class="tt-h"><span class="tt-name">${esc(cap(k))}</span><span class="tt-rank">Condition</span></div><div class="traits">${tagChip("Player Core")}</div><p>${linkConds(esc(c.t),k)}</p><div class="foot"><span>Player Core p. ${c.p}</span><a href="${AON}Conditions.aspx?ID=${c.id}" target="_blank" rel="noopener">AoN ↗</a></div>${pin?`<div class="hint">Pinned · click another condition to switch · click elsewhere or Esc to close</div>`:""}`);
   ctipEl.classList.toggle("pinned",!!pin); cPinned=!!pin; cOwner=el; ctipEl.hidden=false;
   ctipEl.style.left="0px"; ctipEl.style.top="0px";
   const t=ctipEl.getBoundingClientRect(), r=el.getBoundingClientRect(), W=innerWidth, H=innerHeight;
@@ -928,7 +1367,7 @@ function showCond(k, el, pin){
 function hideCond(){ cPinned=false; cOwner=null; ctipEl.hidden=true; }
 function showTrait(name, el, pin){
   const t=TRAIT_DB[name]; if(!t) return;
-  setHTML(ctipEl, `<div class="tt-h"><span class="tt-name">${esc(name)}</span><span class="tt-rank">Trait</span></div><p>${esc(t)}</p>${pin?`<div class="hint">Pinned · click another trait to switch · click elsewhere or Esc to close</div>`:""}`);
+  setHTML(ctipEl, `<div class="tt-h"><span class="tt-name">${esc(name)}</span><span class="tt-rank">Trait</span></div><div class="traits">${tagChip("Player Core")}</div><p>${esc(t)}</p>${pin?`<div class="hint">Pinned · click another trait to switch · click elsewhere or Esc to close</div>`:""}`);
   ctipEl.classList.toggle("pinned",!!pin); cPinned=!!pin; cOwner=el; ctipEl.hidden=false;
   ctipEl.style.left="0px"; ctipEl.style.top="0px";
   const t2=ctipEl.getBoundingClientRect(), r=el.getBoundingClientRect(), W=innerWidth, H=innerHeight;
@@ -936,26 +1375,12 @@ function showTrait(name, el, pin){
   if(y+t2.height>H-8) y=Math.max(8,r.top-t2.height-6);
   ctipEl.style.left=x+"px"; ctipEl.style.top=y+"px";
 }
-document.addEventListener("mouseover",e=>{
-  if(e.target.closest("#ctip")){ clearTimeout(cHideT); return; }
-  const c=e.target.closest(".cond,.crow,.ttrait");
-  if(c){
-    clearTimeout(cHideT); if(cPinned || (c===cOwner && !ctipEl.hidden)) return;
-    clearTimeout(cShowT);
-    if(c.dataset.trait!=null){ if(!TRAIT_DB[c.dataset.trait]) return; cShowT=setTimeout(()=>showTrait(c.dataset.trait,c,false),60); }
-    else cShowT=setTimeout(()=>showCond(c.dataset.cond,c,false),60);
-  }
-  else if(!cPinned){ clearTimeout(cShowT); clearTimeout(cHideT); cHideT=setTimeout(()=>{ if(!cPinned) hideCond(); },200); }
-});
-
-document.addEventListener("mouseover",e=>{
-  if(pinned) return;
-  const el=e.target.closest("[data-tip]");
-  if(e.target.closest("#tip,#ctip")){ clearTimeout(hideT); return; }
-  if(el && el===owner && !tipEl.hidden){ clearTimeout(hideT); return; }
-  if(el){ clearTimeout(hideT); clearTimeout(showT); showT=setTimeout(()=>{ owner=el; showTip(el,false); },70); }
-  else { clearTimeout(showT); clearTimeout(hideT); hideT=setTimeout(()=>{ if(!pinned) tipEl.hidden=true; },150); }
-});
+let pendEl=null, cPendEl=null;                         // popups open on click only
+// spell rows only open their tooltip from the name, description and rank columns (not the cast box or action glyphs)
+function tipTarget(t){
+  const el=t.closest("[data-tip]"); if(!el || !el.classList.contains("sprow")) return el;
+  const col=t.closest(".nm,.q,.chip"); return col && el.contains(col) ? el : null;
+}
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ if(!ctipEl.hidden) hideCond(); else hideTip(); } });
 window.addEventListener("scroll",()=>{ if(!pinned) tipEl.hidden=true; if(!cPinned) ctipEl.hidden=true; },{passive:true});
 
@@ -973,7 +1398,7 @@ function spellTip(name,r,K,opts){
   const d=def.f(r,K,C);
   let h=`<div class="tt-h"><span class="tt-name">${glyph(def.act)}${esc(name)}</span><span class="tt-rank">${head}</span></div>`;
   const trad = opts.kind==="innate" ? `<span class="trait trad">${cap(K.trad)} innate</span>` : `<span class="trait trad">${cap(K.trad)}</span>`;
-  h+=`<div class="traits">${traitsHTML(def.traits)}${trad}${opts.curriculum?`<span class="trait" style="background:#6b5520">Curriculum</span>`:""}</div>`;
+  h+=`<div class="traits">${tagChip(def.src)}${traitsHTML(def.traits)}${trad}${opts.curriculum?`<span class="trait" style="background:#6b5520">Curriculum</span>`:""}</div>`;
   h+=`<div class="kv">${(d.stats||[]).map(([k,v])=>`<div class="${String(v).length>26?"full":""}"><b>${k}</b> ${esc(v)}</div>`).join("")}</div>`;
   const body=[];
   if(d.lines) body.push(d.lines.map(([k,v])=>`<div class="line"><b>${k}.</b> ${v}</div>`).join(""));
@@ -1004,7 +1429,7 @@ function spellRow(name,r,K,opts){
   const lockIcon=`<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 10V8a6 6 0 1112 0v2h.5A1.5 1.5 0 0120 11.5v9A1.5 1.5 0 0118.5 22h-13A1.5 1.5 0 014 20.5v-9A1.5 1.5 0 015.5 10H6zm2 0h8V8a4 4 0 00-8 0v2z"/></svg>`;
   const use = opts.locked ? `<span class="use lock" title="Innate from ${esc(opts.source)}. Always available; can't be prepared, swapped or moved.">${lockIcon}</span>`
     : opts.key ? `<button class="use ${opts.used?"on":""}" data-use="${esc(opts.key)}" title="${opts.used?"Cast (click to restore)":"Mark as cast"}">${opts.used?"✕":""}</button>` : `<span class="use none"></span>`;
-  return `<div class="row ${opts.used?"spent":""}${opts.locked?" locked":""}${opts.staffSlot?" staffslot":""}${opts.currSlot?" currslot":""}" data-tip="${id}"${opts.attrs||""}>${use}${glyph(def?def.act:null)}<span class="nm">${esc(name)}${opts.curriculum?` <span class="cur" title="Curriculum spell">✦</span>`:""}${opts.locked?` <span class="src-tag">${esc(opts.source)}</span>`:""}${opts.staffSlot?` <span class="src-tag staff-tag">Staff Nexus Spell</span>`:""}${opts.currSlot?` <span class="src-tag curr-tag">Curriculum slot</span>`:""}</span><span class="q">${esc(quick)}</span><span class="chip ${opts.kind}">${chip}</span></div>`;
+  return `<div class="row sprow ${opts.used?"spent":""}${opts.locked?" locked":""}${opts.staffSlot?" staffslot":""}${opts.currSlot?" currslot":""}" data-tip="${id}"${opts.attrs||""}>${use}${glyph(def?def.act:null)}<span class="nm">${esc(name)}${opts.curriculum?` <span class="cur" title="Curriculum spell">✦</span>`:""}${opts.locked?` <span class="src-tag">${esc(opts.source)}</span>`:""}${opts.staffSlot?` <span class="src-tag staff-tag">Staff Nexus Spell</span>`:""}${opts.currSlot?` <span class="src-tag curr-tag">Curriculum slot</span>`:""}</span><span class="q">${esc(quick)}</span><span class="chip ${opts.kind}">${chip}</span></div>`;
 }
 const rankHead = (t,s,r,attrs)=>`<div class="rank-h" ${attrs||""}><span class="t">${t}</span><span class="s">${s}</span><span class="r">${r||""}</span></div>`;
 
@@ -1043,8 +1468,11 @@ function prepSlots(K,slots,prep){
   return out;
 }
 
+const tabRow=(set,tabs,cur)=>`<div class="tabs">${tabs.map(([k,l])=>`<button data-tabset="${set}" data-tabval="${k}" class="${cur===k?"on":""}">${l}</button>`).join("")}</div>`;
 function renderSpells(){
-  let h=`<h2>Spells <small>hover for details · drag to prepare</small></h2>`;
+  const magicTab=S.magicTab==="pet"?"pet":"spells";
+  let h=`<h2>Magic <small>${magicTab==="pet"?"pet, summons and minions":"Click for details · drag to prepare"}</small></h2>`+tabRow("magicTab",[["spells","Spells"],["pet","Pet &amp; Minions"]],magicTab);
+  if(magicTab==="pet"){ setHTML($("#pSpells"), h+minionsHTML()); return; }
   const cr=C.cantripRank;
   const alpha=(a,b)=>a.localeCompare(b,undefined,{sensitivity:"base",numeric:true});
   const WK=C.casters.find(k=>!k.sc.innate);
@@ -1393,10 +1821,10 @@ function strikeRow(s){
     return h;});
   return `<div class="row arow" data-tip="${id}">${glyph(1)}<span class="nm">${esc(s.name)}</span><span class="q">${sg(s.atk)} / ${sg(s.atk-s.map)} / ${sg(s.atk-2*s.map)} · ${dmg(s.bonus)} ${s.type}${twoDie?` (2H 1${twoDie})`:""}${s.W.traits.includes("Nonlethal")?" nonlethal":""}</span></div>`;
 }
-function renderActions(){
+function actionsHTML(){
   const tabs=[["encounter","Encounter"],["skills","Skill Actions"],["exploration","Exploration"]];
   if(!tabs.some(([k])=>k===S.tab)) S.tab="encounter";
-  let h=`<h2>Actions <small>hover for rules</small></h2><div class="tabs">${tabs.map(([k,n])=>`<button data-tab="${k}" class="${S.tab===k?"on":""}">${n}</button>`).join("")}</div>`;
+  let h=`<div class="tabs">${tabs.map(([k,n])=>`<button data-tab="${k}" class="${S.tab===k?"on":""}">${n}</button>`).join("")}</div>`;
   const byName=(a,b)=>a.localeCompare(b,undefined,{sensitivity:"base"});
   if(S.tab==="encounter"){ h+=`<div class="grp">Strikes</div>`+C.strikes.slice().sort((a,b)=>byName(a.name,b.name)).map(strikeRow).join(""); }
   for(const g of ACTIONS[S.tab]||[]){
@@ -1404,23 +1832,20 @@ function renderActions(){
     const items=g.items.filter(it=>!it.show||it.show(C)).sort((a,b)=>byName(label(a),label(b))); if(!items.length) continue;
     h+=`<div class="grp">${esc(g.group)}</div>`+items.map(actionRow).join("");
   }
-  setHTML($("#pActions"), h);
+  return h;
 }
-function renderConditions(){
+function condsHTML(){
   const az=S.condSort==="az";
-  let h=`<h2>Conditions <small>hover for rules</small></h2><div class="tabs csort"><span>Sort</span><button data-condsort="cat" class="${az?"":"on"}">By category</button><button data-condsort="az" class="${az?"on":""}">A–Z</button></div>`;
+  let h=`<div class="tabs csort"><span>Sort</span><button data-condsort="cat" class="${az?"":"on"}">By category</button><button data-condsort="az" class="${az?"on":""}">A–Z</button></div>`;
   if(az) h+=Object.keys(CONDITIONS).sort().map(condRow).join("");
   else for(const [g,ks,keep] of COND_GROUPS) h+=`<div class="grp">${esc(g)}</div>`+(keep?ks:ks.slice().sort()).map(condRow).join("");
-  setHTML($("#pConditions"), h);
+  return h;
 }
-function renderSideTabs(){
-  if(S.tab==="conditions"){ S.tab="encounter"; S.sideTab="conditions"; }   // older saved state
-  const tabs=[["actions","Actions"],["conditions","Conditions"],["rules","Rules"]];
-  if(!tabs.some(([k])=>k===S.sideTab)) S.sideTab="actions";
-  setHTML($("#sideTabs"), tabs.map(([k,n])=>`<button data-side="${k}" class="${S.sideTab===k?"on":""}">${esc(n)}</button>`).join(""));
-  $("#pActions").hidden = S.sideTab!=="actions";
-  $("#pConditions").hidden = S.sideTab!=="conditions";
-  $("#pRules").hidden = S.sideTab!=="rules";
+function renderRef(){
+  const tab=S.refTab==="conds"||S.refTab==="rules"?S.refTab:"act";
+  let h=`<h2>Reference <small>${tab==="rules"?"checked against the books":"Click for rules"}</small></h2>`+tabRow("refTab",[["act","Actions"],["conds","Conditions"],["rules","Rules"]],tab);
+  h+= tab==="conds" ? condsHTML() : tab==="rules" ? rulesHTML() : actionsHTML();
+  setHTML($("#pRef"), h);
 }
 
 /* ============================================================
@@ -1434,7 +1859,9 @@ function renderStats(){
   const tile=(k,v,x,tip,cls)=>`<div class="tile t-${String(k).toLowerCase().replace(/[^a-z]/g,"")} ${cls||""}" ${tip?`data-tip="${reg(tip)}"`:""}><div class="v">${v}</div><div class="k">${k}</div>${x?`<div class="x">${x}</div>`:""}</div>`;
   const brk=(title,parts,extra,signed)=>()=>{ const tot=parts.reduce((s,p)=>s+p[1],0);
     return `<div class="tt-h"><span class="tt-name">${title}</span><span class="tt-rank">${signed?sg(tot):tot}</span></div>${parts.map(([k,v])=>`<div class="line"><b>${esc(k)}</b> ${sg(v)}</div>`).join("")}${extra||""}`; };
-  let h=`<h2>Stat Block <small>${esc(B.ancestry)} ${esc(B.class)} ${C.L}</small></h2>`;
+  const statTab=S.statTab==="campaign"?"campaign":"stats";
+  let h=`<h2>Basic Information <small>${statTab==="campaign"?"Eberron / Korvaire · Mror Holds Campaign · Pathfinder 2e":`${esc(B.ancestry)} ${esc(B.class)} ${C.L}`}</small></h2>`+tabRow("statTab",[["stats","Stat Block"],["campaign","Campaign"]],statTab);
+  if(statTab==="campaign"){ setHTML($("#pStats"), h+campaignHTML()); return; }
   h+=`<div class="hp"><div class="hp-top"><span class="lbl">Hit Points</span><span class="hpnum"><b>${hp}</b> / ${C.hpMax}${temp?` <span style="color:var(--blue)">+${temp} temp</span>`:""}</span></div>
       <div class="bar"><i style="width:${Math.max(0,hp)/tot*100}%"></i><i class="tmp" style="width:${temp/tot*100}%"></i></div>
       <div class="hp-btns"><button data-hp="-5">−5</button><button data-hp="-1">−1</button><button data-hp="1">+1</button><button data-hp="5">+5</button><button data-hp="full" title="Restore to max">Full</button>
@@ -1458,8 +1885,7 @@ function renderStats(){
   h+=`</div>`;
   h+=`<h3>Attributes</h3><div class="attrs">${["str","dex","con","int","wis","cha"].map(k=>`<div class="attr ${k===B.keyability?"key":""}"><div class="k">${k.toUpperCase()}</div><div class="v">${sg(C.M[k])}</div></div>`).join("")}</div>`;
   h+=`<h3>Skills</h3><div class="skills">`;
-  const skRow=(s,wide)=>{ const tip = s.key===(C.assurance&&C.assurance.key) || s.bumped ? `data-tip="${reg(()=>`<div class="tt-h"><span class="tt-name">${esc(s.name)}</span><span class="tt-rank">${RANK[s.rank][1]}</span></div><div class="line"><b>Modifier</b> ${sg(s.mod)} = ${s.attr.toUpperCase()} ${sg(C.M[s.attr])} + ${RANK[s.rank][1]} ${C.pb(s.rank)}</div>${C.assurance&&C.assurance.key===s.key?`<div class="line"><b>Assurance</b> ${C.assurance.value} (10 + proficiency, no other modifiers)</div>`:""}${s.bumped?`<p>Additional Lore's extra skill increases (levels 3, 7, 15) raise this to ${RANK[s.rank][1].toLowerCase()}. The export predates that.</p>`:""}`)}"` : "";
-    return `<div class="sk ${s.rank?"":"untr"} ${wide?"wide":""}" ${tip}><span class="rk r${s.rank}">${RANK[s.rank][0]}</span><span class="n">${esc(s.name)}${C.assurance&&C.assurance.key===s.key?` <span style="color:var(--gold);font-size:11px">A ${C.assurance.value}</span>`:""}</span><span class="m">${sg(s.mod)}</span></div>`; };
+  const skRow=(s,wide)=>`<div class="sk ${s.rank?"":"untr"} ${wide?"wide":""}" data-tip="${reg(()=>skillTip(s))}"><span class="rk r${s.rank}">${RANK[s.rank][0]}</span><span class="n">${esc(s.name)}${C.assurance&&C.assurance.key===s.key?` <span style="color:var(--gold);font-size:11px">A ${C.assurance.value}</span>`:""}</span><span class="m">${sg(s.mod)}</span></div>`;
   h+=C.skills.map(s=>skRow(s)).join("")+C.lores.map(s=>skRow(s,true)).join("")+`</div>`;
   const langs=(B.languages||[]).filter(l=>l && l!=="None selected");
   h+=`<div class="meta"><b>Ancestry</b> ${esc(B.ancestry)} (${esc(B.heritage)}) · <b>Background</b> ${esc(B.background)} · <b>Alignment</b> ${esc(B.alignment)}</div>`;
@@ -1472,7 +1898,6 @@ function renderStats(){
    ============================================================ */
 function bulkVal(v){ return v==="L"?1 : (v==="-"||v==null)?0 : Math.round(+v*10); } // in tenths
 function bulkTxt(t){ const b=Math.floor(t/10), l=t%10; return b&&l?`${b} Bulk + ${l} L`:b?`${b} Bulk`:l?`${l} L`:"negligible"; }
-const HOLDS_RE=/(hold(?:s)?\s+(?:up\s+to\s+)?[\d,]+\s+Bulk|can\s+hold[^.;]{0,40}Bulk|capacity[^.;]{0,20}\b[\d,]+\s+Bulk)/i;
 const CAP_RE=/(?:hold(?:s)?|capacity(?:\s+of)?)[^.;]{0,24}?\b([\d,]+)\s+Bulk/i;
 function capacityOf(name){                       // in tenths of Bulk, null when unknown
   const texts=[];
@@ -1484,19 +1909,22 @@ function capacityOf(name){                       // in tenths of Bulk, null when
   for(const t of texts){ const m=String(t).match(CAP_RE); if(m) return parseInt(m[1].replace(/,/g,""),10)*10; }
   return null;
 }
-function canHold(name){
-  const local=(typeof ITEMS!=="undefined"&&ITEMS[name])||null;
-  if(local && HOLDS_RE.test(local.text||"")) return true;
-  const rec=(typeof itemDB!=="undefined"?itemDB():[]).find(r=>r.name===name);
-  if(rec){
-    if((rec.traits||[]).some(t=>/^extradimensional$/i.test(t))) return true;
-    if(HOLDS_RE.test((rec.desc||"")+" "+(rec.vdesc||""))) return true;
-  }
-  return false;
-}
 const MAGIC_ITEMS = ["Staff","Oil of Weightlessness"];   // makeshift Staff Nexus staff + consumable
 let INV_VIEW=null;
-const INV_SECS = [["equipped","Equipped Items"],["equipment","Equipment"],["magic","Magic Items"],["gems","Gems/Jewelry/Art"],["trade","Trade Goods"]];
+// tab id, label, drop target: All Equipment is the tree; every other tab is a filter over it
+const INV_TABS = [["all","All Equipment","top"],["equipped","Equipped Items","equipped"],["magic","Magic Items","tag:magic"],["gems","Gems/Jewelry/Art","tag:gems"],["trade","Trade Goods","tag:trade"]];
+const INV_TAGS = [["magic","Magic","Magic item"],["gems","Gem/Art","Gem, jewelry or art"],["trade","Trade","Trade good"]];   // id, row chip, dialog label
+const MAGIC_TRAITS = new Set(["magical","invested","artifact","staff","wand"]);
+const GEM_RE = /\b(gems?|gemstones?|jewel(?:s|ry|lery)?|art objects?|artwork|paintings?|statuettes?|sculptures?|tapestr(?:y|ies)|necklaces?|bracelets?|tiaras?|diamonds?|rub(?:y|ies)|sapphires?|emeralds?|opals?|pearls?|amber|jade|topaz|garnets?|amethysts?|onyx|lapis lazuli|moonstones?|turquoise|zircons?|peridots?|aquamarines?|bloodstones?|carnelians?|citrines?)\b/i;
+// tags from the item DB record (type, sub, traits), the file's own item text and the Pathbuilder build; hint is "magic" when the build shows runes or potency
+function derivedTags(name,hint,recArg){
+  const rec=recArg||itemDB().find(r=>r.name===name), loc=ITEMS[name]||null, t=[];
+  const traits=rec?(rec.traits||[]).map(x=>x.toLowerCase()):[];
+  if(MAGIC_ITEMS.includes(name) || hint==="magic" || traits.some(x=>MAGIC_TRAITS.has(x)) || (rec&&/^(Staves|Wands|Runes)$/.test(rec.type)) || (loc&&/\bmagical\b/i.test(loc.text||""))) t.push("magic");
+  if(GEM_RE.test(name) || (rec&&GEM_RE.test(rec.type+" "+(rec.sub||"")))) t.push("gems");
+  if((rec&&(rec.type==="Trade Goods"||/trade good/i.test(rec.sub||""))) || (loc&&/precious material/i.test(loc.text||""))) t.push("trade");
+  return t;
+}
 function invLoc(key,def){
   if(typeof key==="string" && key.startsWith("s|")) return def;   // splits own their location
   return (S.loc&&S.loc[key])||def;
@@ -1507,17 +1935,22 @@ function setLoc(key,to){                                          // write a loc
     if(S.loc) delete S.loc[key];
   } else { S.loc=S.loc||{}; S.loc[key]=to; }
 }
+const eqDefault = key => /^[aw]\|/.test(key);                      // armor and weapons start equipped; splits and everything else don't
+function isEq(key,def){ const v=S.equip&&S.equip[key]; return v!=null?!!v:def; }
+function setEq(key,on){ S.equip=S.equip||{}; S.equip[key]=!!on; }
+function findInv(key){ return INV_VIEW?INV_VIEW.items.concat(INV_VIEW.conts).find(x=>x.key===key):null; }
+function findTagged(tk){ return INV_VIEW?INV_VIEW.items.concat(INV_VIEW.conts).find(x=>(x.tkey||x.key)===tk):null; }
+function setTags(x,list){ S.tags=S.tags||{}; S.tags[x.tkey||x.key]=INV_TAGS.map(t=>t[0]).filter(t=>list.includes(t)); }
 
 // ---- stack splitting: base item defaults/qty (mirrors the items.push() logic below, without building tips/bulk) ----
 function invBaseInfo(B){
   const containers=B.equipmentContainers||{};
   const contNames=Object.values(containers).map(c=>c.containerName);
   const eq=(B.equipment||[]).map(e=>({name:e[0],qty:e[1],cont:containers[e[2]]?e[2]:null}));
-  const isMagic=n=>MAGIC_ITEMS.includes(n);
   const m=new Map();
-  for(const a of B.armor||[]) m.set("a|"+a.name,{def:isMagic(a.name)?"magic":"equipped",qty:a.qty});
-  for(const w of B.weapons||[]) m.set("w|"+w.name,{def:isMagic(w.name)?"magic":"equipped",qty:w.qty});
-  for(const e of eq.filter(e=>!e.cont)){ if(contNames.includes(e.name)) continue; m.set("e|"+e.name,{def:isMagic(e.name)?"magic":"equipment",qty:e.qty}); }
+  for(const a of B.armor||[]) m.set("a|"+a.name,{def:"top",qty:a.qty});
+  for(const w of B.weapons||[]) m.set("w|"+w.name,{def:"top",qty:w.qty});
+  for(const e of eq.filter(e=>!e.cont)){ if(contNames.includes(e.name)) continue; m.set("e|"+e.name,{def:"top",qty:e.qty}); }
   for(const e of eq.filter(e=>e.cont)) m.set(`c|${e.cont}|${e.name}`,{def:"cont:"+e.cont,qty:e.qty});
   for(const c of S.custom||[]) m.set(c.key,{def:c.loc,qty:c.qty});
   return m;
@@ -1526,29 +1959,31 @@ function newSplitId(base){ S.splitSeq=(S.splitSeq||0)+1; return `s|${base}|${S.s
 // fold/merge/drop split stacks before anything is built or rendered
 function normalizeStacks(){
   const B=C.B;
-  S.loc=S.loc||{}; S.userConts=S.userConts||{}; S.qty=S.qty||{}; S.splits=S.splits||[];
+  S.loc=S.loc||{}; S.userConts=S.userConts||{}; S.qty=S.qty||{}; S.splits=S.splits||[]; S.equip=S.equip||{}; S.tags=S.tags||{};
   const info=invBaseInfo(B);
   let changed=false;
   const kept=[];
   for(const sp of S.splits){
-    if(!(sp.qty>0) || !info.has(sp.base)){ changed=true; continue; }
+    if(!(sp.qty>0) || !info.has(sp.base)){ delete S.equip[sp.id]; changed=true; continue; }
     const bi=info.get(sp.base), baseLoc=invLoc(sp.base,bi.def);
-    if(!S.userConts[sp.id] && sp.loc===baseLoc){        // sitting right back where the base stack lives: fold it in
+    const sameSpot=sp.loc===baseLoc && (baseLoc!=="top" || isEq(sp.id,false)===isEq(sp.base,eqDefault(sp.base)));   // a stack you equipped stays apart from the unequipped one
+    if(!S.userConts[sp.id] && sameSpot){                 // sitting right back where the base stack lives: fold it in
       const cur=S.qty[sp.base]!=null?S.qty[sp.base]:bi.qty;
       S.qty[sp.base]=cur+sp.qty;
+      delete S.equip[sp.id];
       changed=true; continue;
     }
     kept.push(sp);
   }
   const merged=[], byKey=new Map();
   for(const sp of kept){
-    const k=sp.base+" "+sp.loc;
-    if(byKey.has(k)){ byKey.get(k).qty+=sp.qty; changed=true; }
+    const k=sp.base+"\u0000"+sp.loc+"\u0000"+(sp.loc==="top"?isEq(sp.id,false):"");
+    if(byKey.has(k)){ byKey.get(k).qty+=sp.qty; delete S.equip[sp.id]; changed=true; }
     else { const copy={id:sp.id,base:sp.base,qty:sp.qty,loc:sp.loc}; byKey.set(k,copy); merged.push(copy); }
   }
   S.splits=merged;
   for(const k of Object.keys(S.qty)){ if(S.qty[k]<0){ S.qty[k]=0; changed=true; } }
-  if(changed) saveState();
+  // this runs on every render as passive cleanup, not a user edit — don't write or mark dirty
 }
 function renderInv(){
   normalizeStacks();
@@ -1564,38 +1999,38 @@ function renderInv(){
   const itemTip=(name,qty,def,extra)=>()=>`<div class="tt-h"><span class="tt-name">${esc(name)}</span><span class="tt-rank">${qty>1?"×"+qty+" · ":""}Bulk ${def&&def.bulk!=null?(def.bulk==="-"?"—":def.bulk):"?"}</span></div>${def&&def.traits?`<div class="traits">${traitsHTML(def.traits)}</div>`:""}<p>${def?esc(def.text||""):"No item data on file."}</p>${extra||""}`;
   const isMagic=n=>MAGIC_ITEMS.includes(n);
 
-  // ---- entities: items and containers, each with a location ----
+  // ---- entities: items and containers, each with a location (top level or a container), an equipped flag and tags ----
   let items=[];
   for(const a of B.armor||[]){ const d=ARMOR[a.name]; if(!d) unknown.push(a.name); const nm=a.display||a.name;
     const bu=(d?bulkVal(d.bulk):0);
-    items.push({key:"a|"+a.name, name:nm, qty:a.qty, bu, b:bu*a.qty, def:isMagic(a.name)?"magic":"equipped",
+    items.push({key:"a|"+a.name, name:nm, src:a.name, hint:(a.pot>0||a.res||(a.runes||[]).length)?"magic":"", qty:a.qty, bu, b:bu*a.qty, def:"top", eqDef:true,
       tip:itemTip(nm,a.qty,d,`<div class="line"><b>AC</b> ${C.ac} total · Dex cap ${sg(d?d.dexCap:0)}${a.worn?" · worn":""}</div>`)}); }
   for(const w of B.weapons||[]){ const d=WEAPONS[w.name]; if(!d) unknown.push(w.name);
     const st=C.strikes.find(x=>x.name===(w.display||w.name)), nm=w.display||w.name;
     const extra=(st?`<div class="line"><b>Strike</b> ${sg(st.atk)} · 1${st.die}${st.bonus?(st.bonus<0?"−":"+")+Math.abs(st.bonus):""} ${st.type}</div>`:"")+(isMagic(w.name)?`<div class="line"><b>Staff Nexus</b> your makeshift staff: holds one cantrip and one 1st-rank spell.</div>`:"");
     const bu=(d?bulkVal(d.bulk):0);
-    items.push({key:"w|"+w.name, name:nm, qty:w.qty, bu, b:bu*w.qty, def:isMagic(w.name)?"magic":"equipped", tip:itemTip(nm,w.qty,d?{...d,bulk:String(d.bulk)}:null,extra)}); }
+    items.push({key:"w|"+w.name, name:nm, src:w.name, hint:(w.pot>0||w.str||(w.runes||[]).length)?"magic":"", qty:w.qty, bu, b:bu*w.qty, def:"top", eqDef:true, tip:itemTip(nm,w.qty,d?{...d,bulk:String(d.bulk)}:null,extra)}); }
   const conts=[];
   for(const [id,c] of Object.entries(containers)){
     const own=eq.find(e=>!e.cont && e.name===c.containerName);
     const d=own?ITEMS[own.name]:null;
-    conts.push({key:"C|"+id, id, name:c.containerName, backpack:!!c.backpack, xd:!!c.bagOfHolding,
-      b:(d?bulkVal(d.worn||d.bulk):0), def:c.backpack?"equipped":"equipment", tip:d?itemTip(c.containerName,1,d):null});
+    conts.push({key:"C|"+id, id, isC:true, name:c.containerName, src:c.containerName, hint:c.bagOfHolding?"magic":"", backpack:!!c.backpack, xd:!!c.bagOfHolding,
+      b:(d?bulkVal(d.worn||d.bulk):0), def:"top", eqDef:!!c.backpack, tip:d?itemTip(c.containerName,1,d):null});
   }
   for(const e of eq.filter(e=>!e.cont)){
     if(contNames.includes(e.name)) continue;                 // the container itself is listed as a container
     const d=ITEMS[e.name]; if(!d) unknown.push(e.name);
     const bu=(d?bulkVal(d.bulk):0);
-    items.push({key:"e|"+e.name, name:e.name, qty:e.qty, bu, b:bu*e.qty, def:isMagic(e.name)?"magic":"equipment", tip:itemTip(e.name,e.qty,d)}); }
+    items.push({key:"e|"+e.name, name:e.name, src:e.name, qty:e.qty, bu, b:bu*e.qty, def:"top", eqDef:false, tip:itemTip(e.name,e.qty,d)}); }
   for(const e of eq.filter(e=>e.cont)){
     const d=ITEMS[e.name]; const known=d&&d.bulk!==null; const c=containers[e.cont];
     if(!known && !c.bagOfHolding) unknown.push(e.name);
     const bu=(known?bulkVal(d.bulk):0);
-    items.push({key:`c|${e.cont}|${e.name}`, name:e.name, qty:e.qty, bu, b:bu*e.qty, def:"cont:"+e.cont, tip:itemTip(e.name,e.qty,d)}); }
+    items.push({key:`c|${e.cont}|${e.name}`, name:e.name, src:e.name, qty:e.qty, bu, b:bu*e.qty, def:"cont:"+e.cont, eqDef:false, tip:itemTip(e.name,e.qty,d)}); }
   for(const c of S.custom||[]){
     const rec=itemDB().find(r=>r.name===c.name);
     const bu=rec?dbBulkVal(rec.bulk):0;
-    items.push({key:c.key, name:c.name, qty:c.qty, bu, b:bu*c.qty, def:c.loc, tip:rec?itemTipDB(rec):itemTip(c.name,c.qty,null)}); }
+    items.push({key:c.key, name:c.name, src:c.name, qty:c.qty, bu, b:bu*c.qty, def:c.loc, eqDef:false, tip:rec?itemTipDB(rec):itemTip(c.name,c.qty,null)}); }
 
   // ---- apply per-key qty overrides, then expand any splits into their own rows ----
   const baseByKey=new Map(items.map(it=>[it.key,it]));
@@ -1605,7 +2040,7 @@ function renderInv(){
   }
   for(const sp of S.splits){
     const base=baseByKey.get(sp.base); if(!base) continue;
-    items.push({key:sp.id, name:base.name, qty:sp.qty, bu:base.bu, b:base.bu*sp.qty, def:sp.loc, tip:base.tip, isSplit:true, splitBase:sp.base});
+    items.push({key:sp.id, name:base.name, src:base.src, hint:base.hint, qty:sp.qty, bu:base.bu, b:base.bu*sp.qty, def:sp.loc, eqDef:false, tip:base.tip, isSplit:true, splitBase:sp.base, tkey:sp.base});
   }
   items=items.filter(it=>it.qty>0);
 
@@ -1618,16 +2053,22 @@ function renderInv(){
     let home=invLoc(it.key,it.def);
     if(home.startsWith("cont:")){                       // was inside another container
       const pid=home.slice(5), parent=conts.find(c=>c.id===pid);
-      home=parent?invLoc(parent.key,parent.def):"equipment";
-      if(home.startsWith("cont:")) home="equipment";
+      home=parent?invLoc(parent.key,parent.def):"top";
+      if(home.startsWith("cont:")) home="top";
       setLoc(it.key,home);
     }
-    conts.push({key:it.key, id:"u:"+it.key, name:it.name+(it.qty>1?" ×"+it.qty:""), backpack:false, xd:false, b:it.b, user:true, tip:it.tip, def:home});
+    conts.push({key:it.key, id:"u:"+it.key, isC:true, name:it.name+(it.qty>1?" ×"+it.qty:""), src:it.src, hint:it.hint, tkey:it.tkey, backpack:false, xd:false, b:it.b, user:true, tip:it.tip, def:home, eqDef:it.eqDef});
   }
   S.removed=S.removed||{};
   for(let i=items.length-1;i>=0;i--) if(S.removed[items[i].key]) items.splice(i,1);
   for(let i=conts.length-1;i>=0;i--) if(S.removed[conts[i].key]) conts.splice(i,1);
   const at=(x)=>invLoc(x.key,x.def);
+  for(const x of items.concat(conts)){                   // tags: your edit wins over what the data says
+    x.dtags=derivedTags(x.src,x.hint);
+    const ov=S.tags[x.tkey||x.key];
+    x.tags=Array.isArray(ov)?INV_TAGS.map(t=>t[0]).filter(t=>ov.includes(t)):x.dtags;
+    x.eq=at(x)==="top" && isEq(x.key,x.eqDef);
+  }
   const byName=(a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:"base"});
   const inCont=id=>items.filter(i=>at(i)==="cont:"+id).sort(byName);
 
@@ -1637,22 +2078,33 @@ function renderInv(){
   for(const c of conts) total+=c.b;
   for(const c of conts){ if(!c.backpack) continue; const sum=inCont(c.id).reduce((n,i)=>n+i.b,0); total-=Math.min(sum,20); }
 
-  // ---- render one section ----
-  const row=r=>{ const loc=at(r);
-    return `<div class="row irow idrag" draggable="true" data-idrag="${r.key}" data-qty="${r.qty}" data-name="${esc(r.name)}"${r.tip?` data-tip="${reg(r.tip)}"`:""}><span class="nm">${esc(r.name)}${r.qty>1?` <span class="qty">×${r.qty}</span>`:""}</span><span class="rowbtn">${canHold(r.name)?`<button class="mkcont" data-mkcont="${r.key}" data-qty="${r.qty}" data-loc="${esc(loc)}" title="Use this as a container">&#9744;</button>`:""}${r.key.startsWith("x|")?`<button class="mkcont" data-xdel="${r.key}" title="Remove from inventory">&#10005;</button>`:""}</span><span class="q">${r.b?bulkTxt(r.b):"—"}</span></div>`; };
+  // ---- render the tabs: All Equipment and Equipped are trees; the tag tabs are flat lists of every tagged item ----
+  const chips=r=>r.tags.map(t=>`<span class="itag">${esc(INV_TAGS.find(x=>x[0]===t)[1])}</span>`).join("");
+  const contName=loc=>{ const c=conts.find(c=>"cont:"+c.id===loc); return c?c.name:""; };
+  const row=(r,flat)=>{ const loc=at(r), top=loc==="top", where=flat&&!top?contName(loc):"";
+    const cb=top?`<input type="checkbox" class="eqcb" data-eqkey="${esc(r.key)}"${r.eq?" checked":""} title="Equipped">`:flat?`<span class="cbsp"></span>`:"";
+    const tk=esc(r.tkey||r.key);
+    return `<div class="row irow idrag${cb?" hascb":""}" draggable="true" data-idrag="${r.key}" data-qty="${r.isC?1:r.qty}" data-name="${esc(r.name)}"${r.tip?` data-tip="${reg(r.tip)}"`:""}>${cb}<span class="nm">${esc(r.name)}${r.qty>1?` <span class="qty">×${r.qty}</span>`:""}${r.isC?` <span class="qty">(${inCont(r.id).length} item${inCont(r.id).length===1?"":"s"})</span>`:""}${chips(r)}${where?`<span class="inwhere">in ${esc(where)}</span>`:""}</span><span class="rowbtn"><button class="mkcont" data-tagedit="${tk}" title="Edit tags">#</button>${r.isC?"":`<button class="mkcont" data-mkcont="${r.key}" data-qty="${r.qty}" data-loc="${esc(loc)}" title="Use this as a container">&#9744;</button><button class="mkcont" data-xdel="${r.key}" title="Remove from inventory">&#10005;</button>`}</span><span class="q">${r.b?bulkTxt(r.b):"—"}</span></div>`; };
   const chead=c=>{ const sum=inCont(c.id).reduce((n,i)=>n+i.b,0), relief=c.backpack?Math.min(sum,20):0;
     const cap=c.xd?null:capacityOf(c.name.replace(/\s+×\d+$/,"")), over=cap!=null&&sum>cap;
-    return `<h3 class="chead${over?" over":""}" draggable="true" data-idrag="${c.key}" data-idrop="cont:${c.id}"><span class="cnm">${esc(c.name)}</span><span class="ccount">(${inCont(c.id).length} item${inCont(c.id).length===1?"":"s"})</span><span class="h3s">· ${c.xd?"extradimensional; contents not counted":`${bulkTxt(sum)}${cap!=null?` of ${bulkTxt(cap)}`:""} inside${relief?`, ${bulkTxt(relief)} doesn't count`:""}${over?` · <b class="overcap">over capacity</b>`:""}`}</span>${c.user?`<button class="mkcont off unmark" data-mkcontoff="${c.key}" title="Stop using this as a container">&#10554;</button>`:""}<button class="mkcont off del" data-contdel="${c.key}" title="Delete this container">&#10005;</button></h3>`; };
-  const section=k=>{
-    let x=items.filter(i=>at(i)===k).sort(byName).map(row).join("");
-    for(const c of conts.filter(c=>at(c)===k).sort(byName)) x+=chead(c)+(inCont(c.id).length?inCont(c.id).map(row).join(""):`<p class="pet-note">This container currently holds no items.</p>`);
-    return x||`<p class="pet-note">Nothing here yet. Drag items onto this tab to file them.</p>`;
+    return `<h3 class="chead${over?" over":""}" draggable="true" data-idrag="${c.key}" data-idrop="cont:${c.id}" data-collkey="${esc(c.id)}"><input type="checkbox" class="eqcb" data-eqkey="${esc(c.key)}"${c.eq?" checked":""} title="Equipped"><span class="cnm">${esc(c.name)}</span><span class="ccount">(${inCont(c.id).length} item${inCont(c.id).length===1?"":"s"})</span><span class="ctags">${chips(c)}</span><span class="h3s">· ${c.xd?"extradimensional; contents not counted":`${bulkTxt(sum)}${cap!=null?` of ${bulkTxt(cap)}`:""} inside${relief?`, ${bulkTxt(relief)} doesn't count`:""}${over?` · <b class="overcap">over capacity</b>`:""}`}</span><button class="mkcont off tagb" data-tagedit="${esc(c.tkey||c.key)}" title="Edit tags">#</button>${c.user?`<button class="mkcont off unmark" data-mkcontoff="${c.key}" title="Stop using this as a container">&#10554;</button>`:""}<button class="mkcont off del" data-contdel="${c.key}" title="Delete this container">&#10005;</button></h3>`; };
+  const tree=pred=>{
+    let x=items.filter(i=>at(i)==="top"&&pred(i)).sort(byName).map(i=>row(i)).join("");
+    for(const c of conts.filter(c=>at(c)==="top"&&pred(c)).sort(byName)) x+=chead(c)+(inCont(c.id).length?inCont(c.id).map(i=>row(i)).join(""):`<p class="pet-note">This container currently holds no items.</p>`);
+    return x;
   };
-  INV_VIEW={items,conts,at};                                   // for the capacity check on drop
-  const count=k=>items.filter(i=>at(i)===k).length+conts.filter(c=>at(c)===k).length;
+  const tagged=t=>items.concat(conts).filter(x=>x.tags.includes(t));
+  const EMPTY={all:"Nothing here yet.", equipped:"Nothing is equipped. Tick the box beside an item, or drag it onto this tab.", magic:"No magic items. Drag an item onto this tab, or use the # button on a row to tag it.", gems:"No gems, jewelry or art. Drag an item onto this tab, or use the # button on a row to tag it.", trade:"No trade goods. Drag an item onto this tab, or use the # button on a row to tag it."};
+  const section=k=>{
+    const x=k==="all"?tree(()=>true) : k==="equipped"?tree(i=>i.eq) : tagged(k).sort(byName).map(i=>row(i,true)).join("");
+    return x||`<p class="pet-note">${EMPTY[k]}</p>`;
+  };
+  INV_VIEW={items,conts,at};                                   // for the capacity check and tag edits
+  const count=k=>k==="all"?items.length+conts.length
+    : k==="equipped"?items.concat(conts).filter(x=>x.eq).length : tagged(k).length;
 
-  if(!INV_SECS.some(([k])=>k===S.invTab)) S.invTab="equipment";
-  h+=`<div class="tabs invtabs" data-idroptabs="1">${INV_SECS.map(([k,n])=>`<button data-invtab="${k}" data-idrop="${k}" class="${S.invTab===k?"on":""}">${esc(n)} <span class="tcount">${count(k)}</span></button>`).join("")}</div>`;
+  if(!INV_TABS.some(([k])=>k===S.invTab)) S.invTab="all";
+  h+=`<div class="tabs invtabs" data-idroptabs="1">${INV_TABS.map(([k,n,to])=>`<button data-invtab="${k}" data-idrop="${to}" class="${S.invTab===k?"on":""}">${esc(n)} <span class="tcount">${count(k)}</span></button>`).join("")}</div>`;
   h+=section(S.invTab);
 
   const enc=(5+C.M.str)*10, max=(10+C.M.str)*10;
@@ -1666,21 +2118,112 @@ function renderInv(){
    ============================================================ */
 function renderFeats(){
   const B=C.B;
-  const frow=(name,sub,fn)=>`<div class="row irow" data-tip="${reg(()=>`<div class="tt-h"><span class="tt-name">${esc(name)}</span><span class="tt-rank">${esc(sub)}</span></div><p>${fn?fn(C):"No description on file."}</p>`)}"><span class="nm">${esc(name)}</span><span class="q">${esc(sub)}</span><span></span></div>`;
-  let h=`<h2>Feats &amp; Features</h2><h3>Feats</h3>`;
-  for(const f of B.feats||[]){ const label=f[1]?`${f[0]} (${f[1].replace(/^Lore: /,"")})`:f[0];
-    const sub=(f[2]||"").replace(" Feat","")+(f[3]?` ${f[3]}`:"")+(f[6]?" · via "+(f[6].replace(/ Feat \d+$/,"")===B.ancestry?"Gnome Obsession":f[6]):"");
-    h+=frow(label,f[2]==="Awarded Feat"?`${B.background} background`:sub,FEATURE_TEXT[f[0]]); }
-  h+=`<h3>Class &amp; Ancestry Features</h3>`;
-  for(const s of B.specials||[]){ const base=s.split(":")[0]; if(base==="Wellspring Gnome" && (B.feats||[]).some(f=>f[0]==="Wellspring Gnome")) continue;
-    h+=frow(s,base===s?"":"",FEATURE_TEXT[base]||FEATURE_TEXT[s]); }
-  setHTML($("#pFeats"), h);
+  const ACT={"Conceal Spell":1,"Drain Bonded Item":"F"};   // the few features that cost actions
+  const frow=(name,bodyHTML,meta,indent)=>{
+    const g=glyph(ACT[name]!=null?ACT[name]:null);
+    const id=reg(()=>`<div class="tt-h"><span class="tt-name">${g}${esc(name)}</span><span class="tt-rank">${esc(meta||"")}</span></div><p>${linkConds(bodyHTML)}</p>`);
+    return `<div class="row arow frow" data-tip="${id}"${indent?' style="padding-left:20px"':""}>${g}<span class="nm">${esc(name)}</span><span class="q">${esc(meta||"")}</span></div>`;
+  };
+  const specials=B.specials||[];
+  const feats=B.feats||[];
+  let h="";
+
+  /* ---------- Class Features ---------- */
+  h+=`<h3>Class Features — ${esc(B.class)}</h3>`;
+  const WIZ_KEYS=["Arcane Thesis","Arcane School","Arcane Bond","Drain Bonded Item","Spellbook","Wizard Spellcasting"];
+  const findSpecial=base=>specials.find(s=>s.split(":")[0]===base);
+  const splitName=s=>{ const i=s.indexOf(":"); return i<0?[s,""]:[s.slice(i+1).trim(),s.slice(0,i).trim()]; };
+  for(const base of WIZ_KEYS){
+    const s=findSpecial(base); if(!s) continue;
+    const fn=FEATURE_TEXT[base];
+    let body=fn?fn(C):"No description on file.";
+    // curriculum renders as a list below, so drop the inline run-on copy
+    if(base==="Arcane School" && CURRICULA[C.school]) body=body.replace(/ Cantrips: .*?(?= School spells:)/,"");
+    const [nm,meta]=splitName(s);
+    h+=frow(nm,body,meta);
+    if(base!=="Arcane School") continue;
+
+    // curriculum: rank-by-rank list, dimming spells not yet in the spellbook
+    const curr=CURRICULA[C.school];
+    if(curr){
+      const WK=C.casters.find(k=>!k.sc.innate);
+      const slots=WK?slotsFor(C,WK):[];                 // level-aware, same source the Spells tab uses
+      const maxR=Math.max(0,...slots.map((n,i)=>n>0?i:0));
+      const rows=[];
+      for(let r=0;r<=maxR;r++){
+        const list=curr[r]; if(!list) continue;
+        const spans=list.map(nm=>{
+          const id=reg(()=>spellTip(nm,r===0?C.cantripRank:r,WK,{kind:r===0?"cantrip":"slot",curriculum:true}));
+          return `<span class="sumlink${knowsSpell(C,nm)?"":" unlearned"}" data-tip="${id}">${esc(nm)}</span>`;
+        }).join(", ");
+        rows.push(`<p><span class="clab">${r===0?"Cantrips":`Rank ${r}`}</span> – ${spans}</p>`);
+      }
+      if(rows.length) h+=`<div class="pet-list currlist"><p class="pet-note">Dimmed names are curriculum spells not yet in your spellbook.</p>${rows.join("")}<p class="pet-note">Two 1st-rank curriculum spells are added to your spellbook free at 1st level, and one more each time you gain a new spell rank. The rest you learn normally. One extra prepared slot of each rank, and one extra cantrip, can hold curriculum spells only.</p></div>`;
+    }
+
+    // focus spells as click rows, the same popup card the Spells tab uses
+    for(const F of (C.focusCasters||[])){
+      const K={trad:F.trad,atk:F.atk,dc:F.dc,sc:{ability:F.abil}};
+      if(!F.cantrips.length && !F.spells.length) continue;
+      F.cantrips.slice().sort().forEach(nm=>{ h+=spellRow(nm,C.cantripRank,K,{kind:"cantrip"}); });
+      F.spells.slice().sort().forEach(nm=>{ h+=spellRow(nm,C.cantripRank,K,{kind:"focus"}); });
+    }
+  }
+
+  /* ---------- Ancestry & Heritage ---------- */
+  h+=`<h3>Ancestry &amp; Heritage — ${esc(B.ancestry)}</h3>`;
+  for(const s of specials){
+    const base=s.split(":")[0];
+    if(WIZ_KEYS.includes(base)) continue;
+    if(base==="Wellspring Gnome" && feats.some(f=>f[0]==="Wellspring Gnome")) continue;
+    const fn=FEATURE_TEXT[base]||FEATURE_TEXT[s];
+    const [nm,meta]=splitName(s);
+    h+=frow(nm,fn?fn(C):"No description on file.",meta);
+  }
+  h+=frow(`${B.sizeName} · Speed ${B.attributes.speed} feet`,"Your size and base Speed.","");
+
+  const featuresHTML=h;
+
+  /* ---------- Feats by Level ---------- */
+  h="";
+  const byLevel={};
+  feats.forEach(f=>{ const lvl=(f[3]==null)?1:f[3]; (byLevel[lvl]=byLevel[lvl]||[]).push(f); });
+  const levels=Object.keys(byLevel).map(Number).sort((a,b)=>a-b);
+  const isChild=f=>f[5]==="childChoice";
+  const parentLabel=key=>{ if(!key) return ""; return key.replace(/ Feat \d+$/,"")===B.ancestry ? "Gnome Obsession" : key; };
+  const featBody=f=>{
+    let body=FEATURE_TEXT[f[0]]?FEATURE_TEXT[f[0]](C):"No description on file.";
+    if(f[0]==="Pet"){ const famName=(C.familiar&&C.familiar.name)?C.familiar.name:"your familiar";
+      body=body.replace(/\s*See the card below\.?/,"")+` See <b>Magic → Pet &amp; Minions</b> for ${esc(famName)}'s full stat block.`; }
+    return body;
+  };
+  const featRow=(f,child)=>{
+    const name=f[1]?`${f[0]} (${f[1].replace(/^Lore: /,"")})`:f[0];
+    const meta=child ? (parentLabel(f[6])?`via ${parentLabel(f[6])}`:"")
+                      : (f[2]==="Awarded Feat"?`${B.background} background`:(f[2]||"").replace(" Feat",""));
+    return frow(name,featBody(f),meta,child);
+  };
+  for(const lvl of levels){
+    h+=`<div class="grp">Level ${lvl}</div>`;
+    const group=byLevel[lvl];
+    const parents=group.filter(f=>!isChild(f));
+    const children=group.filter(isChild);
+    const used=new Set();
+    for(const f of parents){
+      h+=featRow(f,false);
+      children.filter(c=>c[6]===f[4]).forEach(c=>{ used.add(c); h+=featRow(c,true); });
+    }
+    children.filter(c=>!used.has(c)).forEach(c=>h+=featRow(c,true));
+  }
+
+  const tab=S.featTab==="features"?"features":"feats";
+  setHTML($("#pFeats"), `<h2>Feats &amp; Features <small>Click for details</small></h2>`+tabRow("featTab",[["feats","Feats"],["features","Features"]],tab)+(tab==="features"?featuresHTML:h));
 }
 
-function renderCampaign(){
-  const cref=(k,v)=>`<div class="cref"><div class="ck">${esc(k)}</div><div class="cv">${esc(v)}</div></div>`;
+function campaignHTML(){
+  const cref=(k,v)=>`<div class="cref"><div class="ck">${esc(k)} ${tagChip("Campaign")}</div><div class="cv">${esc(v)}</div></div>`;
   const npc=(name,role,loc,tag)=>`<div class="npcrow"><b>${esc(name)}</b><span>${esc(role)}</span><span>${esc(loc)}</span><span class="npctag">${esc(tag)}</span></div>`;
-  let h=`<h2>Campaign Reference <small>Eberron / Korvaire · Mror Holds Campaign · Pathfinder 2e</small></h2>`;
+  let h="";
   h+=`<h3>Plot Hooks</h3>`;
   h+=cref("THE DREAMS","Lifelong visions of Khyber depths, ancient halls, unknown creatures — loremasters recognized them from sealed vaults. Lorum thinks he invented them. Watch for: NPCs alarmed by his illusions; texts or places matching his drawings; anyone asking where he \"really\" saw these things.");
   h+=cref("ASHMANTLE CLAN","Lorum witnessed something the Ashmantle clan will kill to protect. He doesn't know the scope. Watch for: Ashmantle agents or livery; anyone who knows his real history; clan activity in the Holds.");
@@ -1700,12 +2243,12 @@ function renderCampaign(){
   h+=cref("Warms to honest folk","Bram-type directness disarms him visibly. His guard drops around people who want nothing performative from him.");
   h+=cref("Gnome Obsession","Cannot suppress knowing and sharing Mror Holds clan histories, genealogies, old feuds. He genuinely lights up — a quirk, not a tool.");
   h+=cref("Resents being used","Accepted Barak's deal but bristles at it. Finds small ways to assert autonomy. Dry wit or quiet refusal to be grateful for things he didn't ask for.");
-  setHTML($("#pCampaign"), h);
+  return h;
 }
 
-function renderRules(){
+function rulesHTML(){
   const rule=(t,b,s)=>`<div class="rule"><div class="rt">${esc(t)}</div><div class="rb">${linkConds(esc(b))}</div><div class="rs">${esc(s)}</div></div>`;
-  let h=`<h2>Rules Clarifications <small>checked against the books</small></h2>`;
+  let h="";
   h+=`<h3>Slots and preparation</h3>`;
   h+=rule("Curriculum slots are extra","You prepare five cantrips and your normal slots, plus one extra cantrip and one extra slot of every rank you can cast. The extras hold curriculum spells only. At level 3 that is 6 cantrips, four 1st-rank slots and three 2nd-rank slots.","Player Core p. 192");
   h+=rule("Cantrips heighten on their own","Cantrips and focus spells always cast at half your level rounded up: rank 2 now, rank 3 at level 5. At rank 2 that means Electric Arc 3d4, Scatter Scree 3d4 and Phase Bolt 4d4, while Daze stays 1d6 and Shield stays Hardness 5 until rank 3.","Player Core p. 192 and p. 198");
@@ -1729,7 +2272,7 @@ function renderRules(){
   h+=rule("Summoned creatures","The creature uses 2 actions immediately after you finish casting. After that, Sustain the spell to command it. It is banished at 0 HP or when the spell ends, and it can't summon, create things of value or cast spells with a cost.","Player Core p. 301 and p. 360");
   h+=rule("Pippin is a pet, not a familiar","Your Pet feat sets his Perception, Acrobatics and Stealth at 3 + your level, which is +6. Pathbuilder shows +7 because it uses familiar math. A pet takes no attack actions except Escape and Force Open.","Player Core p. 259");
   h+=rule("Commanding a minion","One action gives the minion 2 actions for the turn. Without a command it only defends itself or avoids obvious harm.","Player Core p. 301");
-  setHTML($("#pRules"), h);
+  return h;
 }
 
 function mcard(m, summonBtn){
@@ -1760,7 +2303,7 @@ function mcard(m, summonBtn){
 function curMinionsHTML(){
   const list=S.minions||[];
   let h=`<h2>Current Minion(s) ${list.length?`<button class="mindel-all" data-mdelall="1">Dismiss all</button>`:""}</h2>`;
-  if(!list.length) return h+`<p class="pet-note">None summoned. Hover a creature under Summons and click <b>Summon</b>.</p>`;
+  if(!list.length) return h+`<p class="pet-note">None summoned. Click a creature under Summons to read it, then click <b>Summon</b>.</p>`;
   const str=v=>Array.isArray(v)?v.join(", "):(v==null?"":String(v));
   for(const mn of list){
     const m=UNDEAD_SUMMONS.find(x=>x.name===mn.name); if(!m) continue;
@@ -1779,7 +2322,7 @@ function curMinionsHTML(){
   }
   return h;
 }
-function renderMinCur(){ const el=$("#pMinCur"); if(el) setHTML(el, linkConds(curMinionsHTML())); saveState(); }
+function renderMinCur(){ const el=$("#pMinCur"); if(el) setHTML(el, linkConds(curMinionsHTML())); markDirty(); }
 function addMinion(name){
   const m=UNDEAD_SUMMONS.find(x=>x.name===name); if(!m) return;
   S.minions=S.minions||[];
@@ -1787,7 +2330,7 @@ function addMinion(name){
   S.minions.push({uid:Date.now().toString(36)+Math.random().toString(36).slice(2,6), name, n, hp:m.hp});
   renderMinCur();
 }
-function renderMinions(){
+function minionsHTML(){
   let h=`<section class="panel mblock" id="pMinPet"><h2>Pet / Familiar</h2>`;
   if(C.familiar){
     const F=C.familiar, K=C.casters.find(k=>!k.sc.innate), smod=K?C.M[K.sc.ability]:3;
@@ -1808,7 +2351,7 @@ function renderMinions(){
   } else {
     h+=`<p>No pet or familiar in this build.</p>`;
   }
-  h+=`</section><section class="panel mblock" id="pMinSum"><h2>Summons</h2><div class="sumwrap"><p class="pet-note"><b>Summon Undead</b> · 3 actions, sustained up to 1 minute. The creature takes 2 actions right after you cast; after that, Sustain to command it. Hover a name for its stat block, click to pin it.</p>`;
+  h+=`</section><section class="panel mblock" id="pMinSum"><h2>Summons</h2><div class="sumwrap"><p class="pet-note"><b>Summon Undead</b> · 3 actions, sustained up to 1 minute. The creature takes 2 actions right after you cast; after that, Sustain to command it. Click a name for its stat block.</p>`;
   const byLvl={};
   for(const m of UNDEAD_SUMMONS) (byLvl[m.level]=byLvl[m.level]||[]).push(m);
   const lvlTxt=l=>l<0?"−"+Math.abs(l):"+"+l;
@@ -1824,29 +2367,24 @@ function renderMinions(){
   }
   h+=`</div>`;
   h+=`</section><section class="panel mblock" id="pMinCur">${curMinionsHTML()}</section>`;
-  setHTML($("#pMinions"), linkConds(h));
+  return linkConds(`<div class="minwrap">${h}</div>`);
 }
 
 /* ============================================================
    Header, data note, render loop
    ============================================================ */
-function currentLevel(B){ return Math.max(B.level, Math.min(20, S.level||B.level)); }
 function render(){
   REG=new Map(); regN=0; hideTip(); hideCond();
-  const B=getBuild(); const L=currentLevel(B);
+  const B=getBuild(); const L=B.level;
   C=computeCtx(B,L);
   $("#charName").textContent=B.name;
   $("#charSub").textContent=`Level ${L} ${B.ancestry} ${B.class} · ${B.heritage} · ${B.background}`+(C.school?` · ${C.school}`:"")+(C.thesis?` · ${C.thesis}`:"");
   document.title=`${B.name} · PF2e Dashboard`;
-  $("#lvlVal").textContent=L; $("#lvlDown").disabled=L<=B.level; $("#lvlUp").disabled=L>=20;
   const src=S.imported?"imported Pathbuilder export":`Pathbuilder export (${EXPORT_LABEL})`;
-  setHTML($("#dataNote"), L===B.level
-    ? `<span><b>Build data:</b> ${esc(src)}, level ${B.level}.</span>`
-    : `<span title="HP, proficiency, cantrip rank, spell slots, wizard class progression and Additional Lore are recalculated. Feats, skill increases and spells picked after level ${B.level} aren't in the export."><b>Build data:</b> ${esc(src)}, level ${B.level}. Previewing <b>level ${L}</b> (later picks not included).</span><button class="lnk" data-lvlreset="1">Use level ${B.level}</button><button class="lnk" data-import="1">Import</button>`);
-  renderMainTabs(); renderSideTabs();
-  renderStats(); renderMinions(); renderSpells(); renderActions(); renderConditions(); renderInv(); renderFeats(); renderCampaign(); renderRules(); renderNotes(); renderAllItems();
+  setHTML($("#dataNote"), `<span><b>Build data:</b> ${esc(src)}, level ${B.level}.</span>`);
+  renderStats(); renderSpells(); renderRef(); renderInv(); renderFeats(); renderNotes();
   applyCollapse();
-  saveState();
+  if(booted) markDirty();
 }
 const RT_BTNS=[["bold","B","Bold (Ctrl+B)"],["italic","I","Italic (Ctrl+I)"],["underline","U","Underline (Ctrl+U)"],["strikeThrough","S","Strikethrough"],
   ["insertUnorderedList","• List","Bulleted list"],["insertOrderedList","1. List","Numbered list"],["formatBlock:h4","Heading","Heading"],["formatBlock:p","Body","Normal text"],["removeFormat","Clear","Clear formatting"]];
@@ -1861,6 +2399,17 @@ function traitChip(name){
   const label=cap(name);
   return `<span class="trait ttrait${/^(Uncommon|Rare|Unique)$/i.test(label)?" unc":""}" data-trait="${esc(label)}">${esc(label)}</span>`;
 }
+// source tag shown on every popup that carries book/source data: strips page numbers, classifies core/other/campaign
+function srcTag(raw){
+  const s=String(raw||"").trim();
+  if(!s) return null;
+  if(/campaign|homebrew|house rule/i.test(s)) return ["camp","Campaign"];
+  if(/added by hand|pathbuilder export/i.test(s)) return null;
+  const book=s.replace(/\s*\bpg?\.?\s*\d+.*$/i,"").replace(/,\s*$/,"").trim();
+  if(!book) return null;
+  return [/^(Player Core( 2)?|GM Core|Monster Core)$/i.test(book) ? "core" : "gh", book];
+}
+function tagChip(src){ const t=srcTag(src); return t?`<span class="trait ${t[0]}">${esc(t[1])}</span>`:""; }
 const SKILL_RE=/\b(Acrobatics|Arcana|Athletics|Crafting|Deception|Diplomacy|Intimidation|Medicine|Nature|Occultism|Performance|Religion|Society|Stealth|Survival|Thievery|Perception)\b/g;
 function markSkills(html){ return String(html).split(/(<[^>]+>)/).map(seg=>seg.startsWith("<")?seg:seg.replace(SKILL_RE,'<b class="sk-em">$1</b>')).join(""); }
 const DESC_SECTIONS=["Critical Specialization Effects","Critical Specialization Effect","Specific Magic Weapons","Specific Magic Armor","Specific Magic Shields","Favored Weapon","Craft Requirements","Access","Special"];
@@ -1884,7 +2433,8 @@ function itemTipDB(it){
   return ()=>{
     const tags=[it.rarity!=="common"?cap(it.rarity):null,...(it.traits||[])].filter(Boolean);
     let h=`<div class="tt-h"><span class="tt-name">${esc(it.name)}</span><span class="tt-rank">Item ${it.level}</span></div>`;
-    if(tags.length) h+=`<div class="traits">${tags.map(traitChip).join("")}</div>`;
+    const srcChip=tagChip(it.source);
+    if(srcChip || tags.length) h+=`<div class="traits">${srcChip}${tags.map(traitChip).join("")}</div>`;
     const st=it.stats||{};
     const statParts=ITEM_STAT_ORDER.filter(k=>st[k]).map(k=>`<b>${esc(k)}</b> ${esc(st[k])}`);
     h+=`<div class="istats">${statParts.length?statParts.join(" · "):`<b>Price</b> ${esc(it.price)} · <b>Bulk</b> ${esc(it.bulk)}`}</div>`;
@@ -1932,22 +2482,6 @@ function itemTipDB(it){
     h+=`<div class="foot"><span>${esc(it.source||"")}</span>${it.url?`<a href="${AON}${esc(it.url)}" target="_blank" rel="noopener">AoN ↗</a>`:""}</div>`;
     return h;
   };
-}
-function renderAllItems(){
-  const db=itemDB();
-  const types=[...new Set(db.map(i=>i.type))].sort();
-  let h=`<h2>All Items <small>${db.length} records · hover for details</small></h2>`;
-  for(const t of types){
-    const key="pAllItems:"+t;
-    if(S.coll[key]===undefined) S.coll[key]=true;           // every type starts collapsed
-    const rows=db.filter(i=>i.type===t).sort((a,b)=>a.name.localeCompare(b.name));
-    h+=`<h3>${esc(t)} <span class="h3s">${rows.length}</span></h3>`;
-    h+=rows.map(i=>{
-      const tags=[i.rarity!=="common"?cap(i.rarity):null,...(i.traits||[])].filter(Boolean);
-      return `<div class="row airow" data-tip="${reg(itemTipDB(i))}"><span class="nm">${esc(i.name)}</span><span class="itags">${tags.map(x=>`<span class="itag${/^(Uncommon|Rare|Unique)$/i.test(x)?" rare":""}">${esc(x)}</span>`).join("")}</span><span class="q">${esc(i.price||"—")}</span><span class="q hands">${i.hands==null?"":i.hands+"h"}</span><span class="q">${esc(i.bulk)}</span></div>`;
-    }).join("");
-  }
-  setHTML($("#pAllItems"), h);
 }
 
 /* ============================================================
@@ -2030,13 +2564,16 @@ function manualToRecord(name, bulkRaw, descRaw){
     source:"added by hand", url:""
   };
 }
-function commitAddItem(rec, qty, loc){
+function commitAddItem(rec, qty, equipped, tags){
   S.added=S.added||[];
   if(!S.added.some(r=>r.name===rec.name)) S.added.push(rec);
   S.custom=S.custom||[];
-  S.custom.push({key:"x|"+Date.now()+"_"+(S.customSeq=(S.customSeq||0)+1), name:rec.name, qty, loc});
-  saveState();
+  const key="x|"+Date.now()+"_"+(S.customSeq=(S.customSeq||0)+1);
+  S.custom.push({key, name:rec.name, qty, loc:"top"});
+  setEq(key,equipped); setTags({key},tags);
+  markDirty();
 }
+function aiSetTags(list){ $("#addDlg").querySelectorAll("[data-aitag]").forEach(c=>{ c.checked=list.includes(c.dataset.aitag); }); }
 async function aonSearch(name){
   const body1={size:8, query:{bool:{must:[{match:{type:"Item"}},{match_phrase:{name}}]}}, _source:["name","item_category","item_subcategory","level","price","bulk","rarity","trait","usage","source","url","text"]};
   const post=async body=>{
@@ -2065,7 +2602,8 @@ function openAddItem(){
   aiHits=[]; aiSelected=null;
   $("#aiName").value=""; setHTML($("#aiResults"), ""); $("#aiManual").hidden=true;
   $("#aiMBulk").value=""; $("#aiMDesc").value=""; $("#aiQty").value=1;
-  $("#aiSection").value=INV_SECS.some(([k])=>k===S.invTab)?S.invTab:"equipment";
+  $("#aiEq").checked=S.invTab==="equipped";
+  aiSetTags(INV_TAGS.some(t=>t[0]===S.invTab)?[S.invTab]:[]);          // adding from a filter tab starts with that filter's tag
   $("#aiErr").textContent="";
   const dlg=$("#addDlg");
   if(dlg.showModal) dlg.showModal(); else dlg.setAttribute("open","");
@@ -2091,64 +2629,67 @@ function renderNotes(){
   const pane=$("#pNotes"); if(!pane) return;
   let ed=pane.querySelector(".noteed");
   if(!ed){
-    setHTML(pane, `<h2>Notes <small>saved as you type</small></h2>
+    setHTML(pane, `<h2>Notes <button type="button" class="btn gold" id="notesSave" title="Save to the current template">Save</button></h2>
       <div class="rtbar">${RT_BTNS.map(([c,l,t])=>`<button type="button" data-rt="${c}" title="${esc(t)}" class="rt${c==="bold"?" b":c==="italic"?" i":c==="underline"?" u":c==="strikeThrough"?" st":""}">${esc(l)}</button>`).join("")}</div>
       <div class="noteed" contenteditable="true" spellcheck="true"></div>`);
     ed=pane.querySelector(".noteed");
+    $("#notesSave").onclick=()=>$("#btnSave").click();    // a shortcut to the header Save button, so saving stays in one place
     setHTML(ed, S.notes||"");
-    ed.addEventListener("input",()=>{ S.notes=ed.innerHTML; clearTimeout(noteT); noteT=setTimeout(saveState,400); });
-    ed.addEventListener("blur",()=>{ S.notes=ed.innerHTML; saveState(); });
+    ed.addEventListener("input",()=>{ S.notes=ed.innerHTML; markDirty(); });
     ed.addEventListener("paste",e=>{ e.preventDefault(); const t=(e.clipboardData||window.clipboardData).getData("text/plain"); document.execCommand("insertText",false,t); });
     pane.querySelector(".rtbar").addEventListener("mousedown",e=>{ const b=e.target.closest("[data-rt]"); if(!b) return; e.preventDefault();
-      const [cmd,arg]=b.dataset.rt.split(":"); ed.focus(); document.execCommand(cmd,false,arg||null); S.notes=ed.innerHTML; saveState(); });
+      const [cmd,arg]=b.dataset.rt.split(":"); ed.focus(); document.execCommand(cmd,false,arg||null); S.notes=ed.innerHTML; markDirty(); });
   } else if(document.activeElement!==ed && ed.innerHTML!==(S.notes||"")){
     setHTML(ed, S.notes||"");
   }
 }
-let noteT=null;
-function renderMainTabs(){
-  const tabs=[["spells","Spells"],["minions","Minions"],["inv","Inventory"],["feats","Feats & Features"],["campaign","Campaign"],["notes","Notes"],["allitems","All Items"]];
-  if(S.mainTab==="rules"){ S.mainTab="spells"; S.sideTab="rules"; }   // Rules moved to the right column
-  if(!tabs.some(([k])=>k===S.mainTab)) S.mainTab="spells";   // Actions now has its own column
-  setHTML($("#mainTabs"), tabs.map(([k,n])=>`<button data-main="${k}" class="${S.mainTab===k?"on":""}">${esc(n)}</button>`).join(""));
-  const panes={spells:"pSpells",minions:"pMinions",inv:"pInv",feats:"pFeats",campaign:"pCampaign",notes:"pNotes",allitems:"pAllItems"};
-  for(const [k,id] of Object.entries(panes)) $("#"+id).hidden = S.mainTab!==k;
-}
-
 /* ============================================================
    Collapsible group headers (post-render DOM pass)
    ============================================================ */
 const HEAD_SEL=".grp, h3, .rank-h";
 const STOP_SEL=".grp, h3, .rank-h, h2, .caster-h, .divider, .tabs, details.book";
 function applyCollapse(){
-  for(const paneId of ["pSpells","pMinions","pActions","pConditions","pAllItems","pInvMain","pFeats","pCampaign","pRules"]){
+  for(const paneId of ["pStats","pSpells","pRef","pInvMain","pFeats"]){
     const pane=$("#"+paneId); if(!pane) continue;
     const headers=Array.from(pane.children).filter(el=>el.matches(HEAD_SEL) && !el.classList.contains("nocoll"));
+    let cnt=0;
     for(const hd of headers){
       let label;
       if(hd.classList.contains("rank-h")){ const s=hd.querySelector(".t"); label=s?s.textContent.trim():""; }
       else if(hd.tagName==="H3"){ let txt=""; for(const n of hd.childNodes){ if(n.nodeType===3 && n.textContent.trim()){ txt=n.textContent.trim(); break; } } label=txt; }
       else { label=hd.textContent.trim(); }
-      const key=`${paneId}:${label}`;
+      const key=`${paneId}:${hd.dataset.collkey||label}`;
       const body=[]; let sib=hd.nextElementSibling;
       while(sib && !sib.matches(STOP_SEL)){ body.push(sib); sib=sib.nextElementSibling; }
       if(!body.length) continue;
       const secb=document.createElement("div"); secb.className="secb";
       body.forEach(el=>secb.appendChild(el));
       hd.after(secb);
-      hd.dataset.coll=key;
+      if(hd.classList.contains("chead") && hd.dataset.idrop) secb.dataset.idrop=hd.dataset.idrop;   // an open container takes drops anywhere on its contents
+      hd.dataset.coll=key; cnt++;
       const collapsed=!!S.coll[key];
       hd.classList.toggle("closed",collapsed);
       secb.classList.toggle("closed",collapsed);
       hd.insertBefore(Object.assign(document.createElement("span"),{className:"car",textContent:"▾"}),hd.firstChild);
-      if(collapsed && !hd.classList.contains("chead")){
-        const rows=secb.querySelectorAll(".row"); const n=rows.length||secb.children.length;
-        const cn=Object.assign(document.createElement("span"),{className:"cn",textContent:`${n} hidden`});
-        if(hd.classList.contains("rank-h")){ const s=hd.querySelector(".s"); if(s) s.appendChild(cn); else hd.appendChild(cn); }
-        else hd.appendChild(cn);
-      }
+      setHiddenTip(hd,secb,collapsed);
     }
+    if(cnt) addCollAll(pane,paneId);
   }
+}
+function setHiddenTip(hd,secb,collapsed){               // containers already show their item count, so they get no tip
+  const old=hd.querySelector(".cn"); if(old) old.remove();
+  if(!collapsed || hd.classList.contains("chead")) return;
+  const rows=secb.querySelectorAll(".row"); const n=rows.length||secb.children.length;
+  const cn=Object.assign(document.createElement("span"),{className:"cn",textContent:`${n} hidden`});
+  if(hd.classList.contains("rank-h")){ const s=hd.querySelector(".s"); if(s) s.appendChild(cn); else hd.appendChild(cn); }
+  else hd.appendChild(cn);
+}
+function addCollAll(pane,paneId){                       // + / − at the end of the pane's top tab row, or in the title when it has none
+  const box=document.createElement("span"); box.className="collbtns";
+  setHTML(box, `<button class="collbtn" data-collall="0" data-pane="${paneId}" title="Expand all sections">+</button><button class="collbtn" data-collall="1" data-pane="${paneId}" title="Collapse all sections">−</button>`);
+  const tabs=Array.from(pane.children).find(el=>el.matches(".tabs"));
+  if(tabs) tabs.appendChild(box);
+  else { const h2=pane.querySelector("h2"); if(h2) h2.appendChild(box); else pane.prepend(box); }
 }
 
 /* ============================================================
@@ -2185,11 +2726,15 @@ function startCoinEdit(tile){
    ============================================================ */
 document.addEventListener("click",e=>{
   const t=e.target;
+  const eqcb=t.closest(".eqcb[data-eqkey]");
+  if(eqcb){ setEq(eqcb.dataset.eqkey,eqcb.checked); render(); return; }
+  const tagb=t.closest("[data-tagedit]");
+  if(tagb){ openTagEdit(tagb.dataset.tagedit); return; }
   const smn=t.closest("[data-summon]");
   if(smn){ addMinion(smn.dataset.summon); const c=S.minions.filter(x=>x.name===smn.dataset.summon).length; smn.textContent=`Summon (${c})`; return; }
   const mk=t.closest("[data-mkcont]");
   if(mk){
-    const key=mk.dataset.mkcont, qty=+mk.dataset.qty||1, loc=mk.dataset.loc||"equipment";
+    const key=mk.dataset.mkcont, qty=+mk.dataset.qty||1, loc=mk.dataset.loc||"top";
     S.userConts=S.userConts||{}; S.splits=S.splits||[];
     if(qty>1){
       let base;
@@ -2216,27 +2761,14 @@ document.addEventListener("click",e=>{
   const mkoff=t.closest("[data-mkcontoff]");
   if(mkoff){ const key=mkoff.dataset.mkcontoff;
     const sp=(S.splits||[]).find(s=>s.id===key);
-    const home = sp ? sp.loc : ((S.loc&&S.loc[key])||"equipment");
+    const home = sp ? sp.loc : ((S.loc&&S.loc[key])||"top");
     S.loc=S.loc||{}; for(const [k,v] of Object.entries(S.loc)) if(v==="cont:u:"+key) S.loc[k]=home;   // contents come back out
     for(const s of S.splits||[]) if(s.loc==="cont:u:"+key) s.loc=home;
     delete S.userConts[key]; render(); return; }
   const additem=t.closest("[data-additem]");
   if(additem){ openAddItem(); return; }
   const xdel=t.closest("[data-xdel]");
-  if(xdel){
-    const key=xdel.dataset.xdel;
-    if(S.userConts&&S.userConts[key]){
-      const home=(S.loc&&S.loc[key])||"equipment";
-      S.loc=S.loc||{}; for(const [k,v] of Object.entries(S.loc)) if(v==="cont:u:"+key) S.loc[k]=home;
-      for(const s of S.splits||[]) if(s.loc==="cont:u:"+key) s.loc=home;
-      delete S.userConts[key];
-    }
-    S.custom=(S.custom||[]).filter(c=>c.key!==key);
-    if(S.loc) delete S.loc[key];
-    if(S.qty) delete S.qty[key];
-    S.splits=(S.splits||[]).filter(s=>s.base!==key);
-    render(); return;
-  }
+  if(xdel){ S.removed=S.removed||{}; S.removed[xdel.dataset.xdel]=true; render(); return; }
   const mdel=t.closest("[data-mdel]");
   if(mdel){ S.minions=(S.minions||[]).filter(x=>x.uid!==mdel.dataset.mdel); renderMinCur(); return; }
   if(t.closest("[data-mdelall]")){ S.minions=[]; renderMinCur(); return; }
@@ -2245,21 +2777,27 @@ document.addEventListener("click",e=>{
   if(cond){ if(cond.dataset.trait!=null){ if(TRAIT_DB[cond.dataset.trait]) showTrait(cond.dataset.trait,cond,true); } else showCond(cond.dataset.cond,cond,true); return; }
   const coin=t.closest("[data-coin]");
   if(coin && !t.closest("input")){ startCoinEdit(coin); return; }
+  const ts=t.closest("[data-tabset]");
+  if(ts){ S[ts.dataset.tabset]=ts.dataset.tabval; render(); return; }
+  const ca=t.closest("[data-collall]");
+  if(ca){ const shut=ca.dataset.collall==="1";
+    document.querySelectorAll(`#${ca.dataset.pane} [data-coll]`).forEach(hd=>{ if(shut) S.coll[hd.dataset.coll]=1; else delete S.coll[hd.dataset.coll]; });
+    render(); return; }
   const collHd=t.closest("[data-coll]");
   if(collHd && !t.closest("button, select, input, a, .pip, .cond")){
     const key=collHd.dataset.coll, closed=!collHd.classList.contains("closed");
     collHd.classList.toggle("closed",closed);
     const secb=collHd.nextElementSibling;
-    if(secb && secb.classList.contains("secb")) secb.classList.toggle("closed",closed);
+    if(secb && secb.classList.contains("secb")){ secb.classList.toggle("closed",closed); setHiddenTip(collHd,secb,closed); }
     if(closed) S.coll[key]=1; else delete S.coll[key];
-    saveState();
+    markDirty();
     const pinnedRow=document.querySelector(".row.pinned");
     if(closed && pinnedRow && secb && secb.contains(pinnedRow)) hideTip();
     return;
   }
   if(t.closest("#ctip")) return;
   if(!ctipEl.hidden) hideCond();
-  const btn=t.closest("[data-use],[data-hp],[data-hero],[data-focus],[data-drain],[data-tab],[data-lvlreset],[data-import],[data-prepreset],[data-staffcharge],[data-staffedit],[data-main],[data-coinreset],[data-condsort],[data-side],[data-invtab],[data-unremove]");
+  const btn=t.closest("[data-use],[data-hp],[data-hero],[data-focus],[data-drain],[data-tab],[data-prepreset],[data-staffcharge],[data-staffedit],[data-coinreset],[data-condsort],[data-invtab],[data-unremove]");
   if(btn){
     const d=btn.dataset;
     if(d.use!=null){ S.used[d.use]=!S.used[d.use]; }
@@ -2275,21 +2813,17 @@ document.addEventListener("click",e=>{
     else if(d.staffedit!=null){ S.staff.edit=!S.staff.edit; }
     else if(d.tab!=null){ S.tab=d.tab; }
     else if(d.condsort!=null){ S.condSort=d.condsort; }
-    else if(d.side!=null){ S.sideTab=d.side; hideTip(); }
     else if(d.invtab!=null){ S.invTab=d.invtab; }
-    else if(d.main!=null){ S.mainTab=d.main; hideTip(); }
     else if(d.coinreset!=null){ S.coins=null; }
-    else if(d.lvlreset!=null){ S.level=getBuild().level; }
-    else if(d.import!=null){ openImport(); return; }
     render(); return;
   }
   if(t.closest("#tip")) return;
-  const el=t.closest("[data-tip]");
+  const el=tipTarget(t);
   if(el){ if(pinned===el.dataset.tip){ hideTip(); } else { pinned=el.dataset.tip; showTip(el,true); } return; }
   if(pinned) hideTip();
 });
 document.addEventListener("change",e=>{
-  if(e.target.dataset && e.target.dataset.mhp!=null){ const mn=(S.minions||[]).find(x=>x.uid===e.target.dataset.mhp); if(mn){ const v=parseInt(e.target.value,10); mn.hp=isNaN(v)?mn.hp:v; e.target.value=mn.hp; saveState(); } return; }
+  if(e.target.dataset && e.target.dataset.mhp!=null){ const mn=(S.minions||[]).find(x=>x.uid===e.target.dataset.mhp); if(mn){ const v=parseInt(e.target.value,10); mn.hp=isNaN(v)?mn.hp:v; e.target.value=mn.hp; markDirty(); } return; }
   if(e.target.id==="tempHp"){ S.temp=Math.max(0,parseInt(e.target.value)||0); render(); }
   else if(e.target.matches("select[data-staff]")){
     const key=e.target.dataset.staff;
@@ -2337,7 +2871,7 @@ document.addEventListener("dragstart",e=>{
   const row=e.target.closest&&e.target.closest("[data-drag]"); if(!row) return;
   try{ DRAG=JSON.parse(row.dataset.drag); }catch(err){ DRAG=null; return; }
   e.dataTransfer.effectAllowed="copyMove"; e.dataTransfer.setData("text/plain",DRAG.name);
-  clearTimeout(showT); hideTip(); hideCond();
+  clearTimeout(showT); pendEl=null; hideTip(); hideCond();
   row.classList.add("dragsrc");
   document.querySelectorAll(DROP_T).forEach(el=>{ if(dropInfo(el)) el.classList.add("drop-ok"); });
 });
@@ -2386,10 +2920,14 @@ function iResolve(el,x){                                     // element under th
   return null;
 }
 function iOk(el,x){ if(!IDRAG||!el) return false; const to=iResolve(el,x); if(!to) return false;
-  if(IDRAG.startsWith("C|") && to.startsWith("cont:")) return false;     // containers don't nest
+  if(to.startsWith("cont:") && INV_VIEW && INV_VIEW.conts.some(c=>c.key===IDRAG)) return false;     // containers don't nest
   if(el.dataset.idrag===IDRAG) return false;
   return true; }
-function iMoveWhole(key,to){ setLoc(key,to); }
+function iMoveWhole(key,to){
+  if(to==="equipped"){ setLoc(key,"top"); setEq(key,true); return; }
+  setLoc(key,to);
+  if(to.startsWith("cont:")) setEq(key,false);                       // only top-level rows carry the flag
+}
 function iSplitMove(key,to,n,srcQty){
   let base;
   if(key.startsWith("s|")){
@@ -2401,13 +2939,15 @@ function iSplitMove(key,to,n,srcQty){
     S.qty[key]=cur-n;
   }
   S.splits=S.splits||[];
-  S.splits.push({id:newSplitId(base), base, qty:n, loc:to});
+  const id=newSplitId(base);
+  S.splits.push({id, base, qty:n, loc:to==="equipped"?"top":to});
+  if(to==="equipped") setEq(id,true);
 }
 document.addEventListener("dragstart",e=>{
   const el=e.target.closest&&e.target.closest("[data-idrag]"); if(!el) return;
   IDRAG=el.dataset.idrag; IDRAG_QTY=+el.dataset.qty||1; IDRAG_NAME=el.dataset.name||IDRAG;
   e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("text/plain",IDRAG);
-  clearTimeout(showT); hideTip(); hideCond(); el.classList.add("idragsrc");
+  clearTimeout(showT); pendEl=null; hideTip(); hideCond(); el.classList.add("idragsrc");
   document.querySelectorAll("#pInv [data-idrop]").forEach(d=>{ if(iOk(d,(d.getBoundingClientRect().left+d.getBoundingClientRect().right)/2)) d.classList.add("idrop-ok"); });
 });
 document.addEventListener("dragover",e=>{
@@ -2429,7 +2969,7 @@ async function askDeleteContainer(key){
   const d=$("#delDlg");
   $("#delTitle").textContent=`Delete ${c.name}`;
   setHTML($("#delBody"), n
-    ? `${esc(c.name)} holds <b>${n} item${n===1?"":"s"}</b>. Delete those as well, or keep them and move them to <b>${esc((INV_SECS.find(([k])=>k===S.invTab)||[,"this section"])[1])}</b>?`
+    ? `${esc(c.name)} holds <b>${n} item${n===1?"":"s"}</b>. Delete those as well, or keep them and move them to <b>All Equipment</b>?`
     : `${esc(c.name)} is empty.`);
   $("#delKeep").hidden=!n;
   const choice=await new Promise(res=>{
@@ -2444,7 +2984,7 @@ async function askDeleteContainer(key){
   if(!choice) return;
   S.removed=S.removed||{};
   if(choice==="all") for(const i of inside) S.removed[i.key]=true;
-  else for(const i of inside) setLoc(i.key,S.invTab);          // contents come out into the open section
+  else for(const i of inside) setLoc(i.key,"top");                // contents come out to the top level
   S.removed[key]=true;
   if(S.userConts) delete S.userConts[key];
   render();
@@ -2498,6 +3038,11 @@ document.addEventListener("drop",async e=>{
   e.preventDefault();
   const key=IDRAG, to=iResolve(el,e.clientX), qty=IDRAG_QTY, nm=IDRAG_NAME, wantSplit=e.ctrlKey && IDRAG_QTY>1;
   iEnd();                                                             // drag state is cleared before awaiting
+  if(to.startsWith("tag:")){                                          // tags belong to the item, so a tab drop never splits a stack
+    const x=findInv(key), tag=to.slice(4);
+    if(x){ setTags(x,x.tags.includes(tag)?x.tags:x.tags.concat(tag)); render(); }
+    return;
+  }
   let n=null;
   if(wantSplit){
     n=await askQuantity(nm,qty);
@@ -2508,9 +3053,7 @@ document.addEventListener("drop",async e=>{
   render();
 });
 document.addEventListener("dragend",iEnd);
-document.addEventListener("toggle",e=>{ if(e.target.matches&&e.target.matches("details.book")){ S.bookOpen=e.target.open; saveState(); } },true);
-$("#lvlUp").onclick=()=>{ S.level=Math.min(20,currentLevel(getBuild())+1); render(); };
-$("#lvlDown").onclick=()=>{ S.level=Math.max(getBuild().level,currentLevel(getBuild())-1); render(); };
+document.addEventListener("toggle",e=>{ if(e.target.matches&&e.target.matches("details.book")){ S.bookOpen=e.target.open; markDirty(); } },true);
 $("#btnDaily").onclick=()=>{ S.used={}; S.focus=null; S.drain=false; S.staff.spent=0; render(); };
 $("#btnImport").onclick=openImport;
 
@@ -2522,11 +3065,24 @@ $("#impGo").onclick=()=>{
   try{
     const obj=JSON.parse($("#impText").value.trim()); const b=obj.build||obj;
     if(!b||!b.abilities||!b.proficiencies||!b.level) throw new Error("That JSON doesn't look like a Pathbuilder build (no abilities, proficiencies or level).");
-    S.imported=b; S.level=b.level; S.hp=null; S.used={}; S.focus=null; S.prep=null; S.coins=null;
+    S.imported=b; S.hp=null; S.used={}; S.focus=null; S.prep=null; S.coins=null;
     dlg.close(); render();
   }catch(err){ $("#impErr").textContent=err.message; }
 };
-$("#impReset").onclick=()=>{ S.imported=null; S.level=DEFAULT_LEVEL; S.hp=null; S.used={}; S.prep=null; S.coins=null; dlg.close(); render(); };
+$("#impReset").onclick=()=>{ S.imported=null; S.hp=null; S.used={}; S.prep=null; S.coins=null; dlg.close(); render(); };
+
+function openTagEdit(tk){
+  const d=$("#tagDlg"), x0=findTagged(tk); if(!x0) return;
+  $("#tgTitle").textContent="Tags: "+x0.name.replace(/\s+×\d+$/,"");
+  const paint=()=>{ const x=findTagged(tk); if(!x){ d.close(); return; }
+    setHTML($("#tgBox"), INV_TAGS.map(([id,,label])=>`<label class="ckl"><input type="checkbox" class="eqcb" data-tgid="${id}"${x.tags.includes(id)?" checked":""}> ${esc(label)}</label>`).join(""));
+    $("#tgAuto").disabled=!Array.isArray(S.tags&&S.tags[tk]); };
+  $("#tgBox").onchange=()=>{ const x=findTagged(tk); if(!x) return; setTags(x,[...$("#tgBox").querySelectorAll("input:checked")].map(c=>c.dataset.tgid)); render(); paint(); };
+  $("#tgAuto").onclick=()=>{ delete S.tags[tk]; render(); paint(); };
+  $("#tgDone").onclick=()=>d.close();
+  d.onclick=ev=>{ if(ev.target===d) d.close(); };
+  paint(); d.showModal();
+}
 
 const addDlg=$("#addDlg");
 $("#aiCancel").onclick=()=>addDlg.close();
@@ -2536,12 +3092,13 @@ $("#aiName").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefau
 $("#aiResults").addEventListener("click",e=>{
   const row=e.target.closest("[data-aihit]"); if(!row) return;
   aiSelected=aonToRecord(aiHits[+row.dataset.aihit]);
+  aiSetTags(derivedTags(aiSelected.name,"",aiSelected));
   $("#aiResults").querySelectorAll(".airow.sel").forEach(r=>r.classList.remove("sel"));
   row.classList.add("sel");
 });
 $("#aiAdd").onclick=()=>{
   const qty=Math.max(1, parseInt($("#aiQty").value,10)||1);
-  const loc=$("#aiSection").value;
+  const equipped=$("#aiEq").checked, tags=[...addDlg.querySelectorAll("[data-aitag]:checked")].map(c=>c.dataset.aitag);
   let rec=aiSelected;
   if(!rec && !$("#aiManual").hidden){
     const name=$("#aiName").value.trim();
@@ -2549,13 +3106,297 @@ $("#aiAdd").onclick=()=>{
     rec=manualToRecord(name, $("#aiMBulk").value, $("#aiMDesc").value);
   }
   if(!rec){ $("#aiErr").textContent="Search and pick an item, or fill in the manual fields below."; return; }
-  commitAddItem(rec, qty, loc);
+  commitAddItem(rec, qty, equipped, tags);
   addDlg.close();
   render();
 };
 window.addEventListener("resize",()=>{ if(!tipEl.hidden) hideTip(); if(!ctipEl.hidden) hideCond(); });
 
+/* ============================================================
+   Widget board: movable, resizable mini-windows (ported from Korgash_Dashboard.html)
+   ============================================================ */
+const WIDGET_IDS=["pStats","pSpells","pInv","pFeats","pRef","pNotes"];
+const GAP=5, MINW=220, MINH=120, NARROW_BP=780, WIDE_BP=1100, SNAPG=10, EDGE_SNAP=15;
+const HANDLES=["n","s","e","w","ne","nw","se","sw"];
+let boardEl=null, widgets={}, drag=null, resizeActive=false, relayoutBusy=false, ro=null;
+
+const rangesOverlap=(a0,a1,b0,b1)=>a0<b1 && b0<a1;
+function limitW(){ return Math.max(MINW, boardEl?boardEl.clientWidth:innerWidth-GAP*2); }  // board's usable inner width
+function fitRight(it){                                 // clamp an {x,w} item so x+w never passes LIMIT
+  const L=limitW(), origW=it.w;
+  if(it.x+it.w<=L) return it;
+  let w=L-it.x;
+  if(w<MINW){ w=Math.max(MINW,Math.min(origW,L)); it.x=Math.max(0,L-w); }
+  it.w=w;
+  return it;
+}
+function layoutPass(order,dims){                       // pure: order=[id,...], dims={id:{x,w,h}} -> {id:{x,y,w,h}}
+  const placed=[], out={};
+  order.forEach(id=>{
+    const d=dims[id]; let y=0;
+    placed.forEach(p=>{ if(rangesOverlap(d.x,d.x+d.w,p.x,p.x+p.w)) y=Math.max(y,p.y+p.h+GAP); });
+    out[id]={x:d.x,y,w:d.w,h:d.h}; placed.push(out[id]);
+  });
+  return out;
+}
+function defLayout(){
+  const bw=Math.max(NARROW_BP, boardEl?limitW():innerWidth-GAP*2);
+  const items={};
+  if(bw>=WIDE_BP){
+    const col1w=330, rem=Math.max(0,bw-col1w-GAP*2);
+    const col2w=Math.round(rem*1.25/2.25), col3w=rem-col2w;
+    const x2=col1w+GAP, x3=x2+col2w+GAP;
+    [["pStats",0,col1w],
+     ["pSpells",x2,col2w],["pInv",x2,col2w],["pFeats",x2,col2w],
+     ["pRef",x3,col3w],["pNotes",x3,col3w]]
+      .forEach(([id,x,w])=>items[id]={x,y:0,w:Math.max(MINW,w),h:null});
+  } else {
+    const colw=Math.max(MINW,Math.floor((bw-GAP)/2));
+    [["pStats",0],["pRef",0],["pNotes",0],
+     ["pSpells",colw+GAP],["pInv",colw+GAP],["pFeats",colw+GAP]]
+      .forEach(([id,x])=>items[id]={x,y:0,w:colw,h:null});
+  }
+  return {v:1,items};
+}
+function validLayout(L){ return !!(L && L.v===1 && L.items); }
+function validItem(it){ return !!(it && typeof it.x==="number" && typeof it.y==="number" && typeof it.w==="number" && (it.h===null||typeof it.h==="number")); }
+const cloneLayout=L=>JSON.parse(JSON.stringify(L));
+function patchLayout(L){                                // keep every saved position; only patch ids the saved layout lacks
+  const it=L.items;
+  if(!validItem(it.pRef) && validItem(it.pActions)) it.pRef=it.pActions;               // Reference takes the Actions widget's spot
+  ["pActions","pConditions","pRules","pMinions","pCampaign","pAllItems","pFeatures"].forEach(id=>{ delete it[id]; });   // merged into Reference, Basic Information and Magic
+  if(!WIDGET_IDS.some(id=>!validItem(L.items[id]))) return;
+  const def=defLayout();
+  WIDGET_IDS.forEach(id=>{ if(!validItem(L.items[id])) L.items[id]=def.items[id]; });
+}
+// S.layoutBase is the user's own arrangement and is never clamped to the window; S.layout is the on-screen copy that reflow may squeeze
+function loadLayout(){
+  if(validLayout(S.layoutBase)){ patchLayout(S.layoutBase); S.layout=cloneLayout(S.layoutBase); return; }
+  if(!validLayout(S.layout)) S.layout=defLayout(); else patchLayout(S.layout);
+  S.layoutBase=cloneLayout(S.layout);
+}
+function commitBase(touchedId){                         // user drag/resize only: the touched widget takes its full box, the rest follow in y
+  WIDGET_IDS.forEach(id=>{
+    const cur=S.layout.items[id];
+    if(id===touchedId) S.layoutBase.items[id]={x:cur.x,y:cur.y,w:cur.w,h:cur.h};
+    else S.layoutBase.items[id].y=cur.y;
+  });
+}
+function narrow(){ return innerWidth<NARROW_BP; }
+function effH(id){
+  const it=S.layout.items[id];
+  if(it.h!=null) return it.h;
+  const el=widgets[id];
+  return el ? el.getBoundingClientRect().height : MINH;
+}
+function applyOne(id){
+  const it=S.layout.items[id], el=widgets[id];
+  el.style.left=it.x+"px"; el.style.top=it.y+"px"; el.style.width=it.w+"px";
+  if(it.h==null){ el.classList.remove("fixedh"); el.classList.add("autoh"); el.style.height="auto"; }
+  else { el.classList.remove("autoh"); el.classList.add("fixedh"); el.style.height=it.h+"px"; }
+}
+function applyPositions(){ WIDGET_IDS.forEach(applyOne); }
+function updateBoardHeight(){
+  let maxB=0;
+  WIDGET_IDS.forEach(id=>{ const it=S.layout.items[id]; maxB=Math.max(maxB, it.y+effH(id)); });
+  boardEl.style.height=Math.round(maxB+GAP)+"px";
+}
+function gutterSnap(){                                 // near-miss gaps (≤ EDGE_SNAP) become exactly GAP, left edge and right limit included
+  const it=S.layout.items, L=limitW(), ids=WIDGET_IDS.slice().sort((a,b)=>it[a].x-it[b].x);
+  ids.forEach(id=>{
+    const a=it[id]; let best=null, bd=EDGE_SNAP+0.01;
+    [0,...ids.filter(k=>k!==id&&it[k].x<a.x).map(k=>it[k].x+it[k].w+GAP)].forEach(c=>{ const d=Math.abs(a.x-c); if(d<bd){ bd=d; best=c; } });
+    if(best!=null) a.x=best;
+  });
+  ids.forEach(id=>{                                     // right edges: meet the next widget's left edge minus GAP, or the right limit
+    const a=it[id], R=a.x+a.w; let best=null, bd=EDGE_SNAP+0.01;
+    [L,...ids.filter(k=>k!==id&&it[k].x>a.x).map(k=>it[k].x-GAP)].forEach(c=>{ const d=Math.abs(R-c); if(d<bd&&c-a.x>=MINW){ bd=d; best=c; } });
+    if(best!=null) a.w=best-a.x;
+    fitRight(a);
+  });
+}
+function relayout(){
+  if(narrow()||relayoutBusy) return;
+  relayoutBusy=true;
+  const items=S.layout.items;
+  WIDGET_IDS.forEach(id=>fitRight(items[id])); gutterSnap();
+  const order=WIDGET_IDS.slice().sort((a,b)=>(items[a].y-items[b].y)||(items[a].x-items[b].x));
+  const dims={}; order.forEach(id=>dims[id]={x:items[id].x,w:items[id].w,h:effH(id)});
+  const out=layoutPass(order,dims);
+  order.forEach(id=>{ items[id].y=out[id].y; });
+  applyPositions(); updateBoardHeight();
+  relayoutBusy=false;
+}
+function snapX(x,w,others){
+  const sx=Math.max(0,Math.round(x/SNAPG)*SNAPG);
+  let best=null, bestDist=EDGE_SNAP;
+  others.forEach(k=>{
+    const o=S.layout.items[k];
+    [o.x, o.x+o.w+GAP].forEach(cand=>{ const d=Math.abs(x-cand); if(d<bestDist){ bestDist=d; best=cand; } });
+  });
+  return best!=null ? Math.max(0,best) : sx;
+}
+function isInteractive(el){ return !!el.closest("button,input,select,a,[data-coin],[data-tabset]"); }
+function makePlaceholder(x,y,w,h){
+  let ph=boardEl.querySelector(".wplaceholder");
+  if(!ph){ ph=document.createElement("div"); ph.className="wplaceholder"; boardEl.appendChild(ph); }
+  ph.style.left=x+"px"; ph.style.top=y+"px"; ph.style.width=w+"px"; ph.style.height=h+"px";
+  return ph;
+}
+function removePlaceholder(){ const ph=boardEl.querySelector(".wplaceholder"); if(ph) ph.remove(); }
+function orderForDrag(id,dx,dy,dw,others){
+  const sorted=others.slice().sort((a,b)=>(S.layout.items[a].y-S.layout.items[b].y)||(S.layout.items[a].x-S.layout.items[b].x));
+  let insertAt=sorted.length;
+  for(let i=0;i<sorted.length;i++){
+    const o=S.layout.items[sorted[i]], oh=effH(sorted[i]);
+    const overlap=rangesOverlap(dx,dx+dw,o.x,o.x+o.w), midY=o.y+oh/2;
+    if(overlap && midY>dy){ insertAt=i; break; }
+  }
+  sorted.splice(insertAt,0,id);
+  return sorted;
+}
+function beginDrag(widget,id,w,h){
+  widget.classList.add("dragging");
+  drag={id,w,h,result:null};
+  hideTip(); clearTimeout(showT); pendEl=null;
+  document.body.classList.add("noselect");
+  makePlaceholder(S.layout.items[id].x,S.layout.items[id].y,w,h);
+}
+function updateDrag(ev,boardRect,offX,offY){
+  const widget=widgets[drag.id];
+  let x=ev.clientX-boardRect.left-offX+boardEl.scrollLeft;
+  let y=ev.clientY-boardRect.top-offY+boardEl.scrollTop;
+  x=Math.max(0,x); y=Math.max(0,y);
+  widget.style.left=x+"px"; widget.style.top=y+"px";
+  const others=WIDGET_IDS.filter(k=>k!==drag.id);
+  const sx=snapX(x,drag.w,others);
+  const fit={x:sx,w:drag.w}; fitRight(fit);
+  const order=orderForDrag(drag.id,fit.x,y,fit.w,others);
+  const dims={}; order.forEach(k=>dims[k]= k===drag.id ? {x:fit.x,w:fit.w,h:drag.h} : {x:S.layout.items[k].x,w:S.layout.items[k].w,h:effH(k)});
+  const out=layoutPass(order,dims);
+  order.forEach(k=>{ if(k===drag.id) return; const w2=widgets[k]; w2.style.left=out[k].x+"px"; w2.style.top=out[k].y+"px"; });
+  makePlaceholder(out[drag.id].x,out[drag.id].y,fit.w,drag.h);
+  drag.result=out;
+}
+function endWidgetDrag(){
+  const widget=widgets[drag.id];
+  widget.classList.remove("dragging");
+  removePlaceholder();
+  const out=drag.result;
+  if(out) Object.keys(out).forEach(k=>{ S.layout.items[k].x=out[k].x; S.layout.items[k].y=out[k].y; S.layout.items[k].w=out[k].w; });
+  relayout(); commitBase(drag.id); markDirty();
+  drag=null;
+}
+function startDragTracking(widget,e){
+  const id=widget.dataset.w;
+  const rect=widget.getBoundingClientRect();
+  const boardRect=boardEl.getBoundingClientRect();
+  const offX=e.clientX-rect.left, offY=e.clientY-rect.top;
+  const startX=e.clientX, startY=e.clientY;
+  const w=S.layout.items[id].w, h=effH(id);
+  let dragging=false;
+  function onMove(ev){
+    if(!dragging){
+      if(Math.hypot(ev.clientX-startX,ev.clientY-startY)<4) return;
+      dragging=true; beginDrag(widget,id,w,h);
+    }
+    updateDrag(ev,boardRect,offX,offY);
+  }
+  function onUp(){
+    document.removeEventListener("pointermove",onMove);
+    document.removeEventListener("pointerup",onUp);
+    document.body.classList.remove("noselect");
+    if(dragging){
+      endWidgetDrag();
+      const suppress=ev2=>{ ev2.stopPropagation(); document.removeEventListener("click",suppress,true); };
+      document.addEventListener("click",suppress,true);
+    }
+  }
+  document.addEventListener("pointermove",onMove);
+  document.addEventListener("pointerup",onUp,{once:true});
+}
+function startResize(handle,e){
+  const widget=handle.closest(".widget"), id=widget.dataset.w, dir=handle.dataset.rz;
+  const it=S.layout.items[id];
+  const rect=widget.getBoundingClientRect();
+  const orig={x:it.x,y:it.y,w:it.w,h: it.h!=null?it.h:rect.height}, origHMode=it.h;
+  const startX=e.clientX, startY=e.clientY;
+  let moved=false;
+  hideTip(); clearTimeout(showT); pendEl=null;
+  function onMove(ev){
+    if(!moved){ moved=true; widget.classList.add("resizing"); resizeActive=true; document.body.classList.add("noselect"); }
+    const dx=ev.clientX-startX, dy=ev.clientY-startY;
+    let {x,y,w,h}=orig;
+    if(dir.includes("e")){ w=Math.max(MINW, orig.w+dx); w=Math.max(MINW, Math.min(w, limitW()-x)); }
+    if(dir.includes("w")){ w=Math.max(MINW, orig.w-dx); x=orig.x+(orig.w-w); }
+    if(dir.includes("s")) h=Math.max(MINH, orig.h+dy);
+    if(dir.includes("n")){ h=Math.max(MINH, orig.h-dy); y=orig.y+(orig.h-h); }
+    const vertical=/[ns]/.test(dir);
+    S.layout.items[id]={x,y,w,h: vertical?h:origHMode};
+    applyOne(id); relayout();
+  }
+  function onUp(){
+    document.removeEventListener("pointermove",onMove);
+    document.removeEventListener("pointerup",onUp);
+    document.body.classList.remove("noselect");
+    if(moved){ widget.classList.remove("resizing"); resizeActive=false; relayout(); commitBase(id); markDirty(); }
+  }
+  document.addEventListener("pointermove",onMove);
+  document.addEventListener("pointerup",onUp,{once:true});
+}
+function initWidgets(){
+  boardEl=$("#board");
+  WIDGET_IDS.forEach(id=>{
+    const sec=document.getElementById(id);
+    const w=document.createElement("div");
+    w.className="widget"; w.dataset.w=id;
+    sec.replaceWith(w); w.appendChild(sec);
+    HANDLES.forEach(hd=>{ const d=document.createElement("div"); d.className="rz "+hd; d.dataset.rz=hd; w.appendChild(d); });
+    widgets[id]=w;
+  });
+  boardEl.addEventListener("pointerdown",e=>{
+    if(narrow() || e.button!==0) return;
+    const rz=e.target.closest(".rz");
+    if(rz){ startResize(rz,e); return; }
+    const h2=e.target.closest(".widget h2");
+    if(!h2 || isInteractive(e.target)) return;
+    startDragTracking(h2.closest(".widget"),e);
+  });
+}
+function updateMode(){ boardEl.classList.toggle("stacked", narrow()); }
+function onWindowResize(){
+  updateMode();
+  if(!narrow()){ S.layout=cloneLayout(S.layoutBase); applyPositions(); relayout(); }
+}
+function onWidgetResize(){
+  if(drag || resizeActive) return;
+  relayout();                                           // auto-height/reflow only — not a user edit, don't mark dirty
+}
+function initBoard(){
+  boardEl.classList.add("noanim"); setTimeout(()=>boardEl.classList.remove("noanim"),500);  // no slide-in on first paint
+  loadLayout();
+  updateMode();
+  if(!narrow()){ applyPositions(); relayout(); }
+  ro=new ResizeObserver(onWidgetResize);
+  WIDGET_IDS.forEach(id=>ro.observe(widgets[id]));
+  window.addEventListener("resize",onWindowResize);
+  $("#btnResetLayout").onclick=()=>{
+    S.layout=defLayout(); S.layoutBase=cloneLayout(S.layout);
+    if(!narrow()){ applyPositions(); relayout(); }
+    markDirty();
+  };
+}
+
+$("#btnSave").onclick=()=>{ if(dirty) doSave(); };
+document.addEventListener("keydown",e=>{ if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){ e.preventDefault(); doSave(); } });
+function guardUnload(e){ if(dirty){ e.preventDefault(); e.returnValue=""; } }
+window.addEventListener("beforeunload",guardUnload);
+
+initWidgets();
 render();
+booted=true;
+initBoard();
+initCloud();
 </script>
 </body>
 </html>
