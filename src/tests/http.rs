@@ -3,6 +3,7 @@
 //! and a stub-provider OIDC round trip.
 
 use std::io::Write as _;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use axum::body::Body;
 use axum::http::header::SET_COOKIE;
@@ -17,9 +18,18 @@ use crate::auth::error::Unauthenticated;
 use crate::auth::oidc;
 use crate::testing;
 
-/// A static dir with one shell page, shared by the fallback tests.
+/// A static dir with one shell page, unique per call: concurrent tests
+/// share one process (one pid), so a pid-keyed dir made every caller
+/// truncate and rewrite the SAME index.html — a request served inside
+/// that window read an empty body (the flaky
+/// `unknown_api_paths_follow_the_spa_fallback_contract` failure).
 fn static_dir() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("hireling-http-test-{}", std::process::id()));
+    static CALL: AtomicU64 = AtomicU64::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "hireling-http-test-{}-{}",
+        std::process::id(),
+        CALL.fetch_add(1, Ordering::Relaxed),
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     let mut index = std::fs::File::create(dir.join("index.html")).unwrap();
     index.write_all(b"<h1>hireling</h1>").unwrap();

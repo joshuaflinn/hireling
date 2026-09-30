@@ -25,7 +25,7 @@ use crate::auth::authz::{Action, Actor, Resource};
 use crate::auth::error::{Forbidden, Unauthenticated};
 use crate::auth::middleware::SessionAccount;
 use crate::pbimport::error::ImportError;
-use crate::pbimport::store::{RunImportError, run_import};
+use crate::pbimport::store::{RunImportError, record_rejection, run_import};
 
 /// `POST /api/characters/import` — the import endpoint (FR-1, FR-17).
 pub async fn import_character(
@@ -50,7 +50,13 @@ pub async fn import_character(
 
     match run_import(&auth.pool, &actor, request_id.as_deref(), &body).await {
         Ok(outcome) => (StatusCode::OK, Json(outcome)).into_response(),
-        Err(RunImportError::Invalid(failure)) => failure_response(failure),
+        Err(RunImportError::Invalid(failure)) => {
+            // One audit row per attempt (E5 guardrail: log import attempts
+            // with account + outcome) — the denial lands even though the
+            // body never reached storage.
+            record_rejection(&auth.pool, &actor, request_id.as_deref(), failure).await;
+            failure_response(failure)
+        }
         Err(RunImportError::Database(error)) => {
             tracing::error!(
                 error = %error,
