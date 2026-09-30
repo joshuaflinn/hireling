@@ -2,8 +2,7 @@
 @docs/toolkit-conventions.md
 
 ## How work gets done here
-Opus plans, cheaper tiers execute. Full policy in the working-folder `CLAUDE.md` and in
-`C:\Users\david\.claude\CLAUDE.md`; the short form is:
+Opus plans, cheaper tiers execute:
 
 - This session does the reading, planning, verifying, and all writing Dave sees.
 - Implementation, multi-file edits, scripts, build-guide drafting, and test runs go to
