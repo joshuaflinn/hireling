@@ -152,9 +152,9 @@ Rust test layout follows the house shape (`src/tests/` in-crate, DB-gated like `
 **Interfaces:**
 - Produces: `pub struct SyncMetrics { … }` (`push(ms)`, `snapshot() -> MetricsSummary { count, p50_ms, p95_ms, p99_ms }`, 10 000-sample ring); endpoint returns the JSON summary behind session auth.
 
-- [ ] **Step 1: Failing tests**: histogram percentiles on a known sample set (e.g. 1..=100 → p50=50, p95=95, p99=99); endpoint: unauthenticated → 401; authenticated → shape + auth route listed in the ownership matrix (extend the existing router test). Log assertion: a write over the real socket produces a `sync_dispatch_ms` tracing event (capture via `tracing` test subscriber — production path per PR #30).
-- [ ] **Step 2: FAIL** → **Step 3: Implement** ring + percentile; wire t0/t1; route. → **Step 4: PASS**.
-- [ ] **Step 5: Commit** — `feat: E7 sync_dispatch_ms instrumentation + /metrics/sync (#9)`.
+- [x] **Step 1: Failing tests**: histogram percentiles on a known sample set (e.g. 1..=100 → p50=50, p95=95, p99=99); endpoint: unauthenticated → 401; authenticated → shape + auth route listed in the ownership matrix (extend the existing router test). Log assertion: a write over the real socket produces a `sync_dispatch_ms` tracing event (capture via `tracing` test subscriber — production path per PR #30).
+- [x] **Step 2: FAIL** → **Step 3: Implement** ring + percentile; wire t0/t1; route. → **Step 4: PASS**.
+- [x] **Step 5: Commit** — `feat: E7 sync_dispatch_ms instrumentation + /metrics/sync (#9)`.
 
 ### Task 9: Client queue
 
