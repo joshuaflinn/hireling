@@ -57,12 +57,12 @@ Rust test layout follows the house shape (`src/tests/` in-crate, DB-gated like `
 **Interfaces:**
 - Produces: table `client_ops(op_id text PK, account_sub text NOT NULL FK accounts(sub) RESTRICT, field_path text NOT NULL, outcome text NOT NULL CHECK IN ('applied','superseded','rejected','forbidden'), resulting_version bigint NULL, created_at timestamptz NOT NULL DEFAULT now())` + index `(account_sub, created_at)`. No `updated_at` (append-only).
 
-- [ ] **Step 1: Claim + merge base.** Self-assign gh#9. `git merge origin/main` into `feat/9-party-sync`; resolve (specs/007 touches nothing E5 touched); `just ci-local` green on the merge commit before proceeding.
-- [ ] **Step 2: Write the failing test** — extend `src/tests/migrations.rs`: apply all migrations to a fresh DB (existing pattern), then assert table shape: `op_id` PK, outcome CHECK rejects `'bogus'`, FK RESTRICT on account delete, and the down migration drops the table cleanly (up→down→up round-trip).
-- [ ] **Step 3: Run — expect FAIL** (table absent). `cargo test --test none migrations::client_ops` or the file's filter per existing pattern.
-- [ ] **Step 4: Write the migration** exactly as the Interfaces block; `.down.sql` = `DROP TABLE client_ops;` with the house header comment.
-- [ ] **Step 5: Run — PASS.** Then `just db-reset && just db-migrate && just db-revert && just db-migrate` (compose round-trip).
-- [ ] **Step 6: Commit** — `feat: E7 client_ops idempotency ledger migration (#9)`.
+- [x] **Step 1: Claim + merge base.** Self-assign gh#9. `git merge origin/main` into `feat/9-party-sync`; resolve (specs/007 touches nothing E5 touched); `just ci-local` green on the merge commit before proceeding.
+- [x] **Step 2: Write the failing test** — extend `src/tests/migrations.rs`: apply all migrations to a fresh DB (existing pattern), then assert table shape: `op_id` PK, outcome CHECK rejects `'bogus'`, FK RESTRICT on account delete, and the down migration drops the table cleanly (up→down→up round-trip).
+- [x] **Step 3: Run — expect FAIL** (table absent). `cargo test --test none migrations::client_ops` or the file's filter per existing pattern.
+- [x] **Step 4: Write the migration** exactly as the Interfaces block; `.down.sql` = `DROP TABLE client_ops;` with the house header comment.
+- [x] **Step 5: Run — PASS.** Then `just db-reset && just db-migrate && just db-revert && just db-migrate` (compose round-trip).
+- [x] **Step 6: Commit** — `feat: E7 client_ops idempotency ledger migration (#9)`.
 
 ### Task 2: Protocol frames, deny-by-default
 
@@ -72,11 +72,11 @@ Rust test layout follows the house shape (`src/tests/` in-crate, DB-gated like `
 - Produces: `pub enum ClientFrame { Write { op_id: String, target: FieldTarget, base_version: i64, value: JsonValue }, Ping }`; `pub enum ServerFrame { Hello { party_id: i64, you: ActorInfo, server_now: DateTime<Utc> }, Snapshot { fields: Vec<SnapshotField>, snapshot_bytes: u64 }, Diff { field: FieldTarget, value: JsonValue, version: i64, actor_sub: String, op_id: Option<String> }, Ack { op_id: String, outcome: Outcome, version: Option<i64>, winning_version: Option<i64>, reason: Option<String> }, Pong, Bye { reason: String } }`; `pub enum FieldTarget { Vitals { character_id: i64, field: VitalsField }, Slot { character_id: i64, caster_key: String, rank: i32, slot_index: i32 }, Inv { character_id: i64, item_name: String }, Effect { effect_id: i64 } }`; `pub enum Outcome { Applied, Superseded, AlreadyApplied, Rejected, Forbidden }`; `impl ClientFrame { pub fn decode(raw: &str) -> Result<Self, ProtocolError> }`.
 - Wire shapes are **exactly** `contracts/wire-protocol.md` §2 (tag `"t"`, snake_case fields).
 
-- [ ] **Step 1: Failing tests**: round-trip every frame kind through `serde_json` to the contract's literal JSON (copy the examples from the contract as fixtures — derivation rule); `decode("{\"t\":\"wat\"}")` is `Err`; `decode` of `kind:"effect"` write is `Err(ProtocolError::EffectWritesDeferred)` (deny-by-default, distinct reason); `base_version` missing → `Err`.
-- [ ] **Step 2: Run — FAIL** (module absent). `cargo test sync::protocol`.
-- [ ] **Step 3: Implement** serde types with `#[serde(tag = "t", rename_all = "snake_case")]`; `decode` = `serde_json::from_str` + effect-write guard.
-- [ ] **Step 4: Run — PASS.** `cargo test sync::protocol`.
-- [ ] **Step 5: Commit** — `feat: E7 wire protocol frames, deny-by-default decode (#9)`.
+- [x] **Step 1: Failing tests**: round-trip every frame kind through `serde_json` to the contract's literal JSON (copy the examples from the contract as fixtures — derivation rule); `decode("{\"t\":\"wat\"}")` is `Err`; `decode` of `kind:"effect"` write is `Err(ProtocolError::EffectWritesDeferred)` (deny-by-default, distinct reason); `base_version` missing → `Err`.
+- [x] **Step 2: Run — FAIL** (module absent). `cargo test sync::protocol`.
+- [x] **Step 3: Implement** serde types with `#[serde(tag = "t", rename_all = "snake_case")]`; `decode` = `serde_json::from_str` + effect-write guard.
+- [x] **Step 4: Run — PASS.** `cargo test sync::protocol`.
+- [x] **Step 5: Commit** — `feat: E7 wire protocol frames, deny-by-default decode (#9)`.
 
 ### Task 3: `apply_write` — bounds, CAS, ledger (the engine's core)
 
@@ -86,7 +86,7 @@ Rust test layout follows the house shape (`src/tests/` in-crate, DB-gated like `
 - Consumes: E2 tables (`character_vitals`, `character_spell_slots`, `character_inventory_live`), `field_version_seq`, Task 1's `client_ops`.
 - Produces: `pub async fn apply_write(pool: &PgPool, actor: &Actor, op: ClientOp) -> WriteResult` where `ClientOp { op_id, target, base_version, value }` and `WriteResult { outcome: Outcome, version: Option<i64>, winning_version: Option<i64> }`.
 
-- [ ] **Step 1: Failing tests** (seed a party+character+owner via `testing::seed_account` + E5's party seed helpers on main):
+- [x] **Step 1: Failing tests** (seed a party+character+owner via `testing::seed_account` + E5's party seed helpers on main):
   1. owner writes `hp 14` at current version → `Applied`, returned version = old+sequence advance, DB row updated, `client_ops` row `applied` with `resulting_version`.
   2. same op replayed → `AlreadyApplied` with the same version, no second version bump.
   3. stale `base_version` → `Superseded` + `winning_version` = current, DB unchanged, ledger row `superseded`.
@@ -94,10 +94,10 @@ Rust test layout follows the house shape (`src/tests/` in-crate, DB-gated like `
   5. GM actor → `Forbidden`; non-owner member → `Forbidden` (E3 `authorize()` wired per call).
   6. two concurrent writers, same field, same base (spawn `tokio::join!`) → exactly one `Applied`, one `Superseded`.
   7. slot write `{used:true}` and inv write `{qty_delta:-2}` CAS correctly on their row versions; money write sets all four denominations under one `money_version`.
-- [ ] **Step 2: Run — FAIL.** `cargo test sync::write`.
-- [ ] **Step 3: Implement**: validate bounds first (pure fn, table-driven — unit-test it inline); `authorize(actor, Write, resource)`; one transaction: `SELECT outcome… FROM client_ops WHERE op_id=$1 FOR UPDATE` → hit = `AlreadyApplied`; else the CAS statement per target kind — `UPDATE character_vitals SET hp=$1, hp_version=nextval('field_version_seq') WHERE character_id=$2 AND hp_version=$3 RETURNING hp_version` (rowcount 0 → re-read current version → `Superseded`); `INSERT client_ops …`; commit. Every error path is `Result`, no `unwrap`.
-- [ ] **Step 4: Run — PASS** (all seven).
-- [ ] **Step 5: Commit** — `feat: E7 per-field CAS write engine + durable ledger (#9)`.
+- [x] **Step 2: Run — FAIL.** `cargo test sync::write`.
+- [x] **Step 3: Implement**: validate bounds first (pure fn, table-driven — unit-test it inline); `authorize(actor, Write, resource)`; one transaction: `SELECT outcome… FROM client_ops WHERE op_id=$1 FOR UPDATE` → hit = `AlreadyApplied`; else the CAS statement per target kind — `UPDATE character_vitals SET hp=$1, hp_version=nextval('field_version_seq') WHERE character_id=$2 AND hp_version=$3 RETURNING hp_version` (rowcount 0 → re-read current version → `Superseded`); `INSERT client_ops …`; commit. Every error path is `Result`, no `unwrap`.
+- [x] **Step 4: Run — PASS** (all seven).
+- [x] **Step 5: Commit** — `feat: E7 per-field CAS write engine + durable ledger (#9)`.
 
 ### Task 4: Snapshot builder
 
