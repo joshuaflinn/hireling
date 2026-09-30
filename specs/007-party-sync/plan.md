@@ -203,17 +203,17 @@ Rust test layout follows the house shape (`src/tests/` in-crate, DB-gated like `
 
 **Files:** Create `src/tests/sync/integration.rs` (reuses the Task 6 harness). No new production code expected — this task is the spec's proof.
 
-- [ ] **Step 1: Failing-first where behavior is new, passing-now where it verifies**: (a) offline queue story over the wire — client A writes while socket severed, server state moves via client B, A reconnects → snapshot merge, queue replay, superseded ack, UI-silent (store assertion), server log/ledger row present; (b) ack-loss replay — kill the connection between commit and ack delivery, reconnect, resend same `op_id` → `already_applied`, exactly one version bump total; (c) **soak**: 6 clients, 10 000 ops (1/s sustained, 5/s bursts interleaved), then server **restart** (drop + recreate listener/pool in-process) → zero lost acknowledged writes, every op exactly-once in `client_ops`, all clients converged (SC-3); (d) stalled-reader isolation from Task 5 now over real sockets.
-- [ ] **Step 2–4**: run, fix what the suite catches (failures here are findings, not test changes — the tests encode the spec), converge to green.
-- [ ] **Step 5: Commit** — `test: E7 integration — offline replay, ack-loss, 10k soak + restart (#9)`.
+- [x] **Step 1: Failing-first where behavior is new, passing-now where it verifies**: (a) offline queue story over the wire — client A writes while socket severed, server state moves via client B, A reconnects → snapshot merge, queue replay, superseded ack, UI-silent (store assertion), server log/ledger row present; (b) ack-loss replay — kill the connection between commit and ack delivery, reconnect, resend same `op_id` → `already_applied`, exactly one version bump total; (c) **soak**: 6 clients, 10 000 ops (1/s sustained, 5/s bursts interleaved), then server **restart** (drop + recreate listener/pool in-process) → zero lost acknowledged writes, every op exactly-once in `client_ops`, all clients converged (SC-3); (d) stalled-reader isolation from Task 5 now over real sockets.
+- [x] **Step 2–4**: run, fix what the suite catches (failures here are findings, not test changes — the tests encode the spec), converge to green.
+- [x] **Step 5: Commit** — `test: E7 integration — offline replay, ack-loss, 10k soak + restart (#9)`.
 
 ### Task 14: Latency harness — the measured numbers
 
 **Files:** Create `tests/shaper.rs` (dev-only TCP proxy: seeded latency ± jitter, loss%; ~120 lines tokio) and `src/tests/sync/latency.rs`.
 
-- [ ] **Step 1: Failing tests**: (a) unshaped, POC load (6 clients, 60 s at 1/s + 10 s bursts at 5/s): dispatch p95 ≤ **100 ms** from `/metrics/sync`; (b) two clients through shaper profiles — wifi `{50ms, ±20, 0%}` → send→applied p95 < **1 s**; cellular `{300ms, ±100, 1%}` → p95 < **3 s** (1 000 samples each, seeded RNG, p95 from the test's own measurements; budgets are the spec's FR-5); (c) `snapshot_bytes` logged.
-- [ ] **Step 2–4**: implement shaper + harness; run; tune nothing in the budgets — if a budget fails, that's a stop-and-report, not a threshold edit.
-- [ ] **Step 5: Commit** — `test: E7 latency harness — dispatch p95 + shaped e2e budgets (#9)`.
+- [x] **Step 1: Failing tests**: (a) unshaped, POC load (6 clients, 60 s at 1/s + 10 s bursts at 5/s): dispatch p95 ≤ **100 ms** from `/metrics/sync`; (b) two clients through shaper profiles — wifi `{50ms, ±20, 0%}` → send→applied p95 < **1 s**; cellular `{300ms, ±100, 1%}` → p95 < **3 s** (1 000 samples each, seeded RNG, p95 from the test's own measurements; budgets are the spec's FR-5); (c) `snapshot_bytes` logged.
+- [x] **Step 2–4**: implement shaper + harness; run; tune nothing in the budgets — if a budget fails, that's a stop-and-report, not a threshold edit.
+- [x] **Step 5: Commit** — `test: E7 latency harness — dispatch p95 + shaped e2e budgets (#9)`.
 
 ### Task 15: Final gate + PR
 
