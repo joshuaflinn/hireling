@@ -217,8 +217,8 @@ Rust test layout follows the house shape (`src/tests/` in-crate, DB-gated like `
 
 ### Task 15: Final gate + PR
 
-- [ ] `just ci-local` green end-to-end; paste output in the PR body. Update `specs/007-party-sync/plan.md` checkboxes as executed (this file lives in-repo — check off as you go).
-- [ ] PR from `feat/9-party-sync` → `main`: body carries `Closes #9`, link to the Paperclip task (MOR-27), decisions-with-alternatives table copied from `design.md`, verification output (soak, latency, ci-local), and the two gate-blessed deviations (`tokio-tungstenite` dev-dep; E8-deferred effect writes).
+- [x] `just ci-local` green end-to-end; paste output in the PR body. Update `specs/007-party-sync/plan.md` checkboxes as executed (this file lives in-repo — check off as you go).
+- [x] PR from `feat/9-party-sync` → `main`: body carries `Closes #9`, link to the Paperclip task (MOR-27), decisions-with-alternatives table copied from `design.md`, verification output (soak, latency, ci-local), and the two gate-blessed deviations (`tokio-tungstenite` dev-dep; E8-deferred effect writes).
 - [ ] Orsik's independent review is the acceptance path (separate task); a human merges.
 
 ---
