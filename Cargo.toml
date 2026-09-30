@@ -9,7 +9,7 @@ license = "MIT"
 anyhow = "1.0.104"
 axum = "0.8.9"
 base64 = "0.23.1"
-chrono = "0.4.45"
+chrono = { version = "0.4.45", features = ["serde"] }
 cookie = { version = "0.18.2", features = ["signed", "key-expansion"] }
 # `aws_lc_rs` pins the CryptoProvider: with no feature, jsonwebtoken 11
 # panics at the first key operation (ID-token verify) instead of choosing.

@@ -29,12 +29,13 @@ JSON **text** frames, one object per frame, tagged by `"t"`:
 
 ```jsonc
 // client → server
-{"t":"write","op_id":"<uuid4>","target":{"kind":"vitals","field":"hp"},
- "base_version":1042,"value":14}
-{"t":"write","op_id":"<uuid4>","target":{"kind":"slot","caster_key":"Wizard",
- "rank":3,"slot_index":0},"base_version":871,"value":{"used":true}}
-{"t":"write","op_id":"<uuid4>","target":{"kind":"inv","item_name":"Chalk"},
- "base_version":990,"value":{"qty_delta":-2}}
+{"t":"write","op_id":"<uuid4>","target":{"kind":"vitals","character_id":3,
+ "field":"hp"},"base_version":1042,"value":14}
+{"t":"write","op_id":"<uuid4>","target":{"kind":"slot","character_id":3,
+ "caster_key":"Wizard","rank":3,"slot_index":0},"base_version":871,
+ "value":{"used":true}}
+{"t":"write","op_id":"<uuid4>","target":{"kind":"inv","character_id":3,
+ "item_name":"Chalk"},"base_version":990,"value":{"qty_delta":-2}}
 {"t":"ping"}                                    // any authenticated conn
 
 // server → client
@@ -63,10 +64,15 @@ per `degraded-mode.md`, and the op ledger makes that safe).
 
 | `kind` | key fields | value shape | version unit |
 |---|---|---|---|
-| `vitals` | `field`: `hp` \| `temp_hp` \| `money` \| `level_adjust` | `hp`/`temp_hp`: int ≥0; `money`: `{pp,gp,sp,cp}` (absolute, all four); `level_adjust`: int −19..19 | the column's `*_version` |
-| `slot` | `caster_key` (text), `rank` (0..10), `slot_index` (≥0) | `{used?: bool, prepared?: string\|null}` — whole-slot write | the slot row's `version` |
-| `inv` | `item_name` (text, exact match — E5 owns matching semantics) | `{qty_delta: int}` (absolute delta value, signed) | the row's `version` |
-| `effect` | `effect_id` | **read-only in E7** — appears in `snapshot`/`diff` as `{name, source_character_id, targets[], modifiers[], duration_note, active, version}`; write frames are E8's extension point | `effects.version` (whole row) |
+| `vitals` | `character_id`, `field`: `hp` \| `temp_hp` \| `money` \| `level_adjust` | `hp`/`temp_hp`: int ≥0; `money`: `{pp,gp,sp,cp}` (absolute, all four); `level_adjust`: int −19..19 | the column's `*_version` |
+| `slot` | `character_id`, `caster_key` (text), `rank` (0..10), `slot_index` (≥0) | `{used?: bool, prepared?: string\|null}` — whole-slot write | the slot row's `version` |
+| `inv` | `character_id`, `item_name` (text, exact match — E5 owns matching semantics) | `{qty_delta: int}` (absolute delta value, signed) | the row's `version` |
+| `effect` | `effect_id` (globally unique — identity PK) | **read-only in E7** — appears in `snapshot`/`diff` as `{name, source_character_id, targets[], modifiers[], duration_note, active, version}`; write frames are E8's extension point | `effects.version` (whole row) |
+
+`character_id` names the row's owner explicitly: a party snapshot spans every
+member's fields, so a target must identify its row unambiguously (the E2
+schema keys vitals/slots/inventory per character). Effects are the exception —
+`effect_id` is already globally unique.
 
 `caster_key` disambiguates the export's overlapping caster blocks (E2's
 anchoring rule). Item identity is exact-name; anything fuzzier is E5's.

@@ -14,6 +14,7 @@ pub mod health;
 pub mod http;
 pub mod import;
 pub mod pbimport;
+pub mod sync;
 
 use std::process::ExitCode;
 
