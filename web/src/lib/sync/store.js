@@ -51,7 +51,7 @@
  */
 /** @param {string} text @returns {string} */
 function quote(text) {
-  return `"${text.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+  return `"${text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 /** @param {*} value @returns {string} */
