@@ -83,3 +83,7 @@ mod metrics_tests;
 #[cfg(test)]
 #[path = "../tests/sync/session.rs"]
 mod session_tests;
+
+#[cfg(test)]
+#[path = "../tests/sync/integration.rs"]
+mod integration_tests;

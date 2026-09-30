@@ -4,15 +4,12 @@
 //! the production path (a real write over a real socket).
 
 use serde_json::json;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::OnceLock;
 use tower::ServiceExt as _;
 
 use crate::sync::metrics::SyncMetrics;
-use crate::sync::registry::PartyRegistry;
-use crate::sync::test_helpers::{connect, read_frame, seed_member, send_raw};
-use crate::sync::{SyncSettings, SyncState};
+use crate::sync::test_helpers::{
+    captured_log, connect, install_log_capture, read_frame, seed_member, send_raw, spawn_shared_app,
+};
 use crate::testing;
 
 /// Percentiles are selected samples, so exact equality holds; spelled as a
@@ -58,43 +55,8 @@ fn an_empty_ring_reports_zeroes() {
     );
 }
 
-/// The shared capture buffer behind the process-global tracing subscriber.
-/// Only the first installing test wins the install; the buffer is shared so
-/// every test asserts against the same stream of events.
-fn captured_log() -> Arc<Mutex<Vec<String>>> {
-    static BUF: OnceLock<Arc<Mutex<Vec<String>>>> = OnceLock::new();
-    Arc::clone(BUF.get_or_init(|| Arc::new(Mutex::new(Vec::new()))))
-}
-
-struct CaptureWriter(Arc<Mutex<Vec<String>>>);
-
-impl std::io::Write for CaptureWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let line = String::from_utf8_lossy(buf).to_string();
-        self.0.lock().expect("capture lock").push(line);
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-/// Install the capturing subscriber once per process. No-op if another test
-/// installed a subscriber first — the shared buffer still captures.
-fn install_log_capture() {
-    static ONCE: OnceLock<()> = OnceLock::new();
-    ONCE.get_or_init(|| {
-        let buffer = captured_log();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(move || CaptureWriter(Arc::clone(&buffer)))
-            .with_max_level(tracing::Level::TRACE)
-            .finish();
-        if tracing::subscriber::set_global_default(subscriber).is_err() {
-            // Another test installed a subscriber first; the shared buffer
-            // still captures whatever the global subscriber writes.
-        }
-    });
-}
+/// The shared capture buffer lives in `test_helpers` — one process-global
+/// subscriber and one buffer across every log-asserting module.
 
 #[tokio::test]
 async fn the_endpoint_gates_and_a_real_write_feeds_the_metrics_and_the_log() {
@@ -104,7 +66,7 @@ async fn the_endpoint_gates_and_a_real_write_feeds_the_metrics_and_the_log() {
     };
     let (party_id, character_id) = seed_member(&pool, "dev-sub-josh").await;
     let session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
-    let (app, addr, shutdown) = spawn_shared_server(pool.clone()).await;
+    let (app, addr, shutdown) = spawn_shared_app(pool.clone()).await;
 
     // Unauthenticated: the standard 401, no metrics leak.
     let response = app
@@ -209,44 +171,4 @@ async fn read_summary(app: &axum::Router, cookie: &str) -> serde_json::Value {
         .expect("body")
         .to_bytes();
     serde_json::from_slice(&body).expect("summary json")
-}
-
-/// Spawn the router once and hand the test its clone: socket traffic and
-/// oneshot endpoint reads share the same `SyncState` (same metrics ring).
-async fn spawn_shared_server(
-    pool: sqlx::PgPool,
-) -> (
-    axum::Router,
-    std::net::SocketAddr,
-    tokio::sync::oneshot::Sender<()>,
-) {
-    use std::net::SocketAddr;
-    let (drain_tx, drain_rx) = tokio::sync::watch::channel(false);
-    let sync = SyncState {
-        registry: Arc::new(PartyRegistry::new()),
-        settings: SyncSettings::default(),
-        drain: drain_rx,
-        metrics: Arc::new(SyncMetrics::new()),
-    };
-    let app = testing::router_for_with_sync(pool, &testing::auth_settings(), sync);
-    let served = app.clone();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("ephemeral bind");
-    let addr = listener.local_addr().expect("bound addr");
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-    tokio::spawn(async move {
-        let running = axum::serve(
-            listener,
-            served.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .with_graceful_shutdown(async move {
-            shutdown_rx.await.ok();
-            drain_tx.send_replace(true);
-        });
-        if let Err(err) = running.await {
-            eprintln!("test server error: {err}");
-        }
-    });
-    (app, addr, shutdown_tx)
 }
