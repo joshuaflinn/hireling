@@ -2,7 +2,8 @@
 
 **Epic:** E6 · gh#8 · Lane A · Depends on E5 (merged, PR #28 + #32) · rides E7's
 client stack (merged, PR #34) · converges with E8 (in flight)
-**Status:** draft — clarify gate open (4 questions to Josh, see §8)
+**Status:** clarify gate answered 4/4 by Josh, 2026-10-01 (§8) · design +
+plan at the board gate
 **Spec source:** `docs/EPICS.md` → E6 (specify prompt, settled constraints, AI
 guardrails); `docs/PRD.md` v3.6 FG1.
 
@@ -41,24 +42,25 @@ contract, not two).
 2. **Stats pane** — HP bar (0–max clamped, temp-HP as a distinct bar segment
    that absorbs damage first, ±1/±5/Full buttons, temp input), stat tiles (AC,
    Fort/Ref/Will, Perception, Speed, Class DC, Spell DC, Size), focus pips
-   (scope per Q1, §8), attributes with key-ability marker, skills and lores
+   (tracked — Q1 ruling), hero-point pips (tracked — Q1 ruling), attributes
+   with key-ability marker, skills and lores
    with proficiency-rank letter and modifier, ancestry/background/alignment/
    languages/deity meta lines.
 3. **Magic pane** — tabs: Spells · Pet & Minions. Spells: per-caster header
    (tradition, type, ability, spell attack/DC), prepared slots by rank with
    cast tracking, cantrips (heightened rank display), innate spells, focus
    cantrips, spellbook/"not prepared" collapsible, prep reset to export,
-   curriculum-slot display, Staff Nexus panel (display; charge tracking scope
-   per Q1), Drain Bonded Item (scope per Q1).
+   curriculum-slot display, Staff Nexus panel (charge-rank pick and charge
+   spend tracked — Q1 ruling), Drain Bonded Item (used flag tracked — Q1).
 4. **Pet & Minions tab** — pet/familiar panel derived from
    `base_sheet.companions` (HP/AC/saves/speed lines, abilities, command note).
-   Summons browsing and minion HP tracking: scope per Q4, §8.
+   Summons browsing and minion HP tracking are parked (Q4 ruling, §8).
 5. **Inventory pane** — items grouped by container (from `base_sheet`), Bulk
    rollup per container with the **extradimensional exclusion**
    (`containers.extradimensional` — contents never count toward Bulk),
-   quantity editing, coin counts (editable, syncs as `vitals.money`), tabs
-   (All / tag filters — render scope per Q2). Interactive container editing,
-   splits, equipped sync: scope per Q2, §8.
+   quantity editing, coin counts (editable, syncs as `vitals.money`), tab
+   filter chips rendered from corpus traits. Interactive container editing,
+   splits, equipped sync: parked (Q2 ruling, §8).
 6. **Feats & Features pane** — feats list (names, level-grouped) and features
    tab (class features, ancestry & heritage) from `base_sheet`. Names and
    structure only at P0: detail popups need a feats corpus (E4 deferred —
@@ -76,7 +78,7 @@ contract, not two).
 
 Post-#33 prototype surfaces, each mapped to its owner. "Parked" = beyond the
 P0/P1 line as written, no owning epic yet — disposition recorded, never
-silently dropped. Question markers (Q1–Q4) point at §8.
+silently dropped. Rulings below are Josh's, 2026-10-01, via the clarify card.
 
 | Prototype surface | Owner |
 |---|---|
@@ -85,29 +87,29 @@ silently dropped. Question markers (Q1–Q4) point at §8.
 | Stat tiles (AC/saves/Perception/Speed/DCs/Size) — rendering | **E6** (values via E8 contract) |
 | Skill popups (rank/ability breakdown) | **E6** (provenance contract shape) |
 | Level adjust (removed by #33 via `delete S.level`; PRD FG1 still requires it) | **E6** — PRD wins, deviation §9 |
-| Focus pips, Hero Points pips, Staff Nexus charges, Drain Bonded Item | **Q1** |
+| Focus pips, Hero Points pips, Staff Nexus charges, Drain Bonded Item | **E6** — tracked via new sync fields (Q1 ruling: extend) |
 | `syncStatus` span | **E6** (renders E7 `isSyncing()` + degraded states) |
 | Save button / Templates menu & dialog (named whole-sheet save slots) | **Out** — prototype-local save-slot scaffolding; superseded by E7's server-authoritative persistence. Not E13 (E13 = Dave-authored spell outcome templates, P1). |
 | "Reset Layout" (drag-resize widget layout, persisted positions) | **Parked** — E6 ships the fixed three-column layout the PRD names; layout customization has no P0/P1 owner |
-| New Day (clear cast slots, refill focus, reset drain) | **E6** — slot clears unconditional; focus/drain reset contingent on Q1 |
+| New Day (clear cast slots, refill focus, reset drain) | **E6** — full reset incl. focus/drain/staff (Q1 ruling) |
 | Import Pathbuilder dialog | **E5** (shipped); E6 links its entry point |
 | Spell slots, prep (drag-to-prepare), cast tracking, cantrips, innate, spellbook, reset-to-export, curriculum slots | **E6** |
 | Spell detail popups (full spell text, heightened notes) | **Parked** — needs spells corpus (E4 deferred) + E9 prose lane |
 | Pet/familiar panel | **E6** |
 | Summons browser (hardcoded `UNDEAD_SUMMONS` bestiary) | **Parked** — bestiary corpus deferred at E4; hardcoded fixture data never enters the product |
-| Current minions + HP + dismiss | **Q4** |
+| Current minions + HP + dismiss | **Parked** (Q4 ruling: companions-only) — returns when a bestiary/minions epic owns it |
 | Inventory: container display, Bulk math, extradimensional exclusion, qty edit | **E6** |
 | Coins (pp/gp/sp/cp) + reset | **E6** (`vitals.money`) |
-| Inventory tabs: Equipped / Magic / Gems / Trade filters | Tag *chips* render from corpus traits (**E6**); Equipped tab + tag *editing* per **Q2** |
+| Inventory tabs: Equipped / Magic / Gems / Trade filters | Tag *chips* render from corpus traits (**E6**); Equipped tab, tag *editing* and the interactive container system **parked** (Q2 ruling) |
 | Add item dialog (corpus search + custom-item form) | **E9** (custom entry at point of use is E9's named P0 lane); corpus-search add rides E9's lane |
-| Container editing: drag between containers, create/delete container, mark-as-container, capacity warnings ("Container is full"), split stack, soft-delete/restore picker | **Q2** |
+| Container editing: drag between containers, create/delete container, mark-as-container, capacity warnings ("Container is full"), split stack, soft-delete/restore picker | **Parked** (Q2 ruling: display + qty at P0) |
 | Feats/Features lists | **E6** |
 | Feat/feature/spell detail prose | **Parked** — E9 prose + deferred corpora |
 | Reference→Actions: Strikes group | **E6** (moved into the sheet, §2.7) |
 | Reference→Actions: basic-actions encyclopedia (Step, Create a Diversion, …) | **Parked** — E9's POC fence is Player Core conditions; other game terms on demand |
 | Reference→Conditions tab (42-condition map, sort by category/A–Z) | **E9** |
 | Reference→Rules tab (Lorum's curated rules notes) | **Parked** — character-specific curated content; may seed E9/E15 someday, not a P0 surface |
-| Notes pane (rich text, named pages, tags, autocomplete) | **Q3** |
+| Notes pane (rich text, named pages, tags, autocomplete) | **Parked** (Q3 ruling: out of E6) — named future surface, no owner yet |
 | Tooltip infrastructure (`#tip`/`#ctip`, `setHTML` DOMParser discipline) | **E6** ships the shared inert-HTML primitive; **E9** consumes it for prose |
 | Trait chips (names) / trait-text popups (full Paizo text) | names **E6**; text popups **E9** (license + prose lane) |
 | Phone/tablet reflow (780px single column) | **P2** (gh#18) — out of scope |
@@ -169,8 +171,11 @@ indicator). E6 obligations on top:
 
 - **Write surface at P0:** `vitals.hp`, `vitals.temp_hp`, `vitals.money`,
   `vitals.level_adjust`, `slot.{used,prepared}`, `inv.qty_delta` (exact-name
-  keys, E5's matching semantics). Q1/Q2 answers may add fields via the
-  contract's sanctioned extension path (PR to wire-protocol §3 + migration).
+  keys, E5's matching semantics). The Q1 ruling adds `vitals.focus_current`,
+  `vitals.hero_points`, and `vitals.daily` — new fields join wire-protocol
+  §3's `vitals` field enum via the contract's sanctioned extension path (PR to
+  `wire-protocol.md` + migration; E6's implementation owns that PR —
+  design.md §3).
 - **Local echo** renders immediately, tagged pending; control disabled until
   ack per degraded-mode §4's local-echo rule.
 - **`superseded`** — silent revert to server truth. No error, ever.
@@ -226,38 +231,34 @@ indicator). E6 obligations on top:
   web test suite — vitest, the E7 pattern); grizzly-gate fail-closed on the
   PR; a human merges. Claim gh#8 before any code (AGENTS.md sync point 1).
 
-## 8. Open questions (clarify gate — card posted on MOR-45)
+## 8. Clarify rulings (answered — Josh, 2026-10-01, card `348fd82b` on MOR-45)
 
-The PRD is silent or the sync field set is absent for four surfaces the new
-prototype ships. Each is asked, not guessed:
+Four surfaces where the PRD was silent or the sync field set was absent
+while the post-#33 prototype ships them. Asked, not guessed; answered 4/4,
+all recommendations accepted. These rulings are binding for design and plan:
 
-- **Q1 — Spell-economy trackers (focus points, hero points, Staff Nexus
-  charges, Drain Bonded Item).** PRD FG1 names focus expenditure P0 and the
-  persistence law makes local-only tracking illegal, but E2/E7 versioned none
-  of these fields. Options: (a) extend the field set — `vitals.focus_current`,
-  `vitals.hero_points`, and one whole-row `vitals.daily` JSON
-  (`{staff_charge_rank, staff_spent, drain_used}`) via the sanctioned contract
-  PR + migration; (b) slots-only at P0 (focus/hero/staff/drain render static
-  from import, untracked). Recommendation: (a) — small, serves the at-table
-  reality the PRD's persistence law already claims.
-- **Q2 — Inventory editing depth.** P0 as written = container display + Bulk
-  math + qty + coins. The prototype's interactive container system (drag
-  between containers, create/delete, mark-as-container, capacity warnings,
-  split stacks, equipped sync, tag editing) has no versioned fields. Options:
-  (a) display + qty at P0, interactive editing parked; (b) extend the field
-  set now (item-location/equipped/tags kinds). Recommendation: (a) — the P0
-  line reads as display + quantity; the editing system is a field-set epic of
-  its own if wanted.
-- **Q3 — Notes pane.** Rich-text notes with named pages, tags, autocomplete.
-  No PRD basis, no sync field, and it is a subsystem. Options: (a) out of E6,
-  parked as a named future surface; (b) in, as a simple synced notes field
-  (plain text, whole-row versioning). Recommendation: (a).
-- **Q4 — Minions.** PRD FG1 names a "companions/minions panel". The pet
-  panel is E6 (§2.4). The prototype's summons browser is hardcoded bestiary
-  data (corpus deferred at E4) and minion HP tracking has no field. Options:
-  (a) companions panel only; summons browsing + minion HP parked until a
-  bestiary corpus exists; (b) add a whole-row `vitals.minions` JSON field for
-  a manual minions tracker (add/dismiss/HP). Recommendation: (a).
+- **Q1 — Spell-economy trackers → EXTEND.** Track focus points, hero points,
+  Staff Nexus charges and Drain Bonded Item as synced live state. New vitals
+  fields (one migration + wire-protocol §3 rows, E6 owns the contract PR):
+  `focus_current` (int ≥ 0, clamped client-side to the character's focus
+  max), `hero_points` (int ≥ 0), `daily` (whole-row JSON
+  `{staff_charge_rank: 0..10, staff_spent: int ≥ 0, drain_used: bool}`),
+  each with its own `*_version` column, exactly the E2 pattern. New Day
+  resets: all slots `used=false`, `focus_current=0`, `daily` reset to
+  `{0,0,false}`.
+- **Q2 — Inventory editing depth → DISPLAY + QTY.** Containers render with
+  Bulk math (extradimensional exclusion) and quantities sync. The interactive
+  container system (drag-between, create/delete, mark-as-container, capacity
+  warnings, split stacks, equipped sync, tag editing) is parked — no field-set
+  extension in E6. "Remove item" at P0 = quantity write to 0 (the restore
+  picker was prototype-local-state UX; with server truth, qty 0 is the
+  record).
+- **Q3 — Notes pane → OUT.** Parked as a named future surface with no owner.
+  Not dropped silently — it is in the scope table and returns when an epic
+  owns it.
+- **Q4 — Minions → COMPANIONS ONLY.** The pet/familiar panel is E6
+  (§2.4). Summons browsing (hardcoded bestiary) and minion HP tracking are
+  parked until a bestiary corpus + field-set epic owns them.
 
 ## 9. Named deviations from the post-#33 prototype
 
