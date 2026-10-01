@@ -1168,7 +1168,7 @@ function tplMenuItem(cls, label, hint, onClick){
 }
 function tplBuildMenu(){
   tplMenuEl.textContent="";
-  tplMenuEl.append(tplMenuItem("", TPL.active, "save", ()=>{ tplMenuOpen(false); doSave(); }));
+  tplMenuEl.append(tplMenuItem("", TPL.active, "save", ()=>{ tplMenuOpen(false); mainSave(); }));
   const sw=tplEl("div","tplsw"), sub=tplEl("div","tplsub"); sub.setAttribute("role","menu");
   const head=tplMenuItem("", "Switch templates", "▸", e=>{ e.stopPropagation(); sw.classList.toggle("open"); });
   head.setAttribute("aria-haspopup","menu");
@@ -3265,6 +3265,12 @@ async function noteSeedCampaign(){
     if(fresh.length && nDlg.open) npDrawList();
   } finally { npSeeding=false; }
 }
+// the header Save first offers to name an unsaved note, then saves everything once that dialog closes
+function mainSave(){
+  if(!noteUnsaved() || nDlg.open) return doSave();
+  nDlg.addEventListener("close",()=>doSave(),{once:true});
+  notesOpen("save");
+}
 function renderNotes(){
   const pane=$("#pNotes"); if(!pane) return;
   let ed=pane.querySelector(".noteed");
@@ -4072,8 +4078,8 @@ function initBoard(){
   };
 }
 
-$("#btnSave").onclick=()=>{ if(dirty) doSave(); };
-document.addEventListener("keydown",e=>{ if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){ e.preventDefault(); doSave(); } });
+$("#btnSave").onclick=()=>{ if(dirty||noteUnsaved()) mainSave(); };
+document.addEventListener("keydown",e=>{ if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){ e.preventDefault(); mainSave(); } });
 function guardUnload(e){ if(dirty){ e.preventDefault(); e.returnValue=""; } }
 window.addEventListener("beforeunload",guardUnload);
 
