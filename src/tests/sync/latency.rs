@@ -57,6 +57,9 @@ fn version_column(field: VitalsField) -> &'static str {
         VitalsField::TempHp => "temp_hp_version",
         VitalsField::Money => "money_version",
         VitalsField::LevelAdjust => "level_adjust_version",
+        VitalsField::FocusCurrent => "focus_version",
+        VitalsField::HeroPoints => "hero_points_version",
+        VitalsField::Daily => "daily_version",
     }
 }
 
@@ -159,6 +162,10 @@ async fn send_target(
         VitalsField::Money => json!({"pp": 1, "gp": n, "sp": 2, "cp": 3}),
         VitalsField::LevelAdjust => json!(i64::from(n % 38) - 19),
         VitalsField::Hp | VitalsField::TempHp => json!(i64::from(n) + 1),
+        VitalsField::FocusCurrent | VitalsField::HeroPoints => json!(i64::from(n)),
+        VitalsField::Daily => {
+            json!({"staff_charge_rank": 0, "staff_spent": 0, "drain_used": false})
+        }
     };
     let op_id = format!("op-{character_id}-{}-{n}", field.as_str());
     let base = latest.get(idx).copied().unwrap_or(0);

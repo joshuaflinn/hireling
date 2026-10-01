@@ -190,6 +190,30 @@ async fn expected_base_rows(pool: &sqlx::PgPool, character_id: i64) -> Vec<Snaps
             version: vitals_version(pool, character_id, "level_adjust_version").await,
         },
         SnapshotField {
+            field: FieldTarget::Vitals {
+                character_id,
+                field: VitalsField::FocusCurrent,
+            },
+            value: json!(0),
+            version: vitals_version(pool, character_id, "focus_version").await,
+        },
+        SnapshotField {
+            field: FieldTarget::Vitals {
+                character_id,
+                field: VitalsField::HeroPoints,
+            },
+            value: json!(0),
+            version: vitals_version(pool, character_id, "hero_points_version").await,
+        },
+        SnapshotField {
+            field: FieldTarget::Vitals {
+                character_id,
+                field: VitalsField::Daily,
+            },
+            value: json!({"staff_charge_rank": 0, "staff_spent": 0, "drain_used": false}),
+            version: vitals_version(pool, character_id, "daily_version").await,
+        },
+        SnapshotField {
             field: FieldTarget::Slot {
                 character_id,
                 caster_key: "Wizard".to_owned(),
@@ -385,8 +409,8 @@ async fn a_snapshot_contains_only_the_party_s_own_rows() {
     let own = party_snapshot(&pool, party_id).await.expect("own snapshot");
     assert_eq!(
         own.len(),
-        4 + 1 + 1,
-        "own party: 4 vitals + 1 slot + 1 item, no effects"
+        7 + 1 + 1,
+        "own party: 7 vitals + 1 slot + 1 item, no effects"
     );
     assert!(
         own.iter()
@@ -399,8 +423,8 @@ async fn a_snapshot_contains_only_the_party_s_own_rows() {
         .expect("other snapshot");
     assert_eq!(
         other.len(),
-        4 + 1 + 1 + 1,
-        "other party: 4 vitals + 1 slot + 1 item + 1 effect"
+        7 + 1 + 1 + 1,
+        "other party: 7 vitals + 1 slot + 1 item + 1 effect"
     );
     assert!(
         other
@@ -464,4 +488,37 @@ async fn an_empty_party_yields_an_empty_snapshot() {
             .len() as u64,
     );
     testing::drop_test_db(pool, "snapshot_empty").await;
+}
+
+// E6: the spell-economy fields ride the snapshot like every vitals field.
+#[tokio::test]
+async fn the_snapshot_carries_the_spell_economy_fields() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let party_id = poc_party_id(&pool).await;
+    let character_id = seed_character_in(&pool, "sub-snap-e6", party_id).await;
+
+    let fields = party_snapshot(&pool, party_id).await.expect("snapshot");
+    let by_field = |name: &str| {
+        fields
+            .iter()
+            .find(
+                |f| matches!(&f.field, FieldTarget::Vitals { field, .. } if field.as_str() == name),
+            )
+            .unwrap_or_else(|| panic!("{name} rides the snapshot"))
+    };
+    let focus = by_field("focus_current");
+    assert_eq!(focus.value, serde_json::json!(0), "the up default");
+    assert!(focus.version > 0, "versioned like every field");
+    assert_eq!(by_field("hero_points").value, serde_json::json!(0));
+    let daily = by_field("daily");
+    assert_eq!(
+        daily.value,
+        serde_json::json!({"staff_charge_rank": 0, "staff_spent": 0, "drain_used": false}),
+    );
+    assert_eq!(focus.field, by_field("focus_current").field);
+
+    let _ = character_id;
+    testing::drop_test_db(pool, "snapshot_spell_economy").await;
 }

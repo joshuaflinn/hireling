@@ -150,7 +150,8 @@ async fn load_me(pool: &sqlx::PgPool, sub: &str) -> Result<Option<serde_json::Va
         "owner": row.get::<String, _>("owner_sub"),
     });
     let vitals = sqlx::query(
-        "SELECT hp, temp_hp, money_gp, money_sp, money_cp, money_pp, level_adjust \
+        "SELECT hp, temp_hp, money_gp, money_sp, money_cp, money_pp, level_adjust, \
+                focus_current, hero_points, daily \
          FROM character_vitals WHERE character_id = $1",
     )
     .bind(character_id)
@@ -165,6 +166,9 @@ async fn load_me(pool: &sqlx::PgPool, sub: &str) -> Result<Option<serde_json::Va
             "money_cp": vitals.get::<i32, _>("money_cp"),
             "money_pp": vitals.get::<i32, _>("money_pp"),
             "level_adjust": vitals.get::<i32, _>("level_adjust"),
+            "focus_current": vitals.get::<i32, _>("focus_current"),
+            "hero_points": vitals.get::<i32, _>("hero_points"),
+            "daily": vitals.get::<serde_json::Value, _>("daily"),
         })
     });
     let slots = sqlx::query(

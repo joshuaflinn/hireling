@@ -66,7 +66,7 @@ per `degraded-mode.md`, and the op ledger makes that safe).
 
 | `kind` | key fields | value shape | version unit |
 |---|---|---|---|
-| `vitals` | `character_id`, `field`: `hp` \| `temp_hp` \| `money` \| `level_adjust` | `hp`/`temp_hp`: int ≥0; `money`: `{pp,gp,sp,cp}` (absolute, all four); `level_adjust`: int −19..19 | the column's `*_version` |
+| `vitals` | `character_id`, `field`: `hp` \| `temp_hp` \| `money` \| `level_adjust` \| `focus_current` \| `hero_points` \| `daily` | `hp`/`temp_hp`: int ≥0; `money`: `{pp,gp,sp,cp}` (absolute, all four); `level_adjust`: int −19..19; `focus_current`: int ≥0 (max is the character's focus max — client clamps, server validates ≥0 only); `hero_points`: int ≥0; `daily`: `{staff_charge_rank: 0..10, staff_spent: int ≥0, drain_used: bool}` (whole-row write, one version unit) | the column's `*_version` |
 | `slot` | `character_id`, `caster_key` (text), `rank` (0..10), `slot_index` (≥0) | `{used?: bool, prepared?: string\|null}` — whole-slot write | the slot row's `version` |
 | `inv` | `character_id`, `item_name` (text, exact match — E5 owns matching semantics) | `{qty_delta: int}` (absolute delta value, signed) | the row's `version` |
 | `effect` | `effect_id` (globally unique — identity PK) | **read-only in E7** — appears in `snapshot`/`diff` as `{name, source_character_id, targets[], modifiers[], duration_note, active, version}`; write frames are E8's extension point | `effects.version` (whole row) |
