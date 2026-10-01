@@ -108,16 +108,9 @@ html{overflow-y:scroll}
 .noteed.isempty{position:relative}.noteed.isempty:before{position:absolute;left:12px;top:10px;pointer-events:none}
 .noteed h4{font-family:var(--serif);color:var(--gold);font-size:16px;font-weight:normal;margin:10px 0 4px}
 .noteed p{margin:0 0 6px}.noteed ul,.noteed ol{margin:4px 0 6px;padding-left:22px}.noteed li{margin:2px 0}
-.ntagbar{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:0 0 6px}
-.ntagbar[hidden]{display:none}
-.ntagbar button{background:var(--panel2);border:1px solid var(--line2);border-radius:999px;color:var(--muted);font-size:12px;padding:1px 9px;cursor:pointer}
-.ntagbar button span{color:var(--dim);margin-left:3px}
-.ntagbar button:hover,.ntagbar button.on{border-color:var(--gold-dim);color:var(--gold)}
-.ntagbar button.on{background:color-mix(in srgb,var(--gold) 16%,var(--panel2))}
-.ntagbar button.ntclr{border-radius:5px;margin-left:auto}
 .noteed .ntag{display:inline-block;padding:0 7px;margin:0 1px;border-radius:999px;border:1px solid var(--gold-dim);background:color-mix(in srgb,var(--gold) 14%,transparent);color:var(--gold);font-size:12.5px;line-height:1.45;cursor:pointer}
 .noteed .ntag[data-kind]{border-color:color-mix(in srgb,var(--blue) 55%,var(--line2));background:color-mix(in srgb,var(--blue) 13%,transparent);color:var(--blue)}
-.noteed .ndim{opacity:.3;transition:opacity .15s}
+.ntddm .ntac-i.none{color:var(--dim);cursor:default;background:none}
 .ntac{position:fixed;z-index:120;min-width:180px;max-width:min(320px,90vw);background:var(--panel);border:1px solid var(--gold-dim);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.7);padding:3px;font-size:13px}
 .ntac[hidden]{display:none}
 .ntac-i{display:flex;justify-content:space-between;gap:12px;padding:3px 8px;border-radius:5px;cursor:pointer;color:var(--text)}
@@ -2659,14 +2652,13 @@ async function aiDoSearch(){
     $("#aiManual").hidden=false;
   }
 }
-/* ---- Notes: #tag chips, autocomplete, tag filter ---- */
+/* ---- Notes: #tag chips, autocomplete, #tags menu ---- */
 // a tag must follow whitespace or an opening bracket/quote, so "page.html#top" and "a#b" never match
 const NOTE_TAG_RE=/(^|[\s(\[{,;"“])#([A-Za-z0-9_'-]+)/g;
 const NOTE_BLOCK_TAGS=new Set(["P","DIV","H1","H2","H3","H4","H5","H6","UL","OL","LI","BLOCKQUOTE","PRE","TABLE"]);
 const AC_LABEL={spell:"Spell",feat:"Feat",item:"Item",pet:"Familiar"};
 const tagSlug=s=>String(s||"").toLowerCase().replace(/['’]/g,"").replace(/[^a-z0-9_]+/g,"-").replace(/^-+|-+$/g,"");
-const noteSel=new Set();      // selected filter tags: view state only, never saved
-let noteBarTimer=0, acBox=null, acEd=null;
+let acBox=null, acEd=null, ddBox=null;
 const ac={items:[],idx:0,node:null,start:0,end:0};
 function noteSheetTags(){
   const B=getBuild(), m=new Map(), add=(name,kind)=>{ const s=tagSlug(name); if(s && !m.has(s)) m.set(s,kind); };
@@ -2700,7 +2692,7 @@ function noteChip(slug,kind){
   c.textContent="#"+slug;
   return c;
 }
-// wraps stray top-level text/inline runs in <p> so every line is a block the filter can dim
+// wraps stray top-level text/inline runs in <p> so every line is its own block
 function noteNormalize(ed){
   let run=[];
   const flush=()=>{
@@ -2754,20 +2746,16 @@ function noteConvertTags(ed,caret,force){
   }
   return next;
 }
-// serializes from a clone so the filter's dim class never reaches S.notes
 function noteHTML(ed){
   if(!ed.querySelector(".ntag,li,img") && !ed.textContent.trim()) return "";
-  const c=ed.cloneNode(true);
-  c.querySelectorAll(".ndim").forEach(el=>el.classList.remove("ndim"));
-  c.querySelectorAll("[class='']").forEach(el=>el.removeAttribute("class"));   // classList.toggle(…, false) leaves an empty attribute behind
-  return c.innerHTML;
+  return ed.innerHTML;
 }
 function noteBlockOf(ed,el){
   const li=el.closest("li"); if(li && ed.contains(li)) return li;
   let n=el; while(n.parentNode && n.parentNode!==ed) n=n.parentNode;
   return n;
 }
-// slug -> Set of blocks containing it, so counts and filtering agree
+// slug -> Set of blocks containing it
 function noteTagBlocks(ed){
   const m=new Map();
   for(const chip of ed.querySelectorAll(".ntag")){
@@ -2777,43 +2765,17 @@ function noteTagBlocks(ed){
   return m;
 }
 const noteTagsByUse=ed=>[...noteTagBlocks(ed)].map(([t,s])=>[t,s.size]).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
-function noteApplyFilter(ed){
-  const sel=[...noteSel];
-  const blocks=[...ed.querySelectorAll("li")].concat([...ed.children].filter(el=>/^(P|DIV|H[1-6])$/.test(el.tagName)));
-  for(const b of blocks){
-    const have=new Set([...b.querySelectorAll(".ntag")].map(c=>c.dataset.tag));
-    b.classList.toggle("ndim", sel.length>0 && !sel.every(t=>have.has(t)));
-  }
-}
-function noteRenderBar(pane){
-  const ed=pane.querySelector(".noteed"), bar=pane.querySelector(".ntagbar"); if(!ed||!bar) return;
-  const tags=noteTagsByUse(ed), live=new Set(tags.map(t=>t[0]));
-  for(const t of [...noteSel]) if(!live.has(t)) noteSel.delete(t);
-  bar.hidden=!tags.length;
-  setHTML(bar, tags.map(([t,n])=>`<button type="button" class="ntb${noteSel.has(t)?" on":""}" data-tag="${esc(t)}">#${esc(t)} <span>${n}</span></button>`).join("")+(noteSel.size?`<button type="button" class="ntclr">Clear</button>`:""));
-  noteApplyFilter(ed);
-}
-function noteScheduleBar(ed){
-  clearTimeout(noteBarTimer);
-  noteBarTimer=setTimeout(()=>{ const pane=ed.closest("#pNotes"); if(pane && ed.isConnected) noteRenderBar(pane); },200);
-}
-function noteToggleTag(pane,t){
-  if(noteSel.has(t)) noteSel.delete(t); else noteSel.add(t);
-  noteRenderBar(pane);
-}
 // the single path every user edit takes: normalize, chip finished tags, restore caret, save
 function noteAfterEdit(ed,caret,force){
   noteNormalize(ed);
   const next=noteConvertTags(ed,caret,force);
   noteSetCaret(next||caret);
-  noteApplyFilter(ed);                      // a split block inherits the dim class of its parent
-  S.notes=noteHTML(ed); ed.classList.toggle("isempty",!S.notes); markDirty(); noteScheduleBar(ed);
+  S.notes=noteHTML(ed); ed.classList.toggle("isempty",!S.notes); markDirty();
 }
-function noteLoad(pane,ed){
+function noteLoad(ed){
   setHTML(ed, S.notes||"");
   noteNormalize(ed); noteConvertTags(ed,null,true);
   S.notes=noteHTML(ed); ed.classList.toggle("isempty",!S.notes);   // a load-time cleanup is not a user edit, so no markDirty
-  noteRenderBar(pane);
 }
 function noteBackspace(ed,e){
   const s=getSelection(); if(!s.rangeCount || !s.isCollapsed) return;
@@ -2858,18 +2820,44 @@ function acPick(i){
   acClose();
   noteAfterEdit(ed,{node,off:end},true);
 }
+function ddClose(){ if(ddBox) ddBox.hidden=true; }
+document.addEventListener("mousedown",e=>{ if(ddBox && !ddBox.hidden && !ddBox.contains(e.target) && !e.target.closest(".ntddb")) ddClose(); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") ddClose(); });
+addEventListener("scroll",e=>{ if(ddBox && !ddBox.contains(e.target)) ddClose(); },true);
+function ddOpen(ed,btn){
+  if(!ddBox){
+    ddBox=document.createElement("div"); ddBox.className="ntac ntddm"; ddBox.hidden=true;
+    document.body.append(ddBox);
+  }
+  const tags=[...noteTagBlocks(ed).keys()].sort((a,b)=>a.localeCompare(b));
+  setHTML(ddBox, tags.length ? tags.map(t=>`<div class="ntac-i" data-tag="${esc(t)}"><span>#${esc(t)}</span></div>`).join("") : `<div class="ntac-i none">&lt;no tags&gt;</div>`);
+  ddBox.onmousedown=e=>{ e.preventDefault(); const row=e.target.closest("[data-tag]"); if(row){ ddClose(); noteInsertTag(ed,row.dataset.tag); } };   // keeps editor focus and caret
+  ddBox.hidden=false;
+  const r=btn.getBoundingClientRect(), w=ddBox.offsetWidth, h=ddBox.offsetHeight;
+  ddBox.style.left=Math.max(8,Math.min(r.left,document.documentElement.clientWidth-w-8))+"px";
+  ddBox.style.top=(r.bottom+3+h>innerHeight && r.top-h-3>0 ? r.top-h-3 : r.bottom+3)+"px";
+}
+// inserts at the caret when it is in the editor, otherwise at the end of the notes
+function noteInsertTag(ed,slug){
+  const s=getSelection();
+  let r=s.rangeCount && ed.contains(s.getRangeAt(0).commonAncestorContainer) ? s.getRangeAt(0) : null;
+  if(!r){ ed.focus(); r=document.createRange(); const last=ed.lastElementChild||ed; r.selectNodeContents(last); r.collapse(false); }
+  else r.deleteContents();
+  const chip=noteChip(slug,noteSheetTags().get(slug)), after=document.createTextNode(" ");
+  r.insertNode(after); r.insertNode(chip);
+  noteAfterEdit(ed,{node:after,off:1},false);
+}
 function renderNotes(){
   const pane=$("#pNotes"); if(!pane) return;
   let ed=pane.querySelector(".noteed");
   if(!ed){
     setHTML(pane, `<h2>Notes <button type="button" class="btn gold" id="notesSave" title="Save to the current template">Save</button></h2>
-      <div class="rtbar">${RT_BTNS.map(([c,l,t])=>`<button type="button" data-rt="${c}" title="${esc(t)}" class="rt${c==="bold"?" b":c==="italic"?" i":c==="underline"?" u":c==="strikeThrough"?" st":""}">${esc(l)}</button>`).join("")}</div>
-      <div class="ntagbar" hidden></div>
+      <div class="rtbar">${RT_BTNS.map(([c,l,t])=>`<button type="button" data-rt="${c}" title="${esc(t)}" class="rt${c==="bold"?" b":c==="italic"?" i":c==="underline"?" u":c==="strikeThrough"?" st":""}">${esc(l)}</button>`).join("")}<button type="button" class="ntddb" title="Insert a tag already used in these notes">#tags ▾</button></div>
       <div class="noteed" contenteditable="true" spellcheck="true"></div>`);
     ed=pane.querySelector(".noteed");
     $("#notesSave").onclick=()=>$("#btnSave").click();    // a shortcut to the header Save button, so saving stays in one place
     document.execCommand("defaultParagraphSeparator",false,"p");
-    noteLoad(pane,ed);
+    noteLoad(ed);
     ed.addEventListener("input",e=>{
       if(e.isComposing){ S.notes=noteHTML(ed); markDirty(); return; }
       noteAfterEdit(ed,noteCaret(ed),false); acUpdate(ed);
@@ -2888,20 +2876,16 @@ function renderNotes(){
       if(e.key==="Backspace") noteBackspace(ed,e);
     });
     ed.addEventListener("keyup",e=>{ if(["ArrowLeft","ArrowRight","Home","End"].includes(e.key)) acUpdate(ed); });
-    ed.addEventListener("click",e=>{
-      const chip=e.target.closest(".ntag");
-      if(chip) noteToggleTag(pane,chip.dataset.tag); else acUpdate(ed);
-    });
+    ed.addEventListener("click",()=>acUpdate(ed));
     ed.addEventListener("blur",acClose);
     ed.addEventListener("scroll",acClose);
-    pane.querySelector(".ntagbar").addEventListener("click",e=>{
-      const b=e.target.closest("button"); if(!b) return;
-      if(b.classList.contains("ntclr")){ noteSel.clear(); noteRenderBar(pane); } else if(b.dataset.tag) noteToggleTag(pane,b.dataset.tag);
-    });
+    const ddBtn=pane.querySelector(".ntddb");
+    ddBtn.addEventListener("mousedown",e=>{ e.preventDefault(); if(ddBox && !ddBox.hidden) ddClose(); else { acClose(); ddOpen(ed,ddBtn); } });
+
     pane.querySelector(".rtbar").addEventListener("mousedown",e=>{ const b=e.target.closest("[data-rt]"); if(!b) return; e.preventDefault();
       const [cmd,arg]=b.dataset.rt.split(":"); ed.focus(); document.execCommand(cmd,false,arg||null); noteAfterEdit(ed,noteCaret(ed),false); });
   } else if(document.activeElement!==ed && noteHTML(ed)!==(S.notes||"")){
-    noteLoad(pane,ed);
+    noteLoad(ed);
   }
 }
 /* ============================================================
