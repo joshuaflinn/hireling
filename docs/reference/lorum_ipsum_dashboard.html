@@ -2884,6 +2884,31 @@ function noteBackspace(ed,e){
   while(prev && prev.nodeType===3 && !prev.data) prev=prev.previousSibling;
   if(prev && prev.nodeType===1 && prev.classList.contains("ntag")){ e.preventDefault(); prev.remove(); noteAfterEdit(ed,noteCaret(ed),false); }
 }
+// the browser refuses to delete a selection that touches a non-editable chip, so a selection with chips is deleted here
+function noteDeleteSelection(ed,e){
+  const s=getSelection(); if(!s.rangeCount || s.isCollapsed) return false;
+  const r=s.getRangeAt(0);
+  if(!ed.contains(r.commonAncestorContainer) || ![...ed.querySelectorAll(".ntag")].some(c=>r.intersectsNode(c))) return false;
+  e.preventDefault();
+  const sc=r.startContainer.nodeType===1?r.startContainer:r.startContainer.parentElement, ec=r.endContainer.nodeType===1?r.endContainer:r.endContainer.parentElement;
+  const sChip=sc.closest(".ntag"), eChip=ec.closest(".ntag");
+  if(sChip) r.setStartBefore(sChip);
+  if(eChip) r.setEndAfter(eChip);
+  const startBlock=noteBlockOf(ed,r.startContainer.nodeType===1&&r.startContainer!==ed?r.startContainer:(r.startContainer.parentElement||ed));
+  r.deleteContents();
+  let caret=null;
+  // a whole line selected (triple-click) leaves its block empty; drop the block so the line goes away
+  if(startBlock && startBlock!==ed && startBlock.isConnected && !startBlock.textContent.replace(/ /g,"").trim() && !startBlock.querySelector(".ntag,img") && ed.children.length>1){
+    const next=startBlock.nextElementSibling, prev=startBlock.previousElementSibling;
+    startBlock.remove();
+    const r2=document.createRange();
+    if(next){ r2.selectNodeContents(next); r2.collapse(true); } else if(prev){ r2.selectNodeContents(prev); r2.collapse(false); }
+    s.removeAllRanges(); s.addRange(r2);
+  } else { r.collapse(true); s.removeAllRanges(); s.addRange(r); }
+  caret=noteCaret(ed);
+  noteAfterEdit(ed,caret,false);
+  return true;
+}
 function acClose(){ if(acBox) acBox.hidden=true; ac.items=[]; }
 const acIsOpen=()=>!!acBox && !acBox.hidden && ac.items.length>0;
 function acDraw(){
@@ -3155,6 +3180,7 @@ function renderNotes(){
         if(e.key==="Enter"||e.key==="Tab"){ e.preventDefault(); acPick(ac.idx); return; }
         if(e.key==="Escape"){ e.preventDefault(); acClose(); return; }
       }
+      if((e.key==="Backspace"||e.key==="Delete") && noteDeleteSelection(ed,e)) return;
       if(e.key==="Backspace") noteBackspace(ed,e);
     });
     ed.addEventListener("keyup",e=>{ if(["ArrowLeft","ArrowRight","Home","End"].includes(e.key)) acUpdate(ed); });
