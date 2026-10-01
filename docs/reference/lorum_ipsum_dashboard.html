@@ -173,6 +173,10 @@ html{overflow-y:scroll}
 .nprev .npvb .ntag{cursor:default}
 #pInv.invwrap{display:flex;flex-direction:column;gap:5px;background:none;border:0;padding:0}
 #pInv.invwrap[hidden]{display:none}
+/* a resized Inventory keeps its main panel stretched to the widget's height, so the widget's real bottom edge is visible */
+.widget.fixedh>#pInv.invwrap>#pInvMain{flex:1 1 auto;min-height:0;overflow:auto}
+.widget.fixedh>#pInv.invwrap>#pInvBulk{flex:none}
+.widget.fixedh>#pInv.invwrap{overflow:hidden}
 #pInvBulk{padding:8px 12px}
 #pInvBulk .bulk{margin:0;background:none;border:0;padding:0}
 .minwrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto 1fr;gap:5px}
