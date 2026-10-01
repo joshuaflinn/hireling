@@ -397,6 +397,8 @@ h3.chead .ctags{order:2;display:flex;gap:4px}
 .idrop-ok{outline:1px dashed var(--gold-dim);outline-offset:-2px}
 .invtabs{padding:2px 0 4px}
 .idrop-hover{outline:1px solid var(--gold);background:rgba(220,178,91,.12)}
+/* the panel itself takes drops outside any container, which moves an item to the top level */
+#pInvMain.idrop-ok{outline:none}
 .rowbtn{display:flex;justify-content:flex-end;gap:2px}
 .mkcont{background:none;border:0;color:var(--dim);font-size:13px;line-height:1;padding:0 2px;cursor:pointer;opacity:0;transition:opacity .12s}
 .irow:hover .mkcont{opacity:.75}.mkcont:hover{color:var(--gold);opacity:1}
@@ -543,7 +545,7 @@ h3.chead.over .cnm{color:var(--f)}
   <section class="panel" id="pStats"></section>
   <section class="panel" id="pSpells"></section>
   <div class="invwrap" id="pInv">
-    <section class="panel" id="pInvMain"></section>
+    <section class="panel" id="pInvMain" data-idrop="top"></section>
     <section class="panel" id="pInvBulk"></section>
   </div>
   <section class="panel" id="pFeats"></section>
