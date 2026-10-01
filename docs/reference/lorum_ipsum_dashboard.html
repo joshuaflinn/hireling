@@ -498,12 +498,6 @@ h3.chead.over .cnm{color:var(--f)}
 .aimanual[hidden]{display:none}
 .aimanual textarea{width:100%;height:64px;background:#0d0f13;color:var(--text);border:1px solid var(--line2);border-radius:6px;font:inherit;font-size:13px;padding:6px;resize:vertical}
 
-/* campaign reference */
-.cref{display:grid;grid-template-columns:150px minmax(0,1fr);gap:4px 10px;align-items:start;margin:3px 0;font-size:13px}
-.cref .ck{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--gold);font-weight:600}
-.npcrow{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,2fr) minmax(0,1fr) auto;gap:8px;padding:3px 6px;font-size:13px;border-bottom:1px dotted var(--line)}
-.npctag{font-size:10.5px;letter-spacing:.5px;border:1px solid var(--line2);border-radius:10px;padding:1px 7px;color:var(--muted);white-space:nowrap}
-
 /* rules clarifications */
 .rule{margin:6px 0 9px}
 .rule .rt{font-weight:600;color:#e3955b}
@@ -1964,9 +1958,7 @@ function renderStats(){
   const tile=(k,v,x,tip,cls)=>`<div class="tile t-${String(k).toLowerCase().replace(/[^a-z]/g,"")} ${cls||""}" ${tip?`data-tip="${reg(tip)}"`:""}><div class="v">${v}</div><div class="k">${k}</div>${x?`<div class="x">${x}</div>`:""}</div>`;
   const brk=(title,parts,extra,signed)=>()=>{ const tot=parts.reduce((s,p)=>s+p[1],0);
     return `<div class="tt-h"><span class="tt-name">${title}</span><span class="tt-rank">${signed?sg(tot):tot}</span></div>${parts.map(([k,v])=>`<div class="line"><b>${esc(k)}</b> ${sg(v)}</div>`).join("")}${extra||""}`; };
-  const statTab=S.statTab==="campaign"?"campaign":"stats";
-  let h=`<h2>Basic Information <small>${statTab==="campaign"?"Eberron / Korvaire · Mror Holds Campaign · Pathfinder 2e":`${esc(B.ancestry)} ${esc(B.class)} ${C.L}`}</small></h2>`+tabRow("statTab",[["stats","Stat Block"],["campaign","Campaign"]],statTab);
-  if(statTab==="campaign"){ setHTML($("#pStats"), h+campaignHTML()); return; }
+  let h=`<h2>Basic Information <small>${esc(B.ancestry)} ${esc(B.class)} ${C.L}</small></h2>`;
   h+=`<div class="hp"><div class="hp-top"><span class="lbl">Hit Points</span><span class="hpnum"><b>${hp}</b> / ${C.hpMax}${temp?` <span style="color:var(--blue)">+${temp} temp</span>`:""}</span></div>
       <div class="bar"><i style="width:${Math.max(0,hp)/tot*100}%"></i><i class="tmp" style="width:${temp/tot*100}%"></i></div>
       <div class="hp-btns"><button data-hp="-5">−5</button><button data-hp="-1">−1</button><button data-hp="1">+1</button><button data-hp="5">+5</button><button data-hp="full" title="Restore to max">Full</button>
@@ -2338,32 +2330,6 @@ function renderFeats(){
 
   const tab=S.featTab==="features"?"features":"feats";
   setHTML($("#pFeats"), `<h2>Feats &amp; Features <small>Click for details</small></h2>`+tabRow("featTab",[["feats","Feats"],["features","Features"]],tab)+(tab==="features"?featuresHTML:h));
-}
-
-function campaignHTML(){
-  const cref=(k,v)=>`<div class="cref"><div class="ck">${esc(k)} ${tagChip("Campaign")}</div><div class="cv">${esc(v)}</div></div>`;
-  const npc=(name,role,loc,tag)=>`<div class="npcrow"><b>${esc(name)}</b><span>${esc(role)}</span><span>${esc(loc)}</span><span class="npctag">${esc(tag)}</span></div>`;
-  let h="";
-  h+=`<h3>Plot Hooks</h3>`;
-  h+=cref("THE DREAMS","Lifelong visions of Khyber depths, ancient halls, unknown creatures — loremasters recognized them from sealed vaults. Lorum thinks he invented them. Watch for: NPCs alarmed by his illusions; texts or places matching his drawings; anyone asking where he \"really\" saw these things.");
-  h+=cref("ASHMANTLE CLAN","Lorum witnessed something the Ashmantle clan will kill to protect. He doesn't know the scope. Watch for: Ashmantle agents or livery; anyone who knows his real history; clan activity in the Holds.");
-  h+=cref("BARAK IRONSCRIBE","High Priest of Aureon who strong-armed Lorum into private intelligence work. True agenda unknown; Lorum resents it. Watch for: what he specifically wants reported; faction connections; whether his interest is genuinely scholarly.");
-  h+=cref("SEELA LONGSTRIDER","Traveling minstrel with unusual Holds knowledge (clan history, unmapped passes). Meetings may not have been accidental. Watch for: reactions to Lorum's information; knowledge she shouldn't have; signs of faction affiliation.");
-  h+=cref("SKRIX & BRAM","Skrix Tarnblot (goblin ringleader) abandoned the troupe instantly — Lorum wants his comeuppance. Bram the Earthmover (dwarf, genuine friend) is missing after the scatter. Watch for: troupe members; Skrix schemes; word of Bram.");
-  h+=`<h3>Key NPCs</h3>`;
-  h+=npc("Lord Theron Ashmantle","Powerful enemy — holds a secret Lorum witnessed","Active, Mror Holds","THREAT");
-  h+=npc("Barak Ironscribe","High Priest Loremaster (Aureon) — using Lorum as intelligence asset","Mror Holds","AMBIGUOUS");
-  h+=npc("Seela Longstrider","Traveling minstrel — kindred spirit, may be more than she appears","On the road","UNKNOWN");
-  h+=npc("Bram the Earthmover","Dwarven strongman — Lorum's genuine friend","Whereabouts unknown","ALLY");
-  h+=npc("Skrix Tarnblot","Goblin ringleader — abandoned the troupe to save himself","Whereabouts unknown","GRUDGE");
-  h+=`<h3>Roleplaying Tips</h3>`;
-  h+=cref("Charlatan reflex","He lies as a survival mechanism, not cruelty — half-truths roll out before honesty. Let Charming Liar trigger naturally when caught.");
-  h+=cref("Dreams are unknown","He never connected his visions to anything real. Sincere bafflement — not mystique — when NPCs recognize his imagery from forbidden texts.");
-  h+=cref("Watchful paranoia","Eyes on exits. Prefers seat facing the door. Brief hesitation before giving his real name. Quiet and practiced, not disruptive.");
-  h+=cref("Warms to honest folk","Bram-type directness disarms him visibly. His guard drops around people who want nothing performative from him.");
-  h+=cref("Gnome Obsession","Cannot suppress knowing and sharing Mror Holds clan histories, genealogies, old feuds. He genuinely lights up — a quirk, not a tool.");
-  h+=cref("Resents being used","Accepted Barak's deal but bristles at it. Finds small ways to assert autonomy. Dry wit or quiet refusal to be grateful for things he didn't ask for.");
-  return h;
 }
 
 function rulesHTML(){
