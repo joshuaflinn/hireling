@@ -148,6 +148,9 @@ html{overflow-y:scroll}
 .rmpick{max-height:50vh;overflow:auto}
 .panel h2 .hbtn{font-family:var(--sans);font-size:12.5px;padding:2px 12px;align-self:center}
 .rmpick .rmall{border-top:1px solid var(--line);margin-top:3px;padding-top:5px;color:var(--gold)}
+.rmpick .rmfoot{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);margin-top:3px;padding-top:2px}
+.rmpick .rmfoot .ntac-i{border:0;margin:0;padding-top:3px}
+.rmpick .rmclear{color:var(--muted)}.rmpick .rmclear:hover{color:var(--gold)}
 #notesDlg{width:min(520px,94vw)}
 #notesAskDlg{width:min(440px,92vw)}
 .nplist{margin:8px 0 2px;max-height:40vh}
@@ -2102,16 +2105,20 @@ function startQtyEdit(el){
   inp.addEventListener("keydown",ev=>{ if(ev.key==="Enter") commit(); else if(ev.key==="Escape"){ done=true; render(); } });
   inp.addEventListener("blur",commit);
 }
+const RM_GONE=2;      // still deleted, but dropped from the restore list
+const rmCount=o=>Object.values(o||{}).filter(v=>v===true).length;
 function rmClose(){ if(rmBox) rmBox.hidden=true; }
 function rmToggle(btn){
   if(rmBox && !rmBox.hidden){ rmClose(); return; }
   if(!rmBox){
     rmBox=document.createElement("div"); rmBox.className="ntac rmpick"; rmBox.hidden=true; document.body.append(rmBox);
-    rmBox.addEventListener("mousedown",e=>{ e.preventDefault(); const row=e.target.closest("[data-rmkey],[data-rmall]"); if(!row) return;
-      if(row.dataset.rmall) S.removed={}; else delete S.removed[row.dataset.rmkey];
+    rmBox.addEventListener("mousedown",e=>{ e.preventDefault(); const row=e.target.closest("[data-rmkey],[data-rmall],[data-rmclear]"); if(!row) return;
+      if(row.dataset.rmclear){ if(!confirm("Clear the restore list? The deleted items stay deleted and can no longer be restored.")) return; for(const k in S.removed) S.removed[k]=RM_GONE; }
+      else if(row.dataset.rmall){ for(const k in S.removed) if(S.removed[k]===true) delete S.removed[k]; }
+      else delete S.removed[row.dataset.rmkey];
       rmClose(); render(); });
   }
-  setHTML(rmBox, INV_REMOVED.map(r=>`<div class="ntac-i" data-rmkey="${esc(r.key)}" title="Restore ${esc(r.name)}"><span>${esc(r.name)}</span></div>`).join("")+`<div class="ntac-i rmall" data-rmall="1"><span>Restore all</span></div>`);
+  setHTML(rmBox, INV_REMOVED.map(r=>`<div class="ntac-i" data-rmkey="${esc(r.key)}" title="Restore ${esc(r.name)}"><span>${esc(r.name)}</span></div>`).join("")+`<div class="rmfoot"><div class="ntac-i rmall" data-rmall="1"><span>Restore all</span></div><div class="ntac-i rmclear" data-rmclear="1"><span>Clear all</span></div></div>`);
   rmBox.hidden=false;
   const r=btn.getBoundingClientRect(), w=rmBox.offsetWidth, h=rmBox.offsetHeight;
   rmBox.style.left=Math.max(8,Math.min(r.left,document.documentElement.clientWidth-w-8))+"px";
@@ -2125,7 +2132,7 @@ function renderInv(){
   const B=C.B, m=S.coins||B.money||{};
   const COIN_COLOR={pp:"#b9d4e6",gp:"#e3b54a",sp:"#c9ced6",cp:"#c98a5a"};
   const coinsHtml=["pp","gp","sp","cp"].map(k=>`<span class="hcoin" data-coin="${k}" title="Click to edit" style="color:${COIN_COLOR[k]};border-color:${COIN_COLOR[k]}55"><b class="v">${m[k]||0}</b><i>${k.toUpperCase()}</i></span>`).join("");
-  let h=`<h2><span class="htitle">Inventory<button class="btn gold hbtn" data-additem="1">Add item</button>${Object.keys(S.removed||{}).length?`<button class="btn gold hbtn" data-unremove="1" title="Pick deleted items to bring back">Restore (${Object.keys(S.removed).length})</button>`:""}</span><span class="hcoins">${coinsHtml}${S.coins!=null?`<button class="lnk" data-coinreset="1">reset</button>`:""}</span></h2>`;
+  let h=`<h2><span class="htitle">Inventory<button class="btn gold hbtn" data-additem="1">Add item</button>${rmCount(S.removed)?`<button class="btn gold hbtn" data-unremove="1" title="Pick deleted items to bring back">Restore (${rmCount(S.removed)})</button>`:""}</span><span class="hcoins">${coinsHtml}${S.coins!=null?`<button class="lnk" data-coinreset="1">reset</button>`:""}</span></h2>`;
 
   const containers=B.equipmentContainers||{};
   const contNames=Object.values(containers).map(c=>c.containerName);
@@ -2195,8 +2202,8 @@ function renderInv(){
     conts.push({key:it.key, id:"u:"+it.key, isC:true, name:it.name+(it.qty>1?" ×"+it.qty:""), src:it.src, hint:it.hint, tkey:it.tkey, backpack:false, xd:false, b:it.b, user:true, tip:it.tip, def:home, eqDef:it.eqDef});
   }
   S.removed=S.removed||{}; INV_REMOVED=[];
-  for(let i=items.length-1;i>=0;i--) if(S.removed[items[i].key]) INV_REMOVED.push({key:items[i].key,name:items.splice(i,1)[0].name});
-  for(let i=conts.length-1;i>=0;i--) if(S.removed[conts[i].key]) INV_REMOVED.push({key:conts[i].key,name:conts.splice(i,1)[0].name+" (container)"});
+  for(let i=items.length-1;i>=0;i--) if(S.removed[items[i].key]) (S.removed[items[i].key]===true?INV_REMOVED:[]).push({key:items[i].key,name:items.splice(i,1)[0].name});
+  for(let i=conts.length-1;i>=0;i--) if(S.removed[conts[i].key]) (S.removed[conts[i].key]===true?INV_REMOVED:[]).push({key:conts[i].key,name:conts.splice(i,1)[0].name+" (container)"});
   INV_REMOVED.sort((a,b)=>a.name.localeCompare(b.name));
   const at=(x)=>invLoc(x.key,x.def);
   for(const x of items.concat(conts)){                   // tags: your edit wins over what the data says
