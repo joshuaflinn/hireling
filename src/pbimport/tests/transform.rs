@@ -438,3 +438,38 @@ fn slot_layout_enumerates_every_rank_position() {
         "the innate cantrip materializes"
     );
 }
+
+// E6 Task 4: the web engine suite consumes the transform's output for the
+// reference export as its fixture (`web/tests/data/base_sheet_reference.json`).
+// This test pins that file to the transform: when E5's transform moves, the
+// Rust gate flags the drift instead of the sheet silently computing on a
+// stale shape. Regenerate with HIRELING_REGEN_WEB_FIXTURE=1.
+#[test]
+fn the_web_base_sheet_fixture_matches_the_transform() {
+    let (sheet, skips) = fixture_sheet();
+    assert!(
+        skips.sections.is_empty(),
+        "the reference export has no drifted sections: {:?}",
+        skips.sections
+    );
+    let json = serde_json::to_string_pretty(&sheet).expect("fixture serializes");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/web/tests/data/base_sheet_reference.json"
+    );
+    if std::env::var("HIRELING_REGEN_WEB_FIXTURE").is_ok() {
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            std::fs::create_dir_all(parent).expect("fixture directory");
+        }
+        std::fs::write(path, json).expect("fixture write");
+        return;
+    }
+    let committed = std::fs::read_to_string(path)
+        .expect("web fixture exists; regen with HIRELING_REGEN_WEB_FIXTURE=1");
+    assert_eq!(
+        committed.trim_end(),
+        json.trim_end(),
+        "the web base_sheet fixture drifted from the transform; \
+         re-run cargo test with HIRELING_REGEN_WEB_FIXTURE=1"
+    );
+}
