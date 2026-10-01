@@ -1958,7 +1958,7 @@ function renderStats(){
   const tile=(k,v,x,tip,cls)=>`<div class="tile t-${String(k).toLowerCase().replace(/[^a-z]/g,"")} ${cls||""}" ${tip?`data-tip="${reg(tip)}"`:""}><div class="v">${v}</div><div class="k">${k}</div>${x?`<div class="x">${x}</div>`:""}</div>`;
   const brk=(title,parts,extra,signed)=>()=>{ const tot=parts.reduce((s,p)=>s+p[1],0);
     return `<div class="tt-h"><span class="tt-name">${title}</span><span class="tt-rank">${signed?sg(tot):tot}</span></div>${parts.map(([k,v])=>`<div class="line"><b>${esc(k)}</b> ${sg(v)}</div>`).join("")}${extra||""}`; };
-  let h=`<h2>Basic Information <small>${esc(B.ancestry)} ${esc(B.class)} ${C.L}</small></h2>`;
+  let h=`<h2>Basic Info <small>${esc(B.ancestry)} ${esc(B.class)} ${C.L}</small></h2>`;
   h+=`<div class="hp"><div class="hp-top"><span class="lbl">Hit Points</span><span class="hpnum"><b>${hp}</b> / ${C.hpMax}${temp?` <span style="color:var(--blue)">+${temp} temp</span>`:""}</span></div>
       <div class="bar"><i style="width:${Math.max(0,hp)/tot*100}%"></i><i class="tmp" style="width:${temp/tot*100}%"></i></div>
       <div class="hp-btns"><button data-hp="-5">−5</button><button data-hp="-1">−1</button><button data-hp="1">+1</button><button data-hp="5">+5</button><button data-hp="full" title="Restore to max">Full</button>
@@ -3759,7 +3759,7 @@ const cloneLayout=L=>JSON.parse(JSON.stringify(L));
 function patchLayout(L){                                // keep every saved position; only patch ids the saved layout lacks
   const it=L.items;
   if(!validItem(it.pRef) && validItem(it.pActions)) it.pRef=it.pActions;               // Reference takes the Actions widget's spot
-  ["pActions","pConditions","pRules","pMinions","pCampaign","pAllItems","pFeatures"].forEach(id=>{ delete it[id]; });   // merged into Reference, Basic Information and Magic
+  ["pActions","pConditions","pRules","pMinions","pCampaign","pAllItems","pFeatures"].forEach(id=>{ delete it[id]; });   // merged into Reference, Basic Info and Magic
   if(!WIDGET_IDS.some(id=>!validItem(L.items[id]))) return;
   const def=defLayout();
   WIDGET_IDS.forEach(id=>{ if(!validItem(L.items[id])) L.items[id]=def.items[id]; });
