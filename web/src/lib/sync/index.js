@@ -111,8 +111,10 @@ export function createSync(options) {
       for (const f of fields) {
         store.applyServerField(f.field, f.value, /** @type {number} */ (f.version));
       }
+      emit({ type: 'fields' });
     } else if (frame.t === 'diff') {
       store.applyServerField(frame.field, frame.value, /** @type {number} */ (frame.version));
+      emit({ type: 'fields' });
     } else if (frame.t === 'ack') {
       settleAck(/** @type {Record<string, *>} */ (frame));
     }
@@ -135,6 +137,21 @@ export function createSync(options) {
     }
     queue.dequeue(opId);
     emit({ type: 'queue', length: queue.length });
+    if (outcome === 'applied' || outcome === 'already_applied') {
+      // E6's inline-error affordance: a win on a field clears any error
+      // shown at that control.
+      emit({ type: 'applied', key: op ? targetKey(op.target) : null });
+    } else if (outcome === 'rejected' || outcome === 'forbidden') {
+      // The store exposed the op (degraded-mode §4); E6 renders the
+      // ack's reason inline at the control.
+      emit({
+        type: 'op_exposed',
+        op_id: opId,
+        outcome,
+        op,
+        reason: ack.reason ?? null,
+      });
+    }
   }
 
   return {
