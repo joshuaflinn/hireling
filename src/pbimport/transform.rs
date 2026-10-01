@@ -72,6 +72,12 @@ pub struct BaseSheet {
     pub abilities: Abilities,
     pub hp: Hp,
     pub ac: Option<Value>,
+    /// The export's `attributes` block, verbatim (E8: the speed source —
+    /// design math table). E5 consumed it for hp only and dropped the rest;
+    /// E8's extractor needs `speed + speedBonus`, so the section is now
+    /// captured. Additive field: older rows carry `None` (degraded-empty,
+    /// contract §5 — never a lost import).
+    pub attributes: Option<Value>,
     pub proficiencies: Value,
     pub specific_proficiencies: Option<Value>,
     pub lores: Vec<Lore>,
@@ -207,6 +213,7 @@ pub fn transform(export: &ValidExport) -> (BaseSheet, SectionSkips) {
     let abilities = abilities(build);
     let hp = hp(build, identity.level);
     let ac = verbatim_section(build, "acTotal", &mut skips);
+    let attributes = verbatim_section(build, "attributes", &mut skips);
     let proficiencies = build
         .get("proficiencies")
         .cloned()
@@ -232,6 +239,7 @@ pub fn transform(export: &ValidExport) -> (BaseSheet, SectionSkips) {
         abilities,
         hp,
         ac,
+        attributes,
         proficiencies,
         specific_proficiencies,
         lores,

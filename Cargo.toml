@@ -24,6 +24,9 @@ cookie = { version = "0.18.2", features = ["signed", "key-expansion"] }
 # The `rust_crypto` alternative is banned — it pulls `rsa`
 # (RUSTSEC-2023-0071), which the gate fail-closes on.
 jsonwebtoken = { version = "11.1.0", features = ["aws_lc_rs"] }
+# E8: the portable buff/effect core — workspace crate, serde-family only
+# (boundary asserted by `just ci-local`'s cargo-tree check).
+hireling-engine = { path = "engine", version = "0.1.0" }
 rand = "0.10.3"
 # HTTP client for the pinned-release fetch (api.github.com + release asset
 # download) — std has no HTTP story; reqwest on rustls keeps the boring stack
