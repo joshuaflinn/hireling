@@ -85,6 +85,7 @@ html{overflow-y:scroll}
 .rz.nw{left:-3px;top:-3px;width:12px;height:12px;cursor:nwse-resize}
 .rz.se{right:-3px;bottom:-3px;width:12px;height:12px;cursor:nwse-resize}
 .rz.sw{left:-3px;bottom:-3px;width:12px;height:12px;cursor:nesw-resize}
+.widget:is(:has(>.rz:hover),.resizing)>.panel,.widget:is(:has(>.rz:hover),.resizing)>.invwrap>.panel{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold-dim)}
 .board.stacked .widget{position:static!important;width:100%!important;height:auto!important;transition:none}
 .board.stacked .rz{display:none}
 .board.stacked .panel h2{cursor:default}
