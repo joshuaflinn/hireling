@@ -115,6 +115,36 @@ html{overflow-y:scroll}
 .ntac[hidden]{display:none}
 .ntac-i{display:flex;justify-content:space-between;gap:12px;padding:3px 8px;border-radius:5px;cursor:pointer;color:var(--text)}
 .ntac-i.on,.ntac-i:hover{background:var(--panel2);color:var(--gold)}
+.noteed .ntag[data-tag="npc"]{border-color:color-mix(in srgb,#c58cf0 60%,var(--line2));background:color-mix(in srgb,#c58cf0 15%,transparent);color:#d4a6f5}
+.noteed .ntag[data-tag="quest"]{border-color:color-mix(in srgb,#e8883a 60%,var(--line2));background:color-mix(in srgb,#e8883a 15%,transparent);color:#f0a266}
+.noteed .ntag[data-tag="loot"]{border-color:color-mix(in srgb,#5fc08a 60%,var(--line2));background:color-mix(in srgb,#5fc08a 15%,transparent);color:#7bd6a2}
+.noteed .ntag[data-tag="todo"]{border-color:color-mix(in srgb,#e5605a 60%,var(--line2));background:color-mix(in srgb,#e5605a 15%,transparent);color:#f08882}
+.noteed .ntag[data-tag="todo"]::before{content:"☐ "}
+.noteed .ntag[data-tag="todo"][data-done]::before{content:"☑ "}
+.noteed :is(li,p,div,h4):has(> .ntag[data-tag="todo"][data-done]){text-decoration:line-through;opacity:.55}
+.noteed .ntag[data-tag="todo"][data-done]{text-decoration:none;display:inline-block}
+.nflash{animation:nflash 1.2s ease-out}
+@keyframes nflash{0%,40%{background:color-mix(in srgb,var(--gold) 38%,transparent)}100%{background:transparent}}
+.ntd{margin:0 0 6px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;font-size:13px}
+.ntd[hidden]{display:none}
+.ntdh{display:flex;align-items:center;padding:4px 10px;cursor:pointer;color:var(--muted);user-select:none}
+.ntdh:hover{color:var(--gold)}
+.ntd.closed .car{transform:rotate(-90deg)}
+.ntd.closed .ntdb{display:none}
+.ntdb{padding:0 10px 6px;max-height:160px;overflow:auto}
+.ntdi{display:flex;align-items:center;gap:8px;padding:2px 0}
+.ntdc{flex:none;width:16px;height:16px;padding:0;line-height:1;border:1px solid var(--line2);border-radius:3px;background:var(--panel);color:var(--gold);cursor:pointer;font-size:12px}
+.ntdc:hover{border-color:var(--gold)}
+.ntdt{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);cursor:pointer}
+.ntdt:hover{color:var(--gold)}
+.nmark{background:none;border:0;padding:0;margin-left:6px;font-size:11px;line-height:1;color:var(--muted);opacity:.75;cursor:pointer;vertical-align:baseline}
+.nmark:hover{color:var(--gold);opacity:1}
+.nmpop{max-width:360px;max-height:50vh;overflow:auto;padding:6px 8px}
+.nmpop h5{margin:0 0 4px;font-size:12px;font-weight:600;color:var(--gold);font-family:inherit}
+.nmpop .nmblk{padding:3px 6px;border-radius:5px;cursor:pointer;color:var(--text);line-height:1.45}
+.nmpop .nmblk:hover{background:var(--panel2)}
+.nmpop .nmblk li{list-style:none}
+.nmpop .ntag{display:inline-block;padding:0 6px;border-radius:999px;border:1px solid var(--gold-dim);color:var(--gold);font-size:12px}
 .ntac-i em{font-style:normal;font-size:11px;color:var(--dim)}
 #pInv.invwrap{display:flex;flex-direction:column;gap:5px;background:none;border:0;padding:0}
 #pInv.invwrap[hidden]{display:none}
@@ -2410,7 +2440,7 @@ function render(){
   const src=S.imported?"imported Pathbuilder export":`Pathbuilder export (${EXPORT_LABEL})`;
   setHTML($("#dataNote"), `<span><b>Build data:</b> ${esc(src)}, level ${B.level}.</span>`);
   renderStats(); renderSpells(); renderRef(); renderInv(); renderFeats(); renderNotes();
-  applyCollapse();
+  applyCollapse(); noteMarkRows();
   if(booted) markDirty();
 }
 const RT_BTNS=[["bold","B","Bold (Ctrl+B)"],["italic","I","Italic (Ctrl+I)"],["underline","U","Underline (Ctrl+U)"],["strikeThrough","S","Strikethrough"],
@@ -2656,7 +2686,8 @@ async function aiDoSearch(){
 // a tag must follow whitespace or an opening bracket/quote, so "page.html#top" and "a#b" never match
 const NOTE_TAG_RE=/(^|[\s(\[{,;"“])#([A-Za-z0-9_'-]+)/g;
 const NOTE_BLOCK_TAGS=new Set(["P","DIV","H1","H2","H3","H4","H5","H6","UL","OL","LI","BLOCKQUOTE","PRE","TABLE"]);
-const AC_LABEL={spell:"Spell",feat:"Feat",item:"Item",pet:"Familiar"};
+const AC_LABEL={spell:"Spell",feat:"Feat",item:"Item",pet:"Familiar",status:"Status"};
+const NOTE_STATUS=["todo","npc","quest","loot"];
 const tagSlug=s=>String(s||"").toLowerCase().replace(/['’]/g,"").replace(/[^a-z0-9_]+/g,"-").replace(/^-+|-+$/g,"");
 let acBox=null, acEd=null, ddBox=null;
 const ac={items:[],idx:0,node:null,start:0,end:0};
@@ -2748,7 +2779,10 @@ function noteConvertTags(ed,caret,force){
 }
 function noteHTML(ed){
   if(!ed.querySelector(".ntag,li,img") && !ed.textContent.trim()) return "";
-  return ed.innerHTML;
+  if(!ed.querySelector(".nflash")) return ed.innerHTML;
+  const c=ed.cloneNode(true);    // an edit during a flash must not save the transient class
+  for(const n of c.querySelectorAll(".nflash")){ n.classList.remove("nflash"); if(!n.className) n.removeAttribute("class"); }
+  return c.innerHTML;
 }
 function noteBlockOf(ed,el){
   const li=el.closest("li"); if(li && ed.contains(li)) return li;
@@ -2771,11 +2805,13 @@ function noteAfterEdit(ed,caret,force){
   const next=noteConvertTags(ed,caret,force);
   noteSetCaret(next||caret);
   S.notes=noteHTML(ed); ed.classList.toggle("isempty",!S.notes); markDirty();
+  noteRefreshLater();
 }
 function noteLoad(ed){
   setHTML(ed, S.notes||"");
   noteNormalize(ed); noteConvertTags(ed,null,true);
   S.notes=noteHTML(ed); ed.classList.toggle("isempty",!S.notes);   // a load-time cleanup is not a user edit, so no markDirty
+  noteTodoRefresh(); noteRefreshLater();
 }
 function noteBackspace(ed,e){
   const s=getSelection(); if(!s.rangeCount || !s.isCollapsed) return;
@@ -2796,9 +2832,9 @@ function acUpdate(ed){
   if(!m) return acClose();
   const tail=/^[A-Za-z0-9_'-]*/.exec(text.slice(c.off))[0];
   const q=(m[2]+tail).toLowerCase().replace(/'/g,""), plain=t=>t.replace(/'/g,"");
-  const sheet=noteSheetTags(), pool=[...new Set(noteTagsByUse(ed).map(t=>t[0]).concat([...sheet.keys()]))];
+  const sheet=noteSheetTags(), pool=[...new Set(noteTagsByUse(ed).map(t=>t[0]).concat([...sheet.keys()],NOTE_STATUS))];
   const pre=pool.filter(t=>plain(t).startsWith(q)), sub=pool.filter(t=>!plain(t).startsWith(q) && plain(t).includes(q));
-  ac.items=pre.concat(sub).slice(0,8).map(t=>({slug:t,kind:sheet.get(t)||""}));
+  ac.items=pre.concat(sub).slice(0,8).map(t=>({slug:t,kind:sheet.get(t)||(NOTE_STATUS.includes(t)?"status":"")}));
   if(!ac.items.length) return acClose();
   Object.assign(ac,{idx:0,node:c.node,start:m.index+m[1].length,end:c.off+tail.length});
   acEd=ed;
@@ -2847,12 +2883,94 @@ function noteInsertTag(ed,slug){
   r.insertNode(after); r.insertNode(chip);
   noteAfterEdit(ed,{node:after,off:1},false);
 }
+const NOTE_ROWS="#pSpells .row,#pInvMain .row,#pFeats .row,#pStats .row,#pRef .row";
+const flashTimers=new WeakMap();
+let noteTick=0, nmBox=null, nmFor=null, todoItems=[];
+const noteEd=()=>document.querySelector("#pNotes .noteed");
+function noteRefreshLater(){ clearTimeout(noteTick); noteTick=setTimeout(()=>{ noteMarkRows(); noteTodoRefresh(); },250); }
+function noteFlash(block){
+  clearTimeout(flashTimers.get(block));
+  block.classList.remove("nflash"); void block.offsetWidth; block.classList.add("nflash");
+  flashTimers.set(block,setTimeout(()=>{ block.classList.remove("nflash"); if(!block.className) block.removeAttribute("class"); },1250));
+}
+function noteReveal(block){ block.scrollIntoView({block:"center",behavior:"smooth"}); noteFlash(block); }
+function rowTagName(row){
+  if(row.dataset.name) return row.dataset.name;
+  const nm=row.querySelector(".nm"); if(!nm) return "";
+  for(const n of nm.childNodes) if(n.nodeType===3 && n.data.trim()) return n.data.trim();
+  return "";
+}
+// chips come from the live editor, or from S.notes when the pane has not been built yet
+function noteBlockMap(){
+  const ed=noteEd();
+  if(ed) return {ed,map:noteTagBlocks(ed)};
+  const tmp=document.createElement("div"); setHTML(tmp,S.notes||"");
+  return {ed:tmp,map:noteTagBlocks(tmp)};
+}
+function noteMarkRows(){
+  const {map}=noteBlockMap();
+  for(const row of document.querySelectorAll(NOTE_ROWS)){
+    const nm=row.querySelector(".nm"); if(!nm) continue;
+    const slug=tagSlug(rowTagName(row)), old=nm.querySelector(".nmark"), want=!!slug && map.has(slug);
+    if(old && (!want || old.dataset.slug!==slug)) old.remove();
+    if(!want || (old && old.dataset.slug===slug && old.isConnected)) continue;
+    const b=document.createElement("button");
+    b.type="button"; b.className="nmark"; b.draggable=false; b.title="In your notes"; b.textContent="✎"; b.dataset.slug=slug;
+    b.addEventListener("mousedown",e=>{
+      e.stopPropagation();
+      if(row.getAttribute("draggable")==="true"){ row.draggable=false; document.addEventListener("mouseup",()=>{ row.draggable=true; },{once:true}); }   // the row would otherwise start a drag from the marker
+    });
+    b.addEventListener("click",e=>{ e.stopPropagation(); e.preventDefault(); nmToggle(b); });
+    nm.append(b);
+  }
+}
+function nmClose(){ if(nmBox) nmBox.hidden=true; nmFor=null; }
+function nmToggle(btn){
+  if(nmBox && !nmBox.hidden && nmFor===btn) return nmClose();
+  const ed=noteEd(); if(!ed) return;
+  const slug=btn.dataset.slug, blocks=[...(noteTagBlocks(ed).get(slug)||[])];
+  if(!nmBox){ nmBox=document.createElement("div"); nmBox.className="ntac nmpop"; nmBox.hidden=true; document.body.append(nmBox); }
+  const head=document.createElement("h5"); head.textContent="#"+slug;
+  nmBox.replaceChildren(head);
+  blocks.forEach(blk=>{
+    const wrap=document.createElement("div"); wrap.className="nmblk";
+    const cl=blk.cloneNode(true);
+    for(const n of [cl,...cl.querySelectorAll("*")]){ n.removeAttribute("contenteditable"); n.classList.remove("nflash"); }
+    wrap.append(cl);
+    wrap.onclick=()=>{ nmClose(); noteReveal(blk); };
+    nmBox.append(wrap);
+  });
+  nmFor=btn; nmBox.hidden=false; acClose(); ddClose();
+  const r=btn.getBoundingClientRect(), w=nmBox.offsetWidth, h=nmBox.offsetHeight;
+  nmBox.style.left=Math.max(8,Math.min(r.left,document.documentElement.clientWidth-w-8))+"px";
+  nmBox.style.top=(r.bottom+4+h>innerHeight && r.top-h-4>0 ? r.top-h-4 : r.bottom+4)+"px";
+}
+document.addEventListener("mousedown",e=>{ if(nmBox && !nmBox.hidden && !nmBox.contains(e.target)) nmClose(); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") nmClose(); });
+addEventListener("scroll",e=>{ if(nmBox && !nmBox.hidden && !nmBox.contains(e.target)) nmClose(); },true);
+function noteSave(ed){ S.notes=noteHTML(ed); ed.classList.toggle("isempty",!S.notes); markDirty(); noteTodoRefresh(); }
+function noteTodoRefresh(){
+  const ed=noteEd(), box=ed && ed.parentNode.querySelector(".ntd"); if(!box) return;
+  todoItems=[];
+  for(const chip of ed.querySelectorAll('.ntag[data-tag="todo"]:not([data-done])')){
+    const block=noteBlockOf(ed,chip);
+    if(todoItems.some(t=>t.block===block)) continue;
+    const cl=block.cloneNode(true);
+    cl.querySelectorAll('ul,ol,.ntag[data-tag="todo"]').forEach(n=>n.remove());
+    todoItems.push({block,chip,text:cl.textContent.replace(/\s+/g," ").trim()||"(empty to-do)"});
+  }
+  box.hidden=!todoItems.length;
+  box.classList.toggle("closed",!!S.coll["pNotes:todos"]);
+  setHTML(box.querySelector(".ntdh span:last-child"), `Open to-dos (${todoItems.length})`);
+  setHTML(box.querySelector(".ntdb"), todoItems.map((t,i)=>`<div class="ntdi"><button type="button" class="ntdc" data-i="${i}" title="Mark done"></button><span class="ntdt" data-i="${i}" title="${esc(t.text)}">${esc(t.text)}</span></div>`).join(""));
+}
 function renderNotes(){
   const pane=$("#pNotes"); if(!pane) return;
   let ed=pane.querySelector(".noteed");
   if(!ed){
     setHTML(pane, `<h2>Notes <button type="button" class="btn gold" id="notesSave" title="Save to the current template">Save</button></h2>
       <div class="rtbar">${RT_BTNS.map(([c,l,t])=>`<button type="button" data-rt="${c}" title="${esc(t)}" class="rt${c==="bold"?" b":c==="italic"?" i":c==="underline"?" u":c==="strikeThrough"?" st":""}">${esc(l)}</button>`).join("")}<button type="button" class="ntddb" title="Insert a tag already used in these notes">#tags ▾</button></div>
+      <div class="ntd" hidden><div class="ntdh"><span class="car">▾</span><span></span></div><div class="ntdb"></div></div>
       <div class="noteed" contenteditable="true" spellcheck="true"></div>`);
     ed=pane.querySelector(".noteed");
     $("#notesSave").onclick=()=>$("#btnSave").click();    // a shortcut to the header Save button, so saving stays in one place
@@ -2876,7 +2994,22 @@ function renderNotes(){
       if(e.key==="Backspace") noteBackspace(ed,e);
     });
     ed.addEventListener("keyup",e=>{ if(["ArrowLeft","ArrowRight","Home","End"].includes(e.key)) acUpdate(ed); });
-    ed.addEventListener("click",()=>acUpdate(ed));
+    ed.addEventListener("click",e=>{
+      const chip=e.target.closest('.ntag[data-tag="todo"]');
+      if(chip && ed.contains(chip)){ if(chip.hasAttribute("data-done")) chip.removeAttribute("data-done"); else chip.dataset.done="1"; noteSave(ed); return; }
+      acUpdate(ed);
+    });
+    pane.querySelector(".ntd").addEventListener("click",e=>{
+      const box=e.currentTarget, item=todoItems[+((e.target.closest("[data-i]")||{dataset:{}}).dataset.i)];
+      if(e.target.closest(".ntdc") && item){ item.chip.dataset.done="1"; noteSave(ed); return; }
+      if(e.target.closest(".ntdt") && item){ noteReveal(item.block); return; }
+      if(e.target.closest(".ntdh")){
+        const closed=!box.classList.contains("closed");
+        box.classList.toggle("closed",closed);
+        if(closed) S.coll["pNotes:todos"]=1; else delete S.coll["pNotes:todos"];
+        markDirty();
+      }
+    });
     ed.addEventListener("blur",acClose);
     ed.addEventListener("scroll",acClose);
     const ddBtn=pane.querySelector(".ntddb");
