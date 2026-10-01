@@ -145,6 +145,8 @@ html{overflow-y:scroll}
 .ntdt{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);cursor:pointer}
 .ntdt:hover{color:var(--gold)}
 .ntac-i em{font-style:normal;font-size:11px;color:var(--dim)}
+.rmpick{max-height:50vh;overflow:auto}
+.rmpick .rmall{border-top:1px solid var(--line);margin-top:3px;padding-top:5px;color:var(--gold)}
 #notesDlg{width:min(520px,94vw)}
 #notesAskDlg{width:min(440px,92vw)}
 .nplist{margin:8px 0 2px;max-height:40vh}
@@ -2012,7 +2014,7 @@ function capacityOf(name){                       // in tenths of Bulk, null when
   return null;
 }
 const MAGIC_ITEMS = ["Staff","Oil of Weightlessness"];   // makeshift Staff Nexus staff + consumable
-let INV_VIEW=null;
+let INV_VIEW=null, INV_REMOVED=[], rmBox=null;   // INV_REMOVED: {key,name} of deleted rows, for the restore picker
 // tab id, label, drop target: All Equipment is the tree; every other tab is a filter over it
 const INV_TABS = [["all","All Equipment","top"],["equipped","Equipped Items","equipped"],["magic","Magic Items","tag:magic"],["gems","Gems/Jewelry/Art","tag:gems"],["trade","Trade Goods","tag:trade"]];
 const INV_TAGS = [["magic","Magic","Magic item"],["gems","Gem/Art","Gem, jewelry or art"],["trade","Trade","Trade good"]];   // id, row chip, dialog label
@@ -2102,6 +2104,24 @@ function startQtyEdit(el){
   inp.addEventListener("keydown",ev=>{ if(ev.key==="Enter") commit(); else if(ev.key==="Escape"){ done=true; render(); } });
   inp.addEventListener("blur",commit);
 }
+function rmClose(){ if(rmBox) rmBox.hidden=true; }
+function rmToggle(btn){
+  if(rmBox && !rmBox.hidden){ rmClose(); return; }
+  if(!rmBox){
+    rmBox=document.createElement("div"); rmBox.className="ntac rmpick"; rmBox.hidden=true; document.body.append(rmBox);
+    rmBox.addEventListener("mousedown",e=>{ e.preventDefault(); const row=e.target.closest("[data-rmkey],[data-rmall]"); if(!row) return;
+      if(row.dataset.rmall) S.removed={}; else delete S.removed[row.dataset.rmkey];
+      rmClose(); render(); });
+  }
+  setHTML(rmBox, INV_REMOVED.map(r=>`<div class="ntac-i" data-rmkey="${esc(r.key)}" title="Restore ${esc(r.name)}"><span>${esc(r.name)}</span></div>`).join("")+`<div class="ntac-i rmall" data-rmall="1"><span>Restore all</span></div>`);
+  rmBox.hidden=false;
+  const r=btn.getBoundingClientRect(), w=rmBox.offsetWidth, h=rmBox.offsetHeight;
+  rmBox.style.left=Math.max(8,Math.min(r.left,document.documentElement.clientWidth-w-8))+"px";
+  rmBox.style.top=(r.bottom+3+h>innerHeight && r.top-h-3>0 ? r.top-h-3 : r.bottom+3)+"px";
+}
+document.addEventListener("mousedown",e=>{ if(rmBox && !rmBox.hidden && !rmBox.contains(e.target) && !e.target.closest("[data-unremove]")) rmClose(); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") rmClose(); });
+addEventListener("scroll",e=>{ if(rmBox && !rmBox.hidden && !rmBox.contains(e.target)) rmClose(); },true);
 function renderInv(){
   normalizeStacks();
   const B=C.B, m=S.coins||B.money||{};
@@ -2176,9 +2196,10 @@ function renderInv(){
     }
     conts.push({key:it.key, id:"u:"+it.key, isC:true, name:it.name+(it.qty>1?" ×"+it.qty:""), src:it.src, hint:it.hint, tkey:it.tkey, backpack:false, xd:false, b:it.b, user:true, tip:it.tip, def:home, eqDef:it.eqDef});
   }
-  S.removed=S.removed||{};
-  for(let i=items.length-1;i>=0;i--) if(S.removed[items[i].key]) items.splice(i,1);
-  for(let i=conts.length-1;i>=0;i--) if(S.removed[conts[i].key]) conts.splice(i,1);
+  S.removed=S.removed||{}; INV_REMOVED=[];
+  for(let i=items.length-1;i>=0;i--) if(S.removed[items[i].key]) INV_REMOVED.push({key:items[i].key,name:items.splice(i,1)[0].name});
+  for(let i=conts.length-1;i>=0;i--) if(S.removed[conts[i].key]) INV_REMOVED.push({key:conts[i].key,name:conts.splice(i,1)[0].name+" (container)"});
+  INV_REMOVED.sort((a,b)=>a.name.localeCompare(b.name));
   const at=(x)=>invLoc(x.key,x.def);
   for(const x of items.concat(conts)){                   // tags: your edit wins over what the data says
     x.dtags=derivedTags(x.src,x.hint);
@@ -3355,7 +3376,8 @@ document.addEventListener("click",e=>{
   }
   const cdel=t.closest("[data-contdel]");
   if(cdel){ askDeleteContainer(cdel.dataset.contdel); return; }
-  if(t.closest("[data-unremove]")){ S.removed={}; render(); return; }
+  const unrm=t.closest("[data-unremove]");
+  if(unrm){ rmToggle(unrm); return; }
   const mkoff=t.closest("[data-mkcontoff]");
   if(mkoff){ const key=mkoff.dataset.mkcontoff;
     const sp=(S.splits||[]).find(s=>s.id===key);
