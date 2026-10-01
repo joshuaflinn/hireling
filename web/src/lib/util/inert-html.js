@@ -31,7 +31,7 @@
  * util's own safety work is the scrub, and that is what the tests pin.
  *
  * @param {string} html
- * @param {{parserClass?: Function}} [options]
+ * @param {{parserClass?: new () => { parseFromString: (html: string, type: string) => { body: { childNodes: InertNode[] } } }}} [options]
  * @returns {InertNode[]}
  */
 export function parseInert(html, { parserClass } = {}) {
@@ -40,7 +40,7 @@ export function parseInert(html, { parserClass } = {}) {
     throw new Error('no DOMParser in this environment; inject parserClass');
   }
   const doc = new Parser().parseFromString(html, 'text/html');
-  return Array.from(doc.body.childNodes);
+  return Array.from(/** @type {InertNode[]} */ (doc.body.childNodes));
 }
 
 /**
@@ -72,6 +72,7 @@ function isScript(node) {
 function scrubAttributes(node) {
   const attributes = node.attributes;
   if (!Array.isArray(attributes)) return;
+  /** @param {{name: string, value: string}} attribute */
   const dangerous = (attribute) =>
     attribute.name.toLowerCase().startsWith('on') ||
     (['href', 'src', 'xlink:href', 'action', 'formaction'].includes(
@@ -88,9 +89,9 @@ function scrubAttributes(node) {
  * `replace` must expose `replaceChildren(...nodes)`; when it exposes
  * `removeChild`/`appendChild` instead, adoption falls back to them.
  *
- * @param {{replaceChildren?: Function, appendChild?: Function, removeChild?: Function}} replace
+ * @param {{replaceChildren?: (...nodes: InertNode[]) => void, appendChild?: (node: InertNode) => void, removeChild?: (node: InertNode) => void, childNodes?: InertNode[]}} replace
  * @param {string} html
- * @param {{parserClass?: Function}} [options]
+ * @param {{parserClass?: new () => { parseFromString: (html: string, type: string) => { body: { childNodes: InertNode[] } } }}} [options]
  */
 export function adoptHTML(replace, html, options = {}) {
   const nodes = scrub(parseInert(html, options));
@@ -99,7 +100,7 @@ export function adoptHTML(replace, html, options = {}) {
     return;
   }
   for (const child of [...(replace.childNodes ?? [])]) {
-    replace.removeChild(child);
+    replace.removeChild?.(child);
   }
-  for (const node of nodes) replace.appendChild(node);
+  for (const node of nodes) replace.appendChild?.(node);
 }

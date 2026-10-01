@@ -47,14 +47,78 @@ const invTarget = (characterId, itemName) => ({
   item_name: itemName,
 });
 
+/** @param {number} value @param {number} min @param {number} max */
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+/** The `/api/characters/me` payload this layer consumes.
+ *
+ * @typedef {object} Bootstrap
+ * @property {{ id: number, name: string | null }} character
+ * @property {*} base_sheet the normalized sheet (the Rust transform's shape)
+ * @property {{ hp: number, temp_hp: number, money_pp: number, money_gp: number,
+ *   money_sp: number, money_cp: number, level_adjust: number,
+ *   focus_current: number, hero_points: number,
+ *   daily: { staff_charge_rank: number, staff_spent: number, drain_used: boolean } }} vitals
+ * @property {Array<{ caster_key: string, rank: number, slot_index: number,
+ *   used: boolean, prepared_spell: string | null }>} slots
+ * @property {Array<{ name: string, qty_delta: number }>} inventory
+ * @property {Record<string, number | null>} [item_bulk]
+ */
+
+/** One field entry in the sync store's merged state.
+ *
+ * @typedef {{ target: Record<string, *>, value: *, version: number }} FieldEntry
+ */
+
+/** One rejected/forbidden op awaiting inline display.
+ *
+ * @typedef {{ key: string | null, target: Record<string, *> | null,
+ *   op_id: string, outcome: string, reason: string }} OpError
+ */
+
+/**
+ * The sheet state handle — svelte stores plus the write surface. Exported
+ * as a typedef so components can annotate the handle explicitly (svelte2tsx
+ * will not infer store-ness through a call's return type).
+ *
+ * @typedef {object} SheetState
+ * @property {import('svelte/store').Readable<*>} view
+ * @property {import('svelte/store').Readable<number>} hpMax
+ * @property {import('svelte/store').Readable<{value: number, pending: boolean}>} hp
+ * @property {import('svelte/store').Readable<{value: *, pending: boolean}>} tempHp
+ * @property {import('svelte/store').Readable<{value: *, pending: boolean}>} money
+ * @property {import('svelte/store').Readable<{value: *, pending: boolean}>} focusCurrent
+ * @property {import('svelte/store').Readable<number>} focusMax
+ * @property {import('svelte/store').Readable<{value: *, pending: boolean}>} heroPoints
+ * @property {import('svelte/store').Readable<number>} heroMax
+ * @property {import('svelte/store').Readable<{value: *, pending: boolean}>} daily
+ * @property {import('svelte/store').Readable<Array<object>>} slots
+ * @property {import('svelte/store').Readable<boolean>} syncing
+ * @property {import('svelte/store').Readable<boolean>} offline
+ * @property {import('svelte/store').Readable<OpError[]>} opErrors
+ * @property {(itemName: string) => import('svelte/store').Readable<{qty: number, pending: boolean}>} itemQty
+ * @property {() => void} connect
+ * @property {() => void} disconnect
+ * @property {() => Array<object>} queue
+ * @property {(value: number) => void} writeHp
+ * @property {(value: number) => void} writeTempHp
+ * @property {(value: {pp: number, gp: number, sp: number, cp: number}) => void} writeMoney
+ * @property {(value: number) => void} writeLevelAdjust
+ * @property {(value: number) => void} writeFocus
+ * @property {(value: number) => void} writeHeroPoints
+ * @property {(value: {staff_charge_rank: number, staff_spent: number, drain_used: boolean}) => void} writeDaily
+ * @property {(casterKey: string, rank: number, index: number, patch?: {used?: boolean, prepared?: string | null}) => void} writeSlot
+ * @property {(itemName: string, quantity: number) => void} writeItemQty
+ * @property {() => void} newDay
+ * @property {() => void} destroy
+ */
 
 /**
  * @param {{
- *   sync: import('../sync/index.js').createSync,
- *   character: { character: {id: number}, base_sheet: object, vitals: object,
- *                slots: Array<object>, inventory: Array<object> },
+ *   sync: import('../sync/index.js').Sync,
+ *   character: Bootstrap,
  * }} setup
+ * @returns {SheetState}
  */
 export function createSheetState({ sync, character }) {
   const characterId = character.character.id;
@@ -65,11 +129,11 @@ export function createSheetState({ sync, character }) {
   const connectionState = writable(sync.connectionState());
   const offline = derived(connectionState, ($state) => $state === 'offline');
   /** Rejected/forbidden ops awaiting inline display, keyed by field. */
-  const opErrors = writable([]);
+  const opErrors = writable(/** @type {OpError[]} */ ([]));
 
   // ---- the live field map + engine view ----------------------------------
-  const fields = writable(sync.state());
-  const pendingKeys = writable(new Set());
+  const fields = writable(/** @type {Record<string, FieldEntry>} */ (sync.state()));
+  const pendingKeys = writable(/** @type {Set<string>} */ (new Set()));
 
   /** The engine view: base sheet + live level + zero effects. */
   const view = derived([fields], ([$fields]) => {
@@ -169,7 +233,8 @@ export function createSheetState({ sync, character }) {
   }
 
   // ---- sync event wiring ---------------------------------------------------
-  const unsubscribe = sync.subscribe((event) => {
+  /** @param {Record<string, *>} event */
+  function handleSyncEvent(event) {
     if (event.type === 'queue') {
       syncing.set(sync.isSyncing());
       const pending = new Set(sync.queue().map((op) => targetKey(op.target)));
@@ -189,13 +254,14 @@ export function createSheetState({ sync, character }) {
         {
           key,
           target: event.op ? event.op.target : null,
-          op_id: event.op_id,
-          outcome: event.outcome,
+          op_id: /** @type {string} */ (event.op_id),
+          outcome: /** @type {string} */ (event.outcome),
           reason: event.reason ?? '',
         },
       ]);
     }
-  });
+  }
+  const unsubscribe = sync.subscribe(handleSyncEvent);
 
   // ---- write surface (client-side bounds live here) ------------------------
   /** @param {Record<string, *>} target @param {*} value */
@@ -223,6 +289,7 @@ export function createSheetState({ sync, character }) {
 
   /** @param {{pp: number, gp: number, sp: number, cp: number}} value */
   function writeMoney(value) {
+    /** @param {*} amount */
     const whole = (amount) => Math.max(0, Math.round(Number(amount) || 0));
     write(vitalsTarget(characterId, 'money'), {
       pp: whole(value.pp),

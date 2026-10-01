@@ -2,6 +2,7 @@
 // helpers, ported verbatim where the bytes match. No I/O, no framework.
 
 /** The rank table (prototype line 718): letter + name per proficiency rank. */
+/** @type {Record<number, string[]>} */
 const RANKS = {
   0: ['U', 'Untrained'],
   2: ['T', 'Trained'],

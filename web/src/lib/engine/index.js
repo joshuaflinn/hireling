@@ -10,14 +10,19 @@
 
 import { deriveBase } from './base.js';
 
+/** @typedef {Record<string, *>} BaseSheetView */
+
+
 /**
  * Derive the sheet's numbers for one character.
  *
- * @param {{ id: number, base_sheet: object }} character the bootstrap
+ * @param {{ id: number, base_sheet: * }} character the bootstrap
  *   character payload (id + base_sheet)
  * @param {{ level_adjust?: number, effects?: Array<object> }} liveState the
  *   character's live state, extracted from the sync store by sheet/state.js
- * @returns {object} DerivedSheet per the engine-output contract
+ * @returns {Record<string, *>} DerivedSheet per the engine-output contract
+ *   (typed loosely here; the members the sheet reads are pinned in
+ *   base.js's derivation and its tests).
  */
 export function derive(character, liveState) {
   return deriveBase(character, liveState);

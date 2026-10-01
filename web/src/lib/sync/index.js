@@ -46,6 +46,22 @@ export function partySocketUrl(partyId) {
 }
 
 /**
+ * The composed sync instance — the public API this module returns (E7's
+ * client surface; E6/E10 consume exactly these members).
+ *
+ * @typedef {Object} Sync
+ * @property {() => void} connect
+ * @property {() => void} disconnect
+ * @property {(target: Record<string, *>, value: *) => void} write
+ * @property {() => Record<string, {target: Record<string, *>, value: *, version: number}>} state
+ * @property {() => boolean} isSyncing
+ * @property {() => string} snapshotForBoot
+ * @property {() => Array<{op_id: string, target: Record<string, *>, base_version: number, value: *, created_at: string}>} queue
+ * @property {() => 'connecting' | 'live' | 'offline'} connectionState
+ * @property {(cb: (event: Record<string, *>) => void) => () => boolean} subscribe
+ */
+
+/**
  * @param {{
  *   url: string,
  *   storage: { getItem: (k: string) => string | null, setItem: (k: string, v: string) => void },
@@ -56,6 +72,7 @@ export function partySocketUrl(partyId) {
  *   timers?: { setTimeout: (fn: () => void, ms: number) => *, clearTimeout: (id: *) => void },
  *   idFactory?: () => string,
  * }} options
+ * @returns {Sync}
  */
 export function createSync(options) {
   const {

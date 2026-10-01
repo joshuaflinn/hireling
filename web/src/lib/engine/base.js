@@ -39,15 +39,26 @@ const SKILL_KEYS = [
   ['thievery', 'dex'],
 ];
 
-/** A derived stat in the contract's shape — base-only mode: no effects. */
+/**
+ * A derived stat in the contract's shape — base-only mode: no effects.
+ * @param {number} base
+ * @param {number} total
+ * @returns {{ base: number, total: number, applied: never[], suppressed: never[] }}
+ */
 function stat(base, total) {
   return { base, total, applied: [], suppressed: [] };
 }
 
-/** The wizard class-progression table the prototype ports (Player Core):
- * ranks the export predates but a higher display level grants. */
+/**
+ * The wizard class-progression table the prototype ports (Player Core):
+ * ranks the export predates but a higher display level grants.
+ * @param {Record<string, number>} proficiencies
+ * @param {number} level
+ * @param {number} exportLevel
+ */
 function wizardProgression(proficiencies, level, exportLevel) {
   if (level <= exportLevel) return;
+  /** @param {string} key @param {number} rank */
   const up = (key, rank) => {
     proficiencies[key] = Math.max(proficiencies[key] || 0, rank);
   };
@@ -65,17 +76,45 @@ function wizardProgression(proficiencies, level, exportLevel) {
   if (level >= 19) up('castingArcane', 8);
 }
 
-/** Extra strike damage from legendary-ish weapon ranks at level 13+ (the
- * prototype's `spec`): rank 4 → +2, 6 → +3, 8 → +4. */
+/**
+ * Extra strike damage from legendary-ish weapon ranks at level 13+ (the
+ * prototype's `spec`): rank 4 → +2, 6 → +3, 8 → +4.
+ * @param {number} rank
+ * @param {number} level
+ * @returns {number}
+ */
 function masteryDamage(rank, level) {
   if (level < 13) return 0;
   return { 4: 2, 6: 3, 8: 4 }[rank] || 0;
 }
 
 /**
+ * The base-sheet sections the base math reads. Structural truth lives in
+ * the Rust transform (data-model §2); this records only the JS view of it.
+ *
+ * @typedef {object} BaseSheet
+ * @property {{ level: number, keyability?: string | null, class?: string | null,
+ *   ancestry?: string | null, heritage?: string | null, background?: string | null,
+ *   alignment?: string | null, deity?: string | null, size_name?: string | null,
+ *   languages: string[], name: string }} identity
+ * @property {{ str: number, dex: number, con: number, int: number, wis: number, cha: number }} abilities
+ * @property {{ ancestryhp: number, classhp: number, bonushp: number, bonushp_per_level: number, max_hp: number }} hp
+ * @property {{ acAbilityBonus?: number, acProfBonus?: number, acItemBonus?: number, acTotal?: number, shieldBonus?: number | null } | null} ac
+ * @property {Record<string, number>} proficiencies
+ * @property {Array<{ name: string, rank: number }>} lores
+ * @property {Array<{ caster_key: string, magic_tradition?: string | null, spellcasting_type?: string | null,
+ *   ability?: string | null, proficiency?: number | null, innate: boolean, focus_points: number,
+ *   per_day: number[] }>} spellcasters
+ * @property {Array<{ name: string, qty: number }>} equipment
+ * @property {Array<Record<string, *>>} weapons
+ * @property {{ attributes?: { speed?: number, speedBonus?: number } } & Record<string, *>} raw
+ * @property {number} focus_points
+ */
+
+/**
  * Derive the sheet's numbers, base-only mode.
  *
- * @param {{ id: number, base_sheet: object }} character the bootstrap payload
+ * @param {{ id: number, base_sheet: BaseSheet }} character the bootstrap payload
  * @param {{ level_adjust?: number, effects?: Array<object> }} liveState the
  *   sync state this character owns, extracted by sheet/state.js
  * @returns {object} the engine-output contract's DerivedSheet (schema
@@ -88,14 +127,14 @@ export function deriveBase(character, liveState = {}) {
   const level = Math.min(20, Math.max(1, exportLevel + (liveState.level_adjust || 0)));
 
   const scores = base.abilities;
-  const mods = {
+  const mods = /** @type {Record<string, number>} */ ({
     str: abilityMod(scores.str),
     dex: abilityMod(scores.dex),
     con: abilityMod(scores.con),
     int: abilityMod(scores.int),
     wis: abilityMod(scores.wis),
     cha: abilityMod(scores.cha),
-  };
+  });
 
   // Proficiency ranks: the export's table, bumped by the class progression
   // the prototype applies when displaying above the export's level.
@@ -103,6 +142,7 @@ export function deriveBase(character, liveState = {}) {
   if (base.identity.class === 'Wizard') {
     wizardProgression(ranks, level, exportLevel);
   }
+  /** @param {number} rank */
   const pb = (rank) => profBonus(rank, level);
 
   // ---- HP max: ancestry + bonus, plus (class + CON + perLevel) × level
@@ -133,6 +173,7 @@ export function deriveBase(character, liveState = {}) {
   const speedFromRaw = base.raw?.attributes;
   const speedValue =
     (speedFromRaw?.speed ?? 25) + (speedFromRaw?.speedBonus ?? 0);
+/** @type {number | null} */
   const classDc =
     base.identity.keyability && ranks.classDC
       ? 10 + mods[base.identity.keyability] + pb(ranks.classDC)
@@ -185,11 +226,16 @@ export function deriveBase(character, liveState = {}) {
 
   // ---- Strikes: the weapons table + unarmed Fist. Attack math per the
   // prototype (finesse → best of Str/Dex); MAP is −5/−10, agile −4/−8.
-  const damageTypeNames = { B: 'bludgeoning', P: 'piercing', S: 'slashing' };
-  const weaponTraits = {
+  const damageTypeNames = /** @type {Record<string, string>} */ ({
+    B: 'bludgeoning',
+    P: 'piercing',
+    S: 'slashing',
+  });
+  const weaponTraits = /** @type {Record<string, string[]>} */ ({
     Staff: ['Monk', 'Two-Hand d8'],
     Fist: ['Agile', 'Finesse', 'Nonlethal', 'Unarmed'],
-  };
+  });
+  /** @param {string} name @param {Record<string, *>} weapon */
   const strikeRow = (name, weapon) => {
     const traits = weaponTraits[name] ?? [];
     const finesse = traits.includes('Finesse');
@@ -242,7 +288,12 @@ export function deriveBase(character, liveState = {}) {
       will: stat(saves.will, saves.will),
       perception: stat(perception, perception),
       speed: stat(speedValue, speedValue),
-      class_dc: stat(classDc, classDc),
+      class_dc: {
+        base: classDc,
+        total: classDc,
+        applied: [],
+        suppressed: [],
+      },
       strikes,
       casters,
       skills,

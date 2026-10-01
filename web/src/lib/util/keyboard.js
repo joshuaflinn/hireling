@@ -37,6 +37,7 @@ export function trapKeys({ container, host, onCancel, onCommit }) {
   const FOCUSABLE =
     'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
+  /** @param {{ key: string, shiftKey?: boolean, target: *, preventDefault: () => void, stopPropagation: () => void }} event */
   function onKeydown(event) {
     if (event.key === 'Escape') {
       event.preventDefault();
