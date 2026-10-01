@@ -78,8 +78,9 @@ pub const CORE_SKILL_ABILITY: [(&str, &str); 18] = [
 ];
 
 /// A stat name as stored on the wire and in the database: canonical text,
-/// parseable by [`Stat::parse`]. Newtype so a raw `String` can't sneak past
-/// validation into `effect_modifiers.stat`.
+/// validated at the serde boundary via [`TryFrom`] (an unparseable stat can
+/// never deserialize). Newtype so a raw `String` can't sneak past validation
+/// into `effect_modifiers.stat`.
 ///
 /// Invariant: inside [`Stat::Skill`] the text is the FULL stat string —
 /// `"skill:acrobatics"`, `"skill:lore:underworld"` — so `as_str()` is
@@ -89,6 +90,7 @@ pub const CORE_SKILL_ABILITY: [(&str, &str); 18] = [
 #[derive(
     Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
+#[serde(try_from = "String")]
 pub struct StatName(String);
 
 impl StatName {
@@ -104,6 +106,26 @@ impl StatName {
     #[must_use]
     pub fn instance_name(&self) -> &str {
         self.0.strip_prefix("skill:").unwrap_or(&self.0)
+    }
+
+    /// Lift a sheet's skill name (`BaseStats.skills[].name`, no `skill:`
+    /// prefix — either a bare core skill or `lore:<name>`) into the full
+    /// `skill:`-text stat name. `None` for a non-canonical sheet name — such
+    /// a name can never match a validated modifier, so skipping it is
+    /// behavior-preserving (the extractor's normalization is pinned by the
+    /// golden test).
+    #[must_use]
+    pub fn from_skill_instance(name: &str) -> Option<Self> {
+        let bare = name.strip_prefix("lore:").unwrap_or(name);
+        canonical(bare).then(|| Self(format!("skill:{name}")))
+    }
+}
+
+impl TryFrom<String> for StatName {
+    type Error = String;
+
+    fn try_from(text: String) -> Result<Self, Self::Error> {
+        Stat::parse(&text).map(|_| Self(text))
     }
 }
 
@@ -233,7 +255,9 @@ impl Blanket {
 }
 
 /// The four modifier types the engine stacks over (E2's CHECK, seed data).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// The serde text is the canonical lowercase wire form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ModifierType {
     Circumstance,
     Status,
@@ -267,6 +291,13 @@ impl ModifierType {
 }
 
 impl Stat {
+    /// The canonical [`StatName`] for this stat — what a
+    /// [`crate::model::Modifier`] carries on the wire.
+    #[must_use]
+    pub fn stat_name(&self) -> StatName {
+        StatName(self.as_str().to_owned())
+    }
+
     /// Parse one canonical stat string, loud on anything outside the closed
     /// vocabulary (FR-2). The reason text is human-readable: it surfaces as
     /// the write path's `rejected` reason.
