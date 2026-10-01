@@ -13,6 +13,8 @@
   import MagicPane from './components/MagicPane.svelte';
   import CompanionsPanel from './components/CompanionsPanel.svelte';
   import InventoryPanel from './components/InventoryPanel.svelte';
+  import StrikesPane from './components/StrikesPane.svelte';
+  import FeatsPanel from './components/FeatsPanel.svelte';
 
   /** @type {{ character: any, accountSub?: string, editable?: boolean }} */
   let {
@@ -119,6 +121,8 @@
         onfocus={(/** @type {number} */ value) => sheet.writeFocus(value)}
         onhero={(/** @type {number} */ value) => sheet.writeHeroPoints(value)}
       />
+      <StrikesPane view={$view} />
+      <FeatsPanel baseSheet={character.base_sheet} {editable} />
     </div>
     <div class="col">
       <MagicPane
