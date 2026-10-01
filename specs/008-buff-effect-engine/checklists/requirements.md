@@ -13,10 +13,11 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain — **three open, posted on clarify card (Q1–Q3)**:
-  - **Q1 — per-strike / per-caster stat instances**: `attack`/`damage` per strike and `spell_attack`/`spell_dc` per caster block (the reference character has two caster blocks). Recommended default: engine emits per-instance derived entries; blanket targets hit every instance; the closed vocabulary stays closed (instances are an axis, not new stats).
-  - **Q2 — the skill set**: `skill:<name>` and `all_checks` expansion = core PF2e skills only, or core + the character's lore skills? Recommended default: core skills always present on every sheet + the character's lores (a lore check is a skill check; otherwise *frightened* under-counts).
-  - **Q3 — where `EngineOutput` is computed for clients**: server-side recompute riding E7's effect diff/snapshot (clients render only — one engine, one path) vs a client-side engine shared with the server. Recommended default: server-side; extends E7's snapshot with derived payloads.
+- [x] No [NEEDS CLARIFICATION] markers remain — **all three resolved 2026-10-01 via clarify card `af988c85`** (all recommended defaults chosen):
+  - **Q1 → per instance**: engine emits one derived entry per strike and per caster block; blanket targets hit every instance; the closed vocabulary stays closed.
+  - **Q2 → core skills + lores**: core skills on every sheet, plus that character's lores; blanket targets hit lores too.
+  - **Q3 → server-side recompute**: one Rust engine, one computation path; derived payloads ride E7's effect-commit broadcast and the catch-up snapshot; clients render and never compute.
+  - Folded into spec FR-2/FR-5, the vocabulary table, the edge-case list, and the contract's §0/§1.
 - [x] Requirements are testable and unambiguous (pending Q1–Q3 folds)
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic
@@ -48,6 +49,6 @@
   E6 (and later E10) bind to — it is drafted with this spec so the
   parallel E6 spec references it from day one, and is ratified at the E8
   design gate.
-- Q1–Q3 markers resolve via the human clarify card; answers fold back
-  into FR-2/FR-5, the vocabulary table, and the contract before the
-  design step runs.
+- Q1–Q3 markers resolved via the human clarify card 2026-10-01; answers
+  folded into FR-2/FR-5, the vocabulary table, the edge cases, and the
+  contract before the design step ran.

@@ -1,9 +1,6 @@
 # Contract: Engine Output (E8) — the sheet's single source of numbers
 
-**Status**: **DRAFT at the specify gate** — shape pinned for E6's parallel
-spec to bind to; binding content is ratified at the E8 design gate (same
-precedent as E7's contracts). If code and this document disagree, this
-document wins until a PR changes it.
+**Status**: clarify answers folded (2026-10-01, card `af988c85`: Q1 per-instance, Q2 core+lores, Q3 server-side) — binding at the E8 design gate. If code and this document disagree, this document wins until a PR changes it.
 **Consumers**: E6 (live sheet — derived values, provenance hover, effect
 chips), E10 (party cards — same chips, same state), E13 (P1 conflict
 pre-warning — reads live engine state). **No consumer computes; everyone
@@ -18,14 +15,15 @@ engine_output = Engine(base_stats, active_effects, condition_mappings)
 ```
 
 It never sees HTTP, WebSocket, SQL, or the DOM (spec FR-1). This contract
-pins the **payload shapes** — `BaseStats` in, `EngineOutput` out. How
-`EngineOutput` travels to clients (wire framing vs client-side engine) is
-clarify Q3 / design-gate territory; the payload shape holds either way.
+pins the **payload shapes** — `BaseStats` in, `EngineOutput` out. Q3 is
+settled: the **server** computes; `EngineOutput` travels on E7's wire
+(effect-commit broadcast + catch-up snapshot); clients render, never
+compute.
 
 ## 1. Input: `BaseStats` (per character, plain data)
 
 One resolved base value per stat *instance*. A character has multiple
-instances of the per-strike and per-caster stats (Q1 axis):
+instances of the per-strike and per-caster stats (Q1: **per instance**):
 
 ```jsonc
 {
@@ -40,7 +38,7 @@ instances of the per-strike and per-caster stats (Q1 axis):
     "casters": [                        // one entry per base_sheet.spellcasters block
       { "caster_key": "Wizard", "spell_attack": 9, "spell_dc": 22 }
     ],
-    "skills": [                         // every skill in the skill set (Q2) — core skills always present
+    "skills": [                         // every skill in the character's set (Q2: core skills + lores)
       { "name": "acrobatics", "total": 2 }, { "name": "lore:underworld", "total": 7 }
     ]
   }

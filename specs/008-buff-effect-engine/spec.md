@@ -2,7 +2,7 @@
 
 **Epic**: E8 — Phase 1, sync point, P0 · depends on E4 (corpus) + E5 (import) + E7 (sync) · blocks E10, E13 · GitHub issue #10
 **Created**: 2026-10-01
-**Status**: Draft for the specify gate · three clarify markers open (Q1–Q3, see checklists/requirements.md)
+**Status**: Specify gate accepted (2026-10-01, card `8d4b455d`); clarify answers folded same day — Q1 per-instance stats, Q2 core+lores skill set, Q3 server-side recompute (card `af988c85`)
 **Input**: `docs/EPICS.md` Epic E8 (specify prompt + Constraints + AI Guardrails); PRD v3.6 FG3 + Key Risks + Non-goals; E2 `specs/002-database-schema/data-model.md` §4 (effects schema, landed); E4 `src/import/seed.rs` + `data/seed/condition-tiers.json` (tier/modifier seed, landed) + `specs/004-rules-corpus-importer/`; E5 `specs/005-pathbuilder-import/data-model.md` (`base_sheet` shape, landed); E7 `specs/007-party-sync/contracts/wire-protocol.md` §3/§8 (effect read-only now; write frames are E8's extension point)
 
 ---
@@ -187,12 +187,12 @@ as `src/import/seed.rs` already validates:
 | `fort` / `ref` / `will` | the three saves |
 | `perception` | Perception modifier |
 | `speed` | land Speed (feet) |
-| `attack` | every attack roll (per strike — Q1) |
-| `damage` | every damage roll (per strike — Q1) |
-| `spell_attack` | spell attack modifier (per caster block — Q1) |
-| `spell_dc` | spell DC (per caster block — Q1) |
+| `attack` | every attack roll (per strike — Q1: **per instance**) |
+| `damage` | every damage roll (per strike — Q1: **per instance**) |
+| `spell_attack` | spell attack modifier (per caster block — Q1: **per instance**) |
+| `spell_dc` | spell DC (per caster block — Q1: **per instance**) |
 | `class_dc` | class DC |
-| `skill:<name>` | one per skill in the skill set (Q2) |
+| `skill:<name>` | one per skill in the skill set (Q2: **core skills + the character's lores**) |
 | `all_checks` | blanket — see below |
 | `all_dcs` | blanket — see below |
 | `all_checks_and_dcs` | blanket — see below |
@@ -205,12 +205,20 @@ stacking is evaluated, into exactly:
   "all_checks": [
     "attack", "spell_attack",
     "fort", "ref", "will", "perception",
-    "skill:<name>"   // every skill in the skill set (Q2), incl. per-strike/per-caster axes per Q1
+    "skill:<name>"   // every skill in the character's set (Q2: core skills + lores),
+                     // and per-strike/per-caster instances (Q1)
   ],                  // NOT damage, NOT speed
   "all_dcs": ["ac", "class_dc", "spell_dc"],  // AC is a DC (Player Core)
   "all_checks_and_dcs": [ /* the union of the two sets above */ ]
 }
 ```
+
+The expansion is a function of the character's stat instances (Q1/Q2 settled):
+core skills are present on every sheet; a character's lores join their set;
+strikes and caster blocks each contribute an instance. A modifier naming a
+stat with no instance on that sheet (a lore the character lacks) matches
+nothing — no total changes, nothing is emitted for it; the write path warns
+at apply time.
 
 *frightened*'s footprint is `all_checks_and_dcs` — that is the canonical
 test case (WEx-5). A modifier addressed to a blanket target is never
@@ -281,9 +289,10 @@ them as unit tests, paraphrase-cited per the Community Use notice):
   interplay is E6's display concern per E5's data model.
 - **Display-only condition applied mid-buff**: badge lands, zero numeric
   change, zero recomputation of anything (nothing it touches exists).
-- **A modifier naming a skill the sheet lacks** (Q2): the skill-set ruling
-  decides membership; engine behavior for out-of-set stats is defined in
-  FR-2 (ignored for computation, surfaced in logs) — see clarify marker.
+- A modifier naming a skill the sheet lacks (a lore the character doesn't
+  have — Q2): no stat instance exists, so no total changes and nothing is
+  emitted; the write path warns at apply time (folded from the clarify
+  ruling; see FR-2).
 - **GM writes any effect path**: denied server-side (E3), UI-invisible is
   not the enforcement.
 
@@ -319,10 +328,13 @@ them as unit tests, paraphrase-cited per the Community Use notice):
   hard-delete escape hatch) MUST recompute every derived stat on every
   **affected** sheet, where affected = (targets removed ∪ targets added)
   for that change — a superset is always correct, a subset never. The
-  recompute MUST ride E7's broadcast path: effects version as a whole
-  (E7 §3), the effect diff fans out, and the derived output for affected
-  characters is produced from the same commit (delivery shape: Q3). No
+  recompute rides E7's broadcast path (Q3 settled: **server-side
+  recompute**): effects version as a whole (E7 §3), the effect diff fans
+  out, and each affected character's `EngineOutput` is computed in the
+  same commit and broadcast with it — clients render and never compute;
+  the catch-up snapshot carries derived output for every character. No
   partial recompute exists — the engine runs over the full active set.
+  Derived output is never stored as editable state (E2 settled).
 - **FR-6 — provenance output**: For every derived stat, the engine MUST
   emit: base value, every applied modifier (type, value, effect id/name,
   source character), total, **and every suppressed modifier with the
@@ -409,8 +421,9 @@ them as unit tests, paraphrase-cited per the Community Use notice):
   `data/seed/condition-tiers.json`), not E8 scope. The engine is
   data-complete regardless of seed size.
 - Base-stat extraction from `base_sheet` (which fields feed each stat's
-  base, incl. strike/caster axes) is a design-step deliverable pinned in
-  the contract's input section.
+  base, incl. strike/caster/skill instances — the export carries ranks,
+  not totals, for saves/skills/perception/spell stats) is a design-step
+  deliverable pinned in the contract's input section.
 - Offline/degraded behavior for effect writes follows E7's landed contract
   unchanged — E8 adds a field kind, not a new failure model.
 
