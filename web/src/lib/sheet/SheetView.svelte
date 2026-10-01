@@ -11,6 +11,7 @@
   import CharacterHeader from './components/CharacterHeader.svelte';
   import StatsPane from './components/StatsPane.svelte';
   import MagicPane from './components/MagicPane.svelte';
+  import CompanionsPanel from './components/CompanionsPanel.svelte';
 
   /** @type {{ character: any, accountSub?: string, editable?: boolean }} */
   let {
@@ -131,7 +132,11 @@
           prepare(casterKey, row, spell)}
         onreset={(/** @type {string} */ casterKey) => sheet.resetPrep(casterKey)}
         ondaily={(/** @type {any} */ next) => sheet.writeDaily(next)}
-      />
+      >
+        {#snippet companionsSlot()}
+          <CompanionsPanel baseSheet={character.base_sheet} view={$view} />
+        {/snippet}
+      </MagicPane>
     </div>
   </div>
 </div>

@@ -58,6 +58,8 @@
     <StaffPanel {daily} {editable} {offline} onchange={(next) => ondaily?.(next)} />
   {:else if companionsSlot}
     {@render companionsSlot()}
+  {:else}
+    <p class="meta">No pet or familiar panel wired.</p>
   {/if}
 </section>
 
