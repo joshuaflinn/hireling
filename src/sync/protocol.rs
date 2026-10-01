@@ -176,6 +176,10 @@ pub enum ServerFrame {
     Snapshot {
         fields: Vec<SnapshotField>,
         snapshot_bytes: u64,
+        /// Every roster character's engine output (E8): a reconnecting
+        /// client gets the full derived picture and loses nothing by
+        /// skipping the streamed `derived` frames it missed.
+        derived: Vec<Box<hireling_engine::model::EngineOutput>>,
     },
     Diff {
         field: FieldTarget,
@@ -503,6 +507,7 @@ mod tests {
                 },
             ],
             snapshot_bytes: 18_4223 % 100_000,
+            derived: vec![],
         };
         let encoded = serde_json::to_value(&frame).expect("encodes");
         let fields = encoded

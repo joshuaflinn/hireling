@@ -93,6 +93,10 @@ mod integration_tests;
 mod effects_tests;
 
 #[cfg(test)]
+#[path = "../tests/sync/derived.rs"]
+mod derived_tests;
+
+#[cfg(test)]
 #[path = "../tests/sync/shaper.rs"]
 mod shaper;
 

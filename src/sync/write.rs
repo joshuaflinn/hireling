@@ -39,6 +39,10 @@ pub struct WriteResult {
     pub winning_version: Option<i64>,
     pub reason: Option<String>,
     pub broadcast: Option<(FieldTarget, JsonValue)>,
+    /// Characters whose derived numbers changed — old ∪ new targets of an
+    /// applied effect op (sorted, deduped). Empty for field writes: hp
+    /// movements feed no engine math.
+    pub affected: Vec<i64>,
 }
 
 impl WriteResult {
@@ -51,6 +55,7 @@ impl WriteResult {
             winning_version: None,
             reason: None,
             broadcast: Some((op.target.clone(), op.value.clone())),
+            affected: Vec::new(),
         }
     }
 
@@ -323,6 +328,7 @@ async fn apply_effect_create(
         winning_version: None,
         reason: None,
         broadcast: Some((FieldTarget::Effect { effect_id }, value)),
+        affected: sorted_unique(&create.targets),
     })
 }
 
@@ -343,6 +349,11 @@ async fn apply_effect_mutation(
     authorize_effect_mutation(pool, actor, party_id, effect_id).await?;
 
     let mut tx = pool.begin().await.map_err(EffectWriteError::from)?;
+    // The retarget's departing sheet must revert and the arriving one rise:
+    // both sides of the swap are affected, so the old targets come off the
+    // row BEFORE the CAS replaces them (end affects the same set — active
+    // false drops the chip and the math).
+    let old_targets = targets_of(&mut *tx, effect_id).await?;
     let request = request_json(op);
     let reserved = reserve_ledger(
         &mut tx,
@@ -407,6 +418,7 @@ async fn apply_effect_mutation(
             winning_version: Some(winning),
             reason: None,
             broadcast: None,
+            affected: Vec::new(),
         });
     };
 
@@ -420,12 +432,14 @@ async fn apply_effect_mutation(
     let value = read_effect_row(pool, effect_id)
         .await
         .map_err(EffectWriteError::from)?;
+    let new_targets = targets_of(pool, effect_id).await?;
     Ok(WriteResult {
         outcome: Outcome::Applied,
         version: Some(version),
         winning_version: None,
         reason: None,
         broadcast: Some((FieldTarget::Effect { effect_id }, value)),
+        affected: sorted_unique(old_targets.iter().chain(&new_targets)),
     })
 }
 
@@ -520,6 +534,29 @@ async fn swap_targets(
         .map_err(EffectWriteError::from)?;
     }
     Ok(())
+}
+
+/// A row's target set, id order (both reads of the retarget delta).
+async fn targets_of(
+    executor: impl sqlx::PgExecutor<'_>,
+    effect_id: i64,
+) -> Result<Vec<i64>, EffectWriteError> {
+    sqlx::query_scalar(
+        "SELECT character_id FROM effect_targets WHERE effect_id = $1 ORDER BY character_id",
+    )
+    .bind(effect_id)
+    .fetch_all(executor)
+    .await
+    .map_err(EffectWriteError::from)
+}
+
+/// Sorted, deduped — the fan-out set for one effect op.
+fn sorted_unique<'a>(ids: impl IntoIterator<Item = &'a i64>) -> Vec<i64> {
+    let mut seen = std::collections::BTreeSet::new();
+    for id in ids {
+        seen.insert(*id);
+    }
+    seen.into_iter().collect()
 }
 
 /// The committed effect row in the snapshot/diff value shape.
@@ -829,6 +866,7 @@ async fn answer_replay(
             winning_version: None,
             reason: None,
             broadcast: None,
+            affected: Vec::new(),
         });
     }
     tracing::warn!(
@@ -842,6 +880,7 @@ async fn answer_replay(
         winning_version: None,
         reason: Some("op_id was already used for a different request".to_owned()),
         broadcast: None,
+        affected: Vec::new(),
     })
 }
 
@@ -901,6 +940,7 @@ async fn record_denial(
         winning_version: None,
         reason: Some(reason),
         broadcast: None,
+        affected: Vec::new(),
     })
 }
 

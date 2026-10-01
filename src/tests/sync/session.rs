@@ -65,11 +65,17 @@ async fn a_member_connects_and_receives_hello_then_snapshot() {
     let ServerFrame::Snapshot {
         fields,
         snapshot_bytes,
+        derived,
     } = snapshot
     else {
         panic!("second frame must be snapshot, got {snapshot:?}")
     };
     assert_eq!(fields.len(), 4, "one character, four vitals fields");
+    assert_eq!(
+        derived.len(),
+        1,
+        "one derived array entry per roster character"
+    );
     assert!(snapshot_bytes > 0, "the metric is carried");
     let hp = fields
         .iter()
