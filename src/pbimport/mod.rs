@@ -13,6 +13,7 @@
 //! `contracts/pb-export.md` cites it, never prose memory.
 
 pub mod anchor;
+pub mod bulk;
 pub mod caps;
 pub mod error;
 pub mod handlers;

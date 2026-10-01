@@ -24,6 +24,7 @@ use crate::auth::AuthState;
 use crate::auth::authz::{Action, Actor, Resource};
 use crate::auth::error::{Forbidden, Unauthenticated};
 use crate::auth::middleware::SessionAccount;
+use crate::pbimport::bulk;
 use crate::pbimport::error::ImportError;
 use crate::pbimport::store::{RunImportError, record_rejection, run_import};
 
@@ -206,15 +207,82 @@ async fn load_me(pool: &sqlx::PgPool, sub: &str) -> Result<Option<serde_json::Va
     })
     .collect::<Vec<_>>();
 
+    let item_bulk = load_item_bulk(pool, character_id, &base_sheet).await?;
+
     Ok(Some(serde_json::json!({
         "character": summary,
         "base_sheet": base_sheet,
         "vitals": vitals,
         "slots": slots,
         "inventory": inventory,
+        "item_bulk": item_bulk,
     })))
 }
 
 #[cfg(test)]
 #[path = "tests/http.rs"]
 mod tests;
+
+/// The item-bulk map (E6 design §5): exact-name, case-insensitive
+/// resolution of the sheet's item names against the items corpus, in
+/// tenths of Bulk. Gaps ride as null and the misses are logged with item
+/// name and character id for E4 follow-up — a miss degrades display,
+/// never blocks the bootstrap.
+async fn load_item_bulk(
+    pool: &sqlx::PgPool,
+    character_id: i64,
+    base_sheet: &serde_json::Value,
+) -> Result<std::collections::BTreeMap<String, Option<i64>>, sqlx::Error> {
+    let item_names: Vec<String> = base_sheet
+        .get("equipment")
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    item.get("name")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let corpus_rows: Vec<(String, Option<f64>)> = sqlx::query_as(
+        "SELECT lower(name), data->'system'->'bulk'->>'value' \
+         FROM corpus_entries WHERE kind = 'item' AND lower(name) = ANY($1)",
+    )
+    .bind(
+        item_names
+            .iter()
+            .map(|name| name.to_lowercase())
+            .collect::<Vec<_>>(),
+    )
+    .fetch_all(pool)
+    .await
+    .map(|rows| {
+        rows.into_iter()
+            .map(|(name, raw): (String, Option<String>)| {
+                (name, raw.and_then(|raw| raw.parse::<f64>().ok()))
+            })
+            .collect()
+    })?;
+    let item_bulk = bulk::item_bulk_map(&item_names, &corpus_rows);
+    let misses: Vec<&str> = item_names
+        .iter()
+        .map(String::as_str)
+        .filter(|name| !item_bulk.get(*name).is_some_and(Option::is_some))
+        .filter(|name| {
+            !corpus_rows
+                .iter()
+                .any(|(candidate, _)| candidate == &name.to_lowercase())
+        })
+        .collect();
+    if !misses.is_empty() {
+        tracing::info!(
+            character_id,
+            missed = %misses.join(", "),
+            "item bulk unresolved at bootstrap; corpus gaps render as em-dash"
+        );
+    }
+    Ok(item_bulk)
+}

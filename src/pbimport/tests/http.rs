@@ -395,3 +395,106 @@ fn leveled_renamed_export() -> String {
     chalk[0] = serde_json::json!("Chalk (dust)");
     serde_json::to_string(&doc).expect("modified export")
 }
+
+// E6 Task 2 (design §5): the bootstrap payload resolves Bulk for the
+// character's imported item names from the items corpus — exact-name,
+// case-insensitive; corpus gaps ride as null and the misses are logged for
+// E4 follow-up. The production path: a real import, then the real
+// bootstrap read over the router.
+#[tokio::test]
+async fn bootstrap_item_bulk_resolves_from_the_corpus_and_logs_misses() {
+    crate::sync::test_helpers::install_log_capture();
+    let Some((app, pool)) = test_app().await else {
+        return;
+    };
+    testing::seed_account(&pool, PLAYER_SUB, "player").await;
+    let cookie = testing::seed_session(&pool, PLAYER_SUB, chrono::Utc::now()).await;
+
+    let response = app
+        .clone()
+        .oneshot(post(
+            "/api/characters/import",
+            &cookie,
+            reference_export().to_owned(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "the import succeeds");
+
+    // Corpus rows: L bulk (0.1), a case-mismatched exact name at 0, and
+    // 1 Bulk. Everything else on the sheet is a deliberate corpus gap.
+    for (name, bulk) in [("Backpack", 0.1), ("chalk", 0.0), ("Rations", 1.0)] {
+        sqlx::query(
+            "INSERT INTO corpus_entries (kind, name, lane, data, source_id, pack_version, imported_at) \
+             VALUES ('item', $1, 'imported', $2, $3, 'test', now())",
+        )
+        .bind(name)
+        .bind(serde_json::json!({ "system": { "bulk": { "value": bulk } } }))
+        .bind(format!("test-{name}"))
+        .execute(&pool)
+        .await
+        .expect("seed corpus row");
+    }
+
+    let me = app
+        .clone()
+        .oneshot(get_with_cookie("/api/characters/me", &cookie))
+        .await
+        .unwrap();
+    assert_eq!(me.status(), StatusCode::OK);
+    let payload = response_json(me).await;
+    let character_id = payload
+        .pointer("/character/id")
+        .and_then(Value::as_i64)
+        .expect("character id");
+    let bulk = payload
+        .get("item_bulk")
+        .expect("item_bulk rides the bootstrap payload")
+        .as_object()
+        .expect("item_bulk is a map");
+    assert_eq!(
+        bulk.len(),
+        16,
+        "every imported item name is keyed: {bulk:?}"
+    );
+    assert_eq!(
+        bulk.get("Backpack"),
+        Some(&serde_json::json!(1)),
+        "L = one tenth of a Bulk"
+    );
+    assert_eq!(
+        bulk.get("Chalk"),
+        Some(&serde_json::json!(0)),
+        "exact-name match is case-insensitive; 0 is a real value"
+    );
+    assert_eq!(
+        bulk.get("Rations"),
+        Some(&serde_json::json!(10)),
+        "1 Bulk = ten tenths"
+    );
+    assert_eq!(
+        bulk.get("Bedroll"),
+        Some(&Value::Null),
+        "a corpus gap degrades to null, never a guess"
+    );
+    assert_eq!(bulk.get("Oil of Weightlessness"), Some(&Value::Null));
+
+    let log = crate::sync::test_helpers::captured_log()
+        .lock()
+        .expect("capture lock")
+        .join("\n");
+    assert!(
+        log.contains("bulk unresolved"),
+        "the misses are logged: {log}"
+    );
+    assert!(
+        log.contains("Bedroll"),
+        "the log names a missed item: {log}"
+    );
+    assert!(
+        log.contains(&format!("character_id={character_id}")),
+        "the log names the character: {log}"
+    );
+
+    testing::drop_test_db(pool, "http_item_bulk").await;
+}
