@@ -57,6 +57,28 @@ pub fn item_bulk_map(names: &[String], corpus: &[CorpusRow]) -> BTreeMap<String,
         .collect()
 }
 
+/// One `(corpus name lowercased, trait names)` row as read from
+/// `corpus_entries`.
+pub type TraitRow = (String, Vec<String>);
+
+/// The trait-chip map (spec §2.5: chips render from corpus traits): every
+/// requested name keyed, the corpus hit's trait names or an empty list.
+#[must_use]
+pub fn item_trait_map(names: &[String], corpus: &[TraitRow]) -> BTreeMap<String, Vec<String>> {
+    names
+        .iter()
+        .map(|name| {
+            let lowered = name.to_lowercase();
+            let hit = corpus
+                .iter()
+                .find(|(candidate, _)| *candidate == lowered)
+                .map(|(_, traits)| traits.clone())
+                .unwrap_or_default();
+            (name.clone(), hit)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,6 +102,15 @@ mod tests {
             "missing value is a gap"
         );
         assert_eq!(bulk_tenths(&json!({})), None, "missing system is a gap");
+    }
+
+    #[test]
+    fn the_trait_map_follows_the_same_case_rules() {
+        let corpus = vec![("chalk".to_owned(), vec!["consumable".to_owned()])];
+        let names = ["Chalk".to_owned(), "Bedroll".to_owned()];
+        let map = item_trait_map(&names, &corpus);
+        assert_eq!(map.get("Chalk"), Some(&vec!["consumable".to_owned()]));
+        assert_eq!(map.get("Bedroll"), Some(&Vec::new()), "gaps key empty");
     }
 
     #[test]

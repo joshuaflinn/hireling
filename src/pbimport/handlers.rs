@@ -207,7 +207,7 @@ async fn load_me(pool: &sqlx::PgPool, sub: &str) -> Result<Option<serde_json::Va
     })
     .collect::<Vec<_>>();
 
-    let item_bulk = load_item_bulk(pool, character_id, &base_sheet).await?;
+    let (item_bulk, item_traits) = load_item_corpus(pool, character_id, &base_sheet).await?;
 
     Ok(Some(serde_json::json!({
         "character": summary,
@@ -216,6 +216,7 @@ async fn load_me(pool: &sqlx::PgPool, sub: &str) -> Result<Option<serde_json::Va
         "slots": slots,
         "inventory": inventory,
         "item_bulk": item_bulk,
+        "item_traits": item_traits,
     })))
 }
 
@@ -228,11 +229,17 @@ mod tests;
 /// tenths of Bulk. Gaps ride as null and the misses are logged with item
 /// name and character id for E4 follow-up — a miss degrades display,
 /// never blocks the bootstrap.
-async fn load_item_bulk(
+async fn load_item_corpus(
     pool: &sqlx::PgPool,
     character_id: i64,
     base_sheet: &serde_json::Value,
-) -> Result<std::collections::BTreeMap<String, Option<i64>>, sqlx::Error> {
+) -> Result<
+    (
+        std::collections::BTreeMap<String, Option<i64>>,
+        std::collections::BTreeMap<String, Vec<String>>,
+    ),
+    sqlx::Error,
+> {
     let item_names: Vec<String> = base_sheet
         .get("equipment")
         .and_then(serde_json::Value::as_array)
@@ -247,8 +254,9 @@ async fn load_item_bulk(
                 .collect()
         })
         .unwrap_or_default();
-    let corpus_rows: Vec<(String, Option<f64>)> = sqlx::query_as(
-        "SELECT lower(name), data->'system'->'bulk'->>'value' \
+    let rows: Vec<(String, Option<String>, Option<serde_json::Value>)> = sqlx::query_as(
+        "SELECT lower(name), data->'system'->'bulk'->>'value', \
+                data->'system'->'traits'->'value' \
          FROM corpus_entries WHERE kind = 'item' AND lower(name) = ANY($1)",
     )
     .bind(
@@ -258,15 +266,37 @@ async fn load_item_bulk(
             .collect::<Vec<_>>(),
     )
     .fetch_all(pool)
-    .await
-    .map(|rows| {
-        rows.into_iter()
-            .map(|(name, raw): (String, Option<String>)| {
-                (name, raw.and_then(|raw| raw.parse::<f64>().ok()))
-            })
-            .collect()
-    })?;
+    .await?;
+    let corpus_rows: Vec<(String, Option<f64>)> = rows
+        .iter()
+        .map(|(name, raw, _)| {
+            (
+                name.clone(),
+                raw.as_ref().and_then(|raw| raw.parse::<f64>().ok()),
+            )
+        })
+        .collect();
+    let trait_rows: Vec<bulk::TraitRow> = rows
+        .iter()
+        .map(|(name, _, traits)| {
+            (
+                name.clone(),
+                traits
+                    .as_ref()
+                    .and_then(serde_json::Value::as_array)
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            )
+        })
+        .collect();
     let item_bulk = bulk::item_bulk_map(&item_names, &corpus_rows);
+    let item_traits = bulk::item_trait_map(&item_names, &trait_rows);
     let misses: Vec<&str> = item_names
         .iter()
         .map(String::as_str)
@@ -284,5 +314,5 @@ async fn load_item_bulk(
             "item bulk unresolved at bootstrap; corpus gaps render as em-dash"
         );
     }
-    Ok(item_bulk)
+    Ok((item_bulk, item_traits))
 }

@@ -401,12 +401,13 @@ fn leveled_renamed_export() -> String {
 // case-insensitive; corpus gaps ride as null and the misses are logged for
 // E4 follow-up. The production path: a real import, then the real
 // bootstrap read over the router.
-#[tokio::test]
-async fn bootstrap_item_bulk_resolves_from_the_corpus_and_logs_misses() {
+/// The shared harness: account + session, the reference import, corpus
+/// rows (L bulk, a case-mismatched exact name at 0, 1 Bulk with traits),
+/// and the bootstrap payload read back over the real router.
+/// Returns `(app, pool, cookie, payload)`.
+async fn imported_with_corpus() -> Option<(axum::Router, sqlx::PgPool, String, Value)> {
     crate::sync::test_helpers::install_log_capture();
-    let Some((app, pool)) = test_app().await else {
-        return;
-    };
+    let (app, pool) = test_app().await?;
     testing::seed_account(&pool, PLAYER_SUB, "player").await;
     let cookie = testing::seed_session(&pool, PLAYER_SUB, chrono::Utc::now()).await;
 
@@ -421,15 +422,19 @@ async fn bootstrap_item_bulk_resolves_from_the_corpus_and_logs_misses() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK, "the import succeeds");
 
-    // Corpus rows: L bulk (0.1), a case-mismatched exact name at 0, and
-    // 1 Bulk. Everything else on the sheet is a deliberate corpus gap.
-    for (name, bulk) in [("Backpack", 0.1), ("chalk", 0.0), ("Rations", 1.0)] {
+    for (name, bulk, traits) in [
+        ("Backpack", 0.1, vec!["backpack"]),
+        ("chalk", 0.0, vec!["consumable"]),
+        ("Rations", 1.0, vec![]),
+    ] {
         sqlx::query(
             "INSERT INTO corpus_entries (kind, name, lane, data, source_id, pack_version, imported_at) \
              VALUES ('item', $1, 'imported', $2, $3, 'test', now())",
         )
         .bind(name)
-        .bind(serde_json::json!({ "system": { "bulk": { "value": bulk } } }))
+        .bind(serde_json::json!({
+            "system": { "bulk": { "value": bulk }, "traits": { "value": traits } }
+        }))
         .bind(format!("test-{name}"))
         .execute(&pool)
         .await
@@ -442,7 +447,42 @@ async fn bootstrap_item_bulk_resolves_from_the_corpus_and_logs_misses() {
         .await
         .unwrap();
     assert_eq!(me.status(), StatusCode::OK);
-    let payload = response_json(me).await;
+    Some((app, pool, cookie, response_json(me).await))
+}
+
+#[tokio::test]
+async fn bootstrap_item_traits_render_the_chips_from_corpus_traits() {
+    let Some((_app, pool, _cookie, payload)) = imported_with_corpus().await else {
+        return;
+    };
+    let traits = payload
+        .get("item_traits")
+        .expect("item_traits rides the bootstrap payload")
+        .as_object()
+        .expect("item_traits is a map");
+    assert_eq!(
+        traits.get("Backpack"),
+        Some(&serde_json::json!(["backpack"])),
+        "the chips render from corpus traits"
+    );
+    assert_eq!(
+        traits.get("Chalk"),
+        Some(&serde_json::json!(["consumable"]))
+    );
+    assert_eq!(
+        traits.get("Rations"),
+        Some(&serde_json::json!([])),
+        "a hit without traits keys empty"
+    );
+    assert_eq!(traits.get("Bedroll"), Some(&serde_json::json!([])));
+    testing::drop_test_db(pool, "http_item_traits").await;
+}
+
+#[tokio::test]
+async fn bootstrap_item_bulk_resolves_from_the_corpus_and_logs_misses() {
+    let Some((_app, pool, _cookie, payload)) = imported_with_corpus().await else {
+        return;
+    };
     let character_id = payload
         .pointer("/character/id")
         .and_then(Value::as_i64)
