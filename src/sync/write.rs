@@ -321,7 +321,7 @@ async fn apply_effect_create(
         .map_err(EffectWriteError::from)?;
     tx.commit().await.context("commit effect create")?;
 
-    let value = effect_row_json(&create, &modifiers);
+    let value = effect_row_json(&create, &modifiers, tracked_manually);
     Ok(WriteResult {
         outcome: Outcome::Applied,
         version: Some(version),
@@ -561,14 +561,20 @@ fn sorted_unique<'a>(ids: impl IntoIterator<Item = &'a i64>) -> Vec<i64> {
 
 /// The committed effect row in the snapshot/diff value shape.
 async fn read_effect_row(pool: &PgPool, effect_id: i64) -> anyhow::Result<JsonValue> {
-    let (name, source_character_id, duration_note, active): (String, i64, String, bool) =
-        sqlx::query_as(
-            "SELECT name, source_character_id, duration_note, active FROM effects WHERE id = $1",
-        )
-        .bind(effect_id)
-        .fetch_one(pool)
-        .await
-        .context("read effect row for diff")?;
+    let (name, source_character_id, duration_note, active, tracked_manually): (
+        String,
+        i64,
+        String,
+        bool,
+        bool,
+    ) = sqlx::query_as(
+        "SELECT name, source_character_id, duration_note, active, tracked_manually \
+         FROM effects WHERE id = $1",
+    )
+    .bind(effect_id)
+    .fetch_one(pool)
+    .await
+    .context("read effect row for diff")?;
     let targets: Vec<i64> = sqlx::query_scalar(
         "SELECT character_id FROM effect_targets WHERE effect_id = $1 ORDER BY character_id",
     )
@@ -596,6 +602,7 @@ async fn read_effect_row(pool: &PgPool, effect_id: i64) -> anyhow::Result<JsonVa
         "modifiers": modifiers_json,
         "duration_note": duration_note,
         "active": active,
+        "tracked_manually": tracked_manually,
     }))
 }
 
@@ -604,6 +611,7 @@ async fn read_effect_row(pool: &PgPool, effect_id: i64) -> anyhow::Result<JsonVa
 fn effect_row_json(
     create: &EffectCreate,
     modifiers: &[hireling_engine::model::Modifier],
+    tracked_manually: bool,
 ) -> JsonValue {
     let modifiers_json: Vec<JsonValue> = modifiers
         .iter()
@@ -622,6 +630,7 @@ fn effect_row_json(
         "modifiers": modifiers_json,
         "duration_note": create.duration_note,
         "active": true,
+        "tracked_manually": tracked_manually,
     })
 }
 

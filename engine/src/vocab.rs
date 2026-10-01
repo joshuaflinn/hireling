@@ -28,6 +28,14 @@ pub const SINGLE_STATS: [&str; 11] = [
     "class_dc",
 ];
 
+/// The three blanket targets' wire text (D2: one vocabulary source — the
+/// seed re-exports this; the test pins it to the [`Blanket`] enum).
+pub const BLANKET_STATS: [&str; 3] = ["all_checks", "all_dcs", "all_checks_and_dcs"];
+
+/// The four modifier types' wire text (D2: same single source; the test
+/// pins it to the [`ModifierType`] enum).
+pub const MODIFIER_TYPES: [&str; 4] = ["circumstance", "status", "item", "untyped"];
+
 /// The 18 core skill keys — the export's skill-like proficiency keys (design
 /// Task 1: "the export's 18"). The 16 the prototype renders plus `piloting`
 /// and `computers`, which Pathbuilder always exports.

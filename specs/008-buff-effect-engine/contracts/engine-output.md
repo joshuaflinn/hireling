@@ -1,6 +1,6 @@
 # Contract: Engine Output (E8) — the sheet's single source of numbers
 
-**Status**: clarify answers folded (2026-10-01, card `af988c85`: Q1 per-instance, Q2 core+lores, Q3 server-side) — binding at the E8 design gate. If code and this document disagree, this document wins until a PR changes it.
+**Status**: **binding** (realized by the E8 implementation, PR gh#10, 2026-10-01; clarify answers folded same day, card `af988c85`: Q1 per-instance, Q2 core+lores, Q3 server-side). If code and this document disagree, this document wins until a PR changes it.
 **Consumers**: E6 (live sheet — derived values, provenance hover, effect
 chips), E10 (party cards — same chips, same state), E13 (P1 conflict
 pre-warning — reads live engine state). **No consumer computes; everyone

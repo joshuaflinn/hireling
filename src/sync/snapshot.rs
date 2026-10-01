@@ -149,7 +149,7 @@ async fn inventory_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<Sn
 /// clients can display them, and E8's writes will version this same row.
 async fn effect_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<SnapshotField>> {
     let rows = sqlx::query(
-        "SELECT id, source_character_id, name, duration_note, active, version \
+        "SELECT id, source_character_id, name, duration_note, active, version, tracked_manually \
          FROM effects WHERE party_id = $1 ORDER BY id",
     )
     .bind(party_id)
@@ -183,6 +183,7 @@ async fn effect_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<Snaps
         let name: String = row.get("name");
         let duration_note: String = row.get("duration_note");
         let active: bool = row.get("active");
+        let tracked_manually: bool = row.get("tracked_manually");
         fields.push(SnapshotField {
             field: FieldTarget::Effect { effect_id },
             value: json!({
@@ -191,7 +192,8 @@ async fn effect_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<Snaps
                 "targets": targets,
                 "modifiers": modifiers_json,
                 "duration_note": duration_note,
-                "active": active
+                "active": active,
+                "tracked_manually": tracked_manually
             }),
             version: row.get("version"),
         });
