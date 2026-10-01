@@ -153,6 +153,9 @@ html{overflow-y:scroll}
 .npeye{flex:none;display:inline-flex;background:none;border:0;padding:2px;color:var(--muted);cursor:pointer}
 .npeye:hover{color:var(--gold)}
 .npeye svg{width:16px;height:16px}
+.npdel{flex:none;display:inline-flex;background:none;border:0;padding:2px;color:var(--dim);cursor:pointer}
+.npdel:hover{color:var(--cf)}
+.npdel svg{width:15px;height:15px}
 .npname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;text-align:left}
 .npts{flex:none;margin-left:auto;color:var(--muted);font-family:var(--sans);font-size:11.5px;white-space:nowrap}
 .npempty{color:var(--muted);font-size:13px;padding:6px}
@@ -176,7 +179,7 @@ html{overflow-y:scroll}
 .minwrap .mblock{background:var(--panel2)}
 #pMinPet{grid-column:1;grid-row:1}#pMinSum{grid-column:1;grid-row:2}#pMinCur{grid-column:2;grid-row:1 / span 2}
 @media (max-width:900px){.minwrap{grid-template-columns:minmax(0,1fr)}#pMinPet,#pMinSum,#pMinCur{grid-column:1;grid-row:auto}}
-#notesSave,#notesLoad{font-family:var(--sans);font-size:12.5px;padding:2px 14px;align-self:center}
+#notesSave,#notesLoad,#notesNew{font-family:var(--sans);font-size:12.5px;padding:2px 14px;align-self:center}
 .npbtns{display:flex;gap:6px;align-items:center}
 .collbtns{display:inline-flex;gap:4px;margin-left:auto}
 .collbtns .collbtn{background:none;border:1px solid var(--muted);border-radius:6px;color:var(--muted);font:600 14px/1 var(--sans);width:26px;height:24px;padding:0}
@@ -595,6 +598,15 @@ h3.chead.over .cnm{color:var(--f)}
   <div class="row2">
     <button class="btn" id="notesAskCancel">Cancel</button>
     <span style="display:flex;gap:8px"><button class="btn" id="notesAskDrop">Don't save</button><button class="btn gold" id="notesAskSave">Save first</button></span>
+  </div>
+</dialog>
+
+<dialog id="notesDelDlg">
+  <h3>Delete saved notes</h3>
+  <p id="notesDelText" class="capbody"></p>
+  <div class="row2">
+    <button class="btn" id="notesDelCancel">Cancel</button>
+    <button class="btn gold" id="notesDelGo">Delete</button>
   </div>
 </dialog>
 
@@ -2962,7 +2974,9 @@ function noteTodoRefresh(){
 }
 /* ---- Notes: saved pages (save / load / preview) ---- */
 const NOTE_EYE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
-const notesDlgState={mode:"load",pending:null,loadId:null,prevId:null};
+const NOTE_TRASH='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
+const NOTE_NEW="__new__";      // a load target meaning "start a blank page", so New shares the unsaved-changes prompt with Load
+const notesDlgState={mode:"load",pending:null,loadId:null,prevId:null,delId:null};
 const nDlg=$("#notesDlg"), nAsk=$("#notesAskDlg"), nList=$("#notesList"), nName=$("#notesName"), nPrev=$("#notesPrev");
 const showDlg=d=>{ if(d.showModal) d.showModal(); else d.setAttribute("open",""); };
 function fmtNoteTs(ms){
@@ -3016,8 +3030,11 @@ function noteCommit(name,id){
   noteStatus(); notePersist();
 }
 function noteDoLoad(id){
-  const pg=notePages().find(p=>p.id===id); if(!pg) return;
-  S.notes=pg.html; S.notePage={id:pg.id,name:pg.name,ts:pg.ts};
+  if(id===NOTE_NEW){ S.notes=""; S.notePage=null; }
+  else {
+    const pg=notePages().find(p=>p.id===id); if(!pg) return;
+    S.notes=pg.html; S.notePage={id:pg.id,name:pg.name,ts:pg.ts};
+  }
   const ed=noteEd(); if(ed){ acClose(); noteLoad(ed); }
   noteStatus(); notePersist();
   nAsk.close(); nDlg.close();
@@ -3048,7 +3065,7 @@ function npPrevToggle(id,row){
 }
 function npDrawList(){
   const pages=notePages().slice().sort((a,b)=>b.ts-a.ts);
-  setHTML(nList, pages.length ? pages.map(p=>`<div class="nprow" data-id="${esc(p.id)}"><button type="button" class="npeye" title="Preview">${NOTE_EYE}</button><span class="npname" title="${esc(p.name)}">${esc(p.name)}</span><span class="npts">${fmtNoteTs(p.ts)}</span></div>`).join("") : `<div class="npempty">No saved notes yet.</div>`);
+  setHTML(nList, pages.length ? pages.map(p=>`<div class="nprow" data-id="${esc(p.id)}"><button type="button" class="npeye" title="Preview">${NOTE_EYE}</button><span class="npname" title="${esc(p.name)}">${esc(p.name)}</span><span class="npts">${fmtNoteTs(p.ts)}</span><button type="button" class="npdel" title="Delete">${NOTE_TRASH}</button></div>`).join("") : `<div class="npempty">No saved notes yet.</div>`);
 }
 const npCount=()=>{ $("#notesCount").textContent=nName.value.length+"/50"; };
 function notesOpen(mode,pending){
@@ -3074,6 +3091,7 @@ function notesGo(){
 nList.addEventListener("click",e=>{
   const row=e.target.closest(".nprow"); if(!row) return;
   if(e.target.closest(".npeye")) return npPrevToggle(row.dataset.id,row);
+  if(e.target.closest(".npdel")) return npAskDelete(row.dataset.id);
   if(notesDlgState.mode==="save"){ const pg=notePages().find(p=>p.id===row.dataset.id); if(pg){ nName.value=pg.name; npCount(); $("#notesErr").textContent=""; nName.focus(); } }
   else noteRequestLoad(row.dataset.id);
 });
@@ -3094,17 +3112,32 @@ $("#notesAskSave").onclick=()=>{
   if(np && np.name){ noteCommit(np.name,np.id); noteDoLoad(notesDlgState.loadId); }
   else notesOpen("save",notesDlgState.loadId);
 };
+const nDel=$("#notesDelDlg");
+function npAskDelete(id){
+  const pg=notePages().find(p=>p.id===id); if(!pg) return;
+  notesDlgState.delId=id; npPrevClose();
+  setHTML($("#notesDelText"), `Delete <b>${esc(pg.name)}</b> (${fmtNoteTs(pg.ts)})? This can't be undone.`);
+  showDlg(nDel);
+}
+function npDelete(id){
+  lsSet(NOTES_KEY, JSON.stringify(notePages().filter(p=>p.id!==id)));
+  if(S.notePage && S.notePage.id===id) S.notePage=null;     // the pane keeps its text, now as an unsaved note
+  noteStatus(); notePersist(); npDrawList();
+}
+$("#notesDelCancel").onclick=()=>nDel.close();
+$("#notesDelGo").onclick=()=>{ nDel.close(); if(notesDlgState.delId) npDelete(notesDlgState.delId); notesDlgState.delId=null; };
 function renderNotes(){
   const pane=$("#pNotes"); if(!pane) return;
   let ed=pane.querySelector(".noteed");
   if(!ed){
-    setHTML(pane, `<h2>Notes <span class="npbtns"><button type="button" class="btn gold" id="notesSave" title="Save these notes as a named page">Save</button><button type="button" class="btn gold" id="notesLoad" title="Load a saved notes page">Load</button></span></h2>
+    setHTML(pane, `<h2>Notes <span class="npbtns"><button type="button" class="btn gold" id="notesSave" title="Save these notes as a named page">Save</button><button type="button" class="btn gold" id="notesLoad" title="Load a saved notes page">Load</button><button type="button" class="btn gold" id="notesNew" title="Start a blank notes page">New</button></span></h2>
       <div class="rtbar">${RT_BTNS.map(([c,l,t])=>`<button type="button" data-rt="${c}" title="${esc(t)}" class="rt${c==="bold"?" b":c==="italic"?" i":c==="underline"?" u":c==="strikeThrough"?" st":""}">${esc(l)}</button>`).join("")}<button type="button" class="ntddb" title="Insert a tag already used in these notes">#tags ▾</button></div>
       <div class="ntd" hidden><div class="ntdh"><span class="car">▾</span><span></span></div><div class="ntdb"></div></div>
       <div class="notebox"><div class="notest"></div><div class="noteed" contenteditable="true" spellcheck="true"></div></div>`);
     ed=pane.querySelector(".noteed");
     $("#notesSave").onclick=()=>notesOpen("save");
     $("#notesLoad").onclick=()=>notesOpen("load");
+    $("#notesNew").onclick=()=>noteRequestLoad(NOTE_NEW);
     document.execCommand("defaultParagraphSeparator",false,"p");
     noteLoad(ed);
     ed.addEventListener("input",e=>{
