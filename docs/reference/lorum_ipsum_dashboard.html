@@ -137,14 +137,6 @@ html{overflow-y:scroll}
 .ntdc:hover{border-color:var(--gold)}
 .ntdt{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);cursor:pointer}
 .ntdt:hover{color:var(--gold)}
-.nmark{background:none;border:0;padding:0;margin-left:6px;font-size:11px;line-height:1;color:var(--muted);opacity:.75;cursor:pointer;vertical-align:baseline}
-.nmark:hover{color:var(--gold);opacity:1}
-.nmpop{max-width:360px;max-height:50vh;overflow:auto;padding:6px 8px}
-.nmpop h5{margin:0 0 4px;font-size:12px;font-weight:600;color:var(--gold);font-family:inherit}
-.nmpop .nmblk{padding:3px 6px;border-radius:5px;cursor:pointer;color:var(--text);line-height:1.45}
-.nmpop .nmblk:hover{background:var(--panel2)}
-.nmpop .nmblk li{list-style:none}
-.nmpop .ntag{display:inline-block;padding:0 6px;border-radius:999px;border:1px solid var(--gold-dim);color:var(--gold);font-size:12px}
 .ntac-i em{font-style:normal;font-size:11px;color:var(--dim)}
 #pInv.invwrap{display:flex;flex-direction:column;gap:5px;background:none;border:0;padding:0}
 #pInv.invwrap[hidden]{display:none}
@@ -2440,7 +2432,7 @@ function render(){
   const src=S.imported?"imported Pathbuilder export":`Pathbuilder export (${EXPORT_LABEL})`;
   setHTML($("#dataNote"), `<span><b>Build data:</b> ${esc(src)}, level ${B.level}.</span>`);
   renderStats(); renderSpells(); renderRef(); renderInv(); renderFeats(); renderNotes();
-  applyCollapse(); noteMarkRows();
+  applyCollapse();
   if(booted) markDirty();
 }
 const RT_BTNS=[["bold","B","Bold (Ctrl+B)"],["italic","I","Italic (Ctrl+I)"],["underline","U","Underline (Ctrl+U)"],["strikeThrough","S","Strikethrough"],
@@ -2883,71 +2875,16 @@ function noteInsertTag(ed,slug){
   r.insertNode(after); r.insertNode(chip);
   noteAfterEdit(ed,{node:after,off:1},false);
 }
-const NOTE_ROWS="#pSpells .row,#pInvMain .row,#pFeats .row,#pStats .row,#pRef .row";
 const flashTimers=new WeakMap();
-let noteTick=0, nmBox=null, nmFor=null, todoItems=[];
+let noteTick=0, todoItems=[];
 const noteEd=()=>document.querySelector("#pNotes .noteed");
-function noteRefreshLater(){ clearTimeout(noteTick); noteTick=setTimeout(()=>{ noteMarkRows(); noteTodoRefresh(); },250); }
+function noteRefreshLater(){ clearTimeout(noteTick); noteTick=setTimeout(noteTodoRefresh,250); }
 function noteFlash(block){
   clearTimeout(flashTimers.get(block));
   block.classList.remove("nflash"); void block.offsetWidth; block.classList.add("nflash");
   flashTimers.set(block,setTimeout(()=>{ block.classList.remove("nflash"); if(!block.className) block.removeAttribute("class"); },1250));
 }
 function noteReveal(block){ block.scrollIntoView({block:"center",behavior:"smooth"}); noteFlash(block); }
-function rowTagName(row){
-  if(row.dataset.name) return row.dataset.name;
-  const nm=row.querySelector(".nm"); if(!nm) return "";
-  for(const n of nm.childNodes) if(n.nodeType===3 && n.data.trim()) return n.data.trim();
-  return "";
-}
-// chips come from the live editor, or from S.notes when the pane has not been built yet
-function noteBlockMap(){
-  const ed=noteEd();
-  if(ed) return {ed,map:noteTagBlocks(ed)};
-  const tmp=document.createElement("div"); setHTML(tmp,S.notes||"");
-  return {ed:tmp,map:noteTagBlocks(tmp)};
-}
-function noteMarkRows(){
-  const {map}=noteBlockMap();
-  for(const row of document.querySelectorAll(NOTE_ROWS)){
-    const nm=row.querySelector(".nm"); if(!nm) continue;
-    const slug=tagSlug(rowTagName(row)), old=nm.querySelector(".nmark"), want=!!slug && map.has(slug);
-    if(old && (!want || old.dataset.slug!==slug)) old.remove();
-    if(!want || (old && old.dataset.slug===slug && old.isConnected)) continue;
-    const b=document.createElement("button");
-    b.type="button"; b.className="nmark"; b.draggable=false; b.title="In your notes"; b.textContent="✎"; b.dataset.slug=slug;
-    b.addEventListener("mousedown",e=>{
-      e.stopPropagation();
-      if(row.getAttribute("draggable")==="true"){ row.draggable=false; document.addEventListener("mouseup",()=>{ row.draggable=true; },{once:true}); }   // the row would otherwise start a drag from the marker
-    });
-    b.addEventListener("click",e=>{ e.stopPropagation(); e.preventDefault(); nmToggle(b); });
-    nm.append(b);
-  }
-}
-function nmClose(){ if(nmBox) nmBox.hidden=true; nmFor=null; }
-function nmToggle(btn){
-  if(nmBox && !nmBox.hidden && nmFor===btn) return nmClose();
-  const ed=noteEd(); if(!ed) return;
-  const slug=btn.dataset.slug, blocks=[...(noteTagBlocks(ed).get(slug)||[])];
-  if(!nmBox){ nmBox=document.createElement("div"); nmBox.className="ntac nmpop"; nmBox.hidden=true; document.body.append(nmBox); }
-  const head=document.createElement("h5"); head.textContent="#"+slug;
-  nmBox.replaceChildren(head);
-  blocks.forEach(blk=>{
-    const wrap=document.createElement("div"); wrap.className="nmblk";
-    const cl=blk.cloneNode(true);
-    for(const n of [cl,...cl.querySelectorAll("*")]){ n.removeAttribute("contenteditable"); n.classList.remove("nflash"); }
-    wrap.append(cl);
-    wrap.onclick=()=>{ nmClose(); noteReveal(blk); };
-    nmBox.append(wrap);
-  });
-  nmFor=btn; nmBox.hidden=false; acClose(); ddClose();
-  const r=btn.getBoundingClientRect(), w=nmBox.offsetWidth, h=nmBox.offsetHeight;
-  nmBox.style.left=Math.max(8,Math.min(r.left,document.documentElement.clientWidth-w-8))+"px";
-  nmBox.style.top=(r.bottom+4+h>innerHeight && r.top-h-4>0 ? r.top-h-4 : r.bottom+4)+"px";
-}
-document.addEventListener("mousedown",e=>{ if(nmBox && !nmBox.hidden && !nmBox.contains(e.target)) nmClose(); });
-document.addEventListener("keydown",e=>{ if(e.key==="Escape") nmClose(); });
-addEventListener("scroll",e=>{ if(nmBox && !nmBox.hidden && !nmBox.contains(e.target)) nmClose(); },true);
 function noteSave(ed){ S.notes=noteHTML(ed); ed.classList.toggle("isempty",!S.notes); markDirty(); noteTodoRefresh(); }
 function noteTodoRefresh(){
   const ed=noteEd(), box=ed && ed.parentNode.querySelector(".ntd"); if(!box) return;
