@@ -98,6 +98,12 @@ html{overflow-y:scroll}
 .noteed{flex:1;min-height:60vh;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13.5px;line-height:1.55;color:var(--text);overflow:auto}
 .widget.fixedh #pNotes .noteed{min-height:80px}
 .noteed:focus{outline:none;border-color:var(--gold-dim)}
+.notebox{flex:1;display:flex;flex-direction:column;min-height:60vh;background:var(--panel2);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.notebox:focus-within{border-color:var(--gold-dim)}
+.widget.fixedh #pNotes .notebox{min-height:0}
+.notest{flex:none;padding:6px 12px 0;font-family:var(--sans);font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.notebox .noteed{border:0;border-radius:0;background:none;min-height:0;padding-top:4px}
+.notebox .noteed.isempty:before{top:4px}
 .row.airow{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) 72px 26px 34px;gap:6px}
 .airow .itags{display:flex;gap:3px;overflow:hidden;white-space:nowrap}
 .itag{font-size:9.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);border:1px solid var(--line2);border-radius:3px;padding:0 4px;line-height:15px}
@@ -138,6 +144,30 @@ html{overflow-y:scroll}
 .ntdt{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);cursor:pointer}
 .ntdt:hover{color:var(--gold)}
 .ntac-i em{font-style:normal;font-size:11px;color:var(--dim)}
+#notesDlg{width:min(520px,94vw)}
+#notesAskDlg{width:min(440px,92vw)}
+.nplist{margin:8px 0 2px;max-height:40vh}
+.nprow{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;cursor:pointer}
+.nprow:hover{background:var(--panel2)}
+.nprow:hover .npname{color:var(--gold)}
+.npeye{flex:none;display:inline-flex;background:none;border:0;padding:2px;color:var(--muted);cursor:pointer}
+.npeye:hover{color:var(--gold)}
+.npeye svg{width:16px;height:16px}
+.npname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;text-align:left}
+.npts{flex:none;margin-left:auto;color:var(--muted);font-family:var(--sans);font-size:11.5px;white-space:nowrap}
+.npempty{color:var(--muted);font-size:13px;padding:6px}
+.npnamerow{display:flex;align-items:center;gap:8px;margin-top:10px}
+.npnamerow[hidden]{display:none}
+.npnamerow label{color:var(--muted);font-size:13px}
+.npnamerow input{flex:1;min-width:0;background:#0d0f13;color:var(--text);border:1px solid var(--line2);border-radius:6px;padding:5px 8px;font:inherit}
+.npnamerow input:focus{outline:none;border-color:var(--gold-dim)}
+.npcount{color:var(--dim);font-size:11.5px;font-variant-numeric:tabular-nums}
+.nprev{max-width:min(420px,90vw);width:max-content;max-height:60vh;overflow:auto;padding:8px 10px;z-index:200}
+.npvh{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line2);padding-bottom:4px;margin-bottom:6px}
+.npvh b{color:var(--gold);font-weight:normal;font-family:var(--serif);font-size:15px}
+.npvh span{flex:none;color:var(--muted);font-size:11.5px;white-space:nowrap}
+.nprev .npvb{min-height:0;border:0;background:none;padding:0;overflow:visible;cursor:default}
+.nprev .npvb .ntag{cursor:default}
 #pInv.invwrap{display:flex;flex-direction:column;gap:5px;background:none;border:0;padding:0}
 #pInv.invwrap[hidden]{display:none}
 #pInvBulk{padding:8px 12px}
@@ -146,7 +176,8 @@ html{overflow-y:scroll}
 .minwrap .mblock{background:var(--panel2)}
 #pMinPet{grid-column:1;grid-row:1}#pMinSum{grid-column:1;grid-row:2}#pMinCur{grid-column:2;grid-row:1 / span 2}
 @media (max-width:900px){.minwrap{grid-template-columns:minmax(0,1fr)}#pMinPet,#pMinSum,#pMinCur{grid-column:1;grid-row:auto}}
-#notesSave{font-family:var(--sans);font-size:12.5px;padding:2px 14px;align-self:center}
+#notesSave,#notesLoad{font-family:var(--sans);font-size:12.5px;padding:2px 14px;align-self:center}
+.npbtns{display:flex;gap:6px;align-items:center}
 .collbtns{display:inline-flex;gap:4px;margin-left:auto}
 .collbtns .collbtn{background:none;border:1px solid var(--muted);border-radius:6px;color:var(--muted);font:600 14px/1 var(--sans);width:26px;height:24px;padding:0}
 .collbtns .collbtn:hover{border-color:var(--gold-dim);color:var(--gold)}
@@ -543,6 +574,27 @@ h3.chead.over .cnm{color:var(--f)}
   <div class="row2">
     <button class="btn" id="delCancel">Cancel</button>
     <span style="display:flex;gap:8px"><button class="btn" id="delKeep">Keep the contents</button><button class="btn gold" id="delAll">Delete contents too</button></span>
+  </div>
+</dialog>
+
+<dialog id="notesDlg">
+  <h3 id="notesDlgTitle">Load notes</h3>
+  <div id="notesList" class="tpllist nplist"></div>
+  <div class="npnamerow" id="notesNameRow" hidden><label for="notesName">Name</label><input id="notesName" maxlength="50" autocomplete="off"><span class="npcount" id="notesCount"></span></div>
+  <div class="err" id="notesErr"></div>
+  <div class="row2">
+    <span></span>
+    <span style="display:flex;gap:8px"><button class="btn" id="notesCancel">Close</button><button class="btn gold" id="notesGo" hidden>Save</button></span>
+  </div>
+  <div class="ntac nprev" id="notesPrev" hidden></div>
+</dialog>
+
+<dialog id="notesAskDlg">
+  <h3>Unsaved changes</h3>
+  <p id="notesAskText" class="capbody"></p>
+  <div class="row2">
+    <button class="btn" id="notesAskCancel">Cancel</button>
+    <span style="display:flex;gap:8px"><button class="btn" id="notesAskDrop">Don't save</button><button class="btn gold" id="notesAskSave">Save first</button></span>
   </div>
 </dialog>
 
@@ -955,8 +1007,8 @@ function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
 const LS_SAVEDAT=LS_KEY+":savedAt", LS_BACKUP=LS_KEY+":backup";
 function getLocalSavedAt(){ return Number(lsGet(LS_SAVEDAT))||0; }
 function setLocalSavedAt(v){ lsSet(LS_SAVEDAT, String(v)); }
-const TPL_KEY=LS_KEY+":templates";
-function ownedKeys(){ return { [LS_KEY]: lsGet(LS_KEY)||"", [TPL_KEY]: lsGet(TPL_KEY)||"" }; }
+const TPL_KEY=LS_KEY+":templates", NOTES_KEY=LS_KEY+":notes";
+function ownedKeys(){ return { [LS_KEY]: lsGet(LS_KEY)||"", [TPL_KEY]: lsGet(TPL_KEY)||"", [NOTES_KEY]: lsGet(NOTES_KEY)||"" }; }
 let cloudRef=null, cloudOn=false, cloudWriting=false, cloudWriteQueue=null, cloudNotice=null;
 
 function syncTimeStr(ms){ try{ return new Date(ms).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}); }catch(e){ return ""; } }
@@ -991,6 +1043,10 @@ async function writeCloud(savedAt){
       const keys=ownedKeys(); delete keys[TPL_KEY];
       body={savedAt:at, keys}; json=JSON.stringify(body); noTpl=true;
     }
+    if(json.length>250000){                // saved note pages go next, so the main state still syncs
+      const keys=ownedKeys(); delete keys[TPL_KEY]; delete keys[NOTES_KEY];
+      body={savedAt:at, keys}; json=JSON.stringify(body);
+    }
     if(json.length>250000){ setSyncStatus("toolarge"); continue; }
     setSyncStatus("syncing");
     try{ await withRetry(()=>cloudRef.set(body)); setLocalSavedAt(at); setSyncStatus("synced", at); if(noTpl) $("#syncStatus").title="templates too large to sync"; }
@@ -1004,7 +1060,10 @@ function adoptRemote(data){
     const backup={}; Object.keys(ownedKeys()).forEach(k=>{ backup[k]=lsGet(k); });
     lsSet(LS_BACKUP, JSON.stringify(backup));
   }catch(e){}
-  Object.keys(data.keys).forEach(k=>{ lsSet(k, data.keys[k]); });
+  Object.keys(data.keys).forEach(k=>{
+    if(k===NOTES_KEY && !data.keys[k]) return;   // a doc without saved pages must not wipe the local ones
+    lsSet(k, data.keys[k]);
+  });
   setLocalSavedAt(data.savedAt||0);
   dirty=false;
   window.removeEventListener("beforeunload", guardUnload);
@@ -2796,14 +2855,14 @@ function noteAfterEdit(ed,caret,force){
   noteNormalize(ed);
   const next=noteConvertTags(ed,caret,force);
   noteSetCaret(next||caret);
-  S.notes=noteHTML(ed); ed.classList.toggle("isempty",!S.notes); markDirty();
+  S.notes=noteHTML(ed); ed.classList.toggle("isempty",!S.notes); markDirty(); noteStatus();
   noteRefreshLater();
 }
 function noteLoad(ed){
   setHTML(ed, S.notes||"");
   noteNormalize(ed); noteConvertTags(ed,null,true);
   S.notes=noteHTML(ed); ed.classList.toggle("isempty",!S.notes);   // a load-time cleanup is not a user edit, so no markDirty
-  noteTodoRefresh(); noteRefreshLater();
+  noteTodoRefresh(); noteRefreshLater(); noteStatus();
 }
 function noteBackspace(ed,e){
   const s=getSelection(); if(!s.rangeCount || !s.isCollapsed) return;
@@ -2885,9 +2944,9 @@ function noteFlash(block){
   flashTimers.set(block,setTimeout(()=>{ block.classList.remove("nflash"); if(!block.className) block.removeAttribute("class"); },1250));
 }
 function noteReveal(block){ block.scrollIntoView({block:"center",behavior:"smooth"}); noteFlash(block); }
-function noteSave(ed){ S.notes=noteHTML(ed); ed.classList.toggle("isempty",!S.notes); markDirty(); noteTodoRefresh(); }
+function noteSave(ed){ S.notes=noteHTML(ed); ed.classList.toggle("isempty",!S.notes); markDirty(); noteTodoRefresh(); noteStatus(); }
 function noteTodoRefresh(){
-  const ed=noteEd(), box=ed && ed.parentNode.querySelector(".ntd"); if(!box) return;
+  const ed=noteEd(), box=ed && $("#pNotes .ntd"); if(!box) return;
   todoItems=[];
   for(const chip of ed.querySelectorAll('.ntag[data-tag="todo"]:not([data-done])')){
     const block=noteBlockOf(ed,chip);
@@ -2901,20 +2960,155 @@ function noteTodoRefresh(){
   setHTML(box.querySelector(".ntdh span:last-child"), `Open to-dos (${todoItems.length})`);
   setHTML(box.querySelector(".ntdb"), todoItems.map((t,i)=>`<div class="ntdi"><button type="button" class="ntdc" data-i="${i}" title="Mark done"></button><span class="ntdt" data-i="${i}" title="${esc(t.text)}">${esc(t.text)}</span></div>`).join(""));
 }
+/* ---- Notes: saved pages (save / load / preview) ---- */
+const NOTE_EYE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const notesDlgState={mode:"load",pending:null,loadId:null,prevId:null};
+const nDlg=$("#notesDlg"), nAsk=$("#notesAskDlg"), nList=$("#notesList"), nName=$("#notesName"), nPrev=$("#notesPrev");
+const showDlg=d=>{ if(d.showModal) d.showModal(); else d.setAttribute("open",""); };
+function fmtNoteTs(ms){
+  const d=new Date(ms), p=n=>String(n).padStart(2,"0"), h=d.getHours();
+  return `${p(d.getMonth()+1)}/${p(d.getDate())}/${d.getFullYear()} ${p(h%12||12)}:${p(d.getMinutes())}${h<12?"am":"pm"}`;
+}
+let npRaw=null, npVal=[];
+function notePages(){     // re-parsed only when the stored string changes, since the status line asks on every keystroke
+  const raw=lsGet(NOTES_KEY);
+  if(raw!==npRaw){
+    npRaw=raw;
+    try{ const a=JSON.parse(raw); npVal=Array.isArray(a)?a.filter(p=>p && typeof p.id==="string" && typeof p.name==="string" && typeof p.html==="string"):[]; }catch(e){ npVal=[]; }
+  }
+  return npVal;
+}
+// patches only notes/notePage inside a persisted copy of S, so unsaved changes elsewhere in S never get written
+function notePatchState(str){
+  const st=JSON.parse(str);
+  st.notes=S.notes||""; st.notePage=S.notePage||null;
+  return JSON.stringify(st);
+}
+// pane Save and page load persist the notes fields (main key and active template) and the pages, then push to the cloud;
+// saveState/doSave/markDirty are not involved, so the header's dirty state stays as it was
+function notePersist(){
+  const raw=lsGet(LS_KEY);
+  try{ if(raw==null) throw new Error("no saved state"); lsSet(LS_KEY, notePatchState(raw)); }
+  catch(e){ console.warn("notes: could not patch the saved state, pages only", e); }
+  if(TPL && TPL.items[TPL.active]){
+    try{ TPL.items[TPL.active].state=notePatchState(TPL.items[TPL.active].state); tplPersist(); }
+    catch(e){ console.warn("notes: could not patch the active template", e); }
+  }
+  if(cloudOn){ const at=Date.now(); setLocalSavedAt(at); writeCloud(at); }
+}
+function noteUnsaved(){
+  const np=S.notePage, pg=np && notePages().find(p=>p.id===np.id);
+  return pg ? pg.html!==(S.notes||"") : !!S.notes;
+}
+function noteStatus(){
+  const el=$("#pNotes .notest"); if(!el) return;
+  const np=S.notePage;
+  el.textContent=np ? `${np.name} (${fmtNoteTs(np.ts)})${noteUnsaved()?" · edited":""}` : "Unsaved note";
+}
+function noteCommit(name,id){
+  const pages=notePages().slice();
+  let i=pages.findIndex(p=>p.id===id);
+  if(i<0) i=pages.findIndex(p=>p.name.toLowerCase()===name.toLowerCase());
+  const pg={id:i>=0?pages[i].id:"n"+Date.now().toString(36)+Math.random().toString(36).slice(2,6), name, ts:Date.now(), html:S.notes||""};
+  if(i>=0) pages[i]=pg; else pages.push(pg);
+  lsSet(NOTES_KEY, JSON.stringify(pages));
+  S.notePage={id:pg.id,name:pg.name,ts:pg.ts};
+  noteStatus(); notePersist();
+}
+function noteDoLoad(id){
+  const pg=notePages().find(p=>p.id===id); if(!pg) return;
+  S.notes=pg.html; S.notePage={id:pg.id,name:pg.name,ts:pg.ts};
+  const ed=noteEd(); if(ed){ acClose(); noteLoad(ed); }
+  noteStatus(); notePersist();
+  nAsk.close(); nDlg.close();
+}
+function noteRequestLoad(id){
+  if(!noteUnsaved()) return noteDoLoad(id);
+  notesDlgState.loadId=id;
+  const np=S.notePage;
+  setHTML($("#notesAskText"), `Save changes to ${np && np.name ? esc(np.name) : "this note"}?`);
+  showDlg(nAsk);
+}
+function npPrevClose(){ notesDlgState.prevId=null; nPrev.hidden=true; }
+function npPrevToggle(id,row){
+  if(notesDlgState.prevId===id) return npPrevClose();
+  const pg=notePages().find(p=>p.id===id); if(!pg) return;
+  notesDlgState.prevId=id;
+  setHTML(nPrev, `<div class="npvh"><b>${esc(pg.name)}</b><span>${fmtNoteTs(pg.ts)}</span></div><div class="noteed npvb"></div>`);
+  const body=nPrev.querySelector(".npvb");
+  setHTML(body, pg.html || "<p>(empty)</p>");
+  body.querySelectorAll("[contenteditable]").forEach(n=>n.removeAttribute("contenteditable"));
+  nPrev.hidden=false;
+  const dr=nDlg.getBoundingClientRect(), rr=row.getBoundingClientRect(), w=nPrev.offsetWidth, h=nPrev.offsetHeight, vw=document.documentElement.clientWidth;
+  const beside=dr.right+8+w<=vw;
+  const left=beside ? dr.right+8 : Math.max(8,Math.min(rr.left,vw-w-8));
+  const top=beside ? rr.top : (rr.bottom+4+h>innerHeight && rr.top-h-4>0 ? rr.top-h-4 : rr.bottom+4);
+  nPrev.style.left=left+"px";
+  nPrev.style.top=Math.max(8,Math.min(top,innerHeight-h-8))+"px";
+}
+function npDrawList(){
+  const pages=notePages().slice().sort((a,b)=>b.ts-a.ts);
+  setHTML(nList, pages.length ? pages.map(p=>`<div class="nprow" data-id="${esc(p.id)}"><button type="button" class="npeye" title="Preview">${NOTE_EYE}</button><span class="npname" title="${esc(p.name)}">${esc(p.name)}</span><span class="npts">${fmtNoteTs(p.ts)}</span></div>`).join("") : `<div class="npempty">No saved notes yet.</div>`);
+}
+const npCount=()=>{ $("#notesCount").textContent=nName.value.length+"/50"; };
+function notesOpen(mode,pending){
+  notesDlgState.mode=mode; notesDlgState.pending=pending||null; npPrevClose();
+  $("#notesDlgTitle").textContent=mode==="save"?"Save notes":"Load notes";
+  $("#notesNameRow").hidden=mode!=="save";
+  $("#notesGo").hidden=mode!=="save";
+  $("#notesCancel").textContent=mode==="save"?"Cancel":"Close";
+  $("#notesErr").textContent="";
+  if(mode==="save"){ nName.value=(S.notePage && S.notePage.name) || ""; npCount(); }
+  npDrawList();
+  if(!nDlg.open) showDlg(nDlg);
+  if(mode==="save"){ nName.focus(); nName.select(); }
+}
+function notesGo(){
+  const name=nName.value.trim().slice(0,50);
+  if(!name){ $("#notesErr").textContent="Enter a name."; nName.focus(); return; }
+  noteCommit(name);
+  const next=notesDlgState.pending; notesDlgState.pending=null;
+  nDlg.close();
+  if(next) noteDoLoad(next);
+}
+nList.addEventListener("click",e=>{
+  const row=e.target.closest(".nprow"); if(!row) return;
+  if(e.target.closest(".npeye")) return npPrevToggle(row.dataset.id,row);
+  if(notesDlgState.mode==="save"){ const pg=notePages().find(p=>p.id===row.dataset.id); if(pg){ nName.value=pg.name; npCount(); $("#notesErr").textContent=""; nName.focus(); } }
+  else noteRequestLoad(row.dataset.id);
+});
+nName.addEventListener("input",()=>{ npCount(); $("#notesErr").textContent=""; });
+nName.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); notesGo(); } });
+$("#notesGo").onclick=notesGo;
+$("#notesCancel").onclick=()=>nDlg.close();
+nDlg.addEventListener("click",e=>{ if(e.target===nDlg) nDlg.close(); });
+nDlg.addEventListener("close",npPrevClose);
+nDlg.addEventListener("cancel",e=>{ if(!nPrev.hidden){ e.preventDefault(); npPrevClose(); } });
+nDlg.addEventListener("keydown",e=>{ if(e.key==="Escape" && !nPrev.hidden){ e.preventDefault(); npPrevClose(); } },true);
+document.addEventListener("mousedown",e=>{ if(!nPrev.hidden && !nPrev.contains(e.target) && !e.target.closest(".npeye")) npPrevClose(); });
+$("#notesAskCancel").onclick=()=>nAsk.close();
+$("#notesAskDrop").onclick=()=>noteDoLoad(notesDlgState.loadId);
+$("#notesAskSave").onclick=()=>{
+  nAsk.close();
+  const np=S.notePage;
+  if(np && np.name){ noteCommit(np.name,np.id); noteDoLoad(notesDlgState.loadId); }
+  else notesOpen("save",notesDlgState.loadId);
+};
 function renderNotes(){
   const pane=$("#pNotes"); if(!pane) return;
   let ed=pane.querySelector(".noteed");
   if(!ed){
-    setHTML(pane, `<h2>Notes <button type="button" class="btn gold" id="notesSave" title="Save to the current template">Save</button></h2>
+    setHTML(pane, `<h2>Notes <span class="npbtns"><button type="button" class="btn gold" id="notesSave" title="Save these notes as a named page">Save</button><button type="button" class="btn gold" id="notesLoad" title="Load a saved notes page">Load</button></span></h2>
       <div class="rtbar">${RT_BTNS.map(([c,l,t])=>`<button type="button" data-rt="${c}" title="${esc(t)}" class="rt${c==="bold"?" b":c==="italic"?" i":c==="underline"?" u":c==="strikeThrough"?" st":""}">${esc(l)}</button>`).join("")}<button type="button" class="ntddb" title="Insert a tag already used in these notes">#tags ▾</button></div>
       <div class="ntd" hidden><div class="ntdh"><span class="car">▾</span><span></span></div><div class="ntdb"></div></div>
-      <div class="noteed" contenteditable="true" spellcheck="true"></div>`);
+      <div class="notebox"><div class="notest"></div><div class="noteed" contenteditable="true" spellcheck="true"></div></div>`);
     ed=pane.querySelector(".noteed");
-    $("#notesSave").onclick=()=>$("#btnSave").click();    // a shortcut to the header Save button, so saving stays in one place
+    $("#notesSave").onclick=()=>notesOpen("save");
+    $("#notesLoad").onclick=()=>notesOpen("load");
     document.execCommand("defaultParagraphSeparator",false,"p");
     noteLoad(ed);
     ed.addEventListener("input",e=>{
-      if(e.isComposing){ S.notes=noteHTML(ed); markDirty(); return; }
+      if(e.isComposing){ S.notes=noteHTML(ed); markDirty(); noteStatus(); return; }
       noteAfterEdit(ed,noteCaret(ed),false); acUpdate(ed);
     });
     ed.addEventListener("paste",e=>{
