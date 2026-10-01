@@ -153,6 +153,7 @@ html{overflow-y:scroll}
 .rmpick .rmclear{color:var(--muted)}.rmpick .rmclear:hover{color:var(--gold)}
 #notesDlg{width:min(520px,94vw)}
 #notesAskDlg{width:min(440px,92vw)}
+#rmClearDlg{width:min(420px,92vw)}
 .nplist{margin:8px 0 2px;max-height:40vh}
 .nprow{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;cursor:pointer}
 .nprow:hover{background:var(--panel2)}
@@ -603,6 +604,15 @@ h3.chead.over .cnm{color:var(--f)}
   <div class="row2">
     <button class="btn" id="notesAskCancel">Cancel</button>
     <span style="display:flex;gap:8px"><button class="btn" id="notesAskDrop">Don't save</button><button class="btn gold" id="notesAskSave">Save first</button></span>
+  </div>
+</dialog>
+
+<dialog id="rmClearDlg">
+  <h3>Clear the restore list</h3>
+  <p class="capbody">The deleted items stay deleted and can no longer be restored.</p>
+  <div class="row2">
+    <button class="btn" id="rmClearCancel">Cancel</button>
+    <button class="btn gold" id="rmClearGo">Clear all</button>
   </div>
 </dialog>
 
@@ -2107,13 +2117,15 @@ function startQtyEdit(el){
 }
 const RM_GONE=2;      // still deleted, but dropped from the restore list
 const rmCount=o=>Object.values(o||{}).filter(v=>v===true).length;
+$("#rmClearCancel").onclick=()=>$("#rmClearDlg").close();
+$("#rmClearGo").onclick=()=>{ $("#rmClearDlg").close(); for(const k in S.removed) S.removed[k]=RM_GONE; render(); };
 function rmClose(){ if(rmBox) rmBox.hidden=true; }
 function rmToggle(btn){
   if(rmBox && !rmBox.hidden){ rmClose(); return; }
   if(!rmBox){
     rmBox=document.createElement("div"); rmBox.className="ntac rmpick"; rmBox.hidden=true; document.body.append(rmBox);
     rmBox.addEventListener("mousedown",e=>{ e.preventDefault(); const row=e.target.closest("[data-rmkey],[data-rmall],[data-rmclear]"); if(!row) return;
-      if(row.dataset.rmclear){ if(!confirm("Clear the restore list? The deleted items stay deleted and can no longer be restored.")) return; for(const k in S.removed) S.removed[k]=RM_GONE; }
+      if(row.dataset.rmclear){ rmClose(); const d=$("#rmClearDlg"); if(d.showModal) d.showModal(); else d.setAttribute("open",""); return; }
       else if(row.dataset.rmall){ for(const k in S.removed) if(S.removed[k]===true) delete S.removed[k]; }
       else delete S.removed[row.dataset.rmkey];
       rmClose(); render(); });
