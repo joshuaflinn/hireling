@@ -508,6 +508,7 @@ h3.chead.over .cnm{color:var(--f)}
 .ai-notice{color:var(--f);font-size:13px;background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:8px 10px;margin:8px 0}
 .aimanual{display:flex;flex-direction:column;gap:8px;margin:4px 0 8px}
 .aimanual[hidden]{display:none}
+.aimhead{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600}
 .aimanual textarea{width:100%;height:64px;background:#0d0f13;color:var(--text);border:1px solid var(--line2);border-radius:6px;font:inherit;font-size:13px;padding:6px;resize:vertical}
 
 /* rules clarifications */
@@ -653,7 +654,8 @@ h3.chead.over .cnm{color:var(--f)}
     <button class="btn" id="aiSearch">Search</button>
   </div>
   <div id="aiResults" class="airesults"></div>
-  <div id="aiManual" class="aimanual" hidden>
+  <div id="aiManual" class="aimanual">
+    <div class="aimhead">Custom item: used when no search result is picked</div>
     <label>Bulk<input type="text" id="aiMBulk" placeholder="L, —, or a number"></label>
     <label>Description (optional)<textarea id="aiMDesc" placeholder="Short description…"></textarea></label>
   </div>
@@ -2729,7 +2731,7 @@ function aiRenderResults(hits){
 }
 function openAddItem(){
   aiHits=[]; aiSelected=null;
-  $("#aiName").value=""; setHTML($("#aiResults"), ""); $("#aiManual").hidden=true;
+  $("#aiName").value=""; setHTML($("#aiResults"), "");
   $("#aiMBulk").value=""; $("#aiMDesc").value=""; $("#aiQty").value=1;
   $("#aiEq").checked=S.invTab==="equipped";
   aiSetTags(INV_TAGS.some(t=>t[0]===S.invTab)?[S.invTab]:[]);          // adding from a filter tab starts with that filter's tag
@@ -2744,14 +2746,13 @@ async function aiDoSearch(){
   $("#aiErr").textContent="";
   aiSelected=null; aiHits=[];
   setHTML($("#aiResults"), `<p class="pet-note">Searching…</p>`);
-  $("#aiManual").hidden=true;
+ 
   try{
     const hits=await aonSearch(name);
     aiHits=hits;
     aiRenderResults(hits);
   }catch(err){
-    setHTML($("#aiResults"), `<p class="ai-notice">Can't reach Archives of Nethys from a file opened off disk. Fill in the fields below to add the item by hand, or serve the folder over http and search again.</p>`);
-    $("#aiManual").hidden=false;
+    setHTML($("#aiResults"), `<p class="ai-notice">Can't reach Archives of Nethys from here. Fill in the custom item fields below to add it by hand.</p>`);
   }
 }
 /* ---- Notes: #tag chips, autocomplete, #tags menu ---- */
@@ -3810,12 +3811,11 @@ $("#aiAdd").onclick=()=>{
   const qty=Math.max(1, parseInt($("#aiQty").value,10)||1);
   const equipped=$("#aiEq").checked, tags=[...addDlg.querySelectorAll("[data-aitag]:checked")].map(c=>c.dataset.aitag);
   let rec=aiSelected;
-  if(!rec && !$("#aiManual").hidden){
+  if(!rec){
     const name=$("#aiName").value.trim();
     if(!name){ $("#aiErr").textContent="Enter an item name."; return; }
     rec=manualToRecord(name, $("#aiMBulk").value, $("#aiMDesc").value);
   }
-  if(!rec){ $("#aiErr").textContent="Search and pick an item, or fill in the manual fields below."; return; }
   commitAddItem(rec, qty, equipped, tags);
   addDlg.close();
   render();
