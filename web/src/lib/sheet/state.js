@@ -109,6 +109,7 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
  * @property {(value: {staff_charge_rank: number, staff_spent: number, drain_used: boolean}) => void} writeDaily
  * @property {(casterKey: string, rank: number, index: number, patch?: {used?: boolean, prepared?: string | null}) => void} writeSlot
  * @property {(itemName: string, quantity: number) => void} writeItemQty
+ * @property {(casterKey: string) => void} resetPrep
  * @property {() => void} newDay
  * @property {() => void} destroy
  */
@@ -373,6 +374,28 @@ export function createSheetState({ sync, character }) {
     write(invTarget(characterId, itemName), { qty_delta: delta });
   }
 
+  /**
+   * Reset one caster's preparation to the export's list (spec §2.3): every
+   * slot whose prepared spell drifted gets a whole-slot write back to the
+   * bootstrap value (which is the export's seeding, FR-12). Used flags stay.
+   * @param {string} casterKey
+   */
+  function resetPrep(casterKey) {
+    const current = get(slots);
+    for (const row of character.slots) {
+      if (row.caster_key !== casterKey) continue;
+      const live = current.find(
+        (candidate) =>
+          candidate.caster_key === casterKey &&
+          candidate.rank === row.rank &&
+          candidate.slot_index === row.slot_index,
+      );
+      if (live && live.prepared_spell !== row.prepared_spell) {
+        writeSlot(casterKey, row.rank, row.slot_index, { prepared: row.prepared_spell });
+      }
+    }
+  }
+
   /** The New Day burst: every slot's used flag, then focus, then daily. */
   function newDay() {
     for (const row of get(slots)) {
@@ -417,6 +440,7 @@ export function createSheetState({ sync, character }) {
     writeDaily,
     writeSlot,
     writeItemQty,
+    resetPrep,
     newDay,
     destroy: () => unsubscribe(),
   };
