@@ -12,6 +12,7 @@
   import StatsPane from './components/StatsPane.svelte';
   import MagicPane from './components/MagicPane.svelte';
   import CompanionsPanel from './components/CompanionsPanel.svelte';
+  import InventoryPanel from './components/InventoryPanel.svelte';
 
   /** @type {{ character: any, accountSub?: string, editable?: boolean }} */
   let {
@@ -42,6 +43,7 @@
     heroMax,
     daily,
     slots,
+    qtyMap,
     syncing,
     offline,
   } = sheet;
@@ -137,6 +139,19 @@
           <CompanionsPanel baseSheet={character.base_sheet} view={$view} />
         {/snippet}
       </MagicPane>
+    </div>
+    <div class="col">
+      <InventoryPanel
+        baseSheet={character.base_sheet}
+        itemBulk={character.item_bulk ?? {}}
+        itemTraits={character.item_traits ?? {}}
+        qtyMap={$qtyMap}
+        money={$money}
+        {editable}
+        offline={$offline}
+        onqty={(/** @type {string} */ name, /** @type {number} */ qty) => sheet.writeItemQty(name, qty)}
+        onmoney={(/** @type {any} */ next) => sheet.writeMoney(next)}
+      />
     </div>
   </div>
 </div>

@@ -93,6 +93,7 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
  * @property {import('svelte/store').Readable<number>} heroMax
  * @property {import('svelte/store').Readable<{value: *, pending: boolean}>} daily
  * @property {import('svelte/store').Readable<Array<object>>} slots
+ * @property {import('svelte/store').Readable<Record<string, {qty: number, pending: boolean}>>} qtyMap
  * @property {import('svelte/store').Readable<boolean>} syncing
  * @property {import('svelte/store').Readable<boolean>} offline
  * @property {import('svelte/store').Readable<OpError[]>} opErrors
@@ -199,6 +200,27 @@ export function createSheetState({ sync, character }) {
       };
     }),
   );
+
+  /**
+   * Effective quantity per item name, one map — the inventory pane's input
+   * (a plain object per render, SSR-safe; the pane takes it as a prop).
+   */
+  const qtyMap = derived([fields, pendingKeys], ([$fields, $pending]) => {
+    /** @type {Record<string, {qty: number, pending: boolean}>} */
+    const out = {};
+    for (const [name, base] of baseQty) {
+      const target = invTarget(characterId, name);
+      const key = targetKey(target);
+      const entry = $fields[key];
+      const pending = $pending.has(key);
+      const delta =
+        pending || (entry && entry.version > 0)
+          ? (entry ? entry.value.qty_delta : 0)
+          : (storedDelta.get(name) ?? 0);
+      out[name] = { qty: Math.max(0, base + delta), pending };
+    }
+    return out;
+  });
 
   /** Effective quantity per item name: base + delta, delta from live state. */
   const baseQty = new Map();
@@ -423,6 +445,7 @@ export function createSheetState({ sync, character }) {
     heroMax,
     daily,
     slots,
+    qtyMap,
     syncing,
     offline,
     opErrors,
