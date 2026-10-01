@@ -80,16 +80,30 @@ pub const CORE_SKILL_ABILITY: [(&str, &str); 18] = [
 /// A stat name as stored on the wire and in the database: canonical text,
 /// parseable by [`Stat::parse`]. Newtype so a raw `String` can't sneak past
 /// validation into `effect_modifiers.stat`.
+///
+/// Invariant: inside [`Stat::Skill`] the text is the FULL stat string —
+/// `"skill:acrobatics"`, `"skill:lore:underworld"` — so `as_str()` is
+/// always the wire form. The instance name a sheet carries
+/// (`BaseStats.skills[].name`) is the same text minus its `skill:` prefix
+/// (see [`StatName::instance_name`]).
 #[derive(
     Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct StatName(String);
 
 impl StatName {
-    /// The canonical text (`"acrobatics"`, `"lore:underworld"`).
+    /// The canonical wire/DB text (`"skill:acrobatics"`).
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// The text a `BaseStats.skills[].name` carries for this instance —
+    /// the wire string minus its `skill:` prefix (`"acrobatics"`,
+    /// `"lore:underworld"`).
+    #[must_use]
+    pub fn instance_name(&self) -> &str {
+        self.0.strip_prefix("skill:").unwrap_or(&self.0)
     }
 }
 
@@ -297,7 +311,7 @@ impl Stat {
                  and underscores (the character's own skill list is the source of names)"
             ));
         }
-        Ok(StatName(format!("{prefix}{bare}")))
+        Ok(StatName(format!("skill:{prefix}{bare}")))
     }
 
     /// The canonical wire/DB text (`"ac"`, `"skill:acrobatics"`).

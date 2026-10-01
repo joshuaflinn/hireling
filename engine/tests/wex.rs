@@ -9,6 +9,11 @@
 //! doc-comment citing the Player Core rule it pins. These are the
 //! stop-the-line tripwire (Constitution Article IV).
 
+#![expect(
+    clippy::tests_outside_test_module,
+    reason = "integration tests live at crate root by cargo convention"
+)]
+
 use hireling_engine::vocab::{
     Blanket, CORE_SKILLS, ModifierType, Stat, StatInstances, StatRef, expand,
 };
@@ -80,24 +85,30 @@ fn unknown_stats_are_rejected_loudly() {
 fn skill_prefixed_stats_parse_core_and_lore_names() {
     let core = Stat::parse("skill:acrobatics").expect("core skill parses");
     assert!(
-        matches!(&core, Stat::Skill(name) if name.as_str() == "acrobatics"),
-        "core skill parses bare, got {core:?}"
+        matches!(&core, Stat::Skill(name) if name.as_str() == "skill:acrobatics"),
+        "core skill parses with its full `skill:` wire text, got {core:?}"
     );
     let lore = Stat::parse("skill:lore:underworld").expect("lore skill parses");
     assert!(
-        matches!(&lore, Stat::Skill(name) if name.as_str() == "lore:underworld"),
-        "lore skill keeps its `lore:` prefix, got {lore:?}"
+        matches!(&lore, Stat::Skill(name) if name.as_str() == "skill:lore:underworld"),
+        "lore skill keeps its `lore:` name under the `skill:` prefix, got {lore:?}"
     );
 }
 
 #[test]
 fn bare_skill_prefix_and_unnormalized_names_are_rejected() {
+    // NOTE: a well-formed lore name without its `lore:` prefix (e.g.
+    // `skill:underworld`) is NOT rejectable at parse — lore names are
+    // per-character data the vocabulary cannot enumerate. It parses, and
+    // then matches no instance on a sheet that lacks that lore: no total
+    // changes, nothing emitted, and the WRITE PATH warns at apply time
+    // (spec edge case). The parser's loud rejection covers non-canonical
+    // text and unknown non-skill stats.
     let rejected = [
         "skill:",           // bare prefix (plan Task 1)
         "skill:Acrobatics", // uppercase — typos must be loud, not silent no-ops
         "skill:mror holds", // spaces are not canonical stat text
         "skill:lore:",      // lore prefix without a name
-        "skill:underworld", // a lore name without its `lore:` prefix
     ];
     for text in rejected {
         assert!(
