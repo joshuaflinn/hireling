@@ -7,6 +7,7 @@ pub mod apply;
 pub mod extract;
 pub mod load;
 pub mod recompute;
+pub mod rest;
 
 use hireling_engine::model::Modifier;
 use hireling_engine::vocab::{ModifierType, Stat};
