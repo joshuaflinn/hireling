@@ -195,11 +195,13 @@ pub fn stack_one(base: i32, group: &[&Candidate]) -> StackedStat {
         select_extreme(&penalties, false, &mut applied, &mut suppressed);
     }
 
-    // Untyped: stacks fully, bonuses and penalties alike (rule 3).
-    for candidate in ordered
-        .iter()
-        .filter(|candidate| candidate.modifier_type == ModifierType::Untyped)
-    {
+    // Untyped: stacks fully, bonuses and penalties alike (rule 3). Zero
+    // values were already emitted by the zero loop above — emitting them
+    // here too would double-count them (found by the conservation property,
+    // Task 3; regression-pinned by zero_value_modifiers_apply_exactly_once).
+    for candidate in ordered.iter().filter(|candidate| {
+        candidate.modifier_type == ModifierType::Untyped && candidate.value != 0
+    }) {
         applied.push(provenance(candidate));
     }
 

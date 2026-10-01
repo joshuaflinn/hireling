@@ -768,3 +768,45 @@ fn wex_12_valued_condition_sign_is_stored_polarity_data() {
         );
     }
 }
+
+// -- regression (Task 3 conservation property) -------------------------------
+/// A zero-value modifier is applied EXACTLY ONCE, for every type — the
+/// zero loop in `stack_one` owns all `+0`s; the typed and untyped loops
+/// must not emit them a second time. An untyped +0 was double-counted
+/// before this test existed (found by the conservation property, not by
+/// the worked examples — this is why the property suite is non-negotiable).
+#[test]
+fn zero_value_modifiers_apply_exactly_once() {
+    let base = sample_base();
+    let instances = instances_of(&base);
+    for (modifier_type, stat) in [
+        (ModifierType::Untyped, "ac"),
+        (ModifierType::Status, "ac"),
+        (ModifierType::Circumstance, "ac"),
+        (ModifierType::Item, "ac"),
+        (ModifierType::Untyped, "attack"),
+    ] {
+        let effects = vec![effect(1, vec![modifier(modifier_type, stat, 0)])];
+        let (stat_text, base_value) = if stat == "attack" {
+            ("attack", 4)
+        } else {
+            (stat, base.stats.ac)
+        };
+        let stacked = stacked(&instances, &effects, stat_text, base_value);
+        assert_eq!(
+            stacked.applied.len(),
+            1,
+            "{modifier_type:?} +0 on {stat}: applied exactly once"
+        );
+        assert_eq!(
+            stacked.applied.first().expect("applied").value,
+            0,
+            "the +0 is visible in provenance"
+        );
+        assert_eq!(stacked.total, base_value, "+0 changes no total");
+        assert!(
+            stacked.suppressed.is_empty(),
+            "a lone +0 suppresses nothing"
+        );
+    }
+}
