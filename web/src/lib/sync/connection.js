@@ -1,0 +1,237 @@
+// Connection — socket lifecycle, jittered backoff, watchdog, reconnect
+// sequence (E7, design.md FR-10 + degraded-mode contract).
+//
+// Budgets are the spec's, not tunables: backoff delay = rng() * min(30000,
+// 1000 * 2**attempt) (full jitter), watchdog fires after 50 s of inbound
+// silence (server pings every 20 s, so a live link never trips it).
+//
+// One path rules: browser-offline (notifyOffline), socket error, and socket
+// close all land in the same disconnect handler → state `offline` → schedule
+// a reconnect. `offline` covers unreachable and browser-offline identically.
+//
+// Reconnect sequence on every (re)connect: the snapshot frame is delivered
+// as a `frame` event, then the phase markers `snapshot → merge → drain →
+// live` fire in order. A `drain` subscriber may return a thenable (the queue
+// replay); `live` — and the backoff reset to attempt 0 — waits for it, so a
+// link that dies mid-replay earns its doubled backoff and resets only after
+// a full cycle. The queue must drain only after the snapshot marker; this
+// ordering is the contract index.js composes against.
+//
+// The server owns liveness pings (20 s); this side answers `{t:"ping"}` with
+// `{t:"pong"}` and counts every inbound frame as a heartbeat.
+
+/**
+ * Events the connection emits to its subscribers.
+ *
+ * @typedef {Object} ConnEvent
+ * @property {'state'|'reconnect'|'phase'|'frame'|'malformed'} type
+ * @property {'connecting'|'live'|'offline'} [state]
+ * @property {'snapshot'|'merge'|'drain'|'live'} [phase]
+ * @property {Record<string, *> | null} [frame]
+ * @property {string} [reason]
+ * @property {number} [delay]
+ * @property {string} [data]
+ */
+
+/**
+ * The slice of the browser WebSocket surface this module drives; tests hand
+ * a mock with the same shape.
+ *
+ * @typedef {Object} SyncSocket
+ * @property {(data: string) => void} send
+ * @property {() => void} close
+ * @property {null | (() => void)} onopen
+ * @property {null | ((event: { data: string }) => void)} onmessage
+ * @property {null | (() => void)} onclose
+ * @property {null | ((event: object) => void)} onerror
+ */
+
+const BASE_BACKOFF_MS = 1000;
+const MAX_BACKOFF_MS = 30000;
+const WATCHDOG_MS = 50000;
+
+/**
+ * @param {{
+ *   url: string,
+ *   socketFactory: (url: string) => SyncSocket,
+ *   rng: () => number,
+ *   timers: { setTimeout: (fn: () => void, ms: number) => *, clearTimeout: (id: *) => void },
+ * }} options
+ */
+export function createConnection(options) {
+  const { url, socketFactory, rng, timers } = options;
+
+  /** @type {'connecting'|'live'|'offline'} */
+  let currentState = 'offline';
+  /** @type {SyncSocket | null} */
+  let socket = null;
+  /** True between the socket's open and its death — the send window. */
+  let socketOpen = false;
+  let attempt = 0;
+  /** @type {* | null} */
+  let reconnectTimer = null;
+  /** @type {* | null} */
+  let watchdogTimer = null;
+  /** @type {Set<(event: ConnEvent) => void>} */
+  const listeners = new Set();
+
+  /** @param {ConnEvent} event */
+  function emit(event) {
+    for (const cb of listeners) cb(event);
+  }
+
+  /** @param {'connecting'|'live'|'offline'} next */
+  function setState(next) {
+    currentState = next;
+    emit({ type: 'state', state: next });
+  }
+
+  function clearWatchdog() {
+    if (watchdogTimer !== null) {
+      timers.clearTimeout(watchdogTimer);
+      watchdogTimer = null;
+    }
+  }
+
+  function armWatchdog() {
+    clearWatchdog();
+    watchdogTimer = timers.setTimeout(() => {
+      watchdogTimer = null;
+      if (socket !== null) handleDisconnect(socket, 'watchdog-silence');
+    }, WATCHDOG_MS);
+  }
+
+  /**
+   * The one disconnect path — socket error, close, watchdog, and
+   * browser-offline all arrive here (guarded so only the current socket
+   * counts and each death schedules exactly one reconnect).
+   *
+   * @param {SyncSocket} dying
+   * @param {string} reason
+   */
+  function handleDisconnect(dying, reason) {
+    if (socket !== dying) return;
+    socket = null;
+    socketOpen = false;
+    clearWatchdog();
+    try {
+      dying.close(); // a dead link is closed, not left dangling (watchdog path)
+    } catch {
+      // already gone — the browser may have closed it under us
+    }
+    const delay = rng() * Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** attempt);
+    attempt += 1;
+    setState('offline');
+    reconnectTimer = timers.setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, delay);
+    emit({ type: 'reconnect', reason, delay });
+  }
+
+  function connect() {
+    // A manual connect supersedes a still-pending scheduled retry.
+    if (reconnectTimer !== null) {
+      timers.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (socket !== null) return;
+    setState('connecting');
+    /** @type {SyncSocket} */
+    const mySocket = socketFactory(url);
+    socket = mySocket;
+    mySocket.onopen = () => {
+      if (socket === mySocket) {
+        socketOpen = true;
+        armWatchdog();
+      }
+    };
+    mySocket.onmessage = (event) => handleFrame(mySocket, event.data);
+    mySocket.onclose = () => handleDisconnect(mySocket, 'closed');
+    mySocket.onerror = () => handleDisconnect(mySocket, 'error');
+  }
+
+  /** @param {SyncSocket} mySocket @param {string} data */
+  function handleFrame(mySocket, data) {
+    if (socket !== mySocket) return;
+    // Every inbound frame re-arms the inbound-silence watchdog — this is
+    // the liveness bookkeeping, there is no separate timestamp to track.
+    armWatchdog();
+
+    /** @type {Record<string, *> | null} */
+    let frame = null;
+    try {
+      frame = JSON.parse(data);
+    } catch {
+      emit({ type: 'malformed', data });
+      return;
+    }
+    if (frame !== null && frame.t === 'ping') {
+      mySocket.send(JSON.stringify({ t: 'pong' }));
+      return;
+    }
+    emit({ type: 'frame', frame });
+
+    if (frame !== null && frame.t === 'snapshot') {
+      emit({ type: 'phase', phase: 'snapshot' });
+      emit({ type: 'phase', phase: 'merge' });
+      // The drain phase: a subscriber replaying the queue may return a
+      // thenable; live (and the attempt reset) waits for it.
+      const results = [...listeners].map((cb) => cb({ type: 'phase', phase: 'drain' }));
+      const thenables = results.filter(
+        (r) => r !== null && r !== undefined && typeof (/** @type {*} */ (r).then) === 'function',
+      );
+      const settle = () => {
+        if (socket === mySocket) goLive();
+      };
+      if (thenables.length === 0) {
+        settle();
+      } else {
+        Promise.all(thenables).then(settle, settle);
+      }
+    }
+  }
+
+  function goLive() {
+    if (socket === null || currentState === 'live') return; // died mid-drain, or already there
+    attempt = 0;
+    setState('live');
+    emit({ type: 'phase', phase: 'live' });
+  }
+
+  return {
+    connect,
+
+    /**
+     * Browser-offline enters here — the same path as a socket error.
+     * No-op when already down or connecting.
+     */
+    notifyOffline() {
+      if (socket !== null) handleDisconnect(socket, 'browser-offline');
+    },
+
+    /**
+     * Sends whenever the socket is open — including the drain phase, whose
+     * whole job is replaying queued writes before `live`. Pre-open sends are
+     * refused: the browser's WebSocket.send throws during CONNECTING, and
+     * the queue holds the op until the drain phase instead.
+     *
+     * @param {object} frame
+     * @returns {boolean}
+     */
+    send(frame) {
+      if (!socketOpen || socket === null) return false;
+      socket.send(JSON.stringify(frame));
+      return true;
+    },
+
+    state() {
+      return currentState;
+    },
+
+    /** @param {(event: ConnEvent) => void} cb */
+    onChange(cb) {
+      listeners.add(cb);
+    },
+  };
+}

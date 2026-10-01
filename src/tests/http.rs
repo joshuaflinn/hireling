@@ -46,6 +46,7 @@ fn test_router() -> axum::Router {
     router(
         testing::auth_state(pool, &testing::auth_settings()),
         &static_dir(),
+        crate::sync::SyncState::new(testing::never_drain()),
     )
 }
 
@@ -404,11 +405,21 @@ async fn a_tampered_session_cookie_is_unauthenticated() {
     let app = testing::router_for(pool.clone(), &testing::auth_settings());
     let real = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
 
+    // Flip the first character to a *different* one. A naive "set it to 'A'"
+    // is a no-op whenever the random token already starts with 'A' (p≈1/64),
+    // which authenticated the tampered cookie and flaked the test.
     let tampered: String = real
         .chars()
         .enumerate()
-        .map(|(i, c)| if c != 'A' && i == 0 { 'A' } else { c })
+        .map(|(i, c)| {
+            if i == 0 {
+                if c == 'A' { 'B' } else { 'A' }
+            } else {
+                c
+            }
+        })
         .collect();
+    assert_ne!(tampered, real, "the tamper must change the cookie value");
     let response = app
         .oneshot(
             Request::builder()
