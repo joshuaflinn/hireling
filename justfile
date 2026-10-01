@@ -78,6 +78,10 @@ test:
     # The schema tests need the throwaway Postgres. Start it when docker is
     # available and nothing is listening yet; otherwise the tests skip
     # loudly (never silently green).
+    # --workspace: the engine crate (E8) carries the WEx/property suites —
+    # the PRD's top-risk tripwire (FR-10); a root-package workspace's bare
+    # `cargo test` would run only the main crate and gate nothing that
+    # matters.
     if ! pg_isready -h 127.0.0.1 -p 5432 -q; then
         if command -v docker >/dev/null 2>&1; then
             just db
@@ -89,7 +93,7 @@ test:
             echo "WARNING: no Postgres on :5432 and no docker — schema tests will SKIP loudly"
         fi
     fi
-    cargo test --quiet
+    cargo test --quiet --workspace
 
 fmt:
     cargo fmt --all
@@ -98,7 +102,7 @@ fmt-check:
     cargo fmt --all -- --check
 
 lint:
-    cargo clippy --all-targets --all-features -- -D warnings
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 deny:
     cargo deny check
