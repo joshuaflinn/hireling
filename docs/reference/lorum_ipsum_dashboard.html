@@ -1136,6 +1136,7 @@ let S = Object.assign({imported:null, hp:null, temp:0, hero:1, focus:null, used:
 delete S.level;
 S.staff = Object.assign({cantrip:null, spell:null, chargeRank:0, spent:0, edit:false}, S.staff||{});
 S.coll = S.coll || {};
+(S.added||[]).forEach(r=>{ if(r && r.source==="added by hand") r.source="Custom item"; });
 const getBuild = ()=> S.imported || EMBEDDED;
 
 /* ============================================================
@@ -2535,7 +2536,7 @@ function srcTag(raw){
   const s=String(raw||"").trim();
   if(!s) return null;
   if(/campaign|homebrew|house rule/i.test(s)) return ["camp","Campaign"];
-  if(/added by hand|pathbuilder export/i.test(s)) return null;
+  if(/added by hand|custom item|pathbuilder export/i.test(s)) return null;
   const book=s.replace(/\s*\bpg?\.?\s*\d+.*$/i,"").replace(/,\s*$/,"").trim();
   if(!book) return null;
   return [/^(Player Core( 2)?|GM Core|Monster Core)$/i.test(book) ? "core" : "gh", book];
@@ -2692,7 +2693,7 @@ function manualToRecord(name, bulkRaw, descRaw){
     id:"manual"+Date.now(), name, type:"Other", sub:"", level:0,
     price:"—", priceCp:null, bulk, hands:null, usage:"", rarity:"common", traits:[],
     stats:{Price:"—", Bulk:bulk}, acts:[], desc:descRaw||"", vdesc:"", craft:"", variant:"",
-    source:"added by hand", url:""
+    source:"Custom item", url:""
   };
 }
 function commitAddItem(rec, qty, equipped, tags){
