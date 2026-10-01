@@ -146,6 +146,7 @@ html{overflow-y:scroll}
 .ntdt:hover{color:var(--gold)}
 .ntac-i em{font-style:normal;font-size:11px;color:var(--dim)}
 .rmpick{max-height:50vh;overflow:auto}
+.panel h2 .hbtn{font-family:var(--sans);font-size:12.5px;padding:2px 12px;align-self:center}
 .rmpick .rmall{border-top:1px solid var(--line);margin-top:3px;padding-top:5px;color:var(--gold)}
 #notesDlg{width:min(520px,94vw)}
 #notesAskDlg{width:min(440px,92vw)}
@@ -2124,7 +2125,7 @@ function renderInv(){
   const B=C.B, m=S.coins||B.money||{};
   const COIN_COLOR={pp:"#b9d4e6",gp:"#e3b54a",sp:"#c9ced6",cp:"#c98a5a"};
   const coinsHtml=["pp","gp","sp","cp"].map(k=>`<span class="hcoin" data-coin="${k}" title="Click to edit" style="color:${COIN_COLOR[k]};border-color:${COIN_COLOR[k]}55"><b class="v">${m[k]||0}</b><i>${k.toUpperCase()}</i></span>`).join("");
-  let h=`<h2><span class="htitle">Inventory<button class="lnk" data-additem="1">Add item</button></span><span class="hcoins">${coinsHtml}${S.coins!=null?`<button class="lnk" data-coinreset="1">reset</button>`:""}${Object.keys(S.removed||{}).length?`<button class="lnk" data-unremove="1">restore ${Object.keys(S.removed).length} deleted</button>`:""}</span></h2>`;
+  let h=`<h2><span class="htitle">Inventory<button class="btn gold hbtn" data-additem="1">Add item</button>${Object.keys(S.removed||{}).length?`<button class="btn gold hbtn" data-unremove="1" title="Pick deleted items to bring back">Restore (${Object.keys(S.removed).length})</button>`:""}</span><span class="hcoins">${coinsHtml}${S.coins!=null?`<button class="lnk" data-coinreset="1">reset</button>`:""}</span></h2>`;
 
   const containers=B.equipmentContainers||{};
   const contNames=Object.values(containers).map(c=>c.containerName);
