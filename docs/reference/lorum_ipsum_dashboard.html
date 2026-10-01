@@ -2884,29 +2884,46 @@ function noteBackspace(ed,e){
   while(prev && prev.nodeType===3 && !prev.data) prev=prev.previousSibling;
   if(prev && prev.nodeType===1 && prev.classList.contains("ntag")){ e.preventDefault(); prev.remove(); noteAfterEdit(ed,noteCaret(ed),false); }
 }
-// the browser refuses to delete a selection that touches a non-editable chip, so a selection with chips is deleted here
+// the browser stops a selection at a non-editable chip and refuses to delete across one, so deletes that involve chips are done here
+const noteBlank=t=>!t.replace(/ /g," ").trim();
 function noteDeleteSelection(ed,e){
   const s=getSelection(); if(!s.rangeCount || s.isCollapsed) return false;
-  const r=s.getRangeAt(0);
-  if(!ed.contains(r.commonAncestorContainer) || ![...ed.querySelectorAll(".ntag")].some(c=>r.intersectsNode(c))) return false;
+  const r=s.getRangeAt(0); if(!ed.contains(r.commonAncestorContainer)) return false;
+  const elOf=(n,o)=>{ const x=n.nodeType===1 ? (n.childNodes[o]||n.childNodes[o-1]||n) : n; return x.nodeType===1 ? x : x.parentElement; };
+  const sb=noteBlockOf(ed,elOf(r.startContainer,r.startOffset)), eb0=noteBlockOf(ed,elOf(r.endContainer,r.endOffset));
+  const span=(a,b)=>{ const x=document.createRange(); x.setStart(a.container,a.offset); x.setEnd(b.container,b.offset); return x; };
+  const at=(c,o)=>({container:c,offset:o});
+  // a triple-click ends at offset 0 of the next line; that next line is not part of the selection
+  let eb=eb0;
+  if(eb!==sb && eb!==ed){ const pre=span(at(eb,0),at(r.endContainer,r.endOffset)); if(noteBlank(pre.toString()) && !pre.cloneContents().querySelector(".ntag")) eb=eb.previousElementSibling || (eb.parentElement && eb.parentElement.previousElementSibling) || sb; }
+  let whole=false, tailChip=false;
+  if(sb!==ed && eb!==ed && ed.contains(eb)){
+    const lead=span(at(sb,0),at(r.startContainer,r.startOffset)), tail=span(at(r.endContainer,r.endOffset),at(eb,eb.childNodes.length));
+    tailChip=!!tail.cloneContents().querySelector(".ntag");
+    whole=noteBlank(lead.toString()) && !lead.cloneContents().querySelector(".ntag") && noteBlank(tail.cloneContents().textContent.replace(/#[\w'-]+/g,"").replace(/[☐☑]/g,""));
+  }
+  const chips=[...ed.querySelectorAll(".ntag")].some(c=>r.intersectsNode(c));
+  if(!chips && !tailChip) return false;      // plain text: leave it to the browser
   e.preventDefault();
-  const sc=r.startContainer.nodeType===1?r.startContainer:r.startContainer.parentElement, ec=r.endContainer.nodeType===1?r.endContainer:r.endContainer.parentElement;
-  const sChip=sc.closest(".ntag"), eChip=ec.closest(".ntag");
-  if(sChip) r.setStartBefore(sChip);
-  if(eChip) r.setEndAfter(eChip);
-  const startBlock=noteBlockOf(ed,r.startContainer.nodeType===1&&r.startContainer!==ed?r.startContainer:(r.startContainer.parentElement||ed));
-  r.deleteContents();
-  let caret=null;
-  // a whole line selected (triple-click) leaves its block empty; drop the block so the line goes away
-  if(startBlock && startBlock!==ed && startBlock.isConnected && !startBlock.textContent.replace(/ /g,"").trim() && !startBlock.querySelector(".ntag,img") && ed.children.length>1){
-    const next=startBlock.nextElementSibling, prev=startBlock.previousElementSibling;
-    startBlock.remove();
+  let after=null;
+  if(whole){
+    // whole lines selected: remove those lines outright, tags included
+    after=eb.nextElementSibling || (eb.parentElement!==ed && eb.parentElement.nextElementSibling) || sb.previousElementSibling;
+    const x=document.createRange(); x.setStartBefore(sb); x.setEndAfter(eb); x.deleteContents();
+    ed.querySelectorAll("ul,ol").forEach(l=>{ if(!l.querySelector("li")) l.remove(); });
+  } else {
+    const sChip=elOf(r.startContainer,r.startOffset).closest(".ntag"), eChip=elOf(r.endContainer,r.endOffset).closest(".ntag");
+    if(sChip) r.setStartBefore(sChip);
+    if(eChip) r.setEndAfter(eChip);
+    r.deleteContents(); r.collapse(true); s.removeAllRanges(); s.addRange(r);
+  }
+  if(whole){
     const r2=document.createRange();
-    if(next){ r2.selectNodeContents(next); r2.collapse(true); } else if(prev){ r2.selectNodeContents(prev); r2.collapse(false); }
+    if(after && after.isConnected){ r2.selectNodeContents(after); r2.collapse(!(after===sb.previousElementSibling)); }
+    else { r2.selectNodeContents(ed); r2.collapse(false); }
     s.removeAllRanges(); s.addRange(r2);
-  } else { r.collapse(true); s.removeAllRanges(); s.addRange(r); }
-  caret=noteCaret(ed);
-  noteAfterEdit(ed,caret,false);
+  }
+  noteAfterEdit(ed,noteCaret(ed),false);
   return true;
 }
 function acClose(){ if(acBox) acBox.hidden=true; ac.items=[]; }
