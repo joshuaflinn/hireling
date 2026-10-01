@@ -350,7 +350,7 @@ fn targets_character(target: &FieldTarget, character_id: i64) -> bool {
             character_id: owned,
             ..
         } => *owned == character_id,
-        FieldTarget::Effect { .. } => false,
+        FieldTarget::Effect { .. } | FieldTarget::EffectNew { .. } => false,
     }
 }
 

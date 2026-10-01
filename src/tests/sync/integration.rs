@@ -466,7 +466,8 @@ async fn run_writer(
                     ..
                 } => record_seen(&mut seen, cid, version),
                 ServerFrame::Ping => pump_pong(&client.sink).await,
-                ServerFrame::Diff { .. }
+                ServerFrame::Derived { .. }
+                | ServerFrame::Diff { .. }
                 | ServerFrame::Hello { .. }
                 | ServerFrame::Snapshot { .. }
                 | ServerFrame::Pong
@@ -752,7 +753,8 @@ async fn flood_slot_writes(writer: &mut Client, character_id: i64, base: i64) ->
                 ServerFrame::Ping => {
                     send_raw(&mut writer.sink, r#"{"t":"pong"}"#).await;
                 }
-                ServerFrame::Diff { .. }
+                ServerFrame::Derived { .. }
+                | ServerFrame::Diff { .. }
                 | ServerFrame::Hello { .. }
                 | ServerFrame::Snapshot { .. }
                 | ServerFrame::Pong
@@ -785,7 +787,8 @@ async fn count_slot_diffs(mut healthy: PumpClient) -> (usize, Option<i64>) {
                 last_version = Some(version);
             }
             ServerFrame::Ping => pump_pong(&healthy.sink).await,
-            ServerFrame::Diff { .. }
+            ServerFrame::Derived { .. }
+            | ServerFrame::Diff { .. }
             | ServerFrame::Hello { .. }
             | ServerFrame::Snapshot { .. }
             | ServerFrame::Ack(_)

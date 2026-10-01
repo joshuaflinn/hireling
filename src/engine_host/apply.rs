@@ -65,7 +65,9 @@ pub fn apply_condition(
     modifiers: Option<&Value>,
     condition_value: Option<i64>,
 ) -> Result<ResolvedCondition, ApplyError> {
-    let Some(rows) = modifiers else {
+    // A jsonb NULL decodes as Some(Value::Null) on some sqlx paths — it
+    // reads exactly like an absent column: display-only either way.
+    let Some(rows) = modifiers.filter(|value| !value.is_null()) else {
         return Ok(display_only());
     };
     let Some(rows) = rows.as_array() else {
