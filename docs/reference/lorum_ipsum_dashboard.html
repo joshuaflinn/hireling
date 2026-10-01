@@ -1021,7 +1021,7 @@ const LS_SAVEDAT=LS_KEY+":savedAt", LS_BACKUP=LS_KEY+":backup";
 function getLocalSavedAt(){ return Number(lsGet(LS_SAVEDAT))||0; }
 function setLocalSavedAt(v){ lsSet(LS_SAVEDAT, String(v)); }
 const TPL_KEY=LS_KEY+":templates", NOTES_KEY=LS_KEY+":notes";
-function ownedKeys(){ return { [LS_KEY]: lsGet(LS_KEY)||"", [TPL_KEY]: lsGet(TPL_KEY)||"", [NOTES_KEY]: lsGet(NOTES_KEY)||"" }; }
+function ownedKeys(){ return { [LS_KEY]: lsGet(LS_KEY)||"", [TPL_KEY]: lsGet(TPL_KEY)||"" }; }
 let cloudRef=null, cloudOn=false, cloudWriting=false, cloudWriteQueue=null, cloudNotice=null;
 
 function syncTimeStr(ms){ try{ return new Date(ms).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}); }catch(e){ return ""; } }
@@ -1056,13 +1056,9 @@ async function writeCloud(savedAt){
       const keys=ownedKeys(); delete keys[TPL_KEY];
       body={savedAt:at, keys}; json=JSON.stringify(body); noTpl=true;
     }
-    if(json.length>250000){                // saved note pages go next, so the main state still syncs
-      const keys=ownedKeys(); delete keys[TPL_KEY]; delete keys[NOTES_KEY];
-      body={savedAt:at, keys}; json=JSON.stringify(body);
-    }
     if(json.length>250000){ setSyncStatus("toolarge"); continue; }
     setSyncStatus("syncing");
-    try{ await withRetry(()=>cloudRef.set(body)); setLocalSavedAt(at); setSyncStatus("synced", at); if(noTpl) $("#syncStatus").title="templates too large to sync"; }
+    try{ await withRetry(()=>cloudRef.set(body)); setLocalSavedAt(at); setSyncStatus("synced", at); if(noTpl) $("#syncStatus").title="templates too large to sync"; if(npFailed) handleCloudErr({code:npFailed}); }
     catch(e){ handleCloudErr(e); }
   }
   cloudWriting=false;
@@ -1074,7 +1070,7 @@ function adoptRemote(data){
     lsSet(LS_BACKUP, JSON.stringify(backup));
   }catch(e){}
   Object.keys(data.keys).forEach(k=>{
-    if(k===NOTES_KEY && !data.keys[k]) return;   // a doc without saved pages must not wipe the local ones
+    if(k===NOTES_KEY) return;   // saved pages live in the notes collection; an older doc's copy must not overwrite the cache
     lsSet(k, data.keys[k]);
   });
   setLocalSavedAt(data.savedAt||0);
@@ -1100,7 +1096,7 @@ async function initCloud(){
   let owner=false;
   try{ owner=await user.isOwner(); }catch(e){ owner=false; }
   if(!owner){ setSyncStatus("off"); return; }
-  cloudRef=db.doc("sheet/state"); cloudOn=true;
+  cloudRef=db.doc("sheet/state"); npDb=db; cloudOn=true;
   try{
     const snap=await withRetry(()=>cloudRef.get());
     const localAt=getLocalSavedAt();
@@ -1116,6 +1112,7 @@ async function initCloud(){
     }
   }catch(e){ handleCloudErr(e); }
   subscribeCloud();
+  await noteCentralBoot();
 }
 
 const EMBEDDED = JSON.parse($("#pbExport").textContent).build;
@@ -3018,13 +3015,76 @@ function fmtNoteTs(ms){
   return `${p(d.getMonth()+1)}/${p(d.getDate())}/${d.getFullYear()} ${p(h%12||12)}:${p(d.getMinutes())}${h<12?"am":"pm"}`;
 }
 let npRaw=null, npVal=[];
-function notePages(){     // re-parsed only when the stored string changes, since the status line asks on every keystroke
+function noteLocalPages(){     // re-parsed only when the stored string changes, since the status line asks on every keystroke
   const raw=lsGet(NOTES_KEY);
   if(raw!==npRaw){
     npRaw=raw;
     try{ const a=JSON.parse(raw); npVal=Array.isArray(a)?a.filter(p=>p && typeof p.id==="string" && typeof p.name==="string" && typeof p.html==="string"):[]; }catch(e){ npVal=[]; }
   }
   return npVal;
+}
+/* Central store: collection "notes", one doc per page ({name,ts,html}, id = page id). Active only for an owner viewer
+   (npDb set by initCloud); localStorage then mirrors the collection as an offline cache. */
+const NOTE_CENTRAL_FLAG=NOTES_KEY+":central";
+let npDb=null, npCentral=null, npUnsub=null, npFailed=null;   // npFailed: code of the last failed page write, kept so a later sheet sync does not mask it
+const npPending=new Map(), npWrites=new Map();   // id -> page (null = deleted) not yet confirmed by a write; id -> tail of that doc's write chain
+function notePages(){ return npCentral || noteLocalPages(); }
+function noteStore(pages){ if(npCentral) npCentral=pages; lsSet(NOTES_KEY, JSON.stringify(pages)); }
+// optimistic: the caller has already updated memory, so the page stays on screen if the write fails
+function noteCentralWrite(id,pg){
+  if(!npDb) return Promise.resolve(true);
+  npPending.set(id,pg);
+  const ref=npDb.collection("notes").doc(id);
+  const p=(npWrites.get(id)||Promise.resolve())
+    .then(()=>withRetry(()=>pg ? ref.set({name:pg.name,ts:pg.ts,html:pg.html}) : ref.delete()))
+    .then(()=>{ if(npPending.get(id)===pg) npPending.delete(id); npFailed=null; return true; },
+          e=>{ console.warn("notes: central write failed for "+id, e); npFailed=(e&&e.code)||"error"; handleCloudErr({code:npFailed}); return false; });
+  npWrites.set(id,p);
+  return p;
+}
+function noteSavePage(pg){
+  const pages=notePages().slice(), i=pages.findIndex(p=>p.id===pg.id);
+  if(i>=0) pages[i]=pg; else pages.push(pg);
+  noteStore(pages);
+  return noteCentralWrite(pg.id,pg);
+}
+function noteOnSnapshot(snap,onFirst){
+  const first=npCentral===null, pages=[];
+  // the local pages must be read before the cache is overwritten below
+  const local=first && !lsGet(NOTE_CENTRAL_FLAG) ? noteLocalPages().slice() : [];
+  snap.docs.forEach(d=>{
+    const x=d.data();
+    if(x && typeof x.name==="string" && typeof x.html==="string") pages.push({id:d.id, name:x.name, ts:Number(x.ts)||0, html:x.html});
+  });
+  npPending.forEach((pg,id)=>{
+    const i=pages.findIndex(p=>p.id===id);
+    if(!pg){ if(i>=0) pages.splice(i,1); } else if(i>=0) pages[i]=pg; else pages.push(pg);
+  });
+  npCentral=pages;
+  lsSet(NOTES_KEY, JSON.stringify(pages));
+  if(nDlg.open) npDrawList();
+  noteStatus();
+  if(first) onFirst(local);
+}
+// resolves with the pre-snapshot local pages once the first snapshot has arrived, or null if the subscription fails
+function noteCentralSubscribe(){
+  return new Promise(resolve=>{
+    const fail=e=>{ console.warn("notes: central subscription failed", e); handleCloudErr(e); resolve(null); };
+    try{ npUnsub=npDb.collection("notes").onSnapshot(snap=>noteOnSnapshot(snap,resolve), fail); }catch(e){ fail(e); }
+  });
+}
+// uploads this browser's pages once; the flag is set only after every upload succeeded, so a failure retries on the next load
+async function noteCentralBoot(){
+  const local=await noteCentralSubscribe();
+  if(!local || lsGet(NOTE_CENTRAL_FLAG)) return;
+  const ids=new Set(notePages().map(p=>p.id)), names=new Set(notePages().map(p=>p.name.toLowerCase()));
+  let ok=true;
+  for(const pg of local){
+    if(ids.has(pg.id) || names.has(pg.name.toLowerCase())) continue;
+    if(!(await noteSavePage(pg))) ok=false;
+    ids.add(pg.id); names.add(pg.name.toLowerCase());
+  }
+  if(ok) lsSet(NOTE_CENTRAL_FLAG,"1");
 }
 // patches only notes/notePage inside a persisted copy of S, so unsaved changes elsewhere in S never get written
 function notePatchState(str){
@@ -3058,8 +3118,7 @@ function noteCommit(name,id){
   let i=pages.findIndex(p=>p.id===id);
   if(i<0) i=pages.findIndex(p=>p.name.toLowerCase()===name.toLowerCase());
   const pg={id:i>=0?pages[i].id:"n"+Date.now().toString(36)+Math.random().toString(36).slice(2,6), name, ts:Date.now(), html:S.notes||""};
-  if(i>=0) pages[i]=pg; else pages.push(pg);
-  lsSet(NOTES_KEY, JSON.stringify(pages));
+  noteSavePage(pg);
   S.notePage={id:pg.id,name:pg.name,ts:pg.ts};
   noteStatus(); notePersist();
 }
@@ -3154,7 +3213,7 @@ function npAskDelete(id){
   showDlg(nDel);
 }
 function npDelete(id){
-  lsSet(NOTES_KEY, JSON.stringify(notePages().filter(p=>p.id!==id)));
+  noteStore(notePages().filter(p=>p.id!==id)); noteCentralWrite(id,null);
   if(S.notePage && S.notePage.id===id) S.notePage=null;     // the pane keeps its text, now as an unsaved note
   noteStatus(); notePersist(); npDrawList();
 }
@@ -3186,21 +3245,24 @@ const NOTE_SEED=[
 <li><b>Resents being used</b>: accepted Barak's deal but bristles at it. Finds small ways to assert autonomy. Dry wit or quiet refusal to be grateful for things he didn't ask for. #roleplay #barak-ironscribe</li>
 </ul>`]
 ];
-function noteSeedCampaign(){
-  if(lsGet(NOTE_SEED_FLAG)) return;
-  const pages=notePages().slice(), have=new Set(pages.map(p=>p.name.toLowerCase())), now=Date.now();
-  let added=0;
-  NOTE_SEED.forEach(([name,raw],i)=>{
-    if(have.has(name.toLowerCase())) return;
-    const tmp=document.createElement("div"); setHTML(tmp,raw.replace(/\n/g,""));
-    noteNormalize(tmp); noteConvertTags(tmp,null,true);
-    pages.push({id:"n"+(now-i).toString(36)+"s"+i, name, ts:now-i, html:tmp.innerHTML});   // descending ts keeps the tab's order in the newest-first list
-    added++;
-  });
-  lsSet(NOTE_SEED_FLAG,"1");
-  if(!added) return;
-  lsSet(NOTES_KEY, JSON.stringify(pages));
-  if(cloudOn){ setLocalSavedAt(now); writeCloud(now); }
+let npSeeding=false;
+// with the central store active it waits for the first snapshot and the migration, so names are checked against the shared list
+async function noteSeedCampaign(){
+  if(lsGet(NOTE_SEED_FLAG) || npSeeding || (npDb && !npCentral)) return;
+  npSeeding=true;
+  try{
+    const have=new Set(notePages().map(p=>p.name.toLowerCase())), now=Date.now(), fresh=[];
+    NOTE_SEED.forEach(([name,raw],i)=>{
+      if(have.has(name.toLowerCase())) return;
+      const tmp=document.createElement("div"); setHTML(tmp,raw.replace(/\n/g,""));
+      noteNormalize(tmp); noteConvertTags(tmp,null,true);
+      fresh.push({id:"n"+(now-i).toString(36)+"s"+i, name, ts:now-i, html:tmp.innerHTML});   // descending ts keeps the tab's order in the newest-first list
+    });
+    let ok=true;
+    for(const pg of fresh) if(!(await noteSavePage(pg))) ok=false;
+    if(ok) lsSet(NOTE_SEED_FLAG,"1");
+    if(fresh.length && nDlg.open) npDrawList();
+  } finally { npSeeding=false; }
 }
 function renderNotes(){
   const pane=$("#pNotes"); if(!pane) return;
