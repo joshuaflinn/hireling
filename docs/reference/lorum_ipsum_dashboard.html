@@ -3168,6 +3168,48 @@ function npDelete(id){
 }
 $("#notesDelCancel").onclick=()=>nDel.close();
 $("#notesDelGo").onclick=()=>{ nDel.close(); if(notesDlgState.delId) npDelete(notesDlgState.delId); notesDlgState.delId=null; };
+// one-time import of the old Campaign tab into saved note pages; skips names that already exist, and never re-adds after a delete
+const NOTE_SEED_FLAG=NOTES_KEY+":seed-campaign";
+const NOTE_SEED=[
+  ["Plot Hooks",`<h4>Plot Hooks</h4><ul>
+<li><b>The Dreams</b>: lifelong visions of Khyber depths, ancient halls, unknown creatures. Loremasters recognized them from sealed vaults. Lorum thinks he invented them. Watch for NPCs alarmed by his illusions, texts or places matching his drawings, anyone asking where he "really" saw these things. #quest #dreams</li>
+<li><b>Ashmantle Clan</b>: Lorum witnessed something the Ashmantle clan will kill to protect. He doesn't know the scope. Watch for Ashmantle agents or livery, anyone who knows his real history, clan activity in the Holds. #quest #ashmantle #theron-ashmantle</li>
+<li><b>Barak Ironscribe</b>: High Priest of Aureon who strong-armed Lorum into private intelligence work. True agenda unknown; Lorum resents it. Watch for what he specifically wants reported, faction connections, whether his interest is genuinely scholarly. #quest #barak-ironscribe</li>
+<li><b>Seela Longstrider</b>: traveling minstrel with unusual Holds knowledge (clan history, unmapped passes). Meetings may not have been accidental. Watch for reactions to Lorum's information, knowledge she shouldn't have, signs of faction affiliation. #quest #seela-longstrider</li>
+<li><b>Skrix &amp; Bram</b>: Skrix Tarnblot (goblin ringleader) abandoned the troupe instantly, and Lorum wants his comeuppance. Bram the Earthmover (dwarf, genuine friend) is missing after the scatter. Watch for troupe members, Skrix schemes, word of Bram. #quest #skrix-tarnblot #bram-the-earthmover</li>
+</ul>`],
+  ["Key NPCs",`<h4>Key NPCs</h4><ul>
+<li><b>Lord Theron Ashmantle</b>: powerful enemy, holds a secret Lorum witnessed. Active, Mror Holds. THREAT. #npc #theron-ashmantle #ashmantle</li>
+<li><b>Barak Ironscribe</b>: High Priest Loremaster (Aureon), using Lorum as an intelligence asset. Mror Holds. AMBIGUOUS. #npc #barak-ironscribe</li>
+<li><b>Seela Longstrider</b>: traveling minstrel, kindred spirit, may be more than she appears. On the road. UNKNOWN. #npc #seela-longstrider</li>
+<li><b>Bram the Earthmover</b>: dwarven strongman, Lorum's genuine friend. Whereabouts unknown. ALLY. #npc #bram-the-earthmover</li>
+<li><b>Skrix Tarnblot</b>: goblin ringleader, abandoned the troupe to save himself. Whereabouts unknown. GRUDGE. #npc #skrix-tarnblot</li>
+</ul>`],
+  ["Roleplaying Tips",`<h4>Roleplaying Tips</h4><ul>
+<li><b>Charlatan reflex</b>: he lies as a survival mechanism, not cruelty; half-truths roll out before honesty. Let Charming Liar trigger naturally when caught. #roleplay</li>
+<li><b>Dreams are unknown</b>: he never connected his visions to anything real. Sincere bafflement, not mystique, when NPCs recognize his imagery from forbidden texts. #roleplay #dreams</li>
+<li><b>Watchful paranoia</b>: eyes on exits. Prefers the seat facing the door. Brief hesitation before giving his real name. Quiet and practiced, not disruptive. #roleplay</li>
+<li><b>Warms to honest folk</b>: Bram-type directness disarms him visibly. His guard drops around people who want nothing performative from him. #roleplay #bram-the-earthmover</li>
+<li><b>Gnome Obsession</b>: cannot suppress knowing and sharing Mror Holds clan histories, genealogies, old feuds. He lights up; a quirk, not a tool. #roleplay</li>
+<li><b>Resents being used</b>: accepted Barak's deal but bristles at it. Finds small ways to assert autonomy. Dry wit or quiet refusal to be grateful for things he didn't ask for. #roleplay #barak-ironscribe</li>
+</ul>`]
+];
+function noteSeedCampaign(){
+  if(lsGet(NOTE_SEED_FLAG)) return;
+  const pages=notePages().slice(), have=new Set(pages.map(p=>p.name.toLowerCase())), now=Date.now();
+  let added=0;
+  NOTE_SEED.forEach(([name,raw],i)=>{
+    if(have.has(name.toLowerCase())) return;
+    const tmp=document.createElement("div"); setHTML(tmp,raw.replace(/\n/g,""));
+    noteNormalize(tmp); noteConvertTags(tmp,null,true);
+    pages.push({id:"n"+(now-i).toString(36)+"s"+i, name, ts:now-i, html:tmp.innerHTML});   // descending ts keeps the tab's order in the newest-first list
+    added++;
+  });
+  lsSet(NOTE_SEED_FLAG,"1");
+  if(!added) return;
+  lsSet(NOTES_KEY, JSON.stringify(pages));
+  if(cloudOn){ setLocalSavedAt(now); writeCloud(now); }
+}
 function renderNotes(){
   const pane=$("#pNotes"); if(!pane) return;
   let ed=pane.querySelector(".noteed");
@@ -3983,7 +4025,7 @@ initWidgets();
 render();
 booted=true;
 initBoard();
-initCloud();
+initCloud().finally(noteSeedCampaign);
 </script>
 </body>
 </html>
