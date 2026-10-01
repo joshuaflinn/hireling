@@ -23,7 +23,7 @@ use hireling_engine::vocab::{SingleStat, Stat, StatInstances, expand};
 // ---------------------------------------------------------------------------
 
 /// The sample sheet: one strike, one caster block, two skills. Bases chosen
-/// so every total in the WEx assertions is visibly base + modifiers.
+/// so every total in the worked-example assertions is visibly `base + modifiers`.
 fn sample_base() -> BaseStats {
     BaseStats {
         schema: hireling_engine::model::BASE_SCHEMA.to_owned(),
@@ -81,11 +81,18 @@ fn effect(effect_id: i64, modifiers: Vec<Modifier>) -> ActiveEffect {
     }
 }
 
+/// One effect modifier from canonical fixture text. Fixture strings are
+/// literals in this file; a parse failure here is a fixture bug, not
+/// runtime input — hence the expect.
+#[expect(
+    clippy::expect_used,
+    reason = "fixture helper in an integration test crate: a fixture typo must fail loudly"
+)]
 fn modifier(modifier_type: ModifierType, stat: &str, value: i32) -> Modifier {
     Modifier {
         modifier_type,
         stat: Stat::parse(stat)
-            .unwrap_or_else(|err| panic!("fixture stat `{stat}` must parse: {err}"))
+            .expect("fixture stats are canonical vocabulary text")
             .stat_name(),
         value,
     }
@@ -94,7 +101,6 @@ fn modifier(modifier_type: ModifierType, stat: &str, value: i32) -> Modifier {
 /// Stack `stat_text` for the sample sheet under `effects`; the base value
 /// comes from the sheet's matching slot.
 fn stacked(
-    base: &BaseStats,
     instances: &StatInstances,
     effects: &[ActiveEffect],
     stat_text: &str,
@@ -132,7 +138,7 @@ fn stacked_global(
             .first()
             .map_or(0, |caster| caster.spell_attack),
     };
-    stacked(base, instances, effects, stat.as_str(), value)
+    stacked(instances, effects, stat.as_str(), value)
 }
 
 // ---------------------------------------------------------------------------
@@ -347,7 +353,7 @@ fn expansion_is_a_function_of_the_sheets_instances() {
             .flatten()
             .filter_map(|stat| match stat {
                 Stat::Skill(name) => Some(name),
-                _ => None,
+                Stat::Single(_) | Stat::Blanket(_) => None,
             })
             .collect(),
     };
@@ -400,18 +406,25 @@ fn wex_1_same_type_bonuses_take_the_highest_once() {
     let ac = stacked_global(&base, &instances, &effects, SingleStat::Ac);
     assert_eq!(ac.total, 18, "16 base + highest status bonus only (+2)");
     assert_eq!(ac.applied.len(), 1, "exactly one status bonus applies");
-    assert_eq!(ac.applied[0].effect_id, 1, "the +2 (lower effect id) wins");
+    assert_eq!(
+        ac.applied.first().expect("applied").effect_id,
+        1,
+        "the +2 (lower effect id) wins"
+    );
     assert_eq!(
         ac.suppressed.len(),
         1,
         "the +1 is a first-class suppressed entry"
     );
     assert_eq!(
-        ac.suppressed[0].reason,
+        ac.suppressed.first().expect("suppressed").reason,
         hireling_engine::model::SuppressionReason::SameTypeLowerBonus
     );
     assert_eq!(
-        ac.suppressed[0].suppressed_by_effect_id,
+        ac.suppressed
+            .first()
+            .expect("suppressed")
+            .suppressed_by_effect_id,
         Some(1),
         "the suppressed entry names its winner"
     );
@@ -458,7 +471,7 @@ fn wex_3_same_type_penalties_take_the_worst_once() {
         "the −1 is suppressed, not stacked"
     );
     assert_eq!(
-        will.suppressed[0].reason,
+        will.suppressed.first().expect("suppressed").reason,
         hireling_engine::model::SuppressionReason::SameTypeLighterPenalty
     );
 }
@@ -518,18 +531,18 @@ fn wex_5_frightened_hits_all_checks_and_dcs_not_damage_or_speed() {
             stat.as_str()
         );
     }
-    let spell_attack = stacked(&base, &instances, &effects, "spell_attack", 9);
-    let spell_dc = stacked(&base, &instances, &effects, "spell_dc", 19);
+    let spell_attack = stacked(&instances, &effects, "spell_attack", 9);
+    let spell_dc = stacked(&instances, &effects, "spell_dc", 19);
     assert_eq!(spell_attack.total, 7, "spell attacks are checks");
     assert_eq!(spell_dc.total, 17, "DCs take the penalty too");
-    let attack = stacked(&base, &instances, &effects, "attack", 4);
+    let attack = stacked(&instances, &effects, "attack", 4);
     assert_eq!(attack.total, 2, "attack rolls are checks");
 
     // The footprint boundary: damage and speed are NOT checks or DCs.
-    let damage = stacked(&base, &instances, &effects, "damage", -1);
+    let damage = stacked(&instances, &effects, "damage", -1);
     assert_eq!(damage.total, -1, "damage never moves under frightened");
     assert!(damage.applied.is_empty(), "no modifier may land on damage");
-    let speed = stacked(&base, &instances, &effects, "speed", 25);
+    let speed = stacked(&instances, &effects, "speed", 25);
     assert_eq!(speed.total, 25, "speed never moves under frightened");
     assert!(speed.applied.is_empty(), "no modifier may land on speed");
 }
@@ -552,18 +565,26 @@ fn wex_6_bless_vs_inspire_courage_one_status_bonus_applies() {
     assert_eq!(attack.total, 5, "4 base + 1 status (never +2)");
     assert_eq!(attack.applied.len(), 1, "one +1 status applies");
     assert_eq!(
-        attack.applied[0].effect_id, 1,
+        attack.applied.first().expect("applied").effect_id,
+        1,
         "deterministic winner: lower effect id"
     );
     assert_eq!(attack.suppressed.len(), 1, "the other +1 is suppressed");
-    assert_eq!(attack.suppressed[0].effect_name, "Inspire Courage");
     assert_eq!(
-        attack.suppressed[0].reason,
+        attack.suppressed.first().expect("suppressed").effect_name,
+        "Inspire Courage"
+    );
+    assert_eq!(
+        attack.suppressed.first().expect("suppressed").reason,
         hireling_engine::model::SuppressionReason::SameTypeTie,
         "equal values are a tie, broken by (effect_id, ord)"
     );
     assert_eq!(
-        attack.suppressed[0].suppressed_by_effect_id,
+        attack
+            .suppressed
+            .first()
+            .expect("suppressed")
+            .suppressed_by_effect_id,
         Some(1),
         "the tie loser names the stable winner"
     );
@@ -580,7 +601,7 @@ fn wex_7_untyped_bonuses_stack_fully() {
         effect(1, vec![modifier(ModifierType::Untyped, "damage", 1)]),
         effect(2, vec![modifier(ModifierType::Untyped, "damage", 2)]),
     ];
-    let damage = stacked(&base, &instances, &effects, "damage", -1);
+    let damage = stacked(&instances, &effects, "damage", -1);
     assert_eq!(
         damage.total, 2,
         "−1 flat + 1 + 2 = +2 — every untyped applies"
@@ -627,14 +648,18 @@ fn wex_9_blanket_expands_before_stacking_competes_per_stat() {
     let ac = stacked_global(&base, &instances, &effects, SingleStat::Ac);
     assert_eq!(ac.total, 14, "16 − 2 (worst status penalty only)");
     assert_eq!(ac.applied.len(), 1);
-    assert_eq!(ac.applied[0].effect_id, 1, "the blanket's −2 wins");
+    assert_eq!(
+        ac.applied.first().expect("applied").effect_id,
+        1,
+        "the blanket's −2 wins"
+    );
     assert_eq!(
         ac.suppressed.len(),
         1,
         "the direct −1 lost the same-type contest"
     );
     assert_eq!(
-        ac.suppressed[0].reason,
+        ac.suppressed.first().expect("suppressed").reason,
         hireling_engine::model::SuppressionReason::SameTypeLighterPenalty
     );
     // ...and the blanket still covers the rest of its footprint.
@@ -655,10 +680,14 @@ fn wex_10_item_bonuses_highest_once() {
     ];
     let ac = stacked_global(&base, &instances, &effects, SingleStat::Ac);
     assert_eq!(ac.total, 18, "16 + 2 item (highest once)");
-    assert_eq!(ac.applied[0].effect_id, 2, "the +2 item bonus applies");
+    assert_eq!(
+        ac.applied.first().expect("applied").effect_id,
+        2,
+        "the +2 item bonus applies"
+    );
     assert_eq!(ac.suppressed.len(), 1);
     assert_eq!(
-        ac.suppressed[0].reason,
+        ac.suppressed.first().expect("suppressed").reason,
         hireling_engine::model::SuppressionReason::SameTypeLowerBonus
     );
 }
@@ -685,7 +714,7 @@ fn wex_11_ac_is_a_dc_and_all_dcs_moves_exactly_the_dc_set() {
             dc_stat.as_str()
         );
     }
-    let spell_dc = stacked(&base, &instances, &effects, "spell_dc", 19);
+    let spell_dc = stacked(&instances, &effects, "spell_dc", 19);
     assert_eq!(spell_dc.total, 20, "spell_dc is a DC and rises");
 
     // Nothing outside the DC set moves.
@@ -703,9 +732,9 @@ fn wex_11_ac_is_a_dc_and_all_dcs_moves_exactly_the_dc_set() {
             check_stat.as_str()
         );
     }
-    let attack = stacked(&base, &instances, &effects, "attack", 4);
+    let attack = stacked(&instances, &effects, "attack", 4);
     assert_eq!(attack.total, 4, "attacks are not DCs");
-    let acrobatics = stacked(&base, &instances, &effects, "skill:acrobatics", 1);
+    let acrobatics = stacked(&instances, &effects, "skill:acrobatics", 1);
     assert_eq!(acrobatics.total, 1, "skills are not DCs");
 }
 
@@ -732,9 +761,9 @@ fn wex_12_valued_condition_sign_is_stored_polarity_data() {
             base.stats.fort - value,
             "frightened {value} must be −{value} (stored negative polarity), never a bonus"
         );
-        assert_eq!(fort.applied[0].value, -value);
+        assert_eq!(fort.applied.first().expect("applied").value, -value);
         assert!(
-            fort.applied[0].value < 0,
+            fort.applied.first().expect("applied").value < 0,
             "the sign is data: always a penalty here"
         );
     }
