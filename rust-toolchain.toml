@@ -1,3 +1,7 @@
 [toolchain]
-channel = "stable"
+# Pinned exactly, not "stable". Clippy ships new lints in every release and
+# `-D warnings` turns each one into a hard error, so a floating channel means
+# upstream's release date decides whether the gate is red — on code nobody
+# touched. Bump deliberately, in its own PR, same as the gate image digest.
+channel = "1.99.0"
 components = ["rustfmt", "clippy"]
