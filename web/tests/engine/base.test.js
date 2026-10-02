@@ -105,9 +105,7 @@ test('strike traits resolve through item_traits: an agile finesse weapon on a De
   ];
   // The server keys this map by the sheet's OWN spelling — item_trait_map
   // emits {"Rapier": [...]} and the Rust integration test asserts that
-  // exact casing. This payload must match the production shape: a
-  // lowercased key here passed while the live seam was open (review
-  // round 2, MOR-59) and is how the break shipped once already.
+  // exact casing, so this payload must match the production shape.
   const sheet = derive(
     {
       id: 7,

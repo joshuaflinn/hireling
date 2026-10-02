@@ -237,12 +237,10 @@ export function deriveBase(character, liveState = {}) {
 
   // ---- Strikes: the weapons table + unarmed Fist. Attack math per the
   // prototype (finesse → best of Str/Dex); MAP is −5/−10, agile −4/−8.
-  // Traits come from the corpus through the bootstrap's `item_traits` map
-  // (review finding 7 — the hardcoded two-entry table died here); the
-  // unarmed Fist is not a corpus item and keeps its fixed trait row.
+  // Traits come from the corpus through the bootstrap's `item_traits` map;
+  // the unarmed Fist is not a corpus item and keeps its fixed trait row.
   // The map is keyed by the sheet's OWN spelling — `item_trait_map` keys
-  // each requested name as the sheet writes it (review round 2, MOR-59:
-  // a lowercased lookup missed every key). Same convention as bulk.js.
+  // each requested name as the sheet writes it. Same convention as bulk.js.
   const damageTypeNames = /** @type {Record<string, string>} */ ({
     B: 'bludgeoning',
     P: 'piercing',

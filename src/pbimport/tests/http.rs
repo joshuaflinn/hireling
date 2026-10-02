@@ -431,7 +431,7 @@ async fn imported_with_corpus() -> Option<(axum::Router, sqlx::PgPool, String, V
 
     // "Staff" is a WEAPON on the reference fixture (`build.weapons`, not
     // equipment). Seeding it here fails the bootstrap tests if the corpus
-    // query ever drops weapon names again (review round 2, MOR-59).
+    // query ever drops weapon names again.
     for (name, bulk, traits) in [
         ("Backpack", 0.1, vec!["backpack"]),
         ("chalk", 0.0, vec!["consumable"]),
