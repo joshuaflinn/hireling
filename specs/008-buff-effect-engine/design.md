@@ -30,7 +30,8 @@
                     └───────────▲───────────────────────────────▲───────────────────────────┘
                                 │ types                          │ types
 ┌────────────────────────── src/engine_host/ (binary crate) ─────┴───────────────────────────┐
-│  extract.rs   base_sheet + vitals(level_adjust) + lores → BaseStats (math table below)     │
+│  extract.rs   base_sheet + vitals(level_adjust) + lores → BaseStats        │
+│               (+ the contract's render_base, same inputs, same module)     │
 │  load.rs      effects + effect_targets + effect_modifiers + corpus rows → ActiveEffect[]    │
 │  apply.rs     condition mapping resolution (constant | condition_value × polarity)          │
 │  recompute.rs party state → EngineOutput per character (calls engine crate)                 │
@@ -69,6 +70,18 @@ extractor derives it:
 | `strikes[].attack` / `.damage_flat` | verbatim | `weapons[].attack`, `.damageBonus` |
 | `casters[].spell_attack` | `eff_level·(rank≥1) + abil_mod + prof_bonus(rank)` per block | `spellcasters[].{ability,proficiency}` |
 | `casters[].spell_dc` | `spell_attack + 10` per block | same |
+| `casters[].innate` | verbatim | `spellcasters[].innate` |
+| `render_base.level` | `eff_level` (clamped 1..20) | `identity.level`, `vitals.level_adjust` |
+| `render_base.hp_max` | `ancestryhp + bonushp + (classhp + con_mod + bonushp_per_level) × eff_level` — the prototype's formula (deviation below) | `hp.{ancestryhp,bonushp,classhp,bonushp_per_level}`, `abilities.con` |
+| `render_base.focus_max` | verbatim, `?? 0` | `base_sheet.focus_points` |
+| `render_base.hero_max` | constant 3 at POC | — |
+| `render_base.cantrip_rank` | `⌈eff_level / 2⌉` | `identity.level`, `vitals.level_adjust` |
+| `render_base.attributes` | `⌊(score − 10) / 2⌋` per ability | `abilities.{str,dex,con,int,wis,cha}` |
+| `strikes[].label` | `display || name` | `weapons[].{display,name}` |
+| `strikes[].map` | 4 agile, else 5 | bootstrap trait-chip map (`Agile`) |
+| `strikes[].damage_expr` | `die + signed(damageBonus)`, as rendered | `weapons[].{die,damageBonus}` |
+| `strikes[].damage_type` / `.damage_type_name` | verbatim code + its display name | `weapons[].damageType`, damage-type name map |
+| `strikes[].traits` | verbatim chip names | bootstrap trait-chip map |
 
 Where `eff_level = identity.level + vitals.level_adjust` (clamped 1..20),
 `abil_mod = ⌊(score − 10) / 2⌋`, `prof_bonus: 0→+0 (no level), 1→+2,
@@ -83,6 +96,23 @@ string; the engine output carries `damage_flat` (the number a flat damage
 modifier adjusts), keyed by strike `key = name` (E5's verbatim weapon
 objects; duplicate weapon names get a stable `name#2` suffix rule in the
 extractor, tested).
+
+The `render_base` rows and the strike/caster display fields are render
+inputs, not modifier-bearing stats — they ride the same extraction (D3) and
+the same golden test, and live outside `derived` per the contract (§3:
+closed `StatName`, no provenance, no hover).
+
+**`hp_max` deviation, named — the sharp edge.** The prototype applies
+Constitution and per-level bonuses at *every* level (the PF2e rule;
+prototype `computeCtx` line 1380, named out loud in the base-only adapter's
+header, `web/src/lib/engine/base.js:11–15`), while E5's stored
+`base_sheet.hp.max_hp` anchors the export's own CON-less formula. Per E6
+design §4 the sheet renders the prototype's number and the stored anchor
+stays untouched. The extractor therefore adopts the prototype's formula,
+and the **existing extraction golden test** covers it: reference export →
+the prototype's rendered numbers for Lorum Ipsum; a mismatch adjusts this
+table, never patches a value. Miss this and the HP ceiling and the sheet's
+"Full" button silently change the day the base-only adapter is deleted.
 
 ## Recompute and the wire (D4–D6)
 
