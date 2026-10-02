@@ -4,8 +4,9 @@
 // skip of "doomed" ops — the server owns every verdict. Ops ride a JSON array
 // under `hireling:queue:{accountSub}` so a reload (or a service-worker
 // replay) picks up exactly what was enqueued, FIFO, unbounded. Storage is the
-// three-function interface from design.md (`getItem`/`setItem`) so
-// `node --test` runs without a DOM; the browser hands us `localStorage`.
+// three-function interface from design.md (`getItem`/`setItem`) so the unit
+// tests hand it a fake instead of touching real storage; the browser gives
+// us `localStorage`.
 //
 // Per-account keying is the boundary: one user's queue can never replay
 // another's (logout/re-login with a non-empty queue is an E10 first-run
