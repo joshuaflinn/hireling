@@ -11,7 +11,9 @@
 //! (`tests/extract_golden.rs`) pins every number against the prototype's
 //! rendered values; the prototype is display truth.
 
-use hireling_engine::model::{BASE_SCHEMA, BaseStats, CasterBase, SkillBase, Stats, StrikeBase};
+use hireling_engine::model::{
+    Attributes, BASE_SCHEMA, BaseStats, CasterBase, RenderBase, SkillBase, Stats, StrikeBase,
+};
 use hireling_engine::vocab::{CORE_SKILL_ABILITY, CORE_SKILLS};
 
 use crate::pbimport::transform::BaseSheet;
@@ -24,10 +26,11 @@ pub fn extract(sheet: &BaseSheet, level_adjust: i64) -> BaseStats {
     let eff_level = (sheet.identity.level + level_adjust).clamp(1, 20);
 
     let abilities = &sheet.abilities;
+    let con_mod = ability_mod(abilities.con);
     let mod_of = |ability: &str| match ability {
         "str" => i32_of(ability_mod(abilities.str)),
         "dex" => i32_of(ability_mod(abilities.dex)),
-        "con" => i32_of(ability_mod(abilities.con)),
+        "con" => i32_of(con_mod),
         "int" => i32_of(ability_mod(abilities.int)),
         "wis" => i32_of(ability_mod(abilities.wis)),
         "cha" => i32_of(ability_mod(abilities.cha)),
@@ -51,6 +54,12 @@ pub fn extract(sheet: &BaseSheet, level_adjust: i64) -> BaseStats {
 
     let strikes = strike_bases(sheet, &ranks, eff_level);
 
+    // Render inputs with no modifier math (contract §3 render_base, design
+    // D3). hp_max is the PROTOTYPE's formula — CON and the per-level bonus
+    // count at every level, unlike the stored `hp.max_hp` anchor (the
+    // deviation is named in D3; the golden pins 32 for the reference).
+    let render_base = render_base_of(sheet, con_mod, eff_level);
+
     let casters = sheet
         .spellcasters
         .iter()
@@ -72,6 +81,7 @@ pub fn extract(sheet: &BaseSheet, level_adjust: i64) -> BaseStats {
                 caster_key: caster.caster_key.clone(),
                 spell_attack,
                 spell_dc: spell_attack + 10,
+                innate: caster.innate,
             }
         })
         .collect();
@@ -108,6 +118,34 @@ pub fn extract(sheet: &BaseSheet, level_adjust: i64) -> BaseStats {
             strikes,
             casters,
             skills,
+        },
+        render_base,
+    }
+}
+
+/// The modifier-free render inputs (contract §3 `render_base`, design D3):
+/// computed once per character, copied to the output verbatim. `con_mod`
+/// is the ability modifier already resolved by the caller; the hp ceiling
+/// is the PROTOTYPE's formula — CON and the per-level bonus count at
+/// every level, unlike the stored `hp.max_hp` anchor.
+fn render_base_of(sheet: &BaseSheet, con_mod: i64, eff_level: i64) -> RenderBase {
+    RenderBase {
+        level: i32_of(eff_level),
+        hp_max: i32_of(
+            sheet.hp.ancestryhp
+                + sheet.hp.bonushp
+                + (sheet.hp.classhp + con_mod + sheet.hp.bonushp_per_level) * eff_level,
+        ),
+        focus_max: i32_of(sheet.focus_points),
+        hero_max: 3,
+        cantrip_rank: i32_of((eff_level + 1) / 2),
+        attributes: Attributes {
+            r#str: i32_of(ability_mod(sheet.abilities.str)),
+            dex: i32_of(ability_mod(sheet.abilities.dex)),
+            con: i32_of(con_mod),
+            int: i32_of(ability_mod(sheet.abilities.int)),
+            wis: i32_of(ability_mod(sheet.abilities.wis)),
+            cha: i32_of(ability_mod(sheet.abilities.cha)),
         },
     }
 }
@@ -211,13 +249,11 @@ fn strike_bases(
     let Some(weapons) = sheet.weapons.as_ref().and_then(serde_json::Value::as_array) else {
         // No weapons: the sheet still renders the unarmed Fist.
         let flat = str_mod + mastery_damage(rank_of("unarmed"), eff_level);
-        return vec![StrikeBase {
-            key: "Fist".to_owned(),
-            label: "Fist".to_owned(),
-            attack: str_mod.max(dex_mod) + pb(rank_of("unarmed")),
-            damage: roll_string("d4", flat),
-            damage_flat: flat,
-        }];
+        return vec![fist_row(
+            "Fist",
+            str_mod.max(dex_mod) + pb(rank_of("unarmed")),
+            flat,
+        )];
     };
     let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut strikes: Vec<StrikeBase> = weapons
@@ -234,7 +270,10 @@ fn strike_bases(
             } else {
                 format!("{name}#{seen}")
             };
-            let traits = weapon_traits(name);
+            let traits = weapon_traits(name)
+                .iter()
+                .map(|trait_name| (*trait_name).to_owned())
+                .collect::<Vec<String>>();
             let rank = rank_of(
                 weapon
                     .get("prof")
@@ -245,7 +284,7 @@ fn strike_bases(
                 .get("pot")
                 .and_then(serde_json::Value::as_i64)
                 .unwrap_or(0);
-            let ability_mod_used = if traits.contains(&"Finesse") {
+            let ability_mod_used = if traits.iter().any(|trait_name| trait_name == "Finesse") {
                 str_mod.max(dex_mod)
             } else {
                 str_mod
@@ -261,12 +300,20 @@ fn strike_bases(
                 .and_then(serde_json::Value::as_str)
                 .filter(|display| !display.is_empty())
                 .unwrap_or(name);
+            let damage_type = weapon
+                .get("damageType")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
             StrikeBase {
                 key,
                 label: label.to_owned(),
                 attack,
                 damage: roll_string(die, damage_flat),
                 damage_flat,
+                map: map_step(&traits),
+                damage_type: damage_type.to_owned(),
+                damage_type_name: damage_type_name_of(damage_type).to_owned(),
+                traits,
             }
         })
         .collect();
@@ -279,14 +326,32 @@ fn strike_bases(
     };
     let unarmed = rank_of("unarmed");
     let unarmed_flat = str_mod + mastery_damage(unarmed, eff_level);
-    strikes.push(StrikeBase {
-        key,
-        label: "Fist".to_owned(),
-        attack: str_mod.max(dex_mod) + pb(unarmed),
-        damage: roll_string("d4", unarmed_flat),
-        damage_flat: unarmed_flat,
-    });
+    strikes.push(fist_row(
+        &key,
+        str_mod.max(dex_mod) + pb(unarmed),
+        unarmed_flat,
+    ));
     strikes
+}
+
+/// The unarmed Fist row the sheet always renders (prototype line 1419):
+/// d4, best of Str/Dex, the fixed unarmed trait row, Agile MAP step.
+fn fist_row(key: &str, attack: i32, flat: i32) -> StrikeBase {
+    let traits: Vec<String> = weapon_traits("Fist")
+        .iter()
+        .map(|trait_name| (*trait_name).to_owned())
+        .collect();
+    StrikeBase {
+        key: key.to_owned(),
+        label: "Fist".to_owned(),
+        attack,
+        damage: roll_string("d4", flat),
+        damage_flat: flat,
+        map: map_step(&traits),
+        damage_type: "B".to_owned(),
+        damage_type_name: "bludgeoning".to_owned(),
+        traits,
+    }
 }
 
 /// Weapon traits at POC — the prototype's WEAPONS table rows the
@@ -314,18 +379,37 @@ fn mastery_damage(rank: i64, level: i64) -> i32 {
     }
 }
 
-/// The sheet's damage roll string: `d4` → `1d4`, `+N`/`-N` appended when
-/// the flat bonus is nonzero. Rendered verbatim downstream, never parsed.
-fn roll_string(die: &str, bonus: i32) -> String {
-    let dice_text = if die.starts_with('d') {
-        format!("1{die}")
+/// The MAP STEP a strike row renders: Agile strikes step by 4, all others
+/// by 5 (the row shows `−step / −2·step`).
+fn map_step(traits: &[String]) -> i32 {
+    if traits.iter().any(|trait_name| trait_name == "Agile") {
+        4
     } else {
-        die.to_owned()
-    };
+        5
+    }
+}
+
+/// The export's damage-type letter and its display name — the sheet renders
+/// the name (`damage B` → `bludgeoning`); an unknown code renders as itself.
+fn damage_type_name_of(code: &str) -> &str {
+    match code {
+        "B" => "bludgeoning",
+        "P" => "piercing",
+        "S" => "slashing",
+        other => other,
+    }
+}
+
+/// The sheet's damage expression, exactly as rendered: the export's die
+/// VERBATIM (`d4`, no `1` prepended — base.js renders `weapon.die` as-is)
+/// plus the signed flat — `+N`, or `−N` with the typographic minus
+/// (U+2212, the sheet's convention); a zero flat renders the bare die.
+/// Rendered verbatim downstream, never parsed.
+fn roll_string(die: &str, bonus: i32) -> String {
     match bonus.cmp(&0) {
-        std::cmp::Ordering::Greater => format!("{dice_text}+{bonus}"),
-        std::cmp::Ordering::Less => format!("{dice_text}{bonus}"),
-        std::cmp::Ordering::Equal => dice_text,
+        std::cmp::Ordering::Greater => format!("{die}+{bonus}"),
+        std::cmp::Ordering::Less => format!("{die}\u{2212}{}", bonus.unsigned_abs()),
+        std::cmp::Ordering::Equal => die.to_owned(),
     }
 }
 

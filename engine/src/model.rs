@@ -51,8 +51,9 @@ pub struct ActiveEffect {
     pub tracked_manually: bool,
 }
 
-/// A strike's base values (contract §1): the attack total, the damage roll
-/// string the sheet renders, and the flat part a damage modifier adjusts.
+/// A strike's base values (contract §1): the attack total, the flat part a
+/// damage modifier adjusts, and the render inputs the row displays
+/// (contract §3 rides them on the strike object — no parallel array).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StrikeBase {
     /// Sheet-stable key (the weapon name; duplicates get `name#2` — E5).
@@ -60,10 +61,21 @@ pub struct StrikeBase {
     /// Display name.
     pub label: String,
     pub attack: i32,
-    /// Roll expression, e.g. `"1d4+3"` — rendered verbatim, never parsed.
+    /// The damage expression as the sheet renders it — the export's die
+    /// verbatim plus the signed flat (`"d4−1"`, U+2212 negative), never
+    /// parsed. The extract golden pins the reference's exact strings.
     pub damage: String,
-    /// The numeric flat part of `damage` (the `+3`).
+    /// The numeric flat part of `damage` (the `−1`).
     pub damage_flat: i32,
+    /// The multiple-attack-penalty STEP: 4 for Agile strikes, else 5
+    /// (the row renders `−map / −2·map`).
+    pub map: i32,
+    /// The export's damage-type letter code (`"B"`).
+    pub damage_type: String,
+    /// Its display name (`"bludgeoning"`).
+    pub damage_type_name: String,
+    /// Trait chip names, verbatim (the POC weapon-trait map).
+    pub traits: Vec<String>,
 }
 
 /// One caster block's base values (contract §1), per block instance (Q1).
@@ -81,6 +93,9 @@ pub struct CasterBase {
     pub caster_key: String,
     pub spell_attack: i32,
     pub spell_dc: i32,
+    /// Verbatim from the block (contract §3): an innate caster ranks by her
+    /// own block, and the sheet renders the badge.
+    pub innate: bool,
 }
 
 /// The sheet's stat block (contract §1 `stats`). `class_dc` is `None` when
@@ -104,13 +119,53 @@ pub struct Stats {
 }
 
 /// Engine input, per character (contract §1): one resolved base value per
-/// stat instance, plain data.
+/// stat instance, plain data — plus the render inputs that carry no
+/// modifier math and ride the same extraction (design D3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BaseStats {
     pub schema: String,
     /// `base_sheet.identity.level + live level_adjust`, clamped 1..=20.
     pub level: i32,
     pub stats: Stats,
+    /// Render inputs with no modifier math (contract §3 `render_base`):
+    /// computed by the extractor, copied to the output verbatim. Defaults
+    /// so older in-process JSON still parses; the extractor always sets it.
+    #[serde(default)]
+    pub render_base: RenderBase,
+}
+
+/// The six ability MODIFIERS (`⌊(score − 10) / 2⌋`), render inputs only —
+/// no modifier can target them (closed `StatName`), so no provenance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Attributes {
+    pub r#str: i32,
+    pub dex: i32,
+    pub con: i32,
+    pub int: i32,
+    pub wis: i32,
+    pub cha: i32,
+}
+
+/// Render inputs with no modifier math (contract §3 `render_base`): the
+/// extractor computes them server-side; consumers render, never compute.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct RenderBase {
+    /// Effective display level (clamped 1..=20) — same value as
+    /// [`BaseStats::level`], carried so the render input set is complete.
+    pub level: i32,
+    /// The prototype's formula: ancestry + bonus HP, plus (class HP +
+    /// CON mod + per-level bonus) at EVERY level — unlike the stored
+    /// `base_sheet.hp.max_hp` anchor (which floors the per-level term at
+    /// the export level); the deviation is named in design D3 and pinned
+    /// by the extraction golden.
+    pub hp_max: i32,
+    /// Verbatim `base_sheet.focus_points`.
+    pub focus_max: i32,
+    /// Constant 3 at POC (Hero Points).
+    pub hero_max: i32,
+    /// `⌈level / 2⌉` — the cantrip rank the spell slots pane renders.
+    pub cantrip_rank: i32,
+    pub attributes: Attributes,
 }
 
 impl BaseStats {
@@ -200,10 +255,25 @@ pub struct NullableStatOutput {
     pub suppressed: Vec<SuppressedEntry>,
 }
 
-/// One strike's derived output (contract §3): attack and flat damage.
+/// One strike's derived output (contract §3): attack and flat damage, plus
+/// the display fields the row renders — riding the strike object, verbatim
+/// passthrough from the input (no math, no provenance).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StrikeOutput {
     pub key: String,
+    /// Display name.
+    pub label: String,
+    /// MAP step (4 Agile, else 5) — the row renders `−map / −2·map`.
+    pub map: i32,
+    /// The damage expression as rendered (`"d4−1"`), verbatim from the
+    /// input — never parsed, never recomputed.
+    pub damage_expr: String,
+    /// The export's damage-type letter code.
+    pub damage_type: String,
+    /// Its display name.
+    pub damage_type_name: String,
+    /// Trait chip names, verbatim.
+    pub traits: Vec<String>,
     pub attack: StatOutput,
     pub damage_flat: StatOutput,
 }
@@ -212,6 +282,8 @@ pub struct StrikeOutput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CasterOutput {
     pub caster_key: String,
+    /// Verbatim from the block — the sheet's innate badge.
+    pub innate: bool,
     pub spell_attack: StatOutput,
     pub spell_dc: StatOutput,
 }
@@ -264,11 +336,16 @@ pub struct Chip {
 
 /// The engine's total output for one character (contract §3 — THE binding
 /// shape). `derived` carries every number the sheet renders with its full
-/// math; `effects` carries the chips. Consumers render; nobody computes.
+/// math; `effects` carries the chips; `render_base` the modifier-free
+/// render inputs. Consumers render; nobody computes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EngineOutput {
     pub schema: String,
     pub character_id: i64,
     pub derived: Derived,
     pub effects: Vec<Chip>,
+    /// Render inputs with no modifier math (contract §3 `render_base`) —
+    /// outside `derived` deliberately: closed `StatName`, no provenance, no
+    /// hover. Verbatim from the extraction.
+    pub render_base: RenderBase,
 }

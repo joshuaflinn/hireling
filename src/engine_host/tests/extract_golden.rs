@@ -115,26 +115,71 @@ fn golden_strikes_and_casters_match_the_prototype() {
         "str −1 + trained 2+3 + pot 0 — the export's verbatim 4 coincides"
     );
     assert_eq!(
-        staff.damage, "1d4-1",
-        "die + re-derived flat (str −1) as the roll string"
+        staff.damage, "d4−1",
+        "the die VERBATIM + signed flat (str −1, U+2212) — the sheet's rendered string"
     );
     assert_eq!(staff.damage_flat, -1, "str + mastery(2, 3) = −1");
+    assert_eq!(staff.map, 5, "not Agile: −5/−10");
+    assert_eq!(staff.damage_type, "B");
+    assert_eq!(staff.damage_type_name, "bludgeoning");
+    assert_eq!(staff.traits, vec!["Monk", "Two-Hand d8"], "POC trait map");
     let fist = base.stats.strikes.get(1).expect("fist strike");
     assert_eq!(fist.key, "Fist");
     assert_eq!(fist.label, "Fist");
     assert_eq!(fist.attack, 6, "best(str,dex) = dex 1 + trained 2+3");
-    assert_eq!(fist.damage, "1d4-1", "d4 + str −1");
+    assert_eq!(fist.damage, "d4−1", "d4 + str −1");
     assert_eq!(fist.damage_flat, -1);
+    assert_eq!(fist.map, 4, "Agile: −4/−8");
+    assert_eq!(
+        fist.traits,
+        vec!["Agile", "Finesse", "Nonlethal", "Unarmed"],
+        "the fixed unarmed trait row"
+    );
 
     assert_eq!(base.stats.casters.len(), 2);
     let wizard = base.stats.casters.first().expect("wizard");
     assert_eq!(wizard.caster_key, "Wizard");
     assert_eq!(wizard.spell_attack, 9, "int 4 + trained 2+3");
     assert_eq!(wizard.spell_dc, 19, "spell_attack + 10");
+    assert!(!wizard.innate, "prepared block");
     let gnome = base.stats.casters.get(1).expect("gnome");
     assert_eq!(gnome.caster_key, "Wellspring Gnome");
     assert_eq!(gnome.spell_attack, 8, "cha 3 + trained 2+3 (innate)");
     assert_eq!(gnome.spell_dc, 18);
+    assert!(gnome.innate, "the innate badge rides the block verbatim");
+}
+
+/// Prototype parity for the modifier-free render inputs (contract §3
+/// `render_base`, design D3). `hp_max` is the PROTOTYPE's formula — CON and
+/// the per-level bonus at every level — pinned at the same values
+/// base.test.js pins for the swap's byte-identical check.
+#[test]
+fn golden_render_base_matches_the_prototype() {
+    let base = extract(&reference_sheet(), 0);
+    assert_eq!(base.render_base.level, 3);
+    assert_eq!(
+        base.render_base.hp_max, 32,
+        "8 + (6 + CON 2) × 3 — CON counts at every level"
+    );
+    assert_eq!(base.render_base.focus_max, 1, "focusPoints verbatim");
+    assert_eq!(base.render_base.hero_max, 3, "constant 3 at POC");
+    assert_eq!(base.render_base.cantrip_rank, 2, "⌈3 / 2⌉");
+    let attributes = base.render_base.attributes;
+    assert_eq!(attributes.r#str, -1);
+    assert_eq!(attributes.dex, 1);
+    assert_eq!(attributes.con, 2);
+    assert_eq!(attributes.int, 4);
+    assert_eq!(attributes.wis, 0);
+    assert_eq!(attributes.cha, 3);
+
+    // The hp ceiling re-derives with eff_level; the clamp holds at 20.
+    assert_eq!(extract(&reference_sheet(), 1).render_base.hp_max, 40);
+    assert_eq!(extract(&reference_sheet(), -2).render_base.hp_max, 16);
+    assert_eq!(extract(&reference_sheet(), -2).render_base.cantrip_rank, 1);
+    assert_eq!(extract(&reference_sheet(), 2).render_base.cantrip_rank, 3);
+    let at_twenty = extract(&reference_sheet(), 17);
+    assert_eq!(at_twenty.render_base.level, 20, "clamped");
+    assert_eq!(at_twenty.render_base.hp_max, 168, "8 + 8 × 20");
 }
 
 // -- level_adjust ±1 asserts the design table (not the prototype) --
@@ -238,7 +283,7 @@ fn duplicate_weapon_names_get_stable_suffixes() {
         second.attack, 0,
         "re-derived: no proficiencies table (untrained), str ±0, no pot — verbatim 3 ignored"
     );
-    assert_eq!(second.damage, "1d8", "re-derived flat 0: bare die");
+    assert_eq!(second.damage, "d8", "re-derived flat 0: bare die, verbatim");
     assert_eq!(second.damage_flat, 0);
     let fist = base.stats.strikes.get(2).expect("fist");
     assert_eq!(fist.key, "Fist");

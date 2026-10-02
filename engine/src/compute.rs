@@ -69,6 +69,7 @@ pub fn compute(
         character_id,
         derived,
         effects: chips,
+        render_base: base.render_base,
     }
 }
 
@@ -126,42 +127,8 @@ fn derived_for(base: &BaseStats, groups: &BTreeMap<StatRef, Vec<&Candidate>>) ->
             ),
             base.stats.class_dc,
         ),
-        strikes: base
-            .stats
-            .strikes
-            .iter()
-            .map(|strike| StrikeOutput {
-                key: strike.key.clone(),
-                attack: stat_output(stacked_for(
-                    groups,
-                    &StatRef::StrikeAttack(strike.key.clone()),
-                    strike.attack,
-                )),
-                damage_flat: stat_output(stacked_for(
-                    groups,
-                    &StatRef::StrikeDamage(strike.key.clone()),
-                    strike.damage_flat,
-                )),
-            })
-            .collect(),
-        casters: base
-            .stats
-            .casters
-            .iter()
-            .map(|caster| CasterOutput {
-                caster_key: caster.caster_key.clone(),
-                spell_attack: stat_output(stacked_for(
-                    groups,
-                    &StatRef::CasterSpellAttack(caster.caster_key.clone()),
-                    caster.spell_attack,
-                )),
-                spell_dc: stat_output(stacked_for(
-                    groups,
-                    &StatRef::CasterSpellDc(caster.caster_key.clone()),
-                    caster.spell_dc,
-                )),
-            })
-            .collect(),
+        strikes: strike_outputs(base, groups),
+        casters: caster_outputs(base, groups),
         skills: base
             .stats
             .skills
@@ -200,6 +167,63 @@ fn stat_output(stacked: StackedStat) -> StatOutput {
         applied: stacked.applied,
         suppressed: stacked.suppressed,
     }
+}
+
+/// One strike output per input strike, in order: the display fields ride
+/// verbatim (no math, no provenance); attack and flat damage stack.
+fn strike_outputs(
+    base: &BaseStats,
+    groups: &BTreeMap<StatRef, Vec<&Candidate>>,
+) -> Vec<StrikeOutput> {
+    base.stats
+        .strikes
+        .iter()
+        .map(|strike| StrikeOutput {
+            key: strike.key.clone(),
+            label: strike.label.clone(),
+            map: strike.map,
+            damage_expr: strike.damage.clone(),
+            damage_type: strike.damage_type.clone(),
+            damage_type_name: strike.damage_type_name.clone(),
+            traits: strike.traits.clone(),
+            attack: stat_output(stacked_for(
+                groups,
+                &StatRef::StrikeAttack(strike.key.clone()),
+                strike.attack,
+            )),
+            damage_flat: stat_output(stacked_for(
+                groups,
+                &StatRef::StrikeDamage(strike.key.clone()),
+                strike.damage_flat,
+            )),
+        })
+        .collect()
+}
+
+/// One caster output per input block, in order: `innate` rides verbatim;
+/// spell attack and DC stack.
+fn caster_outputs(
+    base: &BaseStats,
+    groups: &BTreeMap<StatRef, Vec<&Candidate>>,
+) -> Vec<CasterOutput> {
+    base.stats
+        .casters
+        .iter()
+        .map(|caster| CasterOutput {
+            caster_key: caster.caster_key.clone(),
+            innate: caster.innate,
+            spell_attack: stat_output(stacked_for(
+                groups,
+                &StatRef::CasterSpellAttack(caster.caster_key.clone()),
+                caster.spell_attack,
+            )),
+            spell_dc: stat_output(stacked_for(
+                groups,
+                &StatRef::CasterSpellDc(caster.caster_key.clone()),
+                caster.spell_dc,
+            )),
+        })
+        .collect()
 }
 
 /// A nullable slot as contract output: nulls carried through (nothing
