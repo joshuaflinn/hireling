@@ -55,6 +55,9 @@ async fn response_body(response: axum::response::Response) -> String {
     String::from_utf8(bytes.to_vec()).unwrap()
 }
 
+#[path = "engine_rest.rs"]
+mod engine_rest;
+
 /// The value of the first `Set-Cookie` header whose cookie is named `name`.
 fn set_cookie_value(response: &axum::response::Response, name: &str) -> Option<String> {
     response

@@ -250,6 +250,13 @@ async fn send_intro(
             return false;
         }
     };
+    let derived = match crate::engine_host::recompute::party_derived(pool, party_id).await {
+        Ok(derived) => derived,
+        Err(err) => {
+            tracing::error!(error = %err, party_id, "snapshot derived failed; closing session");
+            return false;
+        }
+    };
     let bytes = match crate::sync::snapshot::snapshot_bytes(&fields) {
         Ok(bytes) => bytes,
         Err(err) => {
@@ -264,6 +271,7 @@ async fn send_intro(
         &ServerFrame::Snapshot {
             fields,
             snapshot_bytes: bytes,
+            derived: derived.into_iter().map(Box::new).collect(),
         },
     )
     .await
@@ -370,20 +378,53 @@ async fn handle_write(
     // outbound sink cannot hold the party's committed diff hostage (spec
     // FR-3, scenario 2). Only then is the ack attempted; a stalled or
     // vanished writer delays (worst case forever) only its own ack, never
-    // the party's view.
+    // the party's view. Effect ops replace the default (target, op.value)
+    // echo with the write path's RESOLVED row — a corpus-condition create
+    // fans out the applied signed modifiers, and a create's address is the
+    // new effect id (E8).
     if result.outcome == Outcome::Applied
         && let Some(version) = result.version
     {
+        let (field, value) = result.broadcast.unwrap_or((target.clone(), value));
         ctx.registry.broadcast(
             party_id,
             &ServerFrame::Diff {
-                field: target.clone(),
+                field,
                 value,
                 version,
                 actor_sub: actor.sub.clone(),
                 op_id: Some(op_id.clone()),
             },
         );
+        // The derived consequence fans out AFTER the diff that caused it —
+        // TCP-ordered per connection, so every client applies the effect
+        // change and its math in sequence (design §bump). One recompute per
+        // affected character; a failed recompute logs loudly and skips the
+        // frame — a reconnecting client heals from the snapshot's derived
+        // array, so nothing is silently lost.
+        for character_id in &result.affected {
+            match crate::engine_host::recompute::recompute_character(ctx.pool, *character_id).await
+            {
+                Ok(output) => {
+                    ctx.registry.broadcast(
+                        party_id,
+                        &ServerFrame::Derived {
+                            character_id: *character_id,
+                            output: Box::new(output),
+                        },
+                    );
+                }
+                Err(err) => {
+                    tracing::error!(
+                        error = %err,
+                        party_id,
+                        character_id,
+                        op_id = %op_id,
+                        "derived recompute failed; frame skipped (snapshot heals)"
+                    );
+                }
+            }
+        }
         // t1: post-fan-out. Contract §7 — one structured event per applied
         // write, feeding the /metrics/sync window.
         let dispatch_ms = t0.elapsed().as_secs_f64() * 1000.0;

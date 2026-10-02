@@ -1,8 +1,9 @@
-//! Wire protocol frames for the party sync socket — E7.
-//!
+//! Wire protocol frames for the party sync socket — E7, extended by E8
+//! (gh#10): effect write frames (`effect_new` create / `effect` update+end)
+//! and the `derived` frame per wire-protocol.md §8's named extension point.
 //! The types here are the contract: `specs/007-party-sync/contracts/wire-protocol.md`
 //! §2's shapes, verbatim (tag `"t"`, `snake_case` fields). Decode is deny-by-default:
-//! unknown frame types and effect writes are errors before any handler runs.
+//! unknown frame types are errors before any handler runs.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -32,6 +33,12 @@ pub enum FieldTarget {
     },
     Effect {
         effect_id: i64,
+    },
+    /// Effect CREATE (E8): the effect does not exist yet, so the target is
+    /// the party it lands in; the new row's id is minted on apply and all
+    /// later addressing uses [`FieldTarget::Effect`].
+    EffectNew {
+        party_id: i64,
     },
 }
 
@@ -93,27 +100,17 @@ pub enum ClientFrame {
 
 impl ClientFrame {
     /// Decode one JSON text frame. Deny-by-default: malformed JSON, unknown
-    /// `"t"` tags, incomplete writes, and effect writes (E8's extension
-    /// point, named distinctly) are all errors here — nothing reaches a
-    /// handler unvalidated.
+    /// `"t"` tags, and incomplete writes are errors here — nothing reaches a
+    /// handler unvalidated. Effect writes decode since E8 (wire-protocol.md
+    /// §8's extension realized); their per-op validation lives in the write
+    /// path's bounds table, which owns the `rejected` reasons.
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolError::EffectWritesDeferred`] for `kind:"effect"`
-    /// writes; [`ProtocolError::Malformed`] for anything else that is not a
+    /// Returns [`ProtocolError::Malformed`] for anything that is not a
     /// valid client frame.
     pub fn decode(raw: &str) -> Result<Self, ProtocolError> {
-        let value: JsonValue = serde_json::from_str(raw).map_err(ProtocolError::Malformed)?;
-        let is_effect_write = value.get("t").and_then(JsonValue::as_str) == Some("write")
-            && value
-                .get("target")
-                .and_then(|target| target.get("kind"))
-                .and_then(JsonValue::as_str)
-                == Some("effect");
-        if is_effect_write {
-            return Err(ProtocolError::EffectWritesDeferred);
-        }
-        serde_json::from_value(value).map_err(ProtocolError::Malformed)
+        serde_json::from_str(raw).map_err(ProtocolError::Malformed)
     }
 }
 
@@ -122,19 +119,12 @@ impl ClientFrame {
 pub enum ProtocolError {
     /// Not valid JSON, an unknown `"t"`, or a shape no frame type defines.
     Malformed(serde_json::Error),
-    /// A `kind:"effect"` write: the protocol carries effects read-only in
-    /// E7; write semantics are E8's (contract §8) — denied with its own
-    /// reason, never silently mangled into "malformed".
-    EffectWritesDeferred,
 }
 
 impl std::fmt::Display for ProtocolError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Malformed(err) => write!(f, "malformed frame: {err}"),
-            Self::EffectWritesDeferred => {
-                write!(f, "effect writes are deferred to E8")
-            }
         }
     }
 }
@@ -143,7 +133,6 @@ impl std::error::Error for ProtocolError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Malformed(err) => Some(err),
-            Self::EffectWritesDeferred => None,
         }
     }
 }
@@ -187,6 +176,10 @@ pub enum ServerFrame {
     Snapshot {
         fields: Vec<SnapshotField>,
         snapshot_bytes: u64,
+        /// Every roster character's engine output (E8): a reconnecting
+        /// client gets the full derived picture and loses nothing by
+        /// skipping the streamed `derived` frames it missed.
+        derived: Vec<Box<hireling_engine::model::EngineOutput>>,
     },
     Diff {
         field: FieldTarget,
@@ -196,6 +189,17 @@ pub enum ServerFrame {
         op_id: Option<String>,
     },
     Ack(Ack),
+    /// One character's recomputed engine output (E8): the derived numbers
+    /// the sheet renders with their full math, plus the effect chips. A pure
+    /// function of already-versioned state — fans out after the effect
+    /// `diff` that caused it (TCP-ordered per connection).
+    Derived {
+        character_id: i64,
+        /// Boxed: the derived output is the frame's bulk — keeps the enum
+        /// cheap to move through the registry queues (the
+        /// `large_enum_variant` lint), wire shape unchanged.
+        output: Box<hireling_engine::model::EngineOutput>,
+    },
     /// The server's liveness probe (contract §5, binding 20 s / 10 s);
     /// the client answers with `pong` (any-frame watchdog on its side).
     Ping,
@@ -337,19 +341,103 @@ mod tests {
     }
 
     #[test]
-    fn an_effect_write_is_denied_with_the_deferred_reason() {
-        let raw = json!({
+    fn an_effect_write_decodes_and_effect_new_round_trips() {
+        // E8 realized the §8 extension point: effect writes decode (their
+        // per-op validation lives in the write path's bounds table, not
+        // here) — update+end address the row, create addresses the party.
+        let update = json!({
             "t": "write",
             "op_id": "0b9e6b1e-1c1d-4c1e-9f6e-000000000004",
-            "target": {"kind": "effect", "effect_id": 7},
-            "base_version": 44,
-            "value": {"active": false}
+            "target": {"kind": "effect", "effect_id": 41},
+            "base_version": 1042,
+            "value": {"op": "update", "targets": [7, 9]}
         });
-        let err = ClientFrame::decode(&raw.to_string())
-            .expect_err("effect writes are E8's extension point");
-        assert!(
-            matches!(err, ProtocolError::EffectWritesDeferred),
-            "the denial must name the deferral, got: {err}"
+        let frame =
+            ClientFrame::decode(&update.to_string()).expect("effect writes decode since E8");
+        assert!(matches!(
+            frame,
+            ClientFrame::Write {
+                target: FieldTarget::Effect { effect_id: 41 },
+                ..
+            }
+        ));
+
+        let create = json!({
+            "t": "write",
+            "op_id": "0b9e6b1e-1c1d-4c1e-9f6e-000000000005",
+            "target": {"kind": "effect_new", "party_id": 1},
+            "base_version": 0,
+            "value": {"op": "create", "name": "Bless", "source_character_id": 3,
+                      "targets": [7, 9],
+                      "modifiers": [{"type": "status", "stat": "attack", "value": 1}],
+                      "duration_note": "10 rounds", "corpus_entry_id": null,
+                      "condition_value": null}
+        });
+        let create_frame = ClientFrame::decode(&create.to_string()).expect("create decodes");
+        assert!(matches!(
+            create_frame,
+            ClientFrame::Write {
+                target: FieldTarget::EffectNew { party_id: 1 },
+                ..
+            }
+        ));
+        // The full contract literal round-trips byte-shape stable.
+        assert_eq!(
+            serde_json::to_value(&create_frame).expect("encodes"),
+            create
+        );
+    }
+
+    #[test]
+    fn the_derived_frame_round_trips() {
+        let frame = ServerFrame::Derived {
+            character_id: 7,
+            output: Box::new(hireling_engine::model::EngineOutput {
+                schema: hireling_engine::model::OUTPUT_SCHEMA.to_owned(),
+                character_id: 7,
+                derived: serde_json::from_value(json!({
+                    "ac": {"base": 10, "total": 11,
+                            "applied": [{"type": "status", "value": 1, "effect_id": 41,
+                                         "effect_name": "Bless", "source_character_id": 3}],
+                            "suppressed": []},
+                    "fort": {"base": 9, "total": 9, "applied": [], "suppressed": []},
+                    "ref": {"base": 8, "total": 8, "applied": [], "suppressed": []},
+                    "will": {"base": 11, "total": 11, "applied": [], "suppressed": []},
+                    "perception": {"base": 11, "total": 11, "applied": [], "suppressed": []},
+                    "speed": {"base": 25, "total": 25, "applied": [], "suppressed": []},
+                    "class_dc": {"base": null, "total": null, "applied": [], "suppressed": []},
+                    "strikes": [], "casters": [], "skills": []
+                }))
+                .expect("minimal derived shape"),
+                effects: vec![],
+            }),
+        };
+        let encoded = serde_json::to_value(&frame).expect("encodes");
+        assert_eq!(
+            encoded,
+            json!({
+                "t": "derived",
+                "character_id": 7,
+                "output": {
+                    "schema": "hireling.engine.output.v1",
+                    "character_id": 7,
+                    "derived": {
+                        "ac": {"base": 10, "total": 11,
+                                "applied": [{"type": "status", "value": 1, "effect_id": 41,
+                                             "effect_name": "Bless", "source_character_id": 3}],
+                                "suppressed": []},
+                        "fort": {"base": 9, "total": 9, "applied": [], "suppressed": []},
+                        "ref": {"base": 8, "total": 8, "applied": [], "suppressed": []},
+                        "will": {"base": 11, "total": 11, "applied": [], "suppressed": []},
+                        "perception": {"base": 11, "total": 11, "applied": [], "suppressed": []},
+                        "speed": {"base": 25, "total": 25, "applied": [], "suppressed": []},
+                        "class_dc": {"base": null, "total": null, "applied": [], "suppressed": []},
+                        "strikes": [], "casters": [], "skills": []
+                    },
+                    "effects": []
+                }
+            }),
+            "the derived frame is the EngineOutput contract shape, verbatim"
         );
     }
 
@@ -419,6 +507,7 @@ mod tests {
                 },
             ],
             snapshot_bytes: 18_4223 % 100_000,
+            derived: vec![],
         };
         let encoded = serde_json::to_value(&frame).expect("encodes");
         let fields = encoded

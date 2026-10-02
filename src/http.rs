@@ -82,6 +82,23 @@ pub(crate) const API_ROUTES: &[ApiRoute] = &[
         path: "/api/metrics/sync",
         writes: false,
     },
+    // E8's read-only face (plan Task 9): picker, active effects, derived
+    // bootstrap. All party-readable; no write row exists for any of them.
+    ApiRoute {
+        method: "GET",
+        path: "/api/parties/{party_id}/conditions",
+        writes: false,
+    },
+    ApiRoute {
+        method: "GET",
+        path: "/api/parties/{party_id}/effects",
+        writes: false,
+    },
+    ApiRoute {
+        method: "GET",
+        path: "/api/characters/{character_id}/derived",
+        writes: false,
+    },
 ];
 
 /// Build the application router.
@@ -114,6 +131,18 @@ pub fn router(auth: Arc<AuthState>, static_dir: &Path, sync: crate::sync::SyncSt
         .route(
             "/metrics/sync",
             get(crate::sync::metrics::sync_metrics),
+        )
+        .route(
+            "/parties/{party_id}/conditions",
+            get(crate::engine_host::rest::conditions),
+        )
+        .route(
+            "/parties/{party_id}/effects",
+            get(crate::engine_host::rest::effects),
+        )
+        .route(
+            "/characters/{character_id}/derived",
+            get(crate::engine_host::rest::derived),
         )
         // Sync's runtime state rides as an Extension; the router's State
         // stays E3's Arc<AuthState> (see SyncState).
