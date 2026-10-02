@@ -263,7 +263,9 @@ test('New Day enqueues the whole reset burst FIFO: slots, focus, daily', () => {
   assert.deepEqual(targets[0], slot(1, 0), 'the used slot goes first');
   assert.deepEqual(queued[0].value, { used: false, prepared: '500 Toads' });
   assert.deepEqual(targets.at(-2), focus(), 'focus second-to-last');
-  assert.equal(queued.at(-2).value, 0);
+  // Refill, not empty (review finding 2): the pool regains its points —
+  // the fixture character's focus max is 1.
+  assert.equal(queued.at(-2).value, 1, 'focus refills to the character max');
   assert.deepEqual(targets.at(-1), daily(), 'daily last');
   assert.deepEqual(queued.at(-1).value, {
     staff_charge_rank: 0,
@@ -293,4 +295,25 @@ test('level adjust re-derivation is visible through the view store', () => {
   assert.equal(get(state.view).hp_max.total, 32);
   state.writeLevelAdjust(20); // desired level 20 → adjust 17
   assert.equal(get(state.view).hp_max.total, 168, 'the adapter re-derives visibly');
+});
+
+// ---- MOR-48 review fixes: the production path owns the behaviour ----------
+
+test('the hp readout clamps to the live max — a level-down never shows 32 / 16 (finding 11)', () => {
+  const { mocks, state } = setup();
+  state.connect();
+  handshake(mocks.sockets[0], [{ target: hp(), value: 32, version: 2 }]);
+  assert.equal(get(state.hp).value, 32, 'full HP at level 3 (max 32)');
+
+  // Drop the effective level to 1: max HP re-derives to 16, and the
+  // readout must clamp to it — the write clamp alone left "32 / 16".
+  handshake(mocks.sockets[0], [
+    {
+      target: { kind: 'vitals', character_id: CHARACTER_ID, field: 'level_adjust' },
+      value: -2,
+      version: 3,
+    },
+  ]);
+  assert.equal(get(state.hpMax), 16, 'max re-derives');
+  assert.equal(get(state.hp).value, 16, 'the readout clamps to the live max');
 });

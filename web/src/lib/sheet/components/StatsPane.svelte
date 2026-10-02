@@ -6,11 +6,13 @@
   import PipRow from './PipRow.svelte';
   import SkillRow from './SkillRow.svelte';
   import StatTile from './StatTile.svelte';
+  import { findOpError } from '../state.js';
   import { rankLetter, rankName, signed } from '../../engine/format.js';
 
   /** @type {{ view: any, baseSheet: any, hp: any, temp: any, money?: any,
     focusCurrent?: any, focusMax?: number, heroPoints?: any, heroMax?: number,
-    editable?: boolean, offline?: boolean, ondamage?: (amount: number) => void,
+    opErrors?: any[], editable?: boolean, offline?: boolean,
+    ondamage?: (amount: number) => void,
     onheal?: (amount: number) => void, onfull?: () => void,
     ontemp?: (value: number) => void, onfocus?: (value: number) => void,
     onhero?: (value: number) => void }} */
@@ -24,6 +26,7 @@
     focusMax,
     heroPoints,
     heroMax,
+    opErrors = [],
     editable = true,
     offline = false,
     ondamage,
@@ -41,6 +44,14 @@
   const spellDc = $derived(
     numbers.casters.find((/** @type {any} */ caster) => !caster.innate) ?? numbers.casters[0] ?? null,
   );
+  // Inline rejections (spec §6): the matching opError renders at its
+  // control, calm and auto-clearing (the state layer clears on the next
+  // applied ack — review finding 5).
+  /** @param {string} field */
+  const vitalError = (field) => findOpError(opErrors, 'vitals', { field });
+  const hpError = $derived(vitalError('hp') ?? vitalError('temp_hp'));
+  const heroError = $derived(vitalError('hero_points'));
+  const focusError = $derived(vitalError('focus_current'));
   /** Display name for a skill key: the prototype capitalizes ("Thievery"). */
   const displayName = (/** @type {string} */ key) => key.charAt(0).toUpperCase() + key.slice(1);
 </script>
@@ -48,6 +59,9 @@
 <section class="panel" aria-label="Basic info">
   <h2>Basic Info <small>{identity.ancestry ?? ''} {identity.class ?? ''}</small></h2>
   <HpBar {hp} {temp} max={view.hp_max.total} {editable} {offline} {ondamage} {onheal} {onfull} {ontemp} />
+  {#if hpError}
+    <p class="op-error" role="alert">{hpError.reason}</p>
+  {/if}
 
   <div class="tiles">
     <StatTile label="AC" value={numbers.ac.total} cls="t-ac gold" note="Armor Class" />
@@ -64,9 +78,15 @@
   </div>
 
   <div class="trackers">
-    <PipRow label="Hero Points" current={heroPoints.value} max={heroMax} {editable} disabled={offline} onset={onhero} />
+    <div class="trk-wrap">
+      <PipRow label="Hero Points" current={heroPoints.value} max={heroMax} {editable} disabled={offline} onset={onhero} />
+      {#if heroError}<p class="op-error" role="alert">{heroError.reason}</p>{/if}
+    </div>
     {#if (focusMax ?? 0) > 0}
-      <PipRow label="Focus" current={focusCurrent?.value ?? 0} max={focusMax ?? 0} {editable} disabled={offline} onset={onfocus} />
+      <div class="trk-wrap">
+        <PipRow label="Focus" current={focusCurrent?.value ?? 0} max={focusMax ?? 0} {editable} disabled={offline} onset={onfocus} />
+        {#if focusError}<p class="op-error" role="alert">{focusError.reason}</p>{/if}
+      </div>
     {/if}
   </div>
 

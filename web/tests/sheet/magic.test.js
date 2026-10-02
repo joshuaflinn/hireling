@@ -143,3 +143,55 @@ test('MagicPane carries the two tabs and the staff section', () => {
   assert.match(body, /Pet &amp; Minions|Pet & Minions/);
   assert.match(body, /Staff Nexus/);
 });
+
+// ---- MOR-48 review fixes: the production path owns the behaviour ----------
+
+test('focus spells from the export render with their caster (finding 11)', () => {
+  const { body } = render(MagicPane, {
+    props: {
+      baseSheet: fixture,
+      slots: fixtureSlots(),
+      view,
+      daily: { value: { staff_charge_rank: 0, staff_spent: 0, drain_used: false } },
+      oncast: noop,
+      onprepare: noop,
+      onreset: noop,
+      ondaily: noop,
+    },
+  });
+  assert.match(body, /Focus spells/, 'the block exists');
+  assert.match(body, /Charming Push/, 'the export lists it; it renders, not vanishes');
+});
+
+test('a rejected slot write surfaces inline at that row; a rejected daily write at the staff panel (finding 5)', () => {
+  const { body } = render(MagicPane, {
+    props: {
+      baseSheet: fixture,
+      slots: fixtureSlots(),
+      view,
+      daily: { value: { staff_charge_rank: 2, staff_spent: 1, drain_used: false } },
+      opErrors: [
+        {
+          key: 'slot:7:Wizard:1:0',
+          target: { kind: 'slot', character_id: 7, caster_key: 'Wizard', rank: 1, slot_index: 0 },
+          op_id: 'op-2',
+          outcome: 'forbidden',
+          reason: 'Not yours to cast — view-only seat.',
+        },
+        {
+          key: 'vitals:7:daily',
+          target: { kind: 'vitals', character_id: 7, field: 'daily' },
+          op_id: 'op-3',
+          outcome: 'rejected',
+          reason: 'The party refused that daily row.',
+        },
+      ],
+      oncast: noop,
+      onprepare: noop,
+      onreset: noop,
+      ondaily: noop,
+    },
+  });
+  assert.match(body, /Not yours to cast — view-only seat\./);
+  assert.match(body, /The party refused that daily row\./);
+});

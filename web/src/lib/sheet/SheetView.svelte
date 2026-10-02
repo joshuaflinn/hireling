@@ -16,11 +16,14 @@
   import StrikesPane from './components/StrikesPane.svelte';
   import FeatsPanel from './components/FeatsPanel.svelte';
 
-  /** @type {{ character: any, accountSub?: string, editable?: boolean }} */
+  /** @type {{ character: any, accountSub?: string, editable?: boolean,
+    onimport?: () => void, onlogout?: () => void }} */
   let {
     character, // the /api/characters/me payload
     accountSub = '',
     editable = true,
+    onimport,
+    onlogout,
   } = $props();
 
   const POC_PARTY_ID = 1;
@@ -48,6 +51,7 @@
     qtyMap,
     syncing,
     offline,
+    opErrors,
   } = sheet;
 
   /**
@@ -98,6 +102,8 @@
     syncing={$syncing}
     onadjustlevel={(/** @type {number} */ level) => sheet.writeLevelAdjust(level)}
     onnewday={() => sheet.newDay()}
+    onimport={onimport}
+    onlogout={onlogout}
   />
 
   <div class="board">
@@ -112,6 +118,7 @@
         focusMax={$focusMax}
         heroPoints={$heroPoints}
         heroMax={$heroMax}
+        opErrors={$opErrors}
         {editable}
         offline={$offline}
         ondamage={(/** @type {number} */ amount) => sheet.writeHp($hp.value - amount)}
@@ -130,6 +137,7 @@
         slots={$slots}
         view={$view}
         daily={$daily}
+        opErrors={$opErrors}
         {editable}
         offline={$offline}
         oncast={(/** @type {string} */ casterKey, /** @type {any} */ row, /** @type {boolean} */ used) =>
@@ -151,6 +159,7 @@
         itemTraits={character.item_traits ?? {}}
         qtyMap={$qtyMap}
         money={$money}
+        opErrors={$opErrors}
         {editable}
         offline={$offline}
         onqty={(/** @type {string} */ name, /** @type {number} */ qty) => sheet.writeItemQty(name, qty)}

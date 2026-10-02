@@ -15,9 +15,9 @@
 // field's next applied ack (spec §6).
 //
 // New Day (Q1 ruling): one FIFO burst — every slot row → used=false,
-// focus → 0, daily → zeroed. CAS per field, no cross-field transaction;
-// a partial replay converges because every write is idempotent and
-// absolutely-valued (design §3).
+// focus → the character's focus max (the pool refills), daily → zeroed.
+// CAS per field, no cross-field transaction; a partial replay converges
+// because every write is idempotent and absolutely-valued (design §3).
 
 import { writable, derived, get } from 'svelte/store';
 
@@ -75,6 +75,28 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
  * @typedef {{ key: string | null, target: Record<string, *> | null,
  *   op_id: string, outcome: string, reason: string }} OpError
  */
+
+/**
+ * The inline error for one control, if any (spec §6): match the op's
+ * target by kind plus identifying keys. Pure — components call it per
+ * render with the `opErrors` store's value.
+ *
+ * @param {OpError[]} opErrors
+ * @param {string} kind the target kind ('vitals' | 'slot' | 'inv')
+ * @param {Record<string, *>} [match] extra target keys that must be equal
+ * @returns {OpError | null}
+ */
+export function findOpError(opErrors, kind, match = {}) {
+  return (
+    opErrors.find(
+      (error) =>
+        error.target?.kind === kind &&
+        Object.entries(match).every(
+          ([key, value]) => error.target?.[key] === value,
+        ),
+    ) ?? null
+  );
+}
 
 /**
  * The sheet state handle — svelte stores plus the write surface. Exported
@@ -164,8 +186,10 @@ export function createSheetState({ sync, character }) {
   }
 
   const hpMax = derived(view, ($view) => $view.hp_max.total);
-  const hp = derived([vitalsStore('hp', character.vitals.hp), hpMax], ([$hp]) => ({
-    value: clamp($hp.value, 0, Number.MAX_SAFE_INTEGER),
+  // The readout clamps to max too (review finding 11): a level-down must
+  // never display "32 / 16" — the write clamp alone leaves stale values.
+  const hp = derived([vitalsStore('hp', character.vitals.hp), hpMax], ([$hp, $max]) => ({
+    value: clamp($hp.value, 0, $max),
     pending: $hp.pending,
   }));
   const tempHp = vitalsStore('temp_hp', character.vitals.temp_hp);
@@ -418,14 +442,17 @@ export function createSheetState({ sync, character }) {
     }
   }
 
-  /** The New Day burst: every slot's used flag, then focus, then daily. */
+  /** The New Day burst (spec §3: clear cast slots, refill focus, reset
+   * drain): every slot's used flag, focus back to the character's pool
+   * (review finding 2 — the pool regains its points, it is not emptied),
+   * then the daily whole-row. */
   function newDay() {
     for (const row of get(slots)) {
       if (row.used || row.pending) {
         writeSlot(row.caster_key, row.rank, row.slot_index, { used: false });
       }
     }
-    write(vitalsTarget(characterId, 'focus_current'), 0);
+    write(vitalsTarget(characterId, 'focus_current'), get(focusMax));
     write(vitalsTarget(characterId, 'daily'), {
       staff_charge_rank: 0,
       staff_spent: 0,

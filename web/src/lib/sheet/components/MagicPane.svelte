@@ -5,9 +5,10 @@
   // 10). Every number rides the adapter; every write rides sheet/state.js.
   import CasterPanel from './CasterPanel.svelte';
   import StaffPanel from './StaffPanel.svelte';
+  import { findOpError } from '../state.js';
 
   /** @type {{ baseSheet: any, slots: any[], view: any, daily: any,
-    editable?: boolean, offline?: boolean,
+    opErrors?: any[], editable?: boolean, offline?: boolean,
     oncast?: (casterKey: string, row: any, used: boolean) => void,
     onprepare?: (casterKey: string, row: any, spell: string) => void,
     onreset?: (casterKey: string) => void,
@@ -17,6 +18,7 @@
     slots,
     view,
     daily,
+    opErrors = [],
     editable = true,
     offline = false,
     oncast,
@@ -27,6 +29,16 @@
   } = $props();
 
   let tab = $state('spells');
+
+  // The focus section (spec §2.3 — review finding 11): the export's
+  // `focus[tradition][ability]` block carries focus cantrips and focus
+  // spells; rendered with the caster whose tradition it belongs to.
+  const focusFor = (/** @type {any} */ caster) => {
+    const byAbility = baseSheet.focus?.[caster.magic_tradition ?? ''] ?? {};
+    const entry =
+      byAbility[caster.ability ?? ''] ?? Object.values(byAbility)[0] ?? null;
+    return /** @type {any} */ (entry)?.focusSpells ?? [];
+  };
 </script>
 
 <section class="panel" aria-label="Magic">
@@ -46,6 +58,10 @@
         {editable}
         {offline}
         known={caster.known}
+        focusSpells={focusFor(caster)}
+        opErrors={opErrors.filter(
+          (/** @type {any} */ error) => error.target?.kind === 'slot' && error.target?.caster_key === caster.caster_key,
+        )}
         oncast={(/** @type {any} */ row, /** @type {boolean} */ used) => oncast?.(caster.caster_key, row, used)}
         onprepare={(/** @type {any} */ row, /** @type {string} */ spell) => onprepare?.(caster.caster_key, row, spell)}
         onreset={() => onreset?.(caster.caster_key)}
@@ -55,7 +71,7 @@
     {/each}
 
     <h3>Staff Nexus</h3>
-    <StaffPanel {daily} {editable} {offline} onchange={(next) => ondaily?.(next)} />
+    <StaffPanel {daily} {editable} {offline} opError={findOpError(opErrors, 'vitals', { field: 'daily' })} onchange={(next) => ondaily?.(next)} />
   {:else if companionsSlot}
     {@render companionsSlot()}
   {:else}

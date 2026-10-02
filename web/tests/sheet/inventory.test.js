@@ -86,3 +86,39 @@ test('view-only inventory: no inputs, quantities as text', () => {
   assert.equal(inputs.length, 0, 'view-only renders no controls');
   assert.match(body, /×1/, 'quantities render as text');
 });
+
+// ---- MOR-48 review fixes: the production path owns the behaviour ----------
+
+test('a rejected quantity write surfaces inline at that item; a rejected coin write at the coins (finding 5)', () => {
+  const { body } = render(InventoryPanel, {
+    props: {
+      baseSheet: fixture,
+      itemBulk,
+      itemTraits,
+      qtyMap,
+      money: { value: { pp: 0, gp: 24, sp: 2, cp: 4 }, pending: false },
+      opErrors: [
+        {
+          key: 'inv:7:Chalk',
+          target: { kind: 'inv', character_id: 7, item_name: 'Chalk' },
+          op_id: 'op-4',
+          outcome: 'rejected',
+          reason: 'The party refused that quantity.',
+        },
+        {
+          key: 'vitals:7:money',
+          target: { kind: 'vitals', character_id: 7, field: 'money' },
+          op_id: 'op-5',
+          outcome: 'rejected',
+          reason: 'Coins write refused: negative amounts.',
+        },
+      ],
+      editable: true,
+      offline: false,
+      onqty: () => {},
+      onmoney: () => {},
+    },
+  });
+  assert.match(body, /The party refused that quantity\./);
+  assert.match(body, /Coins write refused: negative amounts\./);
+});

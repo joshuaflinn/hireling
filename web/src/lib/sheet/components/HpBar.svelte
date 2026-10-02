@@ -27,9 +27,9 @@
   <div class="hp-top">
     <span class="lbl">Hit Points</span>
     <span class="hpnum">
-      <b>{hp.value}</b> / {max}{temp.value
-        ? ` <span style="color:var(--blue)">+${temp.value} temp</span>`
-        : ''}</span>
+      <b>{hp.value}</b> / {max}
+      {#if temp.value}<span class="temp">+{temp.value} temp</span>{/if}
+    </span>
   </div>
   <div
     class="bar"
@@ -62,3 +62,14 @@
     </div>
   {/if}
 </div>
+
+<style>
+  /* Real markup, not an interpolated string (review finding 1): Svelte
+     escapes string interpolation, so the old inline `<span>` printed as
+     literal text. A temp-HP player read tags in their HP readout. */
+  .temp {
+    color: var(--blue);
+    font-size: 0.85em;
+    margin-left: 0.35rem;
+  }
+</style>
