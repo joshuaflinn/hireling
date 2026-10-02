@@ -410,7 +410,7 @@ async fn vitals_spell_economy_columns_round_trip() {
     // Down: the columns go, and a fresh up accepts a row again.
     exec_script(
         &pool,
-        &migration_file("20261002000001_vitals_spell_economy.down.sql"),
+        &migration_file("20261002000002_vitals_spell_economy.down.sql"),
         "spell economy down",
     )
     .await;
@@ -420,7 +420,7 @@ async fn vitals_spell_economy_columns_round_trip() {
     assert!(gone.is_err(), "the down migration must drop focus_current");
     exec_script(
         &pool,
-        &migration_file("20261002000001_vitals_spell_economy.sql"),
+        &migration_file("20261002000002_vitals_spell_economy.sql"),
         "spell economy up (round trip)",
     )
     .await;

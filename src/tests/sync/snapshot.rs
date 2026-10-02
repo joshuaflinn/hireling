@@ -268,7 +268,10 @@ fn effect_row(
             "targets": [source_character_id],
             "modifiers": modifiers,
             "duration_note": duration_note,
-            "active": active
+            "active": active,
+            // E8 amended the row shape: the badge-chip flag rides the value
+            // (false for these hand-seeded rows).
+            "tracked_manually": false
         }),
         version,
     }
@@ -374,7 +377,7 @@ fn targets_character(target: &FieldTarget, character_id: i64) -> bool {
             character_id: owned,
             ..
         } => *owned == character_id,
-        FieldTarget::Effect { .. } => false,
+        FieldTarget::Effect { .. } | FieldTarget::EffectNew { .. } => false,
     }
 }
 

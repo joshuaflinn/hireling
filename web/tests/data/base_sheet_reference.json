@@ -79,6 +79,14 @@
     "acTotal": 16,
     "shieldBonus": null
   },
+  "attributes": {
+    "ancestryhp": 8,
+    "bonushp": 0,
+    "bonushpPerLevel": 0,
+    "classhp": 6,
+    "speed": 25,
+    "speedBonus": 0
+  },
   "proficiencies": {
     "acrobatics": 0,
     "advanced": 0,

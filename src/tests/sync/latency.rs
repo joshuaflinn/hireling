@@ -134,7 +134,8 @@ async fn shaped_writer(
                 }
             }
             ServerFrame::Ping => pump_pong(&client.sink).await,
-            ServerFrame::Diff { .. }
+            ServerFrame::Derived { .. }
+            | ServerFrame::Diff { .. }
             | ServerFrame::Hello { .. }
             | ServerFrame::Snapshot { .. }
             | ServerFrame::Pong
@@ -196,7 +197,8 @@ async fn shaped_reader(mut client: PumpClient, expected: usize) -> usize {
         {
             ServerFrame::Diff { .. } => diffs += 1,
             ServerFrame::Ping => pump_pong(&client.sink).await,
-            ServerFrame::Ack(_)
+            ServerFrame::Derived { .. }
+            | ServerFrame::Ack(_)
             | ServerFrame::Hello { .. }
             | ServerFrame::Snapshot { .. }
             | ServerFrame::Pong
@@ -397,7 +399,8 @@ async fn run_load_writer(mut client: PumpClient, character_id: i64, base: i64) {
                 }
                 ServerFrame::Ack(unexpected) => panic!("unexpected load ack: {unexpected:?}"),
                 ServerFrame::Ping => pump_pong(&client.sink).await,
-                ServerFrame::Diff { .. }
+                ServerFrame::Derived { .. }
+                | ServerFrame::Diff { .. }
                 | ServerFrame::Hello { .. }
                 | ServerFrame::Snapshot { .. }
                 | ServerFrame::Pong
@@ -454,6 +457,7 @@ async fn the_snapshot_size_is_logged_on_the_production_path() {
         ServerFrame::Snapshot { snapshot_bytes, .. } => *snapshot_bytes,
         ServerFrame::Hello { .. }
         | ServerFrame::Diff { .. }
+        | ServerFrame::Derived { .. }
         | ServerFrame::Ack(_)
         | ServerFrame::Ping
         | ServerFrame::Pong

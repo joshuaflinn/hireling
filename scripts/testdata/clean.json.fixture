@@ -1,0 +1,9 @@
+{
+  "name": "clean",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "svelte": "^5.0.0"
+  }
+}

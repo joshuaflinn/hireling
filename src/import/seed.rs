@@ -14,29 +14,10 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-/// The single stats and rule-exact blanket targets the buff engine (E8)
-/// computes over. Blanket targets are names, not wildcards: `all_checks` is
-/// every d20 roll (not damage/speed), `all_dcs` is `ac + spell_dc +
-/// class_dc`, and `all_checks_and_dcs` is the union.
-pub const SINGLE_STATS: [&str; 11] = [
-    "ac",
-    "fort",
-    "ref",
-    "will",
-    "perception",
-    "speed",
-    "attack",
-    "damage",
-    "spell_attack",
-    "spell_dc",
-    "class_dc",
-];
-
-/// The blanket targets with their defined expansion sets.
-pub const BLANKET_STATS: [&str; 3] = ["all_checks", "all_dcs", "all_checks_and_dcs"];
-
-/// The four modifier types the engine stacks over.
-pub const MODIFIER_TYPES: [&str; 4] = ["circumstance", "status", "item", "untyped"];
+// D2 (plan Task 10): the vocabulary tables are the ENGINE's re-exports —
+// one source, no drift. The engine's d2 test pins the strings to its enums;
+// this module consumes them read-only.
+pub use hireling_engine::vocab::{BLANKET_STATS, MODIFIER_TYPES, SINGLE_STATS};
 
 /// Which tier a condition landed in — stored corpus data, never derived by
 /// consumers (FR-8).
