@@ -512,6 +512,62 @@ async fn a_display_only_corpus_condition_is_a_badge_chip() {
     testing::drop_test_db(pool, "e8_corpus_display_only").await;
 }
 
+#[tokio::test]
+async fn a_corrupt_corpus_row_rejects_with_the_reason_reaching_the_client() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, alpha) = seed_member(&pool, "sub-alpha").await;
+    // A condition row whose `modifiers` column holds a JSON object instead
+    // of an array — the corrupt shape `apply_condition` must name loudly.
+    let corpus_id: i64 = sqlx::query_scalar(
+        "INSERT INTO corpus_entries (kind, name, lane, data, modifiers) \
+         VALUES ('condition', 'Frightened', 'core', $1, $2) RETURNING id",
+    )
+    .bind(json!({"import": {"tier": "engine_math"}}))
+    .bind(json!({"type": "status", "stat": "ac", "value": -1}))
+    .fetch_one(&pool)
+    .await
+    .expect("corpus row");
+
+    let op = on_party(
+        ClientOp {
+            value: json!({
+                "op": "create",
+                "name": "Frightened",
+                "source_character_id": alpha,
+                "targets": [alpha],
+                "modifiers": [],
+                "duration_note": "",
+                "corpus_entry_id": corpus_id,
+                "condition_value": 2,
+            }),
+            ..create_op("op-corpus-corrupt", alpha, &[alpha])
+        },
+        party_id,
+    );
+    // Through the production orchestration path — a direct `apply_condition`
+    // call cannot prove the reason survives `write.rs`'s `map_err` and
+    // reaches the client frame.
+    let result = apply_write(&pool, &player("sub-alpha"), party_id, op)
+        .await
+        .expect("a corrupt row resolves to a Rejected outcome, not an error");
+    assert_eq!(result.outcome, Outcome::Rejected);
+    assert!(
+        result
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("not a JSON array")),
+        "the apply reason survives the write wiring intact: {result:?}"
+    );
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM effects")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(rows, 0, "a corrupt corpus row creates nothing");
+    testing::drop_test_db(pool, "e8_corpus_corrupt").await;
+}
+
 // --- socket level (E7's session.rs pattern) -------------------------------
 
 #[tokio::test]
