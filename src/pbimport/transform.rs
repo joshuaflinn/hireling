@@ -71,6 +71,7 @@ pub struct BaseSheet {
     pub identity: Identity,
     pub abilities: Abilities,
     pub hp: Hp,
+    pub speed: Speed,
     pub ac: Option<Value>,
     pub proficiencies: Value,
     pub specific_proficiencies: Option<Value>,
@@ -120,15 +121,24 @@ pub struct Abilities {
     pub breakdown: Option<Value>,
 }
 
-/// HP inputs and the derived maximum (contract §3.3 formula).
+/// HP inputs and the derived maximum (contract §3.3 formula — the `PF2e`
+/// rule: CON counts at every level).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Hp {
     pub ancestryhp: i64,
     pub classhp: i64,
     pub bonushp: i64,
     pub bonushp_per_level: i64,
-    /// ancestryhp + classhp + bonushp + bonushpPerLevel × (level − 1).
+    /// ancestryhp + bonushp + (classhp + conMod + bonushpPerLevel) × level.
     pub max_hp: i64,
+}
+
+/// Speed inputs (contract §3.3): the export's base speed and its bonus;
+/// the sheet adapter renders `base + bonus`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Speed {
+    pub base: i64,
+    pub bonus: i64,
 }
 
 /// One caster block, normalized (contract §3.6).
@@ -205,7 +215,8 @@ pub fn transform(export: &ValidExport) -> (BaseSheet, SectionSkips) {
 
     let identity = identity(build);
     let abilities = abilities(build);
-    let hp = hp(build, identity.level);
+    let hp = hp(build, identity.level, ability_mod(abilities.con));
+    let speed = speed(build);
     let ac = verbatim_section(build, "acTotal", &mut skips);
     let proficiencies = build
         .get("proficiencies")
@@ -231,6 +242,7 @@ pub fn transform(export: &ValidExport) -> (BaseSheet, SectionSkips) {
         identity,
         abilities,
         hp,
+        speed,
         ac,
         proficiencies,
         specific_proficiencies,
@@ -335,9 +347,12 @@ fn abilities(build: &Value) -> Abilities {
     }
 }
 
-/// Max HP per contract §3.3: ancestryhp + classhp + bonushp +
-/// bonushpPerLevel × (level − 1), floored at zero.
-fn hp(build: &Value, level: i64) -> Hp {
+/// Max HP per contract §3.3, the `PF2e` rule: ancestryhp + bonushp +
+/// (classhp + conMod + bonushpPerLevel) × level, floored at zero. CON
+/// counts at every level, the first included. E6's review (MOR-48
+/// finding 3) amended the formula so the first-import seed, the stored
+/// anchor and the sheet's adapter all compute one number.
+fn hp(build: &Value, level: i64, con_mod: i64) -> Hp {
     let attributes = build.get("attributes");
     let input = |key: &str| {
         attributes
@@ -349,8 +364,8 @@ fn hp(build: &Value, level: i64) -> Hp {
     let classhp = input("classhp");
     let bonushp = input("bonushp");
     let bonushp_per_level = input("bonushpPerLevel");
-    let levels = (level - 1).max(0);
-    let max_hp = (ancestryhp + classhp + bonushp + bonushp_per_level * levels).max(0);
+    let levels = level.max(0);
+    let max_hp = (ancestryhp + bonushp + (classhp + con_mod + bonushp_per_level) * levels).max(0);
     Hp {
         ancestryhp,
         classhp,
@@ -358,6 +373,29 @@ fn hp(build: &Value, level: i64) -> Hp {
         bonushp_per_level,
         max_hp,
     }
+}
+
+/// Speed per contract §3.3: the export's `attributes.speed` and
+/// `attributes.speedBonus`. An absent speed falls back to 25 (the `PF2e`
+/// common default — the sheet adapter's `?? 25` agrees) so a malformed
+/// export still renders a walkable number; bonuses default to 0.
+fn speed(build: &Value) -> Speed {
+    let attributes = build.get("attributes");
+    let input = |key: &str, fallback: i64| {
+        attributes
+            .and_then(|attributes| attributes.get(key))
+            .and_then(Value::as_i64)
+            .unwrap_or(fallback)
+    };
+    Speed {
+        base: input("speed", 25),
+        bonus: input("speedBonus", 0),
+    }
+}
+
+/// The `PF2e` ability modifier: floor((score − 10) / 2).
+fn ability_mod(score: i64) -> i64 {
+    (score - 10).div_euclid(2)
 }
 
 fn lores(build: &Value, skips: &mut SectionSkips) -> Vec<Lore> {

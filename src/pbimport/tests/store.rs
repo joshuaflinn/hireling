@@ -94,17 +94,25 @@ async fn first_import_creates_the_character_seeded_and_ready() {
         "payload_raw is the body byte-verbatim"
     );
 
-    // Vitals seeded (FR-9): HP at max (14), money from the export.
+    // Vitals seeded (FR-9): HP at the PF2e max (32 — CON counts at every
+    // level, contract §3.3 as amended by E6's review), focus at the
+    // export's full pool (1 — daily preparations refill it, MOR-48
+    // finding 2), money from the export.
     let vitals = sqlx::query(
-        "SELECT hp, temp_hp, money_gp, money_sp, money_cp, money_pp \
+        "SELECT hp, temp_hp, focus_current, money_gp, money_sp, money_cp, money_pp \
          FROM character_vitals WHERE character_id = $1",
     )
     .bind(outcome.character.id)
     .fetch_one(&pool)
     .await
     .expect("vitals row");
-    assert_eq!(vitals.get::<i32, _>("hp"), 14, "HP starts at max");
+    assert_eq!(vitals.get::<i32, _>("hp"), 32, "HP starts at max");
     assert_eq!(vitals.get::<i32, _>("temp_hp"), 0, "temp HP starts at 0");
+    assert_eq!(
+        vitals.get::<i32, _>("focus_current"),
+        1,
+        "focus boots at the export's pool, not empty"
+    );
     assert_eq!(vitals.get::<i32, _>("money_gp"), 24, "gp");
     assert_eq!(vitals.get::<i32, _>("money_sp"), 2, "sp");
     assert_eq!(vitals.get::<i32, _>("money_cp"), 4, "cp");

@@ -99,12 +99,59 @@ fn ability_scores_are_the_six_fixture_values() {
 #[test]
 fn max_hp_follows_the_contract_formula() {
     let (sheet, _) = fixture_sheet();
-    // 8 ancestry + 6 class + 0 bonus + 0 per-level × (3 − 1) = 14.
-    assert_eq!(sheet.hp.max_hp, 14, "contract §3.3 worked example");
+    // PF2e rule (contract §3.3, amended by E6's review — MOR-48 finding 3):
+    // 8 ancestry + 0 bonus + (6 class + 2 CON + 0 per-level) × 3 = 32.
+    // CON (score 14 → +2) counts at every level, the first included.
+    assert_eq!(sheet.hp.max_hp, 32, "contract §3.3 worked example");
     assert_eq!(sheet.hp.ancestryhp, 8, "ancestryhp");
     assert_eq!(sheet.hp.classhp, 6, "classhp");
     assert_eq!(sheet.hp.bonushp, 0, "bonushp");
     assert_eq!(sheet.hp.bonushp_per_level, 0, "bonushpPerLevel");
+}
+
+#[test]
+fn speed_rides_the_transform_not_a_fallback() {
+    let (sheet, _) = fixture_sheet();
+    // The reference export carries speed 25 / bonus 0 — the assertion is
+    // that the DATA arrives (a dwarf's 20 or a +5 bonus must survive the
+    // transform), not that the number equals the old hardcoded fallback.
+    assert_eq!(sheet.speed.base, 25, "attributes.speed verbatim");
+    assert_eq!(sheet.speed.bonus, 0, "attributes.speedBonus verbatim");
+}
+
+#[test]
+fn speed_and_con_flow_through_a_dwarf_like_export() {
+    // A mutated fixture: CON 12 (was 14) and a dwarf's speed 20 with a +5
+    // bonus. Guards the defaults: the fixture's 25/0 must be DATA, not the
+    // fallback — a changed export value survives the transform.
+    let (sheet, _) = transformed_mutation(|build| {
+        if let Some(attributes) = build.get_mut("attributes").and_then(Value::as_object_mut) {
+            attributes.insert("speed".to_owned(), serde_json::json!(20));
+            attributes.insert("speedBonus".to_owned(), serde_json::json!(5));
+        }
+        if let Some(abilities) = build.get_mut("abilities").and_then(Value::as_object_mut) {
+            abilities.insert("con".to_owned(), serde_json::json!(12));
+        }
+    });
+    assert_eq!(sheet.speed.base, 20, "a dwarf walks at 20, not 25");
+    assert_eq!(sheet.speed.bonus, 5);
+    // 8 + (6 + 1 + 0) × 3 = 29 — CON −1 drops the max; the formula is the
+    // adapter's, not the frozen anchor's.
+    assert_eq!(sheet.hp.max_hp, 29, "CON counts at every level");
+}
+
+#[test]
+fn missing_speed_falls_back_and_the_adapter_agrees() {
+    // An export with no attributes.speed at all: base 25 / bonus 0 — the
+    // same default the sheet adapter's `?? 25` applies to a null section.
+    let (sheet, _) = transformed_mutation(|build| {
+        build["attributes"]
+            .as_object_mut()
+            .expect("attributes object")
+            .remove("speed");
+    });
+    assert_eq!(sheet.speed.base, 25, "absent speed defaults to 25");
+    assert_eq!(sheet.speed.bonus, 0);
 }
 
 #[test]

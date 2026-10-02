@@ -234,12 +234,16 @@ async fn seed_vitals(
             .and_then(serde_json::Value::as_i64)
             .unwrap_or(0)
     };
+    // The first-import HP seed is the corrected PF2e max (contract §3.3);
+    // focus boots at the export's full pool (PF2e: daily preparations
+    // regain all Focus Points, so a fresh import starts full).
     sqlx::query(
-        "INSERT INTO character_vitals (character_id, hp, money_gp, money_sp, money_cp, money_pp) \
-         VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO character_vitals (character_id, hp, focus_current, money_gp, money_sp, money_cp, money_pp) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(character_id)
     .bind(sheet.hp.max_hp)
+    .bind(sheet.focus_points)
     .bind(coin("gp"))
     .bind(coin("sp"))
     .bind(coin("cp"))

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/home/flinn/.paperclip/instances/default/projects/f6b40bc2-a975-4626-96a6-6c62d85c4215/aa215649-d0f0-4697-abd1-e195dab02551/hireling/scripts/paperclip-issue-update.sh:*)",
+      "Bash(/home/flinn/.paperclip/instances/default/projects/f6b40bc2-a975-4626-96a6-6c62d85c4215/aa215649-d0f0-4697-abd1-e195dab02551/hireling/scripts/paperclip:*)",
+      "Bash(curl:*)",
+      "Bash(env)",
+      "Bash(env:*)"
+    ],
+    "additionalDirectories": [
+      "/home/flinn/.paperclip/instances/default/companies/f6b40bc2-a975-4626-96a6-6c62d85c4215",
+      "/home/flinn/.paperclip/instances/default/companies/f6b40bc2-a975-4626-96a6-6c62d85c4215/acp-engine/agents/8a37af11-c2f8-4047-8eb8-0b908313ee54",
+      "/home/flinn/.paperclip/instances/default/companies/f6b40bc2-a975-4626-96a6-6c62d85c4215/acp-engine/agents/befd0d6a-3b1c-4a9a-a212-27518e3c48dc",
+      "/home/flinn/.paperclip/instances/default/workspaces/8a37af11-c2f8-4047-8eb8-0b908313ee54",
+      "/home/flinn/.paperclip/instances/default/workspaces/befd0d6a-3b1c-4a9a-a212-27518e3c48dc"
+    ],
+    "defaultMode": "default"
+  }
+}

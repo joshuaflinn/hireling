@@ -103,8 +103,15 @@ async fn a_player_imports_the_reference_export_over_http() {
     );
     assert_eq!(
         me_payload.get("vitals").and_then(|v| v.get("hp")),
-        Some(&serde_json::json!(14)),
-        "seeded HP reads back"
+        Some(&serde_json::json!(32)),
+        "seeded HP reads back (PF2e max, contract §3.3 as amended)"
+    );
+    assert_eq!(
+        me_payload
+            .get("vitals")
+            .and_then(|v| v.get("focus_current")),
+        Some(&serde_json::json!(1)),
+        "focus boots at the export's pool (MOR-48 finding 2)"
     );
 
     testing::drop_test_db(pool, "http_import").await;
