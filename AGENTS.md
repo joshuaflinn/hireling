@@ -33,7 +33,8 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
 3. **Branches and PRs.** Feature branches with conventional prefixes
    (`feat/`, `fix/`, `refactor/`, `docs/`, `ci/`, `chore/`), referencing the
    issue where one exists (`feat/12-buff-engine`). Never commit to `main`.
-   Never force-push shared branches. Open a PR; a human merges.
+   Never force-push shared branches. Open a PR; the author never merges their own
+   work. Thrane holds the merge button — merge asks go to Thrane, not to Josh.
 4. **Verify before claiming done.** Run the build and the tests. Report actual
    output. If you couldn't verify something, say exactly that.
 5. **Write it down.** Decisions with rejected alternatives go in the PR description.
