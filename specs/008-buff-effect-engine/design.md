@@ -53,10 +53,9 @@ serde-family deps only.
 ## The BaseStats math table (D3 — the export carries ranks, not totals)
 
 Verified against the reference export (`#pbExport`): precomputed totals
-exist ONLY for AC (`acTotal.acTotal`), strikes (`weapons[].attack`,
-`weapons[].damageBonus`), and speed (`attributes.speed +
-attributes.speedBonus`). Everything else is rank + ability, and the
-extractor derives it:
+exist ONLY for AC (`acTotal.acTotal`) and speed (`attributes.speed +
+attributes.speedBonus`). Everything else — including strike attacks —
+is rank + ability, and the extractor derives it:
 
 | Stat | Base formula | Source fields |
 |---|---|---|
@@ -67,8 +66,11 @@ extractor derives it:
 | `class_dc` | `10 + eff_level·(rank≥1) + keyabil_mod + prof_bonus(rank)`; `null` if rank = 0 | `proficiencies.classDC`, `keyability` |
 | `skill:<core>` | save formula with the skill's fixed ability | `proficiencies.<skill>` (18 core keys) |
 | `skill:lore:<name>` | save formula, int for lore skills | `lores[]` |
-| `strikes[].attack` / `.damage_flat` | verbatim | `weapons[].attack`, `.damageBonus` |
-| `casters[].spell_attack` | `eff_level·(rank≥1) + abil_mod + prof_bonus(rank)` per block | `spellcasters[].{ability,proficiency}` |
+| proficiency table (display above export) | `rank ← max(rank, bump)` when `eff_level > identity.level` and class = `Wizard` — the prototype's `wizardProgression` (Player Core): ≥5 reflex 4, ≥7 castingArcane 4, ≥9 fortitude 4, ≥11 perception/simple/unarmed 4, ≥13 unarmored 4, ≥15 castingArcane 6, ≥17 will 6, ≥19 castingArcane 8 | `identity.{class,level}`, `proficiencies` |
+| `strikes[].attack` | `(Finesse ? max(str,dex) : str)_mod + eff_level·(rank≥1) + prof_bonus(rank) + weapons[].pot` — RE-DERIVED per the prototype (line 1415), never the export's verbatim `attack` (equal at the export's own level, divergent at `level_adjust ≠ 0`) | `weapons[].{prof,pot}`, trait map (`Finesse`), `proficiencies`, `abilities` |
+| `strikes[].damage_flat` | `str_mod + mastery(rank, eff_level)`; `mastery = 0` below eff_level 13, else 4→+2, 6→+3, 8→+4 (the prototype's `spec`) — NOT the verbatim `damageBonus` | `abilities.str`, `weapons[].prof` → rank |
+| unarmed `Fist` row | appended after the weapons: `max(str,dex)_mod + eff_level·(rank≥1) + prof_bonus(unarmed)`; `d4`, damage flat `str_mod + mastery` — the sheet renders it (prototype line 1419), so the engine emits it | `proficiencies.unarmed`, `abilities` |
+| `casters[].spell_attack` | `eff_level·(rank≥1) + abil_mod + prof_bonus(rank)` per block; rank = the block's own `proficiency` when `innate`, else `max(block, proficiencies.casting<Tradition>)` | `spellcasters[].{ability,proficiency,innate,magicTradition}`, `proficiencies` |
 | `casters[].spell_dc` | `spell_attack + 10` per block | same |
 | `casters[].innate` | verbatim | `spellcasters[].innate` |
 | `render_base.level` | `eff_level` (clamped 1..20) | `identity.level`, `vitals.level_adjust` |
@@ -79,23 +81,31 @@ extractor derives it:
 | `render_base.attributes` | `⌊(score − 10) / 2⌋` per ability | `abilities.{str,dex,con,int,wis,cha}` |
 | `strikes[].label` | `display || name` | `weapons[].{display,name}` |
 | `strikes[].map` | 4 agile, else 5 | bootstrap trait-chip map (`Agile`) |
-| `strikes[].damage_expr` | `die + signed(damageBonus)`, as rendered | `weapons[].{die,damageBonus}` |
+| `strikes[].damage_expr` | `die + signed(damage_flat)`, as rendered | `weapons[].die`, the re-derived `damage_flat` |
 | `strikes[].damage_type` / `.damage_type_name` | verbatim code + its display name | `weapons[].damageType`, damage-type name map |
 | `strikes[].traits` | verbatim chip names | bootstrap trait-chip map |
 
 Where `eff_level = identity.level + vitals.level_adjust` (clamped 1..20),
-`abil_mod = ⌊(score − 10) / 2⌋`, `prof_bonus: 0→+0 (no level), 1→+2,
-2→+4, 3→+6, 4→+8` (level added only at rank ≥ 1 — untrained adds neither
-level nor bonus). **Golden test**: the reference export's derived values
-must equal the prototype's rendered numbers for Lorum Ipsum; any mismatch
-is resolved in favor of the prototype (it is Dave's display truth) by
-adjusting the table, never by patching a value.
+`abil_mod = ⌊(score − 10) / 2⌋`, and `prof_bonus(rank) = rank` — the
+export's RAW Pathbuilder ranks (untrained 0, trained 2, expert 4,
+master 6, legendary 8) ARE the bonus, with level added by the
+`eff_level·(rank≥1)` term only (untrained adds neither: the prototype's
+`pb = rank > 0 ? rank + level : 0`, line 1377). An earlier draft of this
+row used step encoding (`1→+2, 2→+4, …`) while the extractor fed raw
+ranks — trained landed in the expert slot and every proficiency-bearing
+stat rendered high. Caught in review (MOR-51); the golden is pinned to
+the prototype's numbers, per the rule below. **Golden test**: the
+reference export's derived values must equal the prototype's rendered
+numbers for Lorum Ipsum; any mismatch is resolved in favor of the
+prototype (it is Dave's display truth) by adjusting the table, never by
+patching a value.
 
-Damage bases: `weapons[].die` + `damageBonus` → the sheet renders the roll
-string; the engine output carries `damage_flat` (the number a flat damage
-modifier adjusts), keyed by strike `key = name` (E5's verbatim weapon
-objects; duplicate weapon names get a stable `name#2` suffix rule in the
-extractor, tested).
+Damage bases: `weapons[].die` + the re-derived `damage_flat` → the sheet
+renders the roll string; the engine output carries `damage_flat` (the
+number a flat damage modifier adjusts), keyed by strike `key = name`
+(E5's verbatim weapon objects; duplicate weapon names get a stable
+`name#2` suffix rule in the extractor, tested — the appended Fist goes
+through the same counter).
 
 The `render_base` rows and the strike/caster display fields are render
 inputs, not modifier-bearing stats — they ride the same extraction (D3) and

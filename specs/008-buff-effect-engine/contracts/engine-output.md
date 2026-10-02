@@ -32,7 +32,9 @@ instances of the per-strike and per-caster stats (Q1: **per instance**):
   "stats": {
     "ac": 18, "fort": 9, "ref": 7, "will": 10,
     "perception": 6, "speed": 25, "class_dc": null,
-    "strikes": [                        // one entry per strike the sheet renders
+    "strikes": [                        // one entry per strike the sheet renders —
+                                        //   the export's weapons PLUS the appended unarmed
+                                        //   Fist row (the sheet renders it; design D3)
       { "key": "dagger", "label": "Dagger", "attack": 11, "damage": "1d4+3" }
     ],
     "casters": [                        // one entry per base_sheet.spellcasters block
@@ -144,7 +146,8 @@ Rules that make this a contract:
   (its display name), and `traits` (the chip names). They are passthrough
   render inputs alongside the modifier-bearing `attack`/`damage_flat`; there
   is deliberately **no** parallel `render_base.strikes[]` keyed by `key` —
-  two arrays describing one strike row drift.
+  two arrays describing one strike row drift. The unarmed `Fist` row carries
+  the same fields (traits from the POC weapon-trait map).
 - **`casters[].innate`** flags innate caster blocks. A consumer picking
   "the" caster for its stat tiles takes the first entry with `innate: false`.
 - **Versioning**: `schema` strings version these shapes; a breaking change
