@@ -606,7 +606,7 @@ fn unchanged_stored_mapping_still_skips() {
         plan.skipped, 1,
         "an identical stored mapping must stay a no-op (FR-3)"
     );
-    assert!(plan.updates.is_empty());
+    assert_eq!(plan.updates, [] as [crate::import::transform::RowWrite; 0]);
 }
 
 #[test]

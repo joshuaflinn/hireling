@@ -4,7 +4,10 @@
 //! truth — a mismatch here adjusts the math table in `extract.rs`, never
 //! a value in this file. `level_adjust = 0` pins prototype parity; ±1
 //! asserts the design table directly (the prototype has no adjust render:
-//! untrained adds neither level nor bonus, trained adds both).
+//! untrained adds neither level nor bonus, trained adds both — including
+//! re-derived strike attacks); +2 pins the wizard class progression
+//! (display level 5 ≥ the reflex→expert threshold, the only one it
+//! crosses).
 
 use crate::engine_host::extract::extract;
 use crate::pbimport::{model, transform};
@@ -50,6 +53,8 @@ fn skill_total(base: &BaseStats, name: &str) -> i32 {
 // -- the golden: every derived base equals the prototype's rendered value --
 
 /// Prototype parity at `level_adjust = 0`: globals, saves, class DC.
+/// Bonus = raw rank + level (`pb = rank > 0 ? rank + level : 0`):
+/// trained(L3) = 2+3 = +5, expert(L3) = 4+3 = +7.
 #[test]
 fn golden_globals_match_the_prototype() {
     let base = extract(&reference_sheet(), 0);
@@ -57,14 +62,14 @@ fn golden_globals_match_the_prototype() {
     assert_eq!(base.level, 3);
     assert_eq!(base.stats.ac, 16, "acTotal verbatim");
     assert_eq!(base.stats.speed, 25, "speed + speedBonus");
-    assert_eq!(base.stats.fort, 9, "3·1 + con 2 + trained 4");
-    assert_eq!(base.stats.reflex, 8, "3·1 + dex 1 + trained 4");
-    assert_eq!(base.stats.will, 11, "3·1 + wis 0 + expert 8");
-    assert_eq!(base.stats.perception, 7, "3·1 + wis 0 + trained 4");
+    assert_eq!(base.stats.fort, 7, "con 2 + trained 2+3");
+    assert_eq!(base.stats.reflex, 6, "dex 1 + trained 2+3");
+    assert_eq!(base.stats.will, 7, "wis 0 + expert 4+3");
+    assert_eq!(base.stats.perception, 5, "wis 0 + trained 2+3");
     assert_eq!(
         base.stats.class_dc,
-        Some(21),
-        "10 + 3·1 + key int 4 + trained 4"
+        Some(19),
+        "10 + key int 4 + trained 2+3"
     );
 }
 
@@ -75,86 +80,133 @@ fn golden_skills_match_the_prototype() {
     let base = extract(&reference_sheet(), 0);
     assert_eq!(base.stats.skills.len(), 20, "18 core + 2 lores");
     assert_eq!(skill_total(&base, "acrobatics"), 1, "untrained: dex only");
-    assert_eq!(skill_total(&base, "arcana"), 11, "3·1 + int 4 + trained 4");
+    assert_eq!(skill_total(&base, "arcana"), 9, "int 4 + trained 2+3");
     assert_eq!(skill_total(&base, "athletics"), -1, "untrained: str only");
-    assert_eq!(
-        skill_total(&base, "deception"),
-        14,
-        "3·1 + cha 3 + expert 8"
-    );
-    assert_eq!(
-        skill_total(&base, "diplomacy"),
-        10,
-        "3·1 + cha 3 + trained 4"
-    );
-    assert_eq!(skill_total(&base, "stealth"), 8);
-    assert_eq!(skill_total(&base, "thievery"), 8);
+    assert_eq!(skill_total(&base, "deception"), 10, "cha 3 + expert 4+3");
+    assert_eq!(skill_total(&base, "diplomacy"), 8, "cha 3 + trained 2+3");
+    assert_eq!(skill_total(&base, "stealth"), 6);
+    assert_eq!(skill_total(&base, "thievery"), 6);
     assert_eq!(skill_total(&base, "computers"), 4, "untrained: int only");
     assert_eq!(skill_total(&base, "piloting"), 1, "untrained: dex only");
     assert_eq!(
         skill_total(&base, "lore:underworld"),
-        11,
-        "3·1 + int 4 + trained 4 (rank 2)"
+        9,
+        "int 4 + trained 2+3 (rank 2)"
     );
     assert_eq!(
         skill_total(&base, "lore:mror_holds_history"),
-        15,
-        "3·1 + int 4 + expert 8 (rank 4); spaces underscored, lowercase"
+        11,
+        "int 4 + expert 4+3 (rank 4); spaces underscored, lowercase"
     );
 }
 
-/// Prototype parity: strikes verbatim and caster blocks derived.
+/// Prototype parity: strikes re-derived (attack = ability + rank+level +
+/// pot; damage flat = Str + mastery) with the unarmed Fist appended, and
+/// caster blocks derived.
 #[test]
 fn golden_strikes_and_casters_match_the_prototype() {
     let base = extract(&reference_sheet(), 0);
-    assert_eq!(base.stats.strikes.len(), 1);
-    let staff = base.stats.strikes.first().expect("one strike");
+    assert_eq!(base.stats.strikes.len(), 2, "the Staff + the unarmed Fist");
+    let staff = base.stats.strikes.first().expect("staff strike");
     assert_eq!(staff.key, "Staff");
     assert_eq!(staff.label, "Staff");
-    assert_eq!(staff.attack, 4, "weapons[].attack verbatim");
+    assert_eq!(
+        staff.attack, 4,
+        "str −1 + trained 2+3 + pot 0 — the export's verbatim 4 coincides"
+    );
     assert_eq!(
         staff.damage, "1d4-1",
-        "die + damageBonus as the roll string"
+        "die + re-derived flat (str −1) as the roll string"
     );
-    assert_eq!(staff.damage_flat, -1, "damageBonus is the flat part");
+    assert_eq!(staff.damage_flat, -1, "str + mastery(2, 3) = −1");
+    let fist = base.stats.strikes.get(1).expect("fist strike");
+    assert_eq!(fist.key, "Fist");
+    assert_eq!(fist.label, "Fist");
+    assert_eq!(fist.attack, 6, "best(str,dex) = dex 1 + trained 2+3");
+    assert_eq!(fist.damage, "1d4-1", "d4 + str −1");
+    assert_eq!(fist.damage_flat, -1);
 
     assert_eq!(base.stats.casters.len(), 2);
     let wizard = base.stats.casters.first().expect("wizard");
     assert_eq!(wizard.caster_key, "Wizard");
-    assert_eq!(wizard.spell_attack, 11, "3·1 + int 4 + trained 4");
-    assert_eq!(wizard.spell_dc, 21, "spell_attack + 10");
+    assert_eq!(wizard.spell_attack, 9, "int 4 + trained 2+3");
+    assert_eq!(wizard.spell_dc, 19, "spell_attack + 10");
     let gnome = base.stats.casters.get(1).expect("gnome");
     assert_eq!(gnome.caster_key, "Wellspring Gnome");
-    assert_eq!(gnome.spell_attack, 10, "3·1 + cha 3 + trained 4 (innate)");
-    assert_eq!(gnome.spell_dc, 20);
+    assert_eq!(gnome.spell_attack, 8, "cha 3 + trained 2+3 (innate)");
+    assert_eq!(gnome.spell_dc, 18);
 }
 
 // -- level_adjust ±1 asserts the design table (not the prototype) --
 
-/// Trained things rise with `eff_level`; untrained skills and verbatim
-/// totals (ac, speed, strikes) do not move.
+/// Trained things rise with `eff_level` — including re-derived strike
+/// attacks; untrained skills and verbatim totals (ac, speed) do not move.
 #[test]
 fn level_adjust_plus_one_adds_level_to_trained_only() {
     let base = extract(&reference_sheet(), 1);
     assert_eq!(base.level, 4);
-    assert_eq!(base.stats.fort, 10);
-    assert_eq!(base.stats.will, 12);
-    assert_eq!(base.stats.class_dc, Some(22));
-    assert_eq!(skill_total(&base, "arcana"), 12);
-    assert_eq!(skill_total(&base, "lore:underworld"), 12);
+    assert_eq!(base.stats.fort, 8, "con 2 + trained 2+4");
+    assert_eq!(base.stats.will, 8, "wis 0 + expert 4+4");
+    assert_eq!(base.stats.class_dc, Some(20));
+    assert_eq!(skill_total(&base, "arcana"), 10);
+    assert_eq!(skill_total(&base, "lore:underworld"), 10);
     assert_eq!(skill_total(&base, "acrobatics"), 1, "untrained: no level");
     assert_eq!(base.stats.ac, 16, "verbatim total: no level");
-    assert_eq!(base.stats.strikes.first().expect("staff").attack, 4);
+    assert_eq!(
+        base.stats.strikes.first().expect("staff").attack,
+        5,
+        "re-derived: str −1 + trained 2+4 — rises with level, unlike the verbatim pin"
+    );
 }
 
 #[test]
 fn level_adjust_minus_one_subtracts_level_from_trained_only() {
     let base = extract(&reference_sheet(), -1);
     assert_eq!(base.level, 2);
-    assert_eq!(base.stats.fort, 8);
-    assert_eq!(base.stats.class_dc, Some(20));
-    assert_eq!(skill_total(&base, "lore:mror_holds_history"), 14);
+    assert_eq!(base.stats.fort, 6, "con 2 + trained 2+2");
+    assert_eq!(base.stats.class_dc, Some(18));
+    assert_eq!(skill_total(&base, "lore:mror_holds_history"), 10);
     assert_eq!(skill_total(&base, "medicine"), 0, "untrained: no level");
+}
+
+/// Wizard class progression: at display level 5 (export 3, adjust +2) the
+/// reflex bump to expert fires — the only threshold ≥5 crossed — while
+/// fortitude (≥9) and perception (≥11) stay trained. Nothing below the
+/// export's level bumps.
+#[test]
+fn wizard_progression_bumps_ranks_above_the_export_level() {
+    let base = extract(&reference_sheet(), 2);
+    assert_eq!(base.level, 5);
+    assert_eq!(
+        base.stats.reflex, 10,
+        "dex 1 + expert 4+5 — bumped from trained by the ≥5 threshold"
+    );
+    assert_eq!(base.stats.fort, 9, "con 2 + trained 2+5 — no bump below ≥9");
+    assert_eq!(
+        base.stats.perception, 7,
+        "wis 0 + trained 2+5 — no bump below ≥11"
+    );
+    assert_eq!(skill_total(&base, "acrobatics"), 1, "untrained never bumps");
+}
+
+/// The caster rank rule: a prepared caster takes the better of block and
+/// tradition, so at display level 7 the castingArcane bump (≥7) lifts the
+/// wizard's spell attack to expert — while the innate caster keeps her
+/// own block rank (E6 pins the same numbers at feat/8 base.test.js).
+#[test]
+fn caster_rank_takes_the_tradition_bump_innate_keeps_hers() {
+    let base = extract(&reference_sheet(), 4);
+    assert_eq!(base.level, 7);
+    let wizard = base.stats.casters.first().expect("wizard");
+    assert_eq!(
+        wizard.spell_attack, 15,
+        "int 4 + expert 4+7 — max(block 2, tradition 4) after the ≥7 bump"
+    );
+    let gnome = base.stats.casters.get(1).expect("gnome");
+    assert_eq!(
+        gnome.spell_attack, 12,
+        "cha 3 + trained 2+7 — innate: her own block rank, no tradition max"
+    );
 }
 
 // -- degraded sections and keying rules --
@@ -169,7 +221,8 @@ fn missing_attributes_degrade_speed_to_zero() {
 }
 
 /// Duplicate weapon names: the first keeps the bare name, later ones get
-/// `name#2` by array order — stable strike keys (E5's FR-10 rule).
+/// `name#2` by array order — stable strike keys (E5's FR-10 rule). The
+/// appended unarmed Fist goes through the same counter.
 #[test]
 fn duplicate_weapon_names_get_stable_suffixes() {
     let base = extract(&minimal_sheet(), 0);
@@ -179,9 +232,15 @@ fn duplicate_weapon_names_get_stable_suffixes() {
         .iter()
         .map(|strike| strike.key.as_str())
         .collect();
-    assert_eq!(keys, vec!["Staff", "Staff#2"]);
+    assert_eq!(keys, vec!["Staff", "Staff#2", "Fist"]);
     let second = base.stats.strikes.get(1).expect("second strike");
-    assert_eq!(second.attack, 3);
-    assert_eq!(second.damage, "1d8+1");
-    assert_eq!(second.damage_flat, 1);
+    assert_eq!(
+        second.attack, 0,
+        "re-derived: no proficiencies table (untrained), str ±0, no pot — verbatim 3 ignored"
+    );
+    assert_eq!(second.damage, "1d8", "re-derived flat 0: bare die");
+    assert_eq!(second.damage_flat, 0);
+    let fist = base.stats.strikes.get(2).expect("fist");
+    assert_eq!(fist.key, "Fist");
+    assert_eq!(fist.attack, 0, "untrained unarmed at level 2: no bonus");
 }
