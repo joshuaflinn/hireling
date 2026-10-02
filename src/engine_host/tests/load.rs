@@ -193,8 +193,11 @@ async fn ended_effects_stay_queryable_and_load() {
     let loaded = effects.first().expect("one effect loads");
     assert_eq!(loaded.effect_id, effect);
     assert!(!loaded.active);
-    assert!(loaded.targets.is_empty());
-    assert!(loaded.modifiers.is_empty());
+    assert_eq!(loaded.targets, [] as [i64; 0]);
+    assert_eq!(
+        loaded.modifiers,
+        [] as [hireling_engine::model::Modifier; 0]
+    );
     testing::drop_test_db(pool, "e8_load_ended").await;
 }
 
@@ -234,7 +237,7 @@ async fn an_empty_party_loads_empty() {
     };
     let (party, _) = seed_party(&pool, "load-empty").await;
     let effects = party_effects(&pool, party).await.expect("load");
-    assert!(effects.is_empty());
+    assert_eq!(effects, [] as [hireling_engine::model::ActiveEffect; 0]);
     testing::drop_test_db(pool, "e8_load_empty").await;
 }
 

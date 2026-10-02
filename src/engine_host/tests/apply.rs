@@ -140,12 +140,18 @@ fn display_only_tier_yields_badge_only() {
     let resolved =
         apply_condition(Some("display_only"), None, None).expect("display-only resolves");
     assert!(resolved.tracked_manually);
-    assert!(resolved.modifiers.is_empty());
+    assert_eq!(
+        resolved.modifiers,
+        [] as [hireling_engine::model::Modifier; 0]
+    );
     // Even with a condition value supplied: nothing to resolve it against.
     let with_value = apply_condition(Some("display_only"), None, Some(2))
         .expect("display-only ignores the value");
     assert!(with_value.tracked_manually);
-    assert!(with_value.modifiers.is_empty());
+    assert_eq!(
+        with_value.modifiers,
+        [] as [hireling_engine::model::Modifier; 0]
+    );
 }
 
 #[test]
@@ -156,7 +162,10 @@ fn absent_or_empty_mappings_mean_display_only() {
         let fallback = apply_condition(Some("engine_math"), modifiers, Some(1))
             .expect("absent/empty mappings are display-only");
         assert!(fallback.tracked_manually, "mappings {modifiers:?}");
-        assert!(fallback.modifiers.is_empty());
+        assert_eq!(
+            fallback.modifiers,
+            [] as [hireling_engine::model::Modifier; 0]
+        );
     }
 }
 
