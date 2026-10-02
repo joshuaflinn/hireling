@@ -93,7 +93,7 @@ tracked_manually) and the resolved signed modifiers (constant or
     "casters":   [ { "caster_key": "Wizard", "innate": false,
                      "spell_attack": { "base": 9,  "total": 10, "applied": [/*…*/], "suppressed": [/*…*/] },
                      "spell_dc":     { "base": 22, "total": 23, "applied": [/*…*/], "suppressed": [/*…*/] } } ],
-    "skills":    [ { "name": "acrobatics", "total": 3, "applied": [/*…*/], "suppressed": [/*…*/] } ]
+    "skills":    [ { "name": "acrobatics", "rank": 2, "total": 3, "applied": [/*…*/], "suppressed": [/*…*/] } ]
   },
   "effects": [   // chips: every active effect targeting this character
     { "effect_id": 41, "name": "Bless", "source_name": "Lorum Ipsum",
@@ -150,10 +150,20 @@ Rules that make this a contract:
   the same fields (traits from the POC weapon-trait map).
 - **`casters[].innate`** flags innate caster blocks. A consumer picking
   "the" caster for its stat tiles takes the first entry with `innate: false`.
+- **`skills[].rank`** is the row's raw proficiency rank (untrained 0,
+  trained 2, expert 4, master 6, legendary 8 — after any class progression
+  the extractor applies at adjusted levels, design D3). It is render input —
+  the rank letter and untrained dimming (`StatsPane`), lores included — and
+  **not derivable from `total`** (total = ability + rank + level +
+  modifiers). Reading it back from `base_sheet.proficiencies` at render
+  would fork one skill row across two sources — the same drift the strike
+  display-field ruling rejects. Additive, so no schema bump; a consumer
+  that ignores `rank` is unaffected.
 - **Versioning**: `schema` strings version these shapes; a breaking change
   is a PR to this file plus a version bump, never a silent drift.
-  `render_base`, the strike display fields, and `casters[].innate` were
-  added **without** a bump: purely additive — no existing field changed
+  `render_base`, the strike display fields, `casters[].innate`, and
+  `skills[].rank` were added **without** a bump: purely additive — no
+  existing field changed
   meaning or shape, and a consumer that ignores them is unaffected.
 
 ## 4. Chip metadata (corpus conditions)

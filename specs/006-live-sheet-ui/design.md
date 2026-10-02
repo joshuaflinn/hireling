@@ -102,9 +102,11 @@ derive(character, liveState) → DerivedSheet
 `DerivedSheet` (shape pinned by the E8 engine-output contract): per-stat
 derived values keyed by the FG3 vocabulary (`ac`, `fort`, `ref`, `will`,
 `perception`, `speed`, `class_dc`, `spell_dc`, `spell_attack`, `attack`,
-`skill:<name>`, strike rows), each carrying `{ value, provenance[] }` where
-`provenance[]` lists contribution parts and — post-E8 — suppressed sources;
-plus the contract's `effects` chip array and the `render_base` render inputs
+`skill:<name>`, strike rows), each carrying the contract's stat shape
+`{ base, total, applied[], suppressed[] }` — `applied[]` lists the
+contributing modifiers, `suppressed[]` the not-stacked ones; skill rows
+carry `rank` alongside `total`; plus the contract's `effects` chip array
+and the `render_base` render inputs
 (`hp_max`, `level`, `focus_max`, `hero_max`, `cantrip_rank`, `attributes`).
 Strike rows carry their display fields (`label`, `map`, `damage_expr`,
 `damage_type`, `damage_type_name`, `traits`) on the strike object itself;
@@ -112,7 +114,7 @@ caster entries carry `innate`.
 
 - **Now (base-only mode):** `base.js` computes from `base_sheet` inputs +
   `level_adjust`, zero effects, `effects: []`, provenance = base parts
-  only (e.g. AC = acTotal ability + prof + item parts; saves/skills = ability
+  only (e.g. AC = acTotal ability + prof + item + shield parts; saves/skills = ability
   + proficiency(rank, level); strikes = weapon math + MAP −5/−10; hp_max =
   the prototype's formula at adjusted level — ancestry + bonus + (class +
   CON + per-level) × level, the export's CON-less stored anchor
