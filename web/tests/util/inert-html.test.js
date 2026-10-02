@@ -25,8 +25,7 @@ function stubParser() {
       const childNodes = [];
       const pattern =
         /<script[\s\S]*?<\/script>|<([a-z]+)((?:\s+[a-z-]+="[^"]*")*)\s*>([^<]*)<\/\1>|([^<]+)/gi;
-      let match;
-      while ((match = pattern.exec(html)) !== null) {
+      for (const match of html.matchAll(pattern)) {
         if (match[1]) {
           const attributes = [...match[2].matchAll(/([a-z-]+)="([^"]*)"/g)].map(
             ([, name, value]) => [name, value],

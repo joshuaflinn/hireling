@@ -45,7 +45,6 @@
 </script>
 
 {#if open}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <dialog bind:this={dialogHost}>
     <h3>{title}</h3>
     {@render children?.()}

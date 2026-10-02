@@ -84,7 +84,7 @@
     <label style="display:flex;align-items:center;gap:8px">
       Level
       <select bind:value={draftLevel}>
-        {#each Array.from({ length: 20 }, (_, i) => i + 1) as option}
+        {#each Array.from({ length: 20 }, (_, i) => i + 1) as option (option)}
           <option value={option}>{option}</option>
         {/each}
       </select>

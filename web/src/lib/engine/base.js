@@ -339,7 +339,10 @@ function capitalize(text) {
   return text ? text[0].toUpperCase() + text.slice(1) : text;
 }
 
+/** U+2212 MINUS SIGN — the sheet's typographic minus, never hyphen-minus. */
+const MINUS_SIGN = '\u2212';
+
 /** @param {number} n */
 function signedBonus(n) {
-  return n < 0 ? `\u{2212}${Math.abs(n)}` : `+${n}`;
+  return n < 0 ? `${MINUS_SIGN}${Math.abs(n)}` : `+${n}`;
 }

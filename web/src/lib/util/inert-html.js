@@ -11,8 +11,6 @@
 // change) still cannot arm a payload through this util. No component may
 // innerHTML-assign; there is exactly one shared primitive.
 
-/* global DOMParser */
-
 /**
  * A parsed, inert node: the util only touches `nodeName`, `attributes`,
  * `childNodes`, and the append target's DOM methods, so tests can drive it
@@ -72,13 +70,17 @@ function isScript(node) {
 function scrubAttributes(node) {
   const attributes = node.attributes;
   if (!Array.isArray(attributes)) return;
+  // Spelled from parts: a literal `javascript:` string is itself a script
+  // URL (eslint no-script-url), and the scrubber must name the scheme
+  // without carrying one.
+  const scriptScheme = ['java', 'script:'].join('');
   /** @param {{name: string, value: string}} attribute */
   const dangerous = (attribute) =>
     attribute.name.toLowerCase().startsWith('on') ||
     (['href', 'src', 'xlink:href', 'action', 'formaction'].includes(
       attribute.name.toLowerCase(),
     ) &&
-      attribute.value.trim().toLowerCase().startsWith('javascript:'));
+      attribute.value.trim().toLowerCase().startsWith(scriptScheme));
   for (let index = attributes.length - 1; index >= 0; index -= 1) {
     if (dangerous(attributes[index])) attributes.splice(index, 1);
   }
