@@ -31,12 +31,15 @@ web/src/
     sheet/
       state.js                Svelte stores: character view model over
                               base_sheet + sync store + adapter
-      components/             CharacterHeader, HpBar, StatTile, SkillList,
-                              SkillRow, StrikeRow, SpellSlotRow, CasterPanel,
-                              FocusPips, PipRow, InventoryPanel, ContainerGroup,
-                              CoinBar, CompanionsPanel, FeatsPanel,
-                              EffectsStrip, SyncIndicator, Tooltip,
-                              EmptyState, ErrorState, Dialog
+      components/             CharacterHeader, HpBar, StatTile, SkillRow,
+                              StrikeRow, SpellSlotRow, CasterPanel, StaffPanel,
+                              PipRow, MagicPane, StrikesPane, StatsPane,
+                              InventoryPanel, CompanionsPanel, FeatsPanel,
+                              SyncIndicator, EmptyState, ErrorState, Skeleton,
+                              Dialog
+                              (planned, not built: EffectsStrip — E8/E10;
+                              Tooltip — E9 prose; SkillList/ContainerGroup/
+                              CoinBar — folded into StatsPane/InventoryPanel)
     util/
       inert-html.js           setHTML port (DOMParser, no script execution)
       keyboard.js             focus trap, Escape/Enter dialog pattern
@@ -138,11 +141,14 @@ live corpus.
 
 Every component accepts `editable` (default true) and renders view-only when
 false — no disabled-control litter, simply no controls. E10's roster cards
-compose `HpBar` + `EffectsStrip` + `SyncBadge`; its drill-in renders the full
-`SheetView` with `editable={owner}`. The component API (props, events) is
-part of this epic's review criteria: E10 must consume, not re-implement
-(EPICS conflict risk). `Dialog` implements the focus-trap/Escape/Enter
-pattern once; every dialog (prep picker, level-down confirm, New Day confirm)
+compose `HpBar` + an effect-chips unit + `SyncBadge`; the effects unit and
+the badge do not exist yet (E8 owns the chips' data, E10 builds both —
+components.md states this plainly after MOR-48 finding 9). Its drill-in
+renders the full `SheetView` with `editable={owner}`. The component API
+(props, events) is part of this epic's review criteria: E10 must consume,
+not re-implement (EPICS conflict risk). `Dialog` implements the
+focus-trap/Escape/Enter pattern once; every dialog (prep picker, level-down
+confirm, New Day confirm)
 uses it.
 
 ## 7. States
