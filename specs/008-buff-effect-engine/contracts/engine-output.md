@@ -32,7 +32,9 @@ instances of the per-strike and per-caster stats (Q1: **per instance**):
   "stats": {
     "ac": 18, "fort": 9, "ref": 7, "will": 10,
     "perception": 6, "speed": 25, "class_dc": null,
-    "strikes": [                        // one entry per strike the sheet renders
+    "strikes": [                        // one entry per strike the sheet renders —
+                                        //   the export's weapons PLUS the appended unarmed
+                                        //   Fist row (the sheet renders it; design D3)
       { "key": "dagger", "label": "Dagger", "attack": 11, "damage": "1d4+3" }
     ],
     "casters": [                        // one entry per base_sheet.spellcasters block
@@ -83,19 +85,30 @@ tracked_manually) and the resolved signed modifiers (constant or
     "speed":     { "base": 25, "total": 25, "applied": [], "suppressed": [] },
     "class_dc":  { "base": null, "total": null, "applied": [], "suppressed": [] },
     "strikes":   [ { "key": "dagger",
+                     "label": "Dagger", "map": 5,
+                     "damage_expr": "1d4+3", "damage_type": "P",
+                     "damage_type_name": "piercing", "traits": ["Agile", "Finesse"],
                      "attack":     { "base": 11, "total": 12, "applied": [/*…*/], "suppressed": [/*…*/] },
                      "damage_flat": { "base": 3, "total": 4, "applied": [/*…*/], "suppressed": [/*…*/] } } ],
-    "casters":   [ { "caster_key": "Wizard",
+    "casters":   [ { "caster_key": "Wizard", "innate": false,
                      "spell_attack": { "base": 9,  "total": 10, "applied": [/*…*/], "suppressed": [/*…*/] },
                      "spell_dc":     { "base": 22, "total": 23, "applied": [/*…*/], "suppressed": [/*…*/] } } ],
-    "skills":    [ { "name": "acrobatics", "total": 3, "applied": [/*…*/], "suppressed": [/*…*/] } ]
+    "skills":    [ { "name": "acrobatics", "rank": 2, "total": 3, "applied": [/*…*/], "suppressed": [/*…*/] } ]
   },
   "effects": [   // chips: every active effect targeting this character
     { "effect_id": 41, "name": "Bless", "source_name": "Lorum Ipsum",
       "duration_note": "10 rounds", "active": true, "version": 1042,
       "modifiers": [ { "type": "status", "stat": "attack", "value": 1 } ],
       "tracked_manually": false }   // true ⇒ display-only condition: badge, zero math
-  ]
+  ],
+  "render_base": {   // render inputs with no modifier math — see the rules below
+    "level": 5,          // eff_level, clamped 1..20
+    "hp_max": 48,
+    "focus_max": 2,
+    "hero_max": 3,       // constant 3 at POC
+    "cantrip_rank": 3,   // ⌈level / 2⌉
+    "attributes": { "str": 0, "dex": 3, "con": 2, "int": 4, "wis": 1, "cha": 0 }
+  }
 }
 ```
 
@@ -117,8 +130,41 @@ Rules that make this a contract:
   consumers never see `all_*` stats, only their expansion.
 - **`null` base stats** keep `null` totals (nothing invented); their
   applied/suppressed lists still account for every modifier (SC-4).
+- **`render_base`** carries the render inputs that have no modifier math:
+  `level` (eff_level, clamped 1..20), `hp_max`, `focus_max`, `hero_max`
+  (constant 3 at POC), `cantrip_rank` (⌈level/2⌉), and `attributes` (the six
+  ability modifiers). They sit **outside `derived` deliberately**: `StatName`
+  is a closed enum and no member — nor blanket target — addresses any of
+  them, so no modifier can ever target a `render_base` value. There is no
+  provenance to carry and no hover to back; a `StatOutput` slot for these
+  would hold permanently empty `applied`/`suppressed` arrays — a shape that
+  lies about itself. Computed server-side by the extractor (design D3); the
+  design's BaseStats math table owns the formulas.
+- **Strike display fields ride the strike object**: `label`, `map` (the MAP
+  step: 4 for agile strikes, 5 otherwise), `damage_expr` (the roll string as
+  rendered), `damage_type` (the export's letter code), `damage_type_name`
+  (its display name), and `traits` (the chip names). They are passthrough
+  render inputs alongside the modifier-bearing `attack`/`damage_flat`; there
+  is deliberately **no** parallel `render_base.strikes[]` keyed by `key` —
+  two arrays describing one strike row drift. The unarmed `Fist` row carries
+  the same fields (traits from the POC weapon-trait map).
+- **`casters[].innate`** flags innate caster blocks. A consumer picking
+  "the" caster for its stat tiles takes the first entry with `innate: false`.
+- **`skills[].rank`** is the row's raw proficiency rank (untrained 0,
+  trained 2, expert 4, master 6, legendary 8 — after any class progression
+  the extractor applies at adjusted levels, design D3). It is render input —
+  the rank letter and untrained dimming (`StatsPane`), lores included — and
+  **not derivable from `total`** (total = ability + rank + level +
+  modifiers). Reading it back from `base_sheet.proficiencies` at render
+  would fork one skill row across two sources — the same drift the strike
+  display-field ruling rejects. Additive, so no schema bump; a consumer
+  that ignores `rank` is unaffected.
 - **Versioning**: `schema` strings version these shapes; a breaking change
   is a PR to this file plus a version bump, never a silent drift.
+  `render_base`, the strike display fields, `casters[].innate`, and
+  `skills[].rank` were added **without** a bump: purely additive — no
+  existing field changed
+  meaning or shape, and a consumer that ignores them is unaffected.
 
 ## 4. Chip metadata (corpus conditions)
 
