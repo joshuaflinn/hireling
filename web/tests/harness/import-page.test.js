@@ -29,18 +29,22 @@ test('the import page renders its affordances into the real DOM', () => {
 // event wiring — unreachable from a pushed-down .js twin. A real paste, a
 // real click, and the visible result the spec promises (E5 FR-18).
 test('a paste and a click import through the component and render the diff', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        character: { name: 'Lorum Ipsum', level: 3, first_import: true },
-        diff: {},
-        advisory: { skipped_fields: 0 },
-      }),
-    })),
-  );
+  const payload = {
+    character: { name: 'Lorum Ipsum', level: 3, first_import: true },
+    diff: {},
+    advisory: { skipped_fields: 0 },
+  };
+  // No async/await in the stub: `submit` only awaits the returned objects,
+  // and resolved promises serve those exactly (and keep eslint's
+  // require-await quiet). The mock is kept in a named binding — the bare
+  // global `fetch` after stubGlobal is runtime-real but undeclared to the
+  // linter (no-undef).
+  const fetchMock = vi.fn(() => ({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve(payload),
+  }));
+  vi.stubGlobal('fetch', fetchMock);
 
   render(ImportPage);
 
@@ -56,5 +60,5 @@ test('a paste and a click import through the component and render the diff', asy
     'Imported Lorum Ipsum (level 3) — welcome to the party.',
   );
   assert.equal(line.tagName, 'LI');
-  assert.equal(fetch.mock.calls[0][0], '/api/characters/import');
+  assert.equal(fetchMock.mock.calls[0][0], '/api/characters/import');
 });
