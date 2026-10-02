@@ -104,18 +104,33 @@ derived values keyed by the FG3 vocabulary (`ac`, `fort`, `ref`, `will`,
 `perception`, `speed`, `class_dc`, `spell_dc`, `spell_attack`, `attack`,
 `skill:<name>`, strike rows), each carrying `{ value, provenance[] }` where
 `provenance[]` lists contribution parts and — post-E8 — suppressed sources;
-plus `effect_chips[]` and `hp_max`.
+plus the contract's `effects` chip array and the `render_base` render inputs
+(`hp_max`, `level`, `focus_max`, `hero_max`, `cantrip_rank`, `attributes`).
+Strike rows carry their display fields (`label`, `map`, `damage_expr`,
+`damage_type`, `damage_type_name`, `traits`) on the strike object itself;
+caster entries carry `innate`.
 
 - **Now (base-only mode):** `base.js` computes from `base_sheet` inputs +
-  `level_adjust`, zero effects, `effect_chips: []`, provenance = base parts
+  `level_adjust`, zero effects, `effects: []`, provenance = base parts
   only (e.g. AC = acTotal ability + prof + item parts; saves/skills = ability
   + proficiency(rank, level); strikes = weapon math + MAP −5/−10; hp_max =
-  E5's formula at adjusted level; cantrip/focus rank = ceil(level/2)). The
-  prototype's formulas are the reference implementation; each is unit-tested
-  against the reference export fixture (`tests/data/pb_export_reference.json`).
+  the prototype's formula at adjusted level — ancestry + bonus + (class +
+  CON + per-level) × level, the export's CON-less stored anchor
+  `base_sheet.hp.max_hp` staying untouched; cantrip rank = ⌈level/2⌉;
+  focus_max = `base_sheet.focus_points`). The prototype's formulas are the
+  reference implementation; each is unit-tested against the reference export
+  fixture (`tests/data/pb_export_reference.json`).
 - **At E8:** swap `index.js` to forward engine output. `base.js` is deleted,
-  not kept in parallel. The effects strip and provenance hovers (suppressed
+  not kept in parallel. The render inputs (`hp_max`, `level`, `focus_max`,
+  `hero_max`, `cantrip_rank`, `attributes`) come from the contract's
+  `render_base`; the effects strip and provenance hovers (suppressed
   sources included) activate with the engine — nothing before it pretends.
+- **Lores partition (recorded):** the engine folds lores into
+  `derived.skills` as `lore:<name>` entries (E8 design D9, clarify Q2) — the
+  contract has no separate lores array. E6 partitions `skills` on the
+  `lore:` prefix at render and derives the display label. Labels are the
+  renderer's job, not the contract's; the adapter swap owns the change
+  (the sheet reads a partitioned `derived.lores` array today).
 
 **Rejected:** computing derived stats inside components (no seam, E10/E14
 would fork the math); running the engine in WASM client-side (transport +
