@@ -10,6 +10,7 @@
 pub mod auth;
 pub mod config;
 pub mod db;
+pub mod engine_host;
 pub mod health;
 pub mod http;
 pub mod import;

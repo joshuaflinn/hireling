@@ -11,7 +11,7 @@
 //!
 //! Pure module: `ValidExport` in, sheet + skip notices out, no I/O.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::pbimport::model::ValidExport;
@@ -65,13 +65,20 @@ impl BaseSheet {
 
 /// The normalized character sheet stored in `characters.base_sheet`
 /// (data-model §2 — field-level truth for this shape).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BaseSheet {
     pub schema: String,
     pub identity: Identity,
     pub abilities: Abilities,
     pub hp: Hp,
     pub ac: Option<Value>,
+    /// The export's `attributes` block, verbatim (E8: the speed source —
+    /// design math table). E5 consumed it for hp only and dropped the rest;
+    /// E8's extractor needs `speed + speedBonus`, so the section is now
+    /// captured. Additive field: older rows carry `None` (degraded-empty,
+    /// contract §5 — never a lost import).
+    pub attributes: Option<Value>,
     pub proficiencies: Value,
     pub specific_proficiencies: Option<Value>,
     pub lores: Vec<Lore>,
@@ -88,7 +95,8 @@ pub struct BaseSheet {
 }
 
 /// Contract §3.1 identity, verbatim; `snake_case` where E5 renames.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Identity {
     pub name: String,
     pub class: Option<String>,
@@ -109,7 +117,8 @@ pub struct Identity {
 }
 
 /// The six scores plus the passthrough breakdown (contract §3.2).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Abilities {
     pub str: i64,
     pub dex: i64,
@@ -121,7 +130,8 @@ pub struct Abilities {
 }
 
 /// HP inputs and the derived maximum (contract §3.3 formula).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Hp {
     pub ancestryhp: i64,
     pub classhp: i64,
@@ -132,7 +142,8 @@ pub struct Hp {
 }
 
 /// One caster block, normalized (contract §3.6).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Caster {
     /// The anchor base: `name`, or `name#2`/`name#3`… on duplicates (FR-10).
     pub caster_key: String,
@@ -152,14 +163,16 @@ pub struct Caster {
 }
 
 /// One rank's spell list (contract §3.6: `{spellLevel, list}`).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SpellList {
     pub rank: i64,
     pub spells: Vec<String>,
 }
 
 /// One equipment entry, container resolved to a name (contract §3.7).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct InventoryItem {
     pub name: String,
     pub qty: i64,
@@ -170,7 +183,8 @@ pub struct InventoryItem {
 }
 
 /// One container (contract §3.7).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Container {
     pub name: String,
     /// `bagOfHolding` — the extradimensional flag.
@@ -180,14 +194,16 @@ pub struct Container {
 }
 
 /// One lore, normalized from the export's `[name, rank]` pair (§3.5).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Lore {
     pub name: String,
     pub rank: i64,
 }
 
 /// One companion, normalized from `familiars` (§3.10, data-model §2).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Companion {
     #[serde(rename = "type")]
     pub kind: Option<String>,
@@ -207,6 +223,7 @@ pub fn transform(export: &ValidExport) -> (BaseSheet, SectionSkips) {
     let abilities = abilities(build);
     let hp = hp(build, identity.level);
     let ac = verbatim_section(build, "acTotal", &mut skips);
+    let attributes = verbatim_section(build, "attributes", &mut skips);
     let proficiencies = build
         .get("proficiencies")
         .cloned()
@@ -232,6 +249,7 @@ pub fn transform(export: &ValidExport) -> (BaseSheet, SectionSkips) {
         abilities,
         hp,
         ac,
+        attributes,
         proficiencies,
         specific_proficiencies,
         lores,

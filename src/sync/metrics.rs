@@ -121,6 +121,9 @@ pub fn field_label(target: &crate::sync::protocol::FieldTarget) -> String {
         crate::sync::protocol::FieldTarget::Effect { effect_id } => {
             format!("effect:{effect_id}")
         }
+        crate::sync::protocol::FieldTarget::EffectNew { party_id } => {
+            format!("effect_new:{party_id}")
+        }
     }
 }
 

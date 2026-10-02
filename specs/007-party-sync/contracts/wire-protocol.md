@@ -1,7 +1,8 @@
 # Contract: Party Sync Wire Protocol (E7)
 
-**Status**: binding for E7 implementation · build-target for E8 (effect
-writes) and E10 (service worker) · extends `spec.md` FR-1..FR-7, FR-10, FR-11.
+**Status**: binding for E7 implementation · amended by E8 (effect write
+frames + the `derived` frame, PR gh#10, 2026-10-01) · build-target for E10
+(service worker) · extends `spec.md` FR-1..FR-7, FR-10, FR-11.
 
 Transport, framing, addressing, ordering, and failure semantics of the party
 WebSocket. The degraded-mode behavior built on top of it is
@@ -69,7 +70,8 @@ per `degraded-mode.md`, and the op ledger makes that safe).
 | `vitals` | `character_id`, `field`: `hp` \| `temp_hp` \| `money` \| `level_adjust` | `hp`/`temp_hp`: int ≥0; `money`: `{pp,gp,sp,cp}` (absolute, all four); `level_adjust`: int −19..19 | the column's `*_version` |
 | `slot` | `character_id`, `caster_key` (text), `rank` (0..10), `slot_index` (≥0) | `{used?: bool, prepared?: string\|null}` — whole-slot write | the slot row's `version` |
 | `inv` | `character_id`, `item_name` (text, exact match — E5 owns matching semantics) | `{qty_delta: int}` (absolute delta value, signed) | the row's `version` |
-| `effect` | `effect_id` (globally unique — identity PK) | **read-only in E7** — appears in `snapshot`/`diff` as `{name, source_character_id, targets[], modifiers[], duration_note, active, version}`; write frames are E8's extension point | `effects.version` (whole row) |
+| `effect` | `effect_id` (globally unique — identity PK) | appears in `snapshot`/`diff` as `{name, source_character_id, targets[], modifiers[], duration_note, active}` (+ `tracked_manually` since E8); write frames **realized by E8** (below) | `effects.version` (whole row) |
+| `effect_new` | `party_id` (E8 create only) | no diff value — the create mints the row; every diff addresses the new `effect` id | n/a (identity PK mint) |
 
 `character_id` names the row's owner explicitly: a party snapshot spans every
 member's fields, so a target must identify its row unambiguously (the E2
@@ -132,7 +134,35 @@ anchoring rule). Item identity is exact-name; anything fuzzier is E5's.
 
 ## 8. Extension points (owned by later epics, changes via PR to this file)
 
-- **E8**: `kind:"effect"` write frames + effect lifecycle semantics.
+- **E8 — REALIZED (2026-10-01, gh#10)**: effect write frames + effect
+  lifecycle semantics are in the protocol:
+  - **Write frames** ride the ordinary `write` frame (§2) with the §3
+    targets above and per-op values, authorized per message (creator-only;
+    the GM is denied), deduped by `op_id` through the ledger, CAS on
+    `effects.version`:
+    - create — `target: {kind:"effect_new", party_id}` (CAS-free; the
+      identity PK mints the row), `value: {op:"create", name (1..=120),
+      source_character_id, targets[], modifiers[] (≤16, closed vocabulary,
+      values −50..=50), duration_note, corpus_entry_id, condition_value}`.
+      A corpus-sourced create (`corpus_entry_id` set) carries NO inline
+      modifiers: the stored corpus mappings resolve at apply
+      (`condition_value × polarity`, signed) and freeze on the row;
+      display-only conditions freeze `tracked_manually=true` with zero
+      modifiers.
+    - update (retarget) — `target: {kind:"effect", effect_id}`,
+      `base_version` = the row version, `value: {op:"update", targets[]}`.
+    - end — `value: {op:"end"}`; `active=false`, row retained.
+    - Outcomes are E7's five (`applied|superseded|already_applied|rejected|
+      forbidden`), reasons human-readable.
+  - **Diff echo**: an applied effect op fans out the RESOLVED whole row as
+    its `diff` (a corpus create emits the applied signed modifiers).
+  - **New server frame `derived`** (E8): `{"t":"derived","character_id":N,
+    "output": {…EngineOutput…}}` — fans out after the `diff` that caused
+    it, one frame per affected character; the `snapshot` frame gains a
+    `derived: [EngineOutput per roster character]` array, so a reconnecting
+    client loses nothing by skipping missed frames. Shape per
+    `specs/008-buff-effect-engine/contracts/engine-output.md`.
+  - Close-code reservations below are unchanged.
 - **E10**: service-worker behaviors (offline shell, cross-session cache)
   wrap this protocol; the SW never invents frames.
 - **E12**: new versioned field kinds (stash, bank) join §3's table plus

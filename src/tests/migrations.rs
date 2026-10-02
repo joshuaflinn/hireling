@@ -315,3 +315,101 @@ async fn down_spares_an_occupied_party() {
     );
     testing::drop_test_db(pool, "migrations_down_occupied").await;
 }
+
+#[tokio::test]
+async fn effects_corpus_migration_round_trips() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    // Up ran with boot (test_pool migrates). The new columns store.
+    exec(
+        &pool,
+        "INSERT INTO accounts (sub, username, display_name, role) \
+         VALUES ('dev-sub-josh', 'josh', 'josh', 'player')",
+        "account for the character",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO corpus_entries (kind, name, lane, data) \
+         VALUES ('condition', 'Frightened', 'core', '{}')",
+        "corpus row for the FK",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO characters (party_id, owner_sub, payload_raw, base_sheet) \
+         SELECT id, 'dev-sub-josh', '{}', '{}' FROM parties LIMIT 1",
+        "character owns the effect",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO effects (party_id, source_character_id, name, tracked_manually, corpus_entry_id) \
+         SELECT party_id, id, 'Frightened', true, (SELECT max(id) FROM corpus_entries) \
+         FROM characters LIMIT 1",
+        "effect row with both new columns",
+    )
+    .await;
+    let tracked: bool = sqlx::query_scalar("SELECT tracked_manually FROM effects LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .expect("tracked_manually reads");
+    let linked: Option<i64> = sqlx::query_scalar("SELECT corpus_entry_id FROM effects LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .expect("corpus_entry_id reads");
+    assert!(tracked, "the display-only flag stores");
+    assert!(linked.is_some(), "the corpus provenance link stores");
+    // A hand-built effect defaults clean.
+    exec(
+        &pool,
+        "INSERT INTO effects (party_id, source_character_id, name) \
+         SELECT party_id, id, 'Hand-built' FROM characters LIMIT 1",
+        "default effect row",
+    )
+    .await;
+    let defaults: (bool, Option<i64>) = sqlx::query_as(
+        "SELECT tracked_manually, corpus_entry_id FROM effects WHERE name = 'Hand-built'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("default row reads");
+    assert_eq!(defaults, (false, None), "defaults: false / NULL");
+    // Down removes both columns, up restores them — reversible, E2 rule.
+    exec_script(
+        &pool,
+        &migration_file("20261002000001_effects_corpus.down.sql"),
+        "effects_corpus down",
+    )
+    .await;
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM information_schema.columns \
+             WHERE table_name = 'effects' \
+             AND column_name IN ('tracked_manually', 'corpus_entry_id')"
+        )
+        .await,
+        0,
+        "both columns are gone after the down"
+    );
+    exec_script(
+        &pool,
+        &migration_file("20261002000001_effects_corpus.sql"),
+        "effects_corpus up",
+    )
+    .await;
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM information_schema.columns \
+             WHERE table_name = 'effects' \
+             AND column_name IN ('tracked_manually', 'corpus_entry_id')"
+        )
+        .await,
+        2,
+        "both columns are back after the re-up"
+    );
+    testing::drop_test_db(pool, "migrations_effects_corpus").await;
+}
