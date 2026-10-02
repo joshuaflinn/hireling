@@ -240,20 +240,26 @@ async fn load_item_corpus(
     ),
     sqlx::Error,
 > {
-    let item_names: Vec<String> = base_sheet
-        .get("equipment")
-        .and_then(serde_json::Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| {
-                    item.get("name")
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_owned)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    // Equipment AND weapons both reach the corpus (review round 2,
+    // MOR-59: strike rows read their trait chips through `item_traits`,
+    // and weapon names never entered this query at all). Both sections
+    // are arrays of objects carrying `name`. Armor has no chip consumer
+    // yet and stays out until one exists.
+    let mut item_names: Vec<String> = Vec::new();
+    for section in ["equipment", "weapons"] {
+        if let Some(items) = base_sheet
+            .get(section)
+            .and_then(serde_json::Value::as_array)
+        {
+            for item in items {
+                if let Some(name) = item.get("name").and_then(serde_json::Value::as_str) {
+                    item_names.push(name.to_owned());
+                }
+            }
+        }
+    }
+    item_names.sort();
+    item_names.dedup();
     let rows: Vec<(String, Option<String>, Option<serde_json::Value>)> = sqlx::query_as(
         "SELECT lower(name), data->'system'->'bulk'->>'value', \
                 data->'system'->'traits'->'value' \

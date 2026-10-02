@@ -429,10 +429,14 @@ async fn imported_with_corpus() -> Option<(axum::Router, sqlx::PgPool, String, V
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK, "the import succeeds");
 
+    // "Staff" is a WEAPON on the reference fixture (`build.weapons`, not
+    // equipment). Seeding it here fails the bootstrap tests if the corpus
+    // query ever drops weapon names again (review round 2, MOR-59).
     for (name, bulk, traits) in [
         ("Backpack", 0.1, vec!["backpack"]),
         ("chalk", 0.0, vec!["consumable"]),
         ("Rations", 1.0, vec![]),
+        ("Staff", 1.0, vec!["magical", "two-hand d6"]),
     ] {
         sqlx::query(
             "INSERT INTO corpus_entries (kind, name, lane, data, source_id, pack_version, imported_at) \
@@ -481,6 +485,12 @@ async fn bootstrap_item_traits_render_the_chips_from_corpus_traits() {
         Some(&serde_json::json!([])),
         "a hit without traits keys empty"
     );
+    assert_eq!(
+        traits.get("Staff"),
+        Some(&serde_json::json!(["magical", "two-hand d6"])),
+        "weapon names resolve — Staff is on `weapons`, not equipment; this \
+         fails if the corpus query drops weapons again"
+    );
     assert_eq!(traits.get("Bedroll"), Some(&serde_json::json!([])));
     testing::drop_test_db(pool, "http_item_traits").await;
 }
@@ -501,8 +511,13 @@ async fn bootstrap_item_bulk_resolves_from_the_corpus_and_logs_misses() {
         .expect("item_bulk is a map");
     assert_eq!(
         bulk.len(),
-        16,
-        "every imported item name is keyed: {bulk:?}"
+        17,
+        "every imported item AND weapon name is keyed: {bulk:?}"
+    );
+    assert_eq!(
+        bulk.get("Staff"),
+        Some(&serde_json::json!(10)),
+        "the weapon rides the same map: 1 Bulk = ten tenths"
     );
     assert_eq!(
         bulk.get("Backpack"),

@@ -103,11 +103,16 @@ test('strike traits resolve through item_traits: an agile finesse weapon on a De
   rapierSheet.weapons = [
     { name: 'Rapier', prof: 'martial', die: 'd6', pot: 0, display: 'Rapier', damageType: 'P' },
   ];
+  // The server keys this map by the sheet's OWN spelling — item_trait_map
+  // emits {"Rapier": [...]} and the Rust integration test asserts that
+  // exact casing. This payload must match the production shape: a
+  // lowercased key here passed while the live seam was open (review
+  // round 2, MOR-59) and is how the break shipped once already.
   const sheet = derive(
     {
       id: 7,
       base_sheet: rapierSheet,
-      item_traits: { rapier: ['Deadly d8', 'Finesse', 'Agile'] },
+      item_traits: { Rapier: ['Deadly d8', 'Finesse', 'Agile'] },
     },
     { level_adjust: 0, effects: [] },
   );

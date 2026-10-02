@@ -240,6 +240,9 @@ export function deriveBase(character, liveState = {}) {
   // Traits come from the corpus through the bootstrap's `item_traits` map
   // (review finding 7 — the hardcoded two-entry table died here); the
   // unarmed Fist is not a corpus item and keeps its fixed trait row.
+  // The map is keyed by the sheet's OWN spelling — `item_trait_map` keys
+  // each requested name as the sheet writes it (review round 2, MOR-59:
+  // a lowercased lookup missed every key). Same convention as bulk.js.
   const damageTypeNames = /** @type {Record<string, string>} */ ({
     B: 'bludgeoning',
     P: 'piercing',
@@ -249,7 +252,7 @@ export function deriveBase(character, liveState = {}) {
   const unarmedTraits = ['Agile', 'Finesse', 'Nonlethal', 'Unarmed'];
   /** @param {string} name @param {Record<string, *>} weapon */
   const strikeRow = (name, weapon) => {
-    const traits = itemTraits[String(name ?? '').toLowerCase()] ?? [];
+    const traits = itemTraits[String(name ?? '')] ?? [];
     const finesse = traits.includes('Finesse');
     const agile = traits.includes('Agile');
     const rank = ranks[weapon.prof] || 0;
