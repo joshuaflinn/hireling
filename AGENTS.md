@@ -76,15 +76,23 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   tests; everything else gets a curated end-to-end suite.
 - **A test for a spec'd behavior must exercise the production path that owns
   it.** Testing the module underneath that path proves the module, not the
-  behavior. Three instances of the same rule:
+  behavior. Four instances of the same rule:
   - *Observability* (audit, log, metric): send an HTTP request through the
     configured router for HTTP behavior, or call the public orchestration
     function for non-HTTP behavior; then assert the persisted record or
     captured emission. Calling the recorder or emitter helper directly cannot
     catch a missing call from that production path.
-  - *A user-visible affordance*: every exported store, util, or handler the
-    spec calls for needs a proven consumer. A store nothing subscribes to and a
-    helper nothing calls are unverified however many unit tests they carry.
+  - *A user-visible affordance*: render it through the component, in the state
+    the spec describes. `web/tests/helpers/svelte-hooks.mjs` compiles `.svelte`
+    imports in server mode so `svelte/server`'s `render()` runs real markup,
+    props and runes under `node --test`. A render that only passes the default
+    or empty value never enters the branch the spec is about — exercise the
+    non-default state.
+  - *An affordance server-mode rendering cannot reach* — anything riding an
+    `$effect` or an event handler: prove the consumer exists. Every exported
+    store, util, or handler the spec calls for needs a named caller. A store
+    nothing subscribes to and a helper nothing passes its callback are
+    unverified however many unit tests they carry.
   - *A field the spec sources from imported data*: prove it with two fixtures
     that differ in that field, asserting two different results. One fixture
     asserting one literal also passes against a hardcoded constant.
