@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use hireling_engine::model::{
     ActiveEffect, BASE_SCHEMA, BaseStats, CasterBase, EngineOutput, Modifier, ModifierType,
-    OUTPUT_SCHEMA, SkillBase, StrikeBase,
+    OUTPUT_SCHEMA, SkillBase, StrikeBase, StrikeOutput,
 };
 
 /// Character under computation.
@@ -288,7 +288,11 @@ fn empty_effects_output_is_bases_with_empty_lists() {
     assert_eq!(out.derived.will.total, base.stats.will);
     assert_eq!(out.derived.perception.total, base.stats.perception);
     assert_eq!(out.derived.class_dc.base, None);
-    assert!(!out.derived.strikes.is_empty());
+    assert_ne!(
+        out.derived.strikes,
+        [] as [StrikeOutput; 0],
+        "the sheet renders one row per strike — never zero"
+    );
     for (strike, base_strike) in out.derived.strikes.iter().zip(&base.stats.strikes) {
         assert_eq!(strike.key, base_strike.key);
         assert_eq!(strike.attack.total, base_strike.attack);
