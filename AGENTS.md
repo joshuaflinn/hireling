@@ -58,6 +58,12 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   mode, pinned image) on every PR — a red gate is a red PR, no exceptions. The
   lint/test configs are vendored from Bear's rust-toolkit; if a lint fights you,
   propose tuning it in a PR, don't `#[allow]` around it.
+- **Sweep for reachability before you hand over.** Walk the spec's requirement
+  list and, for each one, name the production-path test that proves it. Where
+  the requirement landed in a library module, grep for a caller:
+  `grep -rn "<export_name>" src web/src`. Hits confined to the defining module
+  mean the requirement is unbuilt — a green unit test does not change that.
+  Report the sweep in the PR body alongside the gate output.
 - Priority order is P0 → P1 → P2 as tagged in the PRD's functional requirements.
 - Feedback on the PRD itself goes to the PRD (via issue or PR against `docs/PRD.md`),
   not into code comments.
@@ -68,12 +74,20 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   name your intermediate variables.
 - Integration tests are the sweet spot. The modifier engine gets exhaustive unit
   tests; everything else gets a curated end-to-end suite.
-- A test for an audit, log, or other observability requirement must exercise
-  the production path that owns it: send an HTTP request through the configured
-  router for HTTP behavior, or call the public orchestration function for
-  non-HTTP behavior; then assert the persisted record or captured emission.
-  Calling the recorder or emitter helper directly cannot catch a missing call
-  from that production path.
+- **A test for a spec'd behavior must exercise the production path that owns
+  it.** Testing the module underneath that path proves the module, not the
+  behavior. Three instances of the same rule:
+  - *Observability* (audit, log, metric): send an HTTP request through the
+    configured router for HTTP behavior, or call the public orchestration
+    function for non-HTTP behavior; then assert the persisted record or
+    captured emission. Calling the recorder or emitter helper directly cannot
+    catch a missing call from that production path.
+  - *A user-visible affordance*: every exported store, util, or handler the
+    spec calls for needs a proven consumer. A store nothing subscribes to and a
+    helper nothing calls are unverified however many unit tests they carry.
+  - *A field the spec sources from imported data*: prove it with two fixtures
+    that differ in that field, asserting two different results. One fixture
+    asserting one literal also passes against a hardcoded constant.
 - Log generously on the backend: major branches, request IDs.
 - Commit messages: imperative, one line, what + why if non-obvious.
 
