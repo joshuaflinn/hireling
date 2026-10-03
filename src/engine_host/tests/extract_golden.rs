@@ -247,15 +247,16 @@ fn first_drift(
     use serde_json::Value;
     match (emitted, fixture) {
         (Value::Object(a), Value::Object(b)) => {
-            for (key, expected) in a {
+            for (key, emitted_entry) in a {
                 match b.get(key) {
                     None => {
                         return Some(format!(
                             "{path}.{key}: extractor emits it, fixture lacks it"
                         ));
                     }
-                    Some(actual) => {
-                        if let Some(deep) = first_drift(&format!("{path}.{key}"), expected, actual)
+                    Some(fixture_entry) => {
+                        if let Some(deep) =
+                            first_drift(&format!("{path}.{key}"), emitted_entry, fixture_entry)
                         {
                             return Some(deep);
                         }
@@ -270,8 +271,8 @@ fn first_drift(
             .iter()
             .zip(b.iter())
             .enumerate()
-            .find_map(|(index, (expected, actual))| {
-                first_drift(&format!("{path}[{index}]"), expected, actual)
+            .find_map(|(index, (emitted_entry, fixture_entry))| {
+                first_drift(&format!("{path}[{index}]"), emitted_entry, fixture_entry)
             })
             .or_else(|| {
                 (a.len() != b.len()).then(|| {
