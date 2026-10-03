@@ -1,0 +1,1 @@
+ALTER TABLE character_vitals DROP CONSTRAINT character_vitals_daily_shape;

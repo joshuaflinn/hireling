@@ -5,8 +5,8 @@
   import { chargesLeft, setSpent } from '../staff.js';
 
   /** @type {{ daily: {value: any, pending?: boolean}, editable?: boolean,
-    offline?: boolean, onchange?: (daily: any) => void }} */
-  let { daily, editable = true, offline = false, onchange } = $props();
+    offline?: boolean, opError?: any, onchange?: (daily: any) => void }} */
+  let { daily, editable = true, offline = false, opError = null, onchange } = $props();
 
   const row = $derived(daily.value ?? { staff_charge_rank: 0, staff_spent: 0, drain_used: false });
   const left = $derived(chargesLeft(row));
@@ -15,6 +15,9 @@
 </script>
 
 <div class="staff-ctl" class:pending={daily.pending}>
+  {#if opError}
+    <p class="op-error" role="alert">{opError.reason}</p>
+  {/if}
   <label>
     Staff charge rank
     <select

@@ -1,3 +1,4 @@
+/* global URL, structuredClone */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -72,7 +73,59 @@ test('each save: ability + proficiency(rank, level)', () => {
 test('perception and speed', () => {
   const { derived } = deriveAt();
   assert.equal(derived.perception.total, 5);
+  // The fixture's speed is DATA (review finding 4): the transform carries
+  // speed 25 / bonus 0 and the adapter reads it. 25 here is the fixture's
+  // value, not the fallback — the next test proves the data path.
   assert.equal(derived.speed.total, 25);
+});
+
+test('speed reads the transform output, not a hardcoded fallback', () => {
+  // A dwarf-like sheet: base 20 + bonus 5. Before the fix the adapter read
+  // `base.raw?.attributes` (always undefined) and printed 25 for everyone.
+  const dwarfSheet = { ...structuredClone(fixture), speed: { base: 20, bonus: 5 } };
+  const dwarf = derive({ id: 7, base_sheet: dwarfSheet }, { level_adjust: 0, effects: [] });
+  assert.equal(dwarf.derived.speed.total, 25, '20 walks + 5 bonus');
+
+  const slowSheet = { ...structuredClone(fixture), speed: { base: 20, bonus: 0 } };
+  const slow = derive({ id: 7, base_sheet: slowSheet }, { level_adjust: 0, effects: [] });
+  assert.equal(slow.derived.speed.total, 20, 'a dwarf walks at 20');
+
+  // Absent section: the 25 default both sides agree on (contract §3.3).
+  const noSpeedSheet = { ...structuredClone(fixture), speed: null };
+  const fallback = derive({ id: 7, base_sheet: noSpeedSheet }, { level_adjust: 0, effects: [] });
+  assert.equal(fallback.derived.speed.total, 25, 'absent speed defaults to 25');
+});
+
+test('strike traits resolve through item_traits: an agile finesse weapon on a Dex character', () => {
+  // Review finding 7: the hardcoded two-entry table meant a rapier
+  // attacked off STR and MAP read −5/−10. Traits come from the corpus map
+  // the bootstrap payload carries.
+  const rapierSheet = structuredClone(fixture);
+  rapierSheet.weapons = [
+    { name: 'Rapier', prof: 'martial', die: 'd6', pot: 0, display: 'Rapier', damageType: 'P' },
+  ];
+  // The server keys this map by the sheet's OWN spelling — item_trait_map
+  // emits {"Rapier": [...]} and the Rust integration test asserts that
+  // exact casing, so this payload must match the production shape.
+  const sheet = derive(
+    {
+      id: 7,
+      base_sheet: rapierSheet,
+      item_traits: { Rapier: ['Deadly d8', 'Finesse', 'Agile'] },
+    },
+    { level_adjust: 0, effects: [] },
+  );
+  const rapier = sheet.derived.strikes.find((strike) => strike.key === 'rapier');
+  assert.deepEqual(rapier.traits, ['Deadly d8', 'Finesse', 'Agile'], 'corpus traits ride');
+  assert.equal(rapier.attack.total, 1, 'finesse: DEX +1 outranks STR −1, plus prof(martial 0)');
+  assert.equal(rapier.attack.base, 1);
+  assert.equal(rapier.map, 4, 'agile: −4/−8');
+  // Unmatched names resolve empty — the honest gap, not the old guess.
+  const plainSheet = structuredClone(fixture);
+  const plain = derive({ id: 7, base_sheet: plainSheet }, { level_adjust: 0, effects: [] });
+  const staff = plain.derived.strikes.find((strike) => strike.key === 'staff');
+  assert.deepEqual(staff.traits, [], 'no item_traits in the payload → no invented traits');
+  assert.equal(staff.map, 5, 'not agile: −5/−10');
 });
 
 test('class DC: 10 + key ability + proficiency', () => {
@@ -154,7 +207,7 @@ test('casters: per-instance spell attack and DC', () => {
 
 // ---- level_adjust re-derivation (spec §4) ----------------------------------
 
-test('level_adjust re-derives proficiency bonus, HP, DCs, and ranks', () => {
+test('level_adjust re-derives proficiency bonus, HP, DCs, and AC', () => {
   const at = (adjust) => deriveAt(adjust);
   const plus1 = at(1);
   assert.equal(plus1.level, 4);
@@ -163,7 +216,12 @@ test('level_adjust re-derives proficiency bonus, HP, DCs, and ranks', () => {
   assert.equal(plus1.derived.class_dc.total, 20);
   const wizard = plus1.derived.casters.find((c) => c.caster_key === 'Wizard');
   assert.equal(wizard.spell_attack.total, 10, 'spell attack scales');
-  assert.equal(plus1.derived.ac.total, 16, 'AC never re-derives (spec §4)');
+  // AC is level-derived (spec §4, review finding 8): the unarmored prof
+  // bonus rides the level — 10 + dex 1 + prof(2, 4) = 17.
+  assert.equal(plus1.derived.ac.total, 17, 'AC re-derives with the level');
+  // And it tracks the class table: at level 20 the wizard's unarmored
+  // rank pulls forward to legendary (4), so AC = 10 + 1 + 24 = 35.
+  assert.equal(at(17).derived.ac.total, 35, 'AC at level 20 via the class table');
   assert.equal(at(9).level, 12, 'clamped into 1..20 range inside the adapter');
 });
 

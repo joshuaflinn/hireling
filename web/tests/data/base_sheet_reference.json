@@ -66,7 +66,11 @@
     "classhp": 6,
     "bonushp": 0,
     "bonushp_per_level": 0,
-    "max_hp": 14
+    "max_hp": 32
+  },
+  "speed": {
+    "base": 25,
+    "bonus": 0
   },
   "ac": {
     "acAbilityBonus": 1,
@@ -74,6 +78,14 @@
     "acProfBonus": 5,
     "acTotal": 16,
     "shieldBonus": null
+  },
+  "attributes": {
+    "ancestryhp": 8,
+    "bonushp": 0,
+    "bonushpPerLevel": 0,
+    "classhp": 6,
+    "speed": 25,
+    "speedBonus": 0
   },
   "proficiencies": {
     "acrobatics": 0,

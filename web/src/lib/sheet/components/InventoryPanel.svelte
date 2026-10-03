@@ -5,10 +5,11 @@
   // counts writing vitals.money, trait chips from the corpus. No container
   // editing, no equipped sync, no tag editing — parked.
   import { inventoryView } from '../bulk.js';
+  import { findOpError } from '../state.js';
 
   /** @type {{ baseSheet: any, itemBulk: Record<string, number | null>,
     itemTraits: Record<string, string[]>, qtyMap: Record<string, {qty: number, pending: boolean}>,
-    money: any, editable?: boolean, offline?: boolean,
+    money: any, opErrors?: any[], editable?: boolean, offline?: boolean,
     onqty?: (name: string, qty: number) => void, onmoney?: (money: any) => void }} */
   let {
     baseSheet,
@@ -16,6 +17,7 @@
     itemTraits = {},
     qtyMap = {},
     money,
+    opErrors = [],
     editable = true,
     offline = false,
     onqty,
@@ -32,6 +34,9 @@
     ['sp', 'SP'],
     ['cp', 'CP'],
   ]);
+  const moneyError = $derived(findOpError(opErrors, 'vitals', { field: 'money' }));
+  /** @param {string} name */
+  const qtyError = (name) => findOpError(opErrors, 'inv', { item_name: name });
 </script>
 
 <section class="panel" aria-label="Inventory">
@@ -63,6 +68,9 @@
       {/each}
     </div>
   {/if}
+  {#if moneyError}
+    <p class="op-error" role="alert">{moneyError.reason}</p>
+  {/if}
 
   {#each viewOf.groups as group (group.name ?? 'top')}
     <h3 class="chead">
@@ -74,6 +82,7 @@
       <span class="h3s">Bulk: {group.bulkText}</span>
     </h3>
     {#each group.items as item (item.name)}
+      {@const itemError = qtyError(item.name)}
       <div class="row irow" class:pending={qtyMap[item.name]?.pending}>
         <span class="nm">
           {item.name}
@@ -98,6 +107,9 @@
           <span class="qty">×{item.qty}</span>
         {/if}
       </div>
+      {#if itemError}
+        <p class="op-error" role="alert">{itemError.reason}</p>
+      {/if}
     {/each}
   {/each}
 

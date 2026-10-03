@@ -1,3 +1,4 @@
+/* global URL */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -21,7 +22,7 @@ test('strikes render at the fixture: attack, MAP row, damage, trait names', () =
   assert.match(body, /d4−1/, 'damage dice with the STR bonus');
   assert.match(body, /Fist/, 'unarmed rides along');
   assert.match(body, /Agile/, 'trait names render');
-  assert.doesNotMatch(body, /<button/), 'strikes are read-only';
+  assert.doesNotMatch(body, /<button/, 'strikes are read-only');
 });
 
 test('strikes re-derive with the level adjust', () => {

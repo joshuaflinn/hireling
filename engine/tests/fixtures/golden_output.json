@@ -1,0 +1,309 @@
+{
+  "schema": "hireling.engine.output.v1",
+  "character_id": 7,
+  "derived": {
+    "ac": {
+      "base": 18,
+      "total": 18,
+      "applied": [
+        {
+          "type": "status",
+          "value": -1,
+          "effect_id": 41,
+          "effect_name": "effect 41",
+          "source_character_id": 3
+        },
+        {
+          "type": "item",
+          "value": 1,
+          "effect_id": 42,
+          "effect_name": "effect 42",
+          "source_character_id": 3
+        }
+      ],
+      "suppressed": []
+    },
+    "fort": {
+      "base": 9,
+      "total": 8,
+      "applied": [
+        {
+          "type": "status",
+          "value": -1,
+          "effect_id": 41,
+          "effect_name": "effect 41",
+          "source_character_id": 3
+        }
+      ],
+      "suppressed": []
+    },
+    "ref": {
+      "base": 7,
+      "total": 6,
+      "applied": [
+        {
+          "type": "status",
+          "value": -1,
+          "effect_id": 41,
+          "effect_name": "effect 41",
+          "source_character_id": 3
+        }
+      ],
+      "suppressed": []
+    },
+    "will": {
+      "base": 10,
+      "total": 9,
+      "applied": [
+        {
+          "type": "status",
+          "value": -1,
+          "effect_id": 41,
+          "effect_name": "effect 41",
+          "source_character_id": 3
+        }
+      ],
+      "suppressed": []
+    },
+    "perception": {
+      "base": 6,
+      "total": 5,
+      "applied": [
+        {
+          "type": "status",
+          "value": -1,
+          "effect_id": 41,
+          "effect_name": "effect 41",
+          "source_character_id": 3
+        }
+      ],
+      "suppressed": []
+    },
+    "speed": {
+      "base": 25,
+      "total": 25,
+      "applied": [],
+      "suppressed": []
+    },
+    "class_dc": {
+      "base": null,
+      "total": null,
+      "applied": [
+        {
+          "type": "status",
+          "value": -1,
+          "effect_id": 41,
+          "effect_name": "effect 41",
+          "source_character_id": 3
+        }
+      ],
+      "suppressed": []
+    },
+    "strikes": [
+      {
+        "key": "dagger",
+        "attack": {
+          "base": 11,
+          "total": 11,
+          "applied": [
+            {
+              "type": "status",
+              "value": 1,
+              "effect_id": 43,
+              "effect_name": "effect 43",
+              "source_character_id": 3
+            },
+            {
+              "type": "status",
+              "value": -1,
+              "effect_id": 41,
+              "effect_name": "effect 41",
+              "source_character_id": 3
+            }
+          ],
+          "suppressed": []
+        },
+        "damage_flat": {
+          "base": 3,
+          "total": 3,
+          "applied": [],
+          "suppressed": []
+        }
+      },
+      {
+        "key": "longbow",
+        "attack": {
+          "base": 9,
+          "total": 9,
+          "applied": [
+            {
+              "type": "status",
+              "value": 1,
+              "effect_id": 43,
+              "effect_name": "effect 43",
+              "source_character_id": 3
+            },
+            {
+              "type": "status",
+              "value": -1,
+              "effect_id": 41,
+              "effect_name": "effect 41",
+              "source_character_id": 3
+            }
+          ],
+          "suppressed": []
+        },
+        "damage_flat": {
+          "base": 0,
+          "total": 0,
+          "applied": [],
+          "suppressed": []
+        }
+      }
+    ],
+    "casters": [
+      {
+        "caster_key": "Wizard",
+        "spell_attack": {
+          "base": 9,
+          "total": 8,
+          "applied": [
+            {
+              "type": "status",
+              "value": -1,
+              "effect_id": 41,
+              "effect_name": "effect 41",
+              "source_character_id": 3
+            }
+          ],
+          "suppressed": []
+        },
+        "spell_dc": {
+          "base": 22,
+          "total": 21,
+          "applied": [
+            {
+              "type": "status",
+              "value": -1,
+              "effect_id": 41,
+              "effect_name": "effect 41",
+              "source_character_id": 3
+            }
+          ],
+          "suppressed": []
+        }
+      },
+      {
+        "caster_key": "Cleric",
+        "spell_attack": {
+          "base": 7,
+          "total": 6,
+          "applied": [
+            {
+              "type": "status",
+              "value": -1,
+              "effect_id": 41,
+              "effect_name": "effect 41",
+              "source_character_id": 3
+            }
+          ],
+          "suppressed": []
+        },
+        "spell_dc": {
+          "base": 20,
+          "total": 19,
+          "applied": [
+            {
+              "type": "status",
+              "value": -1,
+              "effect_id": 41,
+              "effect_name": "effect 41",
+              "source_character_id": 3
+            }
+          ],
+          "suppressed": []
+        }
+      }
+    ],
+    "skills": [
+      {
+        "name": "acrobatics",
+        "total": 1,
+        "applied": [
+          {
+            "type": "status",
+            "value": -1,
+            "effect_id": 41,
+            "effect_name": "effect 41",
+            "source_character_id": 3
+          }
+        ],
+        "suppressed": []
+      },
+      {
+        "name": "lore:underworld",
+        "total": 6,
+        "applied": [
+          {
+            "type": "status",
+            "value": -1,
+            "effect_id": 41,
+            "effect_name": "effect 41",
+            "source_character_id": 3
+          }
+        ],
+        "suppressed": []
+      }
+    ]
+  },
+  "effects": [
+    {
+      "effect_id": 41,
+      "name": "effect 41",
+      "source_name": "Lorum Ipsum",
+      "duration_note": "10 rounds",
+      "active": true,
+      "version": 1042,
+      "modifiers": [
+        {
+          "type": "status",
+          "stat": "all_checks_and_dcs",
+          "value": -1
+        }
+      ],
+      "tracked_manually": false
+    },
+    {
+      "effect_id": 42,
+      "name": "effect 42",
+      "source_name": "Lorum Ipsum",
+      "duration_note": "10 rounds",
+      "active": true,
+      "version": 1042,
+      "modifiers": [
+        {
+          "type": "item",
+          "stat": "ac",
+          "value": 1
+        }
+      ],
+      "tracked_manually": false
+    },
+    {
+      "effect_id": 43,
+      "name": "effect 43",
+      "source_name": "Lorum Ipsum",
+      "duration_note": "10 rounds",
+      "active": true,
+      "version": 1042,
+      "modifiers": [
+        {
+          "type": "status",
+          "stat": "attack",
+          "value": 1
+        }
+      ],
+      "tracked_manually": false
+    }
+  ]
+}

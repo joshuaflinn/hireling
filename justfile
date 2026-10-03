@@ -78,6 +78,10 @@ test:
     # The schema tests need the throwaway Postgres. Start it when docker is
     # available and nothing is listening yet; otherwise the tests skip
     # loudly (never silently green).
+    # --workspace: the engine crate (E8) carries the WEx/property suites —
+    # the PRD's top-risk tripwire (FR-10); a root-package workspace's bare
+    # `cargo test` would run only the main crate and gate nothing that
+    # matters.
     if ! pg_isready -h 127.0.0.1 -p 5432 -q; then
         if command -v docker >/dev/null 2>&1; then
             just db
@@ -89,7 +93,7 @@ test:
             echo "WARNING: no Postgres on :5432 and no docker — schema tests will SKIP loudly"
         fi
     fi
-    cargo test --quiet
+    cargo test --quiet --workspace
 
 fmt:
     cargo fmt --all
@@ -98,16 +102,30 @@ fmt-check:
     cargo fmt --all -- --check
 
 lint:
-    cargo clippy --all-targets --all-features -- -D warnings
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 deny:
     cargo deny check
+
+# The engine's boundary (SC-2): `cargo tree` must show the serde family
+# only — no axum, sqlx, tokio, or any UI/transport/DB crate may appear in
+# the portable core's normal edge set. A new dep that drags the framework
+# in fails the gate here, loudly.
+boundary:
+    deps=$(cargo tree -p hireling-engine --edges normal --charset ascii | tail -n +2 | sed -E 's/^[|` -]+//; s/ v.*//; s/\(\*\)//' | sort -u); \
+    echo "$deps" | grep -qv . && true; \
+    for banned in axum sqlx tokio tower hyper leptos svelte; do \
+        if echo "$deps" | grep -q "^$banned"; then \
+            echo "BOUNDARY VIOLATION: hireling-engine depends on $banned"; exit 1; \
+        fi; \
+    done; \
+    echo "boundary ok: $(echo "$deps" | grep -c .) deps, serde-family only"
 
 # The full local gate. Run this before pushing. Covers every check this
 # repo owns that the grizzly-gate image also runs: Rust fmt/clippy/tests/
 # cargo-deny, plus web svelte-check, unit tests, and build. (The gate's
 # eslint/tsc and security scans exist only in the pinned image.)
-ci-local: fmt-check lint test deny web-check web-test web-build
+ci-local: fmt-check lint test deny boundary web-check web-test web-build
 
 # Alias — same gate, the name the spec calls it by.
 gate: ci-local

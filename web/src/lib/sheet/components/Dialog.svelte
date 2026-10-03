@@ -7,11 +7,13 @@
   import { trapKeys } from '../../util/keyboard.js';
 
   /** @type {{ open?: boolean, title?: string, onclose?: () => void,
+    oncommit?: () => void,
     children?: import('svelte').Snippet, footer?: import('svelte').Snippet }} */
   let {
     open = false,
     title = '',
     onclose,
+    oncommit,
     children,
     footer,
   } = $props();
@@ -29,6 +31,9 @@
         container: dialogHost,
         host: opener ?? dialogHost,
         onCancel: () => onclose?.(),
+        // Enter commits (review finding 6): the prop exists so the claim in
+        // util/keyboard.js and spec §7 is wired, not just implemented.
+        onCommit: oncommit,
       });
       return () => {
         dispose();
@@ -40,7 +45,6 @@
 </script>
 
 {#if open}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <dialog bind:this={dialogHost}>
     <h3>{title}</h3>
     {@render children?.()}

@@ -8,11 +8,10 @@
 // the E8 engine-output contract
 // (specs/008-buff-effect-engine/contracts/engine-output.md §3).
 //
-// Deviation, named: the prototype's hpMax (line 1380) applies Constitution
-// and per-level bonuses at every level — the PF2e rule — while E5's stored
-// `base_sheet.hp.max_hp` anchors the export's own (CON-less) formula. Per
-// design §4 ("the prototype's formulas are the reference implementation")
-// the sheet renders this module's number; the stored anchor stays untouched.
+// Resolved deviation: hpMax applies Constitution and per-level bonuses at
+// every level — the `PF2e` rule — and E5's transform now computes the same
+// formula (contract pb-export §3.3, amended by E6's review), so the stored
+// anchor, the first-import seed and this adapter all agree on one number.
 //
 // DELETION DATE: E8's adapter swap deletes this file (design §4) — it is not
 // kept in parallel with the engine.
@@ -99,7 +98,9 @@ function masteryDamage(rank, level) {
  *   languages: string[], name: string }} identity
  * @property {{ str: number, dex: number, con: number, int: number, wis: number, cha: number }} abilities
  * @property {{ ancestryhp: number, classhp: number, bonushp: number, bonushp_per_level: number, max_hp: number }} hp
+ * @property {{ base: number, bonus: number } | null} speed
  * @property {{ acAbilityBonus?: number, acProfBonus?: number, acItemBonus?: number, acTotal?: number, shieldBonus?: number | null } | null} ac
+ * @property {Array<Record<string, *>>} armor
  * @property {Record<string, number>} proficiencies
  * @property {Array<{ name: string, rank: number }>} lores
  * @property {Array<{ caster_key: string, magic_tradition?: string | null, spellcasting_type?: string | null,
@@ -114,7 +115,9 @@ function masteryDamage(rank, level) {
 /**
  * Derive the sheet's numbers, base-only mode.
  *
- * @param {{ id: number, base_sheet: BaseSheet }} character the bootstrap payload
+ * @param {{ id: number, base_sheet: BaseSheet,
+ *   item_traits?: Record<string, string[]> }} character the bootstrap payload
+ *   (`item_traits` is the corpus trait map the server resolves at bootstrap)
  * @param {{ level_adjust?: number, effects?: Array<object> }} liveState the
  *   sync state this character owns, extracted by sheet/state.js
  * @returns {object} the engine-output contract's DerivedSheet (schema
@@ -146,20 +149,28 @@ export function deriveBase(character, liveState = {}) {
   const pb = (rank) => profBonus(rank, level);
 
   // ---- HP max: ancestry + bonus, plus (class + CON + perLevel) × level
-  // (prototype hpMax; CON counts at level 1 — see the header deviation note).
+  // (prototype hpMax; CON counts at level 1 — see the header note: the
+  // transform's stored anchor computes the same number now).
   const hpInputs = base.hp;
   const hpMax =
     hpInputs.ancestryhp +
     hpInputs.bonushp +
     (hpInputs.classhp + mods.con + hpInputs.bonushp_per_level) * level;
 
-  // ---- AC from the export's own breakdown (spec §5); never re-derived at
-  // an adjusted level (spec §4's list excludes it).
+  // ---- AC from the export's inputs (spec §5); the proficiency bonus
+  // re-derives from the worn armor's category so a level-adjust visibly
+  // moves AC (spec §4, review finding 8 — the export's frozen acProfBonus
+  // pinned the export level and froze AC forever). At the export's level
+  // this equals acTotal exactly; above it, it tracks the class table.
+  const wornArmor = Array.isArray(base.armor)
+    ? base.armor.find((/** @type {any} */ piece) => piece && piece.worn)
+    : null;
+  const armorProf = wornArmor?.prof || 'unarmored';
   const acTotal = base.ac ?? {};
   const ac =
     10 +
     (acTotal.acAbilityBonus ?? 0) +
-    (acTotal.acProfBonus ?? 0) +
+    pb(ranks[armorProf] || 0) +
     (acTotal.acItemBonus ?? 0) +
     (acTotal.shieldBonus ?? 0);
 
@@ -170,9 +181,9 @@ export function deriveBase(character, liveState = {}) {
     will: mods.wis + pb(ranks.will || 0),
   };
   const perception = mods.wis + pb(ranks.perception || 0);
-  const speedFromRaw = base.raw?.attributes;
-  const speedValue =
-    (speedFromRaw?.speed ?? 25) + (speedFromRaw?.speedBonus ?? 0);
+  // Speed is data, not a fallback (review finding 4): the transform carries
+  // the export's speed/speedBonus; 25 is only the absent-section default.
+  const speedValue = (base.speed?.base ?? 25) + (base.speed?.bonus ?? 0);
 /** @type {number | null} */
   const classDc =
     base.identity.keyability && ranks.classDC
@@ -226,18 +237,20 @@ export function deriveBase(character, liveState = {}) {
 
   // ---- Strikes: the weapons table + unarmed Fist. Attack math per the
   // prototype (finesse → best of Str/Dex); MAP is −5/−10, agile −4/−8.
+  // Traits come from the corpus through the bootstrap's `item_traits` map;
+  // the unarmed Fist is not a corpus item and keeps its fixed trait row.
+  // The map is keyed by the sheet's OWN spelling — `item_trait_map` keys
+  // each requested name as the sheet writes it. Same convention as bulk.js.
   const damageTypeNames = /** @type {Record<string, string>} */ ({
     B: 'bludgeoning',
     P: 'piercing',
     S: 'slashing',
   });
-  const weaponTraits = /** @type {Record<string, string[]>} */ ({
-    Staff: ['Monk', 'Two-Hand d8'],
-    Fist: ['Agile', 'Finesse', 'Nonlethal', 'Unarmed'],
-  });
+  const itemTraits = character.item_traits ?? {};
+  const unarmedTraits = ['Agile', 'Finesse', 'Nonlethal', 'Unarmed'];
   /** @param {string} name @param {Record<string, *>} weapon */
   const strikeRow = (name, weapon) => {
-    const traits = weaponTraits[name] ?? [];
+    const traits = itemTraits[String(name ?? '')] ?? [];
     const finesse = traits.includes('Finesse');
     const agile = traits.includes('Agile');
     const rank = ranks[weapon.prof] || 0;
@@ -274,7 +287,7 @@ export function deriveBase(character, liveState = {}) {
     damage_expr: `d4${signedBonus(unarmedBonus)}`,
     damage_type: 'B',
     damage_type_name: 'bludgeoning',
-    traits: weaponTraits.Fist,
+    traits: unarmedTraits,
   });
 
   return {
@@ -326,7 +339,10 @@ function capitalize(text) {
   return text ? text[0].toUpperCase() + text.slice(1) : text;
 }
 
+/** U+2212 MINUS SIGN — the sheet's typographic minus, never hyphen-minus. */
+const MINUS_SIGN = '\u2212';
+
 /** @param {number} n */
 function signedBonus(n) {
-  return n < 0 ? `\u{2212}${Math.abs(n)}` : `+${n}`;
+  return n < 0 ? `${MINUS_SIGN}${Math.abs(n)}` : `+${n}`;
 }

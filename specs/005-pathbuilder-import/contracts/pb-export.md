@@ -56,11 +56,15 @@ identity keys: class (c).
 plus `abilities.breakdown` (object of boost/flaw lists and
 `mapLevelledBoosts`) — breakdown is passthrough data, not interpreted.
 
-### 3.3 HP inputs — `attributes`: `{ancestryhp, classhp, bonushp,
+### 3.3 HP + speed inputs — `attributes`: `{ancestryhp, classhp, bonushp,
 bonushpPerLevel, speed, speedBonus}` numeric. **Max HP formula (first-import
-HP seed, FR-9):** `ancestryhp + classhp + bonushp + bonushpPerLevel ×
-(level − 1)`. Fixture check: 8 + 6 + 0 + 0×2 = 14 = the prototype's max HP
-for Lorum Ipsum at level 3.
+HP seed, FR-9 — the PF2e rule, CON at every level; amended by E6's review,
+MOR-48 finding 3):** `ancestryhp + bonushp + (classhp + conMod +
+bonushpPerLevel) × level`. Fixture check: 8 + (6 + 2 + 0) × 3 = 32, matching
+the sheet adapter (`lib/engine/base.js`) and the first-import seed — one
+number everywhere. **Speed:** `base_sheet.speed = {base: speed, bonus:
+speedBonus}`; the adapter's total is `base + bonus`. An absent `speed`
+falls back to 25 on both sides.
 
 ### 3.4 AC — `acTotal`: `{acTotal, acAbilityBonus, acProfBonus, acItemBonus,
 shieldBonus}` numeric. Stored as the breakdown; E6/E8 recompute live AC from

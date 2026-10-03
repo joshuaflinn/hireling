@@ -1,3 +1,4 @@
+/* global URL */
 // Module hooks: compile .svelte imports with the Svelte compiler in
 // server mode so tests can render components with `svelte/server`'s
 // render() inside the dependency-free node test runner.

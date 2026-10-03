@@ -374,10 +374,43 @@ async fn vitals_spell_economy_columns_round_trip() {
         .await;
     assert!(negative_focus.is_err(), "focus_current >= 0 is a CHECK");
 
+    // MOR-48 finding 11: `daily`'s invariant is structural, so the shape
+    // CHECK holds at the database too — object, three keys, right types.
+    for (bad, why) in [
+        (serde_json::json!("nope"), "not an object"),
+        (
+            serde_json::json!({"staff_charge_rank": 0, "staff_spent": 0}),
+            "missing drain_used",
+        ),
+        (
+            serde_json::json!({"staff_charge_rank": "0", "staff_spent": 0, "drain_used": false}),
+            "rank is a string",
+        ),
+        (
+            serde_json::json!({"staff_charge_rank": 0, "staff_spent": 0, "drain_used": "no"}),
+            "drain_used is a string",
+        ),
+    ] {
+        let rejected = sqlx::query("UPDATE character_vitals SET daily = $1")
+            .bind(bad)
+            .execute(&pool)
+            .await;
+        assert!(rejected.is_err(), "daily shape CHECK rejects {why}");
+    }
+    let accepted = sqlx::query("UPDATE character_vitals SET daily = $1")
+        .bind(serde_json::json!({"staff_charge_rank": 3, "staff_spent": 1, "drain_used": true}))
+        .execute(&pool)
+        .await;
+    assert!(
+        accepted.is_ok(),
+        "a well-formed daily row still writes: {:?}",
+        accepted.err()
+    );
+
     // Down: the columns go, and a fresh up accepts a row again.
     exec_script(
         &pool,
-        &migration_file("20261002000001_vitals_spell_economy.down.sql"),
+        &migration_file("20261002000002_vitals_spell_economy.down.sql"),
         "spell economy down",
     )
     .await;
@@ -387,7 +420,7 @@ async fn vitals_spell_economy_columns_round_trip() {
     assert!(gone.is_err(), "the down migration must drop focus_current");
     exec_script(
         &pool,
-        &migration_file("20261002000001_vitals_spell_economy.sql"),
+        &migration_file("20261002000002_vitals_spell_economy.sql"),
         "spell economy up (round trip)",
     )
     .await;

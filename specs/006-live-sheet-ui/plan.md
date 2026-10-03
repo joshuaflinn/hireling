@@ -24,7 +24,7 @@ gate every task: `just ci-local` must be green before the PR opens.
    write applies + bumps version; bounds reject (`focus_current < 0`,
    `staff_charge_rank > 10`, non-object `daily`); CAS supersede path;
    snapshot carries the fields.
-2. Migration `20261002000001_vitals_spell_economy(.down).sql` per design §3;
+2. Migration `20261002000002_vitals_spell_economy(.down).sql` per design §3;
    migration up/down test in `src/tests/migrations.rs` style.
 3. Extend the vitals write/validate path for `focus_current`, `hero_points`,
    `daily` (value shapes per design §3 table).

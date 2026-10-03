@@ -880,3 +880,15 @@ input,
 select {
   accent-color: var(--gold);
 }
+
+/* Inline op rejections (spec §6): calm, at the control, auto-clearing
+   when the state layer sees the field's next applied ack. */
+.op-error {
+  color: var(--warn, #e0a26a);
+  font-size: 12px;
+  margin: 2px 6px 0;
+}
+
+.trk-wrap {
+  min-width: 0;
+}

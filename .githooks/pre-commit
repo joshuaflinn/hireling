@@ -44,11 +44,14 @@ cargo fmt --all || fail "ERROR: cargo fmt failed."
 restage "$STAGED_RUST"
 
 echo "Linting..."
-cargo clippy --all-targets --all-features -- -D warnings \
+cargo clippy --workspace --all-targets --all-features -- -D warnings \
     || fail "ERROR: clippy found issues. Fix them, or use #[expect(lint, reason = \"...\")] with a real reason."
 
 echo "Testing..."
-cargo test --quiet || fail "ERROR: tests failed."
+# --workspace: the engine crate (E8) is a member, and its WEx/property
+# suites are the PRD's top-risk tripwire — a gate that skips them gates
+# nothing that matters (FR-10).
+cargo test --quiet --workspace || fail "ERROR: tests failed."
 
 if command -v cargo-deny >/dev/null 2>&1; then
     echo "Auditing dependencies..."

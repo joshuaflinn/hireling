@@ -5,6 +5,11 @@ edition = "2024"
 publish = false
 license = "MIT"
 
+# The engine crate (E8) is the portable buff/effect core: serde-only prod
+# deps, its own test suites. The binary is the workspace's other member.
+[workspace]
+members = ["engine"]
+
 [dependencies]
 anyhow = "1.0.104"
 # E7 party sync rides axum's WebSocket upgrade (contract §1:
@@ -19,6 +24,9 @@ cookie = { version = "0.18.2", features = ["signed", "key-expansion"] }
 # The `rust_crypto` alternative is banned — it pulls `rsa`
 # (RUSTSEC-2023-0071), which the gate fail-closes on.
 jsonwebtoken = { version = "11.1.0", features = ["aws_lc_rs"] }
+# E8: the portable buff/effect core — workspace crate, serde-family only
+# (boundary asserted by `just ci-local`'s cargo-tree check).
+hireling-engine = { path = "engine", version = "0.1.0" }
 rand = "0.10.3"
 # HTTP client for the pinned-release fetch (api.github.com + release asset
 # download) — std has no HTTP story; reqwest on rustls keeps the boring stack
@@ -89,13 +97,16 @@ socket2 = "0.6"
 #
 # Human contributors: the pre-commit hooks enforce everything, so you'll
 # know immediately if something needs fixing.
+#
+# Declared once at workspace level; every member crate inherits verbatim
+# via `[lints] workspace = true` — one law, no drift between crates.
 
-[lints.rust]
+[workspace.lints.rust]
 # deny rather than forbid so FFI boundaries can use a targeted
 # #[expect(unsafe_code, reason = "...")] — forbid cannot be overridden at the item level.
 unsafe_code = "deny"
 
-[lints.clippy]
+[workspace.lints.clippy]
 # Pedantic baseline. Kept at warn (not deny) because new clippy versions
 # add lints to this group — deny would break builds on toolchain upgrades
 # with no code changes. Individual lints below override where needed.
@@ -163,3 +174,6 @@ rc_mutex = "deny"
 
 # --- Keep relaxed (stylistic) ---
 module_name_repetitions = "allow"
+
+[lints]
+workspace = true

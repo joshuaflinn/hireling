@@ -606,7 +606,11 @@ fn unchanged_stored_mapping_still_skips() {
         plan.skipped, 1,
         "an identical stored mapping must stay a no-op (FR-3)"
     );
-    assert!(plan.updates.is_empty());
+    assert_eq!(
+        plan.updates,
+        [] as [RowWrite; 0],
+        "a no-op rerun must plan no row writes (FR-3)"
+    );
 }
 
 #[test]

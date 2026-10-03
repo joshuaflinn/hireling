@@ -125,9 +125,11 @@ level — the field E2 versioned and E7's wire protocol already carries; not a
 new field).
 
 - **Re-derives:** proficiency bonus, max HP (ancestry + class + per-level
-  bonuses × level), class DC / spell DC / spell attack scaling, cantrip/focus
-  heightened rank, skill and save modifiers whose proficiency ranks are
-  level-scaled.
+  bonuses × level), **AC (the worn armor's proficiency rank rides the level —
+  the export's frozen `acProfBonus` is an input at the export level only;
+  amended by E6's review, MOR-48 finding 8)**, class DC / spell DC / spell
+  attack scaling, cantrip/focus heightened rank, skill and save modifiers
+  whose proficiency ranks are level-scaled.
 - **Does not re-derive (comes only from a Pathbuilder re-export):** ability
   boosts, feats, skill increases, skill ranks, spell repertoire, per-day slot
   counts, strikes' weapon math.
@@ -244,8 +246,12 @@ all recommendations accepted. These rulings are binding for design and plan:
   max), `hero_points` (int ≥ 0), `daily` (whole-row JSON
   `{staff_charge_rank: 0..10, staff_spent: int ≥ 0, drain_used: bool}`),
   each with its own `*_version` column, exactly the E2 pattern. New Day
-  resets: all slots `used=false`, `focus_current=0`, `daily` reset to
-  `{0,0,false}`.
+  resets: all slots `used=false`, `focus_current` **refilled to the
+  character's focus max** (amended by E6's review, MOR-48 finding 2 — the
+  ruling's original "`focus_current=0`" text read as points *spent*, but the
+  field and the UI both mean points *available*; PF2e daily preparations
+  regain the whole pool, and the header's own tooltip promised the refill),
+  `daily` reset to `{0,0,false}`.
 - **Q2 — Inventory editing depth → DISPLAY + QTY.** Containers render with
   Bulk math (extradimensional exclusion) and quantities sync. The interactive
   container system (drag-between, create/delete, mark-as-container, capacity
@@ -271,6 +277,12 @@ all recommendations accepted. These rulings are binding for design and plan:
    design; widget drag-resize customization is parked.
 5. **Spell/feat detail popups absent at P0** — deferred corpora (E4 scope
    fence), named in §3 rather than absorbed.
+6. **Curriculum-slot display not built (E6 review, MOR-48)** — spec §2.3
+   names it, but curriculum *content* exists nowhere in `base_sheet` or the
+   E4 corpus: only as hardcoded tables in the post-#33 prototype, the same
+   banned class as fixture data (§3's own discipline: hardcoded game data
+   never enters the product). Disposition: cut, not silently dropped;
+   returns when an epic owns carrying curriculum data in the corpus.
 
 ## 10. Non-goals (binding)
 

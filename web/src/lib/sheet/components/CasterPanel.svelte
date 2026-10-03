@@ -10,7 +10,8 @@
   import { ordinal, signed } from '../../engine/format.js';
 
   /** @type {{ caster: any, slots: any[], numbers: any, cantripRank: number,
-    editable?: boolean, offline?: boolean, known?: any[],
+    editable?: boolean, offline?: boolean, known?: any[], focusSpells?: string[],
+    opErrors?: any[],
     oncast?: (row: any, used: boolean) => void,
     onprepare?: (row: any, spell: string) => void,
     onreset?: () => void }} */
@@ -22,6 +23,8 @@
     editable = true,
     offline = false,
     known = [],
+    focusSpells = [],
+    opErrors = [],
     oncast,
     onprepare,
     onreset,
@@ -56,6 +59,14 @@
       spell,
     );
   }
+
+  /** The inline rejection for one slot row, if any (spec §6). */
+  const rowError = (/** @type {any} */ row) =>
+    opErrors.find(
+      (/** @type {any} */ error) =>
+        error.target?.rank === row.rank &&
+        error.target?.slot_index === row.slot_index,
+    ) ?? null;
 </script>
 
 <section class="caster" aria-label="{caster.caster_key} spellcasting">
@@ -88,8 +99,24 @@
         oncast={(used) => oncast?.(row, used)}
         onprepare={() => (picking = { rank: row.rank, index: row.slot_index })}
       />
+      {#if rowError(row)}
+        <p class="op-error" role="alert">{rowError(row).reason}</p>
+      {/if}
     {/each}
   {/each}
+
+  {#if focusSpells.length}
+    <div class="rank-h" style="margin-top:8px">
+      <span class="t">Focus spells</span>
+    </div>
+    {#each focusSpells as spell (spell)}
+      <div class="row">
+        <span></span>
+        <span class="nm">{spell}</span>
+        <span></span>
+      </div>
+    {/each}
+  {/if}
 
   {#if caster.innate}
     <p class="meta" style="margin-top:4px">Innate spells are always prepared — nothing to track but the cast.</p>
@@ -120,7 +147,7 @@
 </section>
 
 <Dialog open={picking !== null} title={`Prepare — ${ordinal(picking?.rank ?? 0)} rank`} onclose={() => (picking = null)}>
-  <p style="color:var(--muted);font-size:13px">Pick a known spell; arrow keys move, Enter commits.</p>
+  <p style="color:var(--muted);font-size:13px">Pick a known spell; Tab moves, Enter or click commits.</p>
   <div style="display:flex;flex-direction:column;gap:2px;max-height:50vh;overflow:auto">
     {#each (known.find((/** @type {any} */ list) => list.rank === picking?.rank)?.spells ?? []) as spell (spell)}
       <button class="btn" style="text-align:left" onclick={() => commitPick(spell)}>{spell}</button>

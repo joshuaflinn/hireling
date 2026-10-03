@@ -9,15 +9,7 @@
 //! (`0.1` = light); the map carries tenths so the client never sees
 //! floating point (`L`=1, `1 Bulk`=10).
 
-use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
-
-/// Tenths of Bulk for one corpus document's `system.bulk.value`, or `None`
-/// when the document carries no numeric bulk (a corpus gap renders "—").
-#[must_use]
-pub fn bulk_tenths(doc: &JsonValue) -> Option<i64> {
-    tenths(doc.get("system")?.get("bulk")?.get("value")?.as_f64()?)
-}
 
 /// Tenths for one raw Foundry bulk decimal; negative or non-finite values
 /// are not bulk.
@@ -82,26 +74,54 @@ pub fn item_trait_map(names: &[String], corpus: &[TraitRow]) -> BTreeMap<String,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use serde_json::{Value as JsonValue, json};
 
     #[test]
-    fn bulk_tenths_reads_the_foundry_shape_and_refuses_garbage() {
-        let doc = |value: f64| json!({"system": {"bulk": {"value": value}}});
+    fn tenths_reads_the_foundry_decimal_and_refuses_garbage() {
+        let from_doc = |value: f64| {
+            item_bulk_map(&["Probe".to_owned()], &[("probe".to_owned(), Some(value))])
+                .get("Probe")
+                .copied()
+                .flatten()
+        };
+        assert_eq!(from_doc(0.0), Some(0), "0 is negligible, not a gap");
+        assert_eq!(from_doc(0.1), Some(1), "L = one tenth");
+        assert_eq!(from_doc(1.0), Some(10));
+        assert_eq!(from_doc(2.5), Some(25), "1.5 + 1 = 25 tenths");
+        assert_eq!(from_doc(-1.0), None, "negative bulk is not bulk");
+        assert_eq!(from_doc(f64::NAN), None, "non-finite is not bulk");
         assert_eq!(
-            bulk_tenths(&doc(0.0)),
-            Some(0),
-            "0 is negligible, not a gap"
+            item_bulk_map(&["Probe".to_owned()], &[("probe".to_owned(), None)])
+                .get("Probe")
+                .copied()
+                .flatten(),
+            None,
+            "a corpus gap is not zero"
         );
-        assert_eq!(bulk_tenths(&doc(0.1)), Some(1), "L = one tenth");
-        assert_eq!(bulk_tenths(&doc(1.0)), Some(10));
-        assert_eq!(bulk_tenths(&doc(2.5)), Some(25), "1.5 + 1 = 25 tenths");
-        assert_eq!(bulk_tenths(&doc(-1.0)), None, "negative bulk is not bulk");
         assert_eq!(
-            bulk_tenths(&json!({"system": {"bulk": {}}})),
+            bulk_map_from_doc(&json!({"system": {"bulk": {}}})),
             None,
             "missing value is a gap"
         );
-        assert_eq!(bulk_tenths(&json!({})), None, "missing system is a gap");
+        assert_eq!(
+            bulk_map_from_doc(&json!({})),
+            None,
+            "missing system is a gap"
+        );
+    }
+
+    /// Drive the JSON-shape branch through the production map path: the
+    /// bootstrap resolves `system.bulk.value` from the corpus document.
+    fn bulk_map_from_doc(doc: &JsonValue) -> Option<i64> {
+        let value = doc
+            .get("system")
+            .and_then(|system| system.get("bulk"))
+            .and_then(|bulk| bulk.get("value"))
+            .and_then(JsonValue::as_f64);
+        item_bulk_map(&["Probe".to_owned()], &[("probe".to_owned(), value)])
+            .get("Probe")
+            .copied()
+            .flatten()
     }
 
     #[test]

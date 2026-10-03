@@ -11,6 +11,7 @@
 *.swp
 *.swo
 .DS_Store
+.claude/
 
 # grizzly-gate local report output
 grizzly-gate-report/

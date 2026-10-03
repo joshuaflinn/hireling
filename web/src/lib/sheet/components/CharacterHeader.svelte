@@ -15,6 +15,8 @@
     syncing = false,
     onadjustlevel,
     onnewday,
+    onimport,
+    onlogout,
   } = $props();
 
   let picking = $state(false);
@@ -59,10 +61,20 @@
       <span class="pill">Level {level}</span>
     {/if}
     <SyncIndicator {syncing} />
+    {#if onimport}
+      <button class="btn" onclick={onimport} title="Import a Pathbuilder export (replaces this sheet's base data)">
+        Import
+      </button>
+    {/if}
+    {#if onlogout}
+      <button class="btn" onclick={onlogout} title="End the session (E3 Story 6 AC3)">
+        Log out
+      </button>
+    {/if}
   </div>
 </header>
 
-<Dialog open={picking} title="Adjust level" onclose={() => (picking = false)}>
+<Dialog open={picking} title="Adjust level" onclose={() => (picking = false)} oncommit={commitPicker}>
   <p style="color:var(--muted);font-size:13px">
     Every level-derived stat re-derives on tap: proficiency bonus, max HP,
     DCs, cantrip rank. Boosts, feats and spell slots come only from a
@@ -72,7 +84,7 @@
     <label style="display:flex;align-items:center;gap:8px">
       Level
       <select bind:value={draftLevel}>
-        {#each Array.from({ length: 20 }, (_, i) => i + 1) as option}
+        {#each Array.from({ length: 20 }, (_, i) => i + 1) as option (option)}
           <option value={option}>{option}</option>
         {/each}
       </select>
@@ -87,6 +99,7 @@
   open={confirmingDown}
   title={`Step down to level ${draftLevel}?`}
   onclose={() => (confirmingDown = false)}
+  oncommit={confirmDown}
 >
   <p style="color:var(--muted);font-size:13px">
     Max HP, DCs and proficiency drop to level {draftLevel} across the sheet —

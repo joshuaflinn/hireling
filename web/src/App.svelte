@@ -2,7 +2,6 @@
   import { entryAction } from './lib/entry.js';
   import { logoutAction } from './lib/logout.js';
   import ImportPage from './lib/import/ImportPage.svelte';
-  import SyncDebug from './lib/sync/SyncDebug.svelte';
   import SheetView from './lib/sheet/SheetView.svelte';
   import EmptyState from './lib/sheet/components/EmptyState.svelte';
   import ErrorState from './lib/sheet/components/ErrorState.svelte';
@@ -104,16 +103,16 @@
 {:else if view === 'sheet-error'}
   <ErrorState message="Your sheet could not be loaded." detail={sheetError} onretry={loadSheet} />
 {:else if view === 'sheet' && character}
-  <SheetView {character} accountSub={account?.sub ?? ''} />
+  <SheetView
+    {character}
+    accountSub={account?.sub ?? ''}
+    onimport={() => (view = 'import')}
+    onlogout={logout}
+  />
 {:else if view === 'import'}
   <main>
     <ImportPage />
     <button onclick={loadSheet}>Back to the sheet</button>
-  </main>
-{:else if view === 'sync-debug' && character}
-  <main>
-    <SyncDebug sub={account?.sub ?? ''} />
-    <button onclick={() => (view = 'sheet')}>Back</button>
   </main>
 {:else if view === 'entering'}
   <main>
