@@ -8,6 +8,7 @@
   import StatTile from './StatTile.svelte';
   import { findOpError } from '../state.js';
   import { rankLetter, rankName, signed } from '../../engine/format.js';
+  import { partitionSkills } from '../../engine/partition.js';
 
   /** @type {{ view: any, baseSheet: any, hp: any, temp: any, money?: any,
     focusCurrent?: any, focusMax?: number, heroPoints?: any, heroMax?: number,
@@ -54,6 +55,14 @@
   const focusError = $derived(vitalError('focus_current'));
   /** Display name for a skill key: the prototype capitalizes ("Thievery"). */
   const displayName = (/** @type {string} */ key) => key.charAt(0).toUpperCase() + key.slice(1);
+  /** Core skills and lores through one partition (MOR-50: the fold and the
+   * label are E6's). Post-swap `derived.skills` carries the lores itself;
+   * base.js still ships them as a separate array, which rides along here
+   * until the adapter swap deletes it — this partition line is already
+   * final. */
+  const partitioned = $derived(
+    partitionSkills([...numbers.skills, ...(numbers.lores ?? [])]),
+  );
 </script>
 
 <section class="panel" aria-label="Basic info">
@@ -102,7 +111,7 @@
 
   <h3>Skills</h3>
   <div class="skills">
-    {#each numbers.skills as skill (skill.name)}
+    {#each partitioned.core as skill (skill.name)}
       <SkillRow
         name={displayName(skill.name)}
         rank={skill.rank}
@@ -111,7 +120,7 @@
         untrained={skill.rank === 0}
       />
     {/each}
-    {#each numbers.lores as lore (lore.name)}
+    {#each partitioned.lores as lore (lore.name)}
       <SkillRow
         name={lore.label}
         rank={lore.rank}
