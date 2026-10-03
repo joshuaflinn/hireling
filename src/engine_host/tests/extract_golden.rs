@@ -250,7 +250,9 @@ fn first_drift(
             for (key, expected) in a {
                 match b.get(key) {
                     None => {
-                        return Some(format!("{path}.{key}: extractor emits it, fixture lacks it"));
+                        return Some(format!(
+                            "{path}.{key}: extractor emits it, fixture lacks it"
+                        ));
                     }
                     Some(actual) => {
                         if let Some(deep) = first_drift(&format!("{path}.{key}"), expected, actual)
@@ -280,7 +282,9 @@ fn first_drift(
                     )
                 })
             }),
-        _ => (emitted != fixture).then(|| format!("{path}: extractor {emitted} ≠ fixture {fixture}")),
+        _ => {
+            (emitted != fixture).then(|| format!("{path}: extractor {emitted} ≠ fixture {fixture}"))
+        }
     }
 }
 
