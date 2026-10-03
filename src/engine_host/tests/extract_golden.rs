@@ -313,6 +313,31 @@ fn caster_rank_takes_the_tradition_bump_innate_keeps_hers() {
 
 // -- degraded sections and keying rules --
 
+/// `damageType` is READ from the export, not assumed (MOR-69 finding 2):
+/// the reference corpus carries exactly one literal ("B"), which a
+/// hardcoded constant would also pass. A second fixture carries "S" and
+/// asserts the slashing arm; the missing-key default asserts "" — no
+/// invention.
+#[test]
+fn damage_type_reads_the_export_not_a_constant() {
+    let export = model::parse_and_validate(
+        r#"{"success":true,"build":{"name":"Dagger Kit","level":2,"abilities":{"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10},"proficiencies":{},"weapons":[{"name":"Dagger","die":"d4","attack":2,"damageBonus":0,"damageType":"S"}]}}"#,
+    )
+    .expect("dagger export is valid");
+    let base = extract(&transform::transform(&export).0, 0);
+    let dagger = base.stats.strikes.first().expect("dagger strike");
+    assert_eq!(dagger.damage_type, "S", "the export's letter, verbatim");
+    assert_eq!(dagger.damage_type_name, "slashing", "the S arm of the map");
+
+    let minimal = extract(&minimal_sheet(), 0);
+    let staff = minimal.stats.strikes.first().expect("staff strike");
+    assert_eq!(
+        staff.damage_type, "",
+        "no damageType key: empty, not a guess"
+    );
+    assert_eq!(staff.damage_type_name, "");
+}
+
 /// A sheet without `attributes` degrades to speed 0 — never a panic,
 /// never an invention of a plausible value.
 #[test]

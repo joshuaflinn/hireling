@@ -86,7 +86,7 @@ tracked_manually) and the resolved signed modifiers (constant or
     "class_dc":  { "base": null, "total": null, "applied": [], "suppressed": [] },
     "strikes":   [ { "key": "dagger",
                      "label": "Dagger", "map": 5,
-                     "damage_expr": "1d4+3", "damage_type": "P",
+                     "damage_expr": "d4+3", "damage_type": "P",
                      "damage_type_name": "piercing", "traits": ["Agile", "Finesse"],
                      "attack":     { "base": 11, "total": 12, "applied": [/*…*/], "suppressed": [/*…*/] },
                      "damage_flat": { "base": 3, "total": 4, "applied": [/*…*/], "suppressed": [/*…*/] } } ],
@@ -148,7 +148,10 @@ Rules that make this a contract:
   render inputs alongside the modifier-bearing `attack`/`damage_flat`; there
   is deliberately **no** parallel `render_base.strikes[]` keyed by `key` —
   two arrays describing one strike row drift. The unarmed `Fist` row carries
-  the same fields (traits from the POC weapon-trait map).
+  the same fields (traits from the POC weapon-trait map — the two-entry
+  table the reference sheet renders; the post-POC successor is the corpus
+  `item_traits` path the prototype's `base.js` sourced, tracked in
+  joshuaflinn/hireling#62 so the narrowing cannot happen silently).
 - **`casters[].innate`** flags innate caster blocks. A consumer picking
   "the" caster for its stat tiles takes the first entry with `innate: false`.
 - **`skills[].rank`** is the row's raw proficiency rank (untrained 0,
