@@ -246,6 +246,7 @@
       {
         "name": "acrobatics",
         "total": 1,
+        "rank": 0,
         "applied": [
           {
             "type": "status",
@@ -260,6 +261,8 @@
       {
         "name": "lore:underworld",
         "total": 6,
+        "rank": 2,
+        "label": "Underworld",
         "applied": [
           {
             "type": "status",

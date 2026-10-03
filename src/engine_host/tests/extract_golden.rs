@@ -60,7 +60,10 @@ fn golden_globals_match_the_prototype() {
     let base = extract(&reference_sheet(), 0);
     assert_eq!(base.schema, hireling_engine::model::BASE_SCHEMA);
     assert_eq!(base.level, 3);
-    assert_eq!(base.stats.ac, 16, "acTotal verbatim");
+    assert_eq!(
+        base.stats.ac, 16,
+        "AC re-derived from the worn armor's rank — agrees with the frozen acTotal exactly at the export's own level (E6 finding 8; the ±1 test pins the divergence)"
+    );
     assert_eq!(base.stats.speed, 25, "speed + speedBonus");
     assert_eq!(base.stats.fort, 7, "con 2 + trained 2+3");
     assert_eq!(base.stats.reflex, 6, "dex 1 + trained 2+3");
@@ -98,6 +101,55 @@ fn golden_skills_match_the_prototype() {
         11,
         "int 4 + expert 4+3 (rank 4); spaces underscored, lowercase"
     );
+}
+
+/// `skills[].rank` rides verbatim (contract §3 — the rank letter and
+/// untrained dimming render from it), and lore rows carry the export's
+/// display name as `label`; core rows omit the field entirely.
+#[test]
+fn golden_skill_render_inputs_ride_the_row() {
+    let base = extract(&reference_sheet(), 0);
+    let row_of = |name: &str| {
+        base.stats
+            .skills
+            .iter()
+            .find(|skill| skill.name == name)
+            .unwrap_or_else(|| panic!("skill {name} missing"))
+    };
+    assert_eq!(row_of("acrobatics").rank, 0, "untrained");
+    assert_eq!(row_of("arcana").rank, 2, "trained");
+    assert_eq!(row_of("deception").rank, 4, "expert");
+    assert_eq!(row_of("acrobatics").label, None, "core rows omit the label");
+    let underworld = row_of("lore:underworld");
+    assert_eq!(underworld.rank, 2);
+    assert_eq!(
+        underworld.label.as_deref(),
+        Some("Underworld"),
+        "the export's display name, verbatim — the canonical key lost the case"
+    );
+    let mror = row_of("lore:mror_holds_history");
+    assert_eq!(mror.rank, 4);
+    assert_eq!(mror.label.as_deref(), Some("Mror Holds History"));
+    // The rank survives compute into the wire shape (the contract's rule:
+    // render input, not derivable from total).
+    let output =
+        hireling_engine::compute::compute(7, &base, &[], &std::collections::BTreeMap::new());
+    let wire = output
+        .derived
+        .skills
+        .iter()
+        .find(|skill| skill.name == "lore:mror_holds_history")
+        .expect("lore on the wire");
+    assert_eq!(wire.rank, 4);
+    assert_eq!(wire.label.as_deref(), Some("Mror Holds History"));
+    let core = output
+        .derived
+        .skills
+        .iter()
+        .find(|skill| skill.name == "acrobatics")
+        .expect("core on the wire");
+    assert_eq!(core.rank, 0);
+    assert_eq!(core.label, None);
 }
 
 /// Prototype parity: strikes re-derived (attack = ability + rank+level +
@@ -185,7 +237,8 @@ fn golden_render_base_matches_the_prototype() {
 // -- level_adjust ±1 asserts the design table (not the prototype) --
 
 /// Trained things rise with `eff_level` — including re-derived strike
-/// attacks; untrained skills and verbatim totals (ac, speed) do not move.
+/// attacks and AC (worn-armor rank); untrained skills and the verbatim
+/// speed total do not move.
 #[test]
 fn level_adjust_plus_one_adds_level_to_trained_only() {
     let base = extract(&reference_sheet(), 1);
@@ -196,7 +249,11 @@ fn level_adjust_plus_one_adds_level_to_trained_only() {
     assert_eq!(skill_total(&base, "arcana"), 10);
     assert_eq!(skill_total(&base, "lore:underworld"), 10);
     assert_eq!(skill_total(&base, "acrobatics"), 1, "untrained: no level");
-    assert_eq!(base.stats.ac, 16, "verbatim total: no level");
+    assert_eq!(
+        base.stats.ac, 17,
+        "AC RE-DERIVES from the worn armor's rank at eff_level (E6 finding 8): \
+         10 + dex 1 + trained 2+4 — the frozen acTotal would have stayed 16"
+    );
     assert_eq!(
         base.stats.strikes.first().expect("staff").attack,
         5,

@@ -92,10 +92,14 @@ fn two_of_everything_base() -> BaseStats {
                 SkillBase {
                     name: "acrobatics".to_owned(),
                     total: 2,
+                    rank: 0,
+                    label: None,
                 },
                 SkillBase {
                     name: "lore:underworld".to_owned(),
                     total: 7,
+                    rank: 2,
+                    label: Some("Underworld".to_owned()),
                 },
             ],
         },

@@ -38,6 +38,7 @@ pub fn extract(sheet: &BaseSheet, level_adjust: i64) -> BaseStats {
     };
     let ranks = progressed_ranks(sheet, eff_level);
     let rank_of = |key: &str| ranks.get(key).copied().unwrap_or(0);
+    let ac = ac_of(sheet, &ranks, eff_level);
     // One trained-stat formula: level and proficiency only at rank ≥ 1.
     let trained = |rank_key: &str, ability: &str| {
         let rank = rank_of(rank_key);
@@ -87,12 +88,20 @@ pub fn extract(sheet: &BaseSheet, level_adjust: i64) -> BaseStats {
         .collect();
 
     // Skills: the 18 core in vocabulary order, then the sheet's lores.
+    // `rank` rides verbatim (contract §3: render input for the rank letter
+    // and untrained dimming); lores carry the export's display name as
+    // `label` — the canonical `lore:` key lowercases and underscores, so
+    // the display case cannot be recovered from it (MOR-50's
+    // derive-the-label-from-the-key ruling meets the realized charset and
+    // loses; the display input rides the row instead, same as strikes).
     let mut skills: Vec<SkillBase> = CORE_SKILLS
         .iter()
         .zip(CORE_SKILL_ABILITY.iter().map(|(_, ability)| *ability))
         .map(|(skill, ability)| SkillBase {
             name: (*skill).to_owned(),
             total: trained(skill, ability),
+            rank: i32_of(rank_of(skill)),
+            label: None,
         })
         .collect();
     for lore in &sheet.lores {
@@ -101,6 +110,8 @@ pub fn extract(sheet: &BaseSheet, level_adjust: i64) -> BaseStats {
             total: i32_of(eff_level) * i32::from(lore.rank >= 1)
                 + mod_of("int")
                 + prof_bonus(lore.rank),
+            rank: i32_of(lore.rank),
+            label: Some(lore.name.clone()),
         });
     }
 
@@ -108,7 +119,7 @@ pub fn extract(sheet: &BaseSheet, level_adjust: i64) -> BaseStats {
         schema: BASE_SCHEMA.to_owned(),
         level: i32_of(eff_level),
         stats: Stats {
-            ac: ac_total(sheet),
+            ac,
             fort: trained("fortitude", "con"),
             reflex: trained("reflex", "dex"),
             will: trained("will", "wis"),
@@ -206,14 +217,45 @@ fn prof_bonus(rank: i64) -> i32 {
     i32_of(rank)
 }
 
-/// `acTotal.acTotal` verbatim; a missing or drifted section is 0.
-fn ac_total(sheet: &BaseSheet) -> i32 {
-    sheet
-        .ac
+/// AC RE-DERIVED from the export's parts (E6 spec §4, review finding 8 —
+/// the sheet's own formula, `web/src/lib/engine/base.js`, byte for byte):
+/// `10 + acAbilityBonus + proficiency(worn-armor rank, eff_level) +
+/// acItemBonus + shieldBonus`, with `proficiency = rank > 0 ? rank +
+/// eff_level : 0` and the armor category taken from the worn piece
+/// (`unarmored` when none). The export's frozen `acTotal` is NOT used: it
+/// pins the export level and freezes AC forever, so a `level_adjust` never
+/// moved it. At the export's own level the two agree exactly (the
+/// reference golden pins 16 both ways); above it the re-derivation tracks
+/// the class table — which is the point.
+fn ac_of(sheet: &BaseSheet, ranks: &std::collections::HashMap<String, i64>, eff_level: i64) -> i32 {
+    let ac_section = sheet.ac.as_ref();
+    let part = |key: &str| {
+        ac_section
+            .and_then(|ac| ac.get(key))
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0)
+    };
+    let worn_prof = sheet
+        .armor
         .as_ref()
-        .and_then(|ac| ac.get("acTotal"))
-        .and_then(serde_json::Value::as_i64)
-        .map_or(0, i32_of)
+        .and_then(serde_json::Value::as_array)
+        .and_then(|pieces| {
+            pieces
+                .iter()
+                .find(|piece| piece.get("worn").and_then(serde_json::Value::as_bool) == Some(true))
+        })
+        .and_then(|piece| piece.get("prof"))
+        .and_then(serde_json::Value::as_str);
+    let armor_prof = worn_prof.unwrap_or("unarmored");
+    let rank = ranks.get(armor_prof).copied().unwrap_or(0);
+    i32_of(
+        10_i64
+            + part("acAbilityBonus")
+            + eff_level * i64::from(rank >= 1)
+            + i64::from(prof_bonus(rank))
+            + part("acItemBonus")
+            + part("shieldBonus"),
+    )
 }
 
 /// `attributes.speed + attributes.speedBonus`; a missing section is 0.

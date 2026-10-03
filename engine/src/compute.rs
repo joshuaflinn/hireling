@@ -144,12 +144,16 @@ fn derived_for(base: &BaseStats, groups: &BTreeMap<StatRef, Vec<&Candidate>>) ->
                     Some(stacked) => SkillOutput {
                         name: skill.name.clone(),
                         total: stacked.total,
+                        rank: skill.rank,
+                        label: skill.label.clone(),
                         applied: stacked.applied,
                         suppressed: stacked.suppressed,
                     },
                     None => SkillOutput {
                         name: skill.name.clone(),
                         total: skill.total,
+                        rank: skill.rank,
+                        label: skill.label.clone(),
                         applied: Vec::new(),
                         suppressed: Vec::new(),
                     },

@@ -85,6 +85,14 @@ pub struct SkillBase {
     /// `"lore:underworld"` — exactly what `BaseStats.skills[].name` carries.
     pub name: String,
     pub total: i32,
+    /// The row's raw proficiency rank (0/2/4/6/8) — render input for the
+    /// rank letter and untrained dimming (contract §3); not derivable from
+    /// `total`.
+    pub rank: i32,
+    /// The row's display name, verbatim from the export — lores only (the
+    /// canonical `lore:` key lowercases and underscores, so the display
+    /// case cannot be recovered from it). Core rows carry `None`.
+    pub label: Option<String>,
 }
 
 /// One caster block's base values (contract §1).
@@ -289,12 +297,21 @@ pub struct CasterOutput {
 }
 
 /// One skill's derived output (contract §3 `skills`): name + total +
-/// provenance.
+/// provenance, plus the render inputs that ride the row (contract §3:
+/// `rank`, and `label` on lore entries).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SkillOutput {
     /// Contract text, no `skill:` prefix.
     pub name: String,
     pub total: i32,
+    /// Raw proficiency rank (contract §3) — render input, not derivable
+    /// from `total`.
+    pub rank: i32,
+    /// Lore rows only: the display name verbatim from the export. Core
+    /// rows carry `None`, which does not reach the wire at all — a
+    /// consumer that ignores it is unaffected (additive, no schema bump).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     pub applied: Vec<ProvenanceEntry>,
     pub suppressed: Vec<SuppressedEntry>,
 }

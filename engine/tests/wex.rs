@@ -65,10 +65,14 @@ fn sample_base() -> BaseStats {
                 hireling_engine::model::SkillBase {
                     name: "acrobatics".to_owned(),
                     total: 1,
+                    rank: 0,
+                    label: None,
                 },
                 hireling_engine::model::SkillBase {
                     name: "lore:underworld".to_owned(),
                     total: 9,
+                    rank: 2,
+                    label: Some("Underworld".to_owned()),
                 },
             ],
         },
