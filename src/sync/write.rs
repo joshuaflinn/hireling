@@ -40,8 +40,8 @@ pub struct WriteResult {
     pub reason: Option<String>,
     pub broadcast: Option<(FieldTarget, JsonValue)>,
     /// Characters whose derived numbers changed — old ∪ new targets of an
-    /// applied effect op (sorted, deduped). Empty for field writes: hp
-    /// movements feed no engine math.
+    /// applied effect op (sorted, deduped). Empty for field writes except
+    /// `level_adjust`: its `eff_level` feeds the engine's inputs (gh#59).
     pub affected: Vec<i64>,
 }
 
