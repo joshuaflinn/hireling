@@ -34,6 +34,17 @@ function handshake(socket) {
   socket.message(SNAPSHOT);
 }
 
+const OUTPUT_A = {
+  schema: 'hireling.engine.output.v1',
+  character_id: 7,
+  render_base: { level: 3, hp_max: 32 },
+};
+const OUTPUT_B = {
+  schema: 'hireling.engine.output.v1',
+  character_id: 9,
+  render_base: { level: 5, hp_max: 48 },
+};
+
 test('write() enqueues, echoes optimistically, and survives a fake reload', () => {
   const { sync, storage } = setup();
   sync.write(VITALS, 30);
@@ -155,6 +166,84 @@ test('snapshotForBoot() serializes the merged state as a wire-shaped snapshot', 
   assert.deepEqual(boot, {
     fields: [{ field: VITALS, value: 30, version: 6 }],
   });
+});
+
+// ---- E8's derived surface (design D4–D6) ---------------------------------
+
+test('derived() reads null until the snapshot delivers the roster outputs', () => {
+  const { mocks, sync } = setup();
+  assert.equal(sync.derived(7), null, 'nothing on the wire yet — honest null');
+  sync.connect();
+  handshake(mocks.sockets[0]);
+  assert.equal(sync.derived(7), null, 'a snapshot without derived carries none');
+});
+
+test("the snapshot's derived array populates every roster character, verbatim", () => {
+  const { mocks, sync } = setup();
+  sync.connect();
+  mocks.sockets[0].message(
+    JSON.stringify({
+      t: 'snapshot',
+      fields: [{ field: VITALS, value: 25, version: 5 }],
+      derived: [OUTPUT_A, OUTPUT_B],
+      snapshot_bytes: 42,
+    }),
+  );
+  assert.deepEqual(sync.derived(7), OUTPUT_A, 'the wire shape, verbatim');
+  assert.deepEqual(sync.derived(9), OUTPUT_B);
+  assert.equal(sync.derived(8), null, 'a character with no output reads null');
+});
+
+test('a derived frame replaces one character\'s output and emits the event', () => {
+  const { mocks, sync } = setup();
+  sync.connect();
+  mocks.sockets[0].message(
+    JSON.stringify({
+      t: 'snapshot',
+      fields: [],
+      derived: [OUTPUT_A],
+      snapshot_bytes: 0,
+    }),
+  );
+
+  const events = [];
+  sync.subscribe((event) => events.push(event));
+  const updated = { ...OUTPUT_A, render_base: { level: 4, hp_max: 40 } };
+  mocks.sockets[0].message(
+    JSON.stringify({ t: 'derived', character_id: 7, output: updated }),
+  );
+  assert.deepEqual(sync.derived(7), updated, 'the new output replaces the old');
+  assert.deepEqual(
+    events.filter((e) => e.type === 'derived'),
+    [{ type: 'derived', character_id: 7 }],
+  );
+});
+
+test('derived is not durable: a reload over the same storage starts empty', () => {
+  const storage = fakeStorage();
+  const { mocks, sync } = setup(storage);
+  sync.connect();
+  mocks.sockets[0].message(
+    JSON.stringify({
+      t: 'snapshot',
+      fields: [{ field: VITALS, value: 25, version: 5 }],
+      derived: [OUTPUT_A],
+      snapshot_bytes: 0,
+    }),
+  );
+  assert.deepEqual(sync.derived(7), OUTPUT_A);
+
+  const reloaded = createSync({
+    url: 'ws://test/party/1',
+    storage,
+    accountSub: 'sub-a',
+    socketFactory: mockSockets().factory,
+    rng: () => 1,
+    now: () => 0,
+    timers: fakeClock().timers,
+    idFactory: () => 'op-x',
+  });
+  assert.equal(reloaded.derived(7), null, 'fields survive the reload; derived waits for the wire');
 });
 
 test('accounts are isolated: a different sub reads a different queue', () => {

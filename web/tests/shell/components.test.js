@@ -15,10 +15,14 @@ import StatsPane from '../../src/lib/sheet/components/StatsPane.svelte';
 import HpBar from '../../src/lib/sheet/components/HpBar.svelte';
 import PipRow from '../../src/lib/sheet/components/PipRow.svelte';
 
-import { derive } from '../../src/lib/engine/index.js';
 
 const FIXTURE_PATH = fileURLToPath(new URL('../data/base_sheet_reference.json', import.meta.url));
 const fixture = JSON.parse(await readFile(FIXTURE_PATH, 'utf8'));
+const ENGINE_PATH = fileURLToPath(new URL('../data/engine_output_reference.json', import.meta.url));
+/** The reference character's EngineOutput, verbatim as the wire carries it
+ * (extractor + compute over the same export — the swap's byte-identity
+ * fixture). */
+const engine = JSON.parse(await readFile(ENGINE_PATH, 'utf8'));
 
 test('EmptyState is a designed screen: crest, copy, and the import CTA', () => {
   const { body } = render(EmptyState, { props: { onimport: () => {} } });
@@ -65,7 +69,7 @@ test('CharacterHeader: editable shows the level control and New Day; view-only s
 });
 
 test('StatsPane renders the fixture through the adapter: tiles, pips, skills, meta', () => {
-  const view = derive({ id: 7, base_sheet: fixture }, { level_adjust: 0, effects: [] });
+  const view = engine;
   const noop = () => {};
   const { body } = render(StatsPane, {
     props: {
@@ -95,7 +99,7 @@ test('StatsPane renders the fixture through the adapter: tiles, pips, skills, me
 });
 
 test('StatsPane is view-only without controls when editable is false', () => {
-  const view = derive({ id: 7, base_sheet: fixture }, { level_adjust: 0, effects: [] });
+  const view = engine;
   const { body } = render(StatsPane, {
     props: {
       view,
@@ -146,7 +150,7 @@ test('PipRow: editable pips are buttons, view-only pips are bare spans (finding 
 });
 
 test('a rejected write surfaces inline at its control (finding 5)', () => {
-  const view = derive({ id: 7, base_sheet: fixture }, { level_adjust: 0, effects: [] });
+  const view = engine;
   const noop = () => {};
   const rejected = render(StatsPane, {
     props: {

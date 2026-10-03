@@ -22,6 +22,8 @@ import { createStore, targetKey } from './store.js';
 import { createConnection } from './connection.js';
 
 /** @typedef {import('./connection.js').SyncSocket} SyncSocket */
+/** @typedef {Record<string, *>} EngineOutput — the E8 engine-output contract
+ *   (specs/008/contracts/engine-output.md §3), verbatim from the wire. */
 
 const WS_PATH = '/api/ws/party';
 
@@ -54,6 +56,7 @@ export function partySocketUrl(partyId) {
  * @property {() => void} disconnect
  * @property {(target: Record<string, *>, value: *) => void} write
  * @property {() => Record<string, {target: Record<string, *>, value: *, version: number}>} state
+ * @property {(characterId: number) => EngineOutput | null} derived
  * @property {() => boolean} isSyncing
  * @property {() => string} snapshotForBoot
  * @property {() => Array<{op_id: string, target: Record<string, *>, base_version: number, value: *, created_at: string}>} queue
@@ -89,6 +92,14 @@ export function createSync(options) {
   const queue = createQueue({ storage, accountSub });
   const store = createStore();
   const listeners = new Set();
+
+  // E8's derived surface (design D4–D6): engine output is never versioned
+  // and never stored durably — it is a pure function of already-versioned
+  // state, refreshed by the snapshot's `derived` array and by `derived`
+  // frames. A client that reloads cold loses nothing; an output that has
+  // not arrived yet reads as null and the sheet shows its loading state.
+  /** @type {Map<number, EngineOutput>} */
+  const derivedOutputs = new Map();
 
   /** @param {Record<string, *>} event */
   function emit(event) {
@@ -128,10 +139,21 @@ export function createSync(options) {
       for (const f of fields) {
         store.applyServerField(f.field, f.value, /** @type {number} */ (f.version));
       }
+      // The catch-up snapshot carries every roster character's engine
+      // output (design D6) — applied before the fields event so the
+      // sheet's first paint after connect already has its numbers.
+      for (const output of /** @type {EngineOutput[]} */ (frame.derived ?? [])) {
+        derivedOutputs.set(output.character_id, output);
+      }
       emit({ type: 'fields' });
     } else if (frame.t === 'diff') {
       store.applyServerField(frame.field, frame.value, /** @type {number} */ (frame.version));
       emit({ type: 'fields' });
+    } else if (frame.t === 'derived') {
+      // One character's recomputed engine output, fanned out after the
+      // diff that caused it (D6's TCP-order rule).
+      derivedOutputs.set(frame.character_id, frame.output);
+      emit({ type: 'derived', character_id: frame.character_id });
     } else if (frame.t === 'ack') {
       settleAck(/** @type {Record<string, *>} */ (frame));
     }
@@ -210,6 +232,19 @@ export function createSync(options) {
 
     state() {
       return store.state();
+    },
+
+    /**
+     * The engine output for one character, verbatim from the wire — null
+     * until the snapshot or a `derived` frame delivers it. No client
+     * computes (contract law); this is the sync surface's only derived
+     * source.
+     *
+     * @param {number} characterId
+     * @returns {EngineOutput | null}
+     */
+    derived(characterId) {
+      return derivedOutputs.get(characterId) ?? null;
     },
 
     /** The indicator's truth: the queue, nothing else. */

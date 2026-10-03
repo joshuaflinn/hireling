@@ -1,0 +1,294 @@
+{
+  "schema": "hireling.engine.output.v1",
+  "character_id": 7,
+  "derived": {
+    "ac": {
+      "base": 16,
+      "total": 16,
+      "applied": [],
+      "suppressed": []
+    },
+    "fort": {
+      "base": 7,
+      "total": 7,
+      "applied": [],
+      "suppressed": []
+    },
+    "ref": {
+      "base": 6,
+      "total": 6,
+      "applied": [],
+      "suppressed": []
+    },
+    "will": {
+      "base": 7,
+      "total": 7,
+      "applied": [],
+      "suppressed": []
+    },
+    "perception": {
+      "base": 5,
+      "total": 5,
+      "applied": [],
+      "suppressed": []
+    },
+    "speed": {
+      "base": 25,
+      "total": 25,
+      "applied": [],
+      "suppressed": []
+    },
+    "class_dc": {
+      "base": 19,
+      "total": 19,
+      "applied": [],
+      "suppressed": []
+    },
+    "strikes": [
+      {
+        "key": "Staff",
+        "label": "Staff",
+        "map": 5,
+        "damage_expr": "d4−1",
+        "damage_type": "B",
+        "damage_type_name": "bludgeoning",
+        "traits": [
+          "Monk",
+          "Two-Hand d8"
+        ],
+        "attack": {
+          "base": 4,
+          "total": 4,
+          "applied": [],
+          "suppressed": []
+        },
+        "damage_flat": {
+          "base": -1,
+          "total": -1,
+          "applied": [],
+          "suppressed": []
+        }
+      },
+      {
+        "key": "Fist",
+        "label": "Fist",
+        "map": 4,
+        "damage_expr": "d4−1",
+        "damage_type": "B",
+        "damage_type_name": "bludgeoning",
+        "traits": [
+          "Agile",
+          "Finesse",
+          "Nonlethal",
+          "Unarmed"
+        ],
+        "attack": {
+          "base": 6,
+          "total": 6,
+          "applied": [],
+          "suppressed": []
+        },
+        "damage_flat": {
+          "base": -1,
+          "total": -1,
+          "applied": [],
+          "suppressed": []
+        }
+      }
+    ],
+    "casters": [
+      {
+        "caster_key": "Wizard",
+        "innate": false,
+        "spell_attack": {
+          "base": 9,
+          "total": 9,
+          "applied": [],
+          "suppressed": []
+        },
+        "spell_dc": {
+          "base": 19,
+          "total": 19,
+          "applied": [],
+          "suppressed": []
+        }
+      },
+      {
+        "caster_key": "Wellspring Gnome",
+        "innate": true,
+        "spell_attack": {
+          "base": 8,
+          "total": 8,
+          "applied": [],
+          "suppressed": []
+        },
+        "spell_dc": {
+          "base": 18,
+          "total": 18,
+          "applied": [],
+          "suppressed": []
+        }
+      }
+    ],
+    "skills": [
+      {
+        "name": "acrobatics",
+        "total": 1,
+        "rank": 0,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "arcana",
+        "total": 9,
+        "rank": 2,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "athletics",
+        "total": -1,
+        "rank": 0,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "crafting",
+        "total": 4,
+        "rank": 0,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "deception",
+        "total": 10,
+        "rank": 4,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "diplomacy",
+        "total": 8,
+        "rank": 2,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "intimidation",
+        "total": 3,
+        "rank": 0,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "medicine",
+        "total": 0,
+        "rank": 0,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "nature",
+        "total": 0,
+        "rank": 0,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "occultism",
+        "total": 9,
+        "rank": 2,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "performance",
+        "total": 3,
+        "rank": 0,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "religion",
+        "total": 0,
+        "rank": 0,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "society",
+        "total": 9,
+        "rank": 2,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "stealth",
+        "total": 6,
+        "rank": 2,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "survival",
+        "total": 0,
+        "rank": 0,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "thievery",
+        "total": 6,
+        "rank": 2,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "piloting",
+        "total": 1,
+        "rank": 0,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "computers",
+        "total": 4,
+        "rank": 0,
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "lore:underworld",
+        "total": 9,
+        "rank": 2,
+        "label": "Underworld",
+        "applied": [],
+        "suppressed": []
+      },
+      {
+        "name": "lore:mror_holds_history",
+        "total": 11,
+        "rank": 4,
+        "label": "Mror Holds History",
+        "applied": [],
+        "suppressed": []
+      }
+    ]
+  },
+  "effects": [],
+  "render_base": {
+    "level": 3,
+    "hp_max": 32,
+    "focus_max": 1,
+    "hero_max": 3,
+    "cantrip_rank": 2,
+    "attributes": {
+      "str": -1,
+      "dex": 1,
+      "con": 2,
+      "int": 4,
+      "wis": 0,
+      "cha": 3
+    }
+  }
+}
