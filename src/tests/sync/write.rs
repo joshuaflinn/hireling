@@ -824,3 +824,243 @@ async fn a_write_outside_the_bound_party_is_forbidden_and_recorded() {
 
     testing::drop_test_db(pool, "write_party_scope").await;
 }
+
+// ---- E6: the Q1 spell-economy vitals fields (design §3) --------------------
+
+/// One vitals op for any field, value carried as-is.
+fn field_op(
+    op_id: &str,
+    character_id: i64,
+    field: VitalsField,
+    base_version: i64,
+    value: serde_json::Value,
+) -> ClientOp {
+    ClientOp {
+        op_id: op_id.to_owned(),
+        target: FieldTarget::Vitals {
+            character_id,
+            field,
+        },
+        base_version,
+        value,
+    }
+}
+
+#[tokio::test]
+async fn focus_write_applies_and_bumps_its_own_version() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let character_id = seed_character(&pool, "sub-focus").await;
+    let base = vitals_version(&pool, character_id, "focus_version").await;
+
+    let result = apply_write(
+        &pool,
+        &player("sub-focus"),
+        poc_party(&pool).await,
+        field_op(
+            "op-focus-1",
+            character_id,
+            VitalsField::FocusCurrent,
+            base,
+            json!(2),
+        ),
+    )
+    .await
+    .expect("focus write");
+
+    assert_eq!(result.outcome, Outcome::Applied);
+    let applied = result.version.expect("applied writes carry a version");
+    assert_eq!(
+        vitals_i32(&pool, character_id, "focus_current").await,
+        2,
+        "row updated"
+    );
+    assert_eq!(
+        vitals_version(&pool, character_id, "focus_version").await,
+        applied,
+        "focus_version moved; neighbours untouched"
+    );
+    testing::drop_test_db(pool, "write_focus").await;
+}
+
+#[tokio::test]
+async fn hero_points_write_applies() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let character_id = seed_character(&pool, "sub-hero").await;
+    let base = vitals_version(&pool, character_id, "hero_points_version").await;
+
+    let result = apply_write(
+        &pool,
+        &player("sub-hero"),
+        poc_party(&pool).await,
+        field_op(
+            "op-hero-1",
+            character_id,
+            VitalsField::HeroPoints,
+            base,
+            json!(1),
+        ),
+    )
+    .await
+    .expect("hero points write");
+
+    assert_eq!(result.outcome, Outcome::Applied);
+    assert_eq!(
+        vitals_i32(&pool, character_id, "hero_points").await,
+        1,
+        "row updated"
+    );
+    testing::drop_test_db(pool, "write_hero").await;
+}
+
+#[tokio::test]
+async fn daily_write_applies_the_whole_row() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let character_id = seed_character(&pool, "sub-daily").await;
+    let base = vitals_version(&pool, character_id, "daily_version").await;
+
+    let result = apply_write(
+        &pool,
+        &player("sub-daily"),
+        poc_party(&pool).await,
+        field_op(
+            "op-daily-1",
+            character_id,
+            VitalsField::Daily,
+            base,
+            json!({"staff_charge_rank": 3, "staff_spent": 1, "drain_used": true}),
+        ),
+    )
+    .await
+    .expect("daily write");
+
+    assert_eq!(result.outcome, Outcome::Applied);
+    let stored: serde_json::Value =
+        sqlx::query_scalar("SELECT daily FROM character_vitals WHERE character_id = $1")
+            .bind(character_id)
+            .fetch_one(&pool)
+            .await
+            .expect("daily row");
+    assert_eq!(
+        stored,
+        json!({"staff_charge_rank": 3, "staff_spent": 1, "drain_used": true}),
+        "the whole row committed"
+    );
+    testing::drop_test_db(pool, "write_daily").await;
+}
+
+#[tokio::test]
+async fn spell_economy_bounds_are_rejected_without_touching_a_row() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let character_id = seed_character(&pool, "sub-bounds").await;
+    let party = poc_party(&pool).await;
+
+    let cases = [
+        (
+            "op-bounds-focus",
+            VitalsField::FocusCurrent,
+            json!(-1),
+            "focus",
+        ),
+        ("op-bounds-hero", VitalsField::HeroPoints, json!(-2), "hero"),
+        (
+            "op-bounds-rank",
+            VitalsField::Daily,
+            json!({"staff_charge_rank": 11, "staff_spent": 0, "drain_used": false}),
+            "rank",
+        ),
+        (
+            "op-bounds-shape",
+            VitalsField::Daily,
+            json!("zeroed"),
+            "daily",
+        ),
+    ];
+    for (op_id, field, value, needle) in cases {
+        let result = apply_write(
+            &pool,
+            &player("sub-bounds"),
+            party,
+            field_op(op_id, character_id, field, 0, value),
+        )
+        .await
+        .expect("bounds check runs before anything touches the database");
+        assert_eq!(result.outcome, Outcome::Rejected, "{op_id} must reject");
+        assert!(
+            result
+                .reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains(needle)),
+            "{op_id} denial names the field, got {:?}",
+            result.reason
+        );
+        let (outcome, _) = ledger_row(&pool, op_id).await;
+        assert_eq!(outcome, "rejected", "{op_id} denial is recorded");
+    }
+
+    assert_eq!(
+        vitals_i32(&pool, character_id, "focus_current").await,
+        0,
+        "nothing committed"
+    );
+    testing::drop_test_db(pool, "write_spell_economy_bounds").await;
+}
+
+#[tokio::test]
+async fn a_stale_focus_write_is_superseded() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let character_id = seed_character(&pool, "sub-stale").await;
+    let base = vitals_version(&pool, character_id, "focus_version").await;
+    let winning = apply_write(
+        &pool,
+        &player("sub-stale"),
+        poc_party(&pool).await,
+        field_op(
+            "op-focus-win",
+            character_id,
+            VitalsField::FocusCurrent,
+            base,
+            json!(3),
+        ),
+    )
+    .await
+    .expect("winning write");
+    let winning_version = winning.version.expect("applied writes carry a version");
+
+    let stale = apply_write(
+        &pool,
+        &player("sub-stale"),
+        poc_party(&pool).await,
+        field_op(
+            "op-focus-stale",
+            character_id,
+            VitalsField::FocusCurrent,
+            base,
+            json!(1),
+        ),
+    )
+    .await
+    .expect("stale write resolves");
+
+    assert_eq!(stale.outcome, Outcome::Superseded, "lost the CAS race");
+    assert_eq!(
+        stale.winning_version,
+        Some(winning_version),
+        "reports the winner"
+    );
+    assert_eq!(
+        vitals_i32(&pool, character_id, "focus_current").await,
+        3,
+        "the winner's value stands"
+    );
+    testing::drop_test_db(pool, "write_focus_stale").await;
+}

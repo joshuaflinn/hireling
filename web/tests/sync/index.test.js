@@ -172,3 +172,51 @@ test('accounts are isolated: a different sub reads a different queue', () => {
   });
   assert.deepEqual(other.queue(), []);
 });
+
+// E6's additive read events: the sheet re-renders on remote snapshot/diff
+// merges and renders ack outcomes inline (design §2 "additive reads").
+
+test('snapshot and diff merges emit fields events the sheet can re-render on', () => {
+  const { mocks, sync } = setup();
+  const events = [];
+  sync.subscribe((e) => events.push(e));
+  sync.connect();
+  handshake(mocks.sockets[0]); // snapshot → fields event
+  mocks.sockets[0].message(
+    JSON.stringify({
+      t: 'diff',
+      field: VITALS,
+      value: 27,
+      version: 8,
+      actor_sub: 'someone-else',
+      op_id: null,
+    }),
+  );
+  assert.equal(events.filter((e) => e.type === 'fields').length, 2);
+});
+
+test('applied acks carry the field key; rejected acks expose op + reason', () => {
+  const { mocks, sync } = setup();
+  sync.connect();
+  handshake(mocks.sockets[0]);
+  const events = [];
+  sync.subscribe((e) => events.push(e));
+
+  sync.write(VITALS, 30);
+  mocks.sockets[0].message(
+    JSON.stringify({ t: 'ack', op_id: 'op-1', outcome: 'rejected', reason: 'hp must be an integer' }),
+  );
+  sync.write(VITALS, 31);
+  const settled = [...mocks.sockets[0].sent].reverse().find((raw) => JSON.parse(raw).t === 'write');
+  const secondOp = JSON.parse(settled).op_id;
+  mocks.sockets[0].message(
+    JSON.stringify({ t: 'ack', op_id: secondOp, outcome: 'applied', version: 6 }),
+  );
+  const exposed = events.find((e) => e.type === 'op_exposed');
+  assert.ok(exposed, 'the rejection is exposed');
+  assert.equal(exposed.reason, 'hp must be an integer');
+  assert.equal(exposed.outcome, 'rejected');
+  const applied = events.filter((e) => e.type === 'applied');
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].key, targetKey(VITALS));
+});

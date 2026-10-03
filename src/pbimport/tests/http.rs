@@ -103,8 +103,15 @@ async fn a_player_imports_the_reference_export_over_http() {
     );
     assert_eq!(
         me_payload.get("vitals").and_then(|v| v.get("hp")),
-        Some(&serde_json::json!(14)),
-        "seeded HP reads back"
+        Some(&serde_json::json!(32)),
+        "seeded HP reads back (PF2e max, contract §3.3 as amended)"
+    );
+    assert_eq!(
+        me_payload
+            .get("vitals")
+            .and_then(|v| v.get("focus_current")),
+        Some(&serde_json::json!(1)),
+        "focus boots at the export's pool (MOR-48 finding 2)"
     );
 
     testing::drop_test_db(pool, "http_import").await;
@@ -394,4 +401,162 @@ fn leveled_renamed_export() -> String {
         .expect("chalk entry");
     chalk[0] = serde_json::json!("Chalk (dust)");
     serde_json::to_string(&doc).expect("modified export")
+}
+
+// E6 Task 2 (design §5): the bootstrap payload resolves Bulk for the
+// character's imported item names from the items corpus — exact-name,
+// case-insensitive; corpus gaps ride as null and the misses are logged for
+// E4 follow-up. The production path: a real import, then the real
+// bootstrap read over the router.
+/// The shared harness: account + session, the reference import, corpus
+/// rows (L bulk, a case-mismatched exact name at 0, 1 Bulk with traits),
+/// and the bootstrap payload read back over the real router.
+/// Returns `(app, pool, cookie, payload)`.
+async fn imported_with_corpus() -> Option<(axum::Router, sqlx::PgPool, String, Value)> {
+    crate::sync::test_helpers::install_log_capture();
+    let (app, pool) = test_app().await?;
+    testing::seed_account(&pool, PLAYER_SUB, "player").await;
+    let cookie = testing::seed_session(&pool, PLAYER_SUB, chrono::Utc::now()).await;
+
+    let response = app
+        .clone()
+        .oneshot(post(
+            "/api/characters/import",
+            &cookie,
+            reference_export().to_owned(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "the import succeeds");
+
+    // "Staff" is a WEAPON on the reference fixture (`build.weapons`, not
+    // equipment). Seeding it here fails the bootstrap tests if the corpus
+    // query ever drops weapon names again.
+    for (name, bulk, traits) in [
+        ("Backpack", 0.1, vec!["backpack"]),
+        ("chalk", 0.0, vec!["consumable"]),
+        ("Rations", 1.0, vec![]),
+        ("Staff", 1.0, vec!["magical", "two-hand d6"]),
+    ] {
+        sqlx::query(
+            "INSERT INTO corpus_entries (kind, name, lane, data, source_id, pack_version, imported_at) \
+             VALUES ('item', $1, 'imported', $2, $3, 'test', now())",
+        )
+        .bind(name)
+        .bind(serde_json::json!({
+            "system": { "bulk": { "value": bulk }, "traits": { "value": traits } }
+        }))
+        .bind(format!("test-{name}"))
+        .execute(&pool)
+        .await
+        .expect("seed corpus row");
+    }
+
+    let me = app
+        .clone()
+        .oneshot(get_with_cookie("/api/characters/me", &cookie))
+        .await
+        .unwrap();
+    assert_eq!(me.status(), StatusCode::OK);
+    Some((app, pool, cookie, response_json(me).await))
+}
+
+#[tokio::test]
+async fn bootstrap_item_traits_render_the_chips_from_corpus_traits() {
+    let Some((_app, pool, _cookie, payload)) = imported_with_corpus().await else {
+        return;
+    };
+    let traits = payload
+        .get("item_traits")
+        .expect("item_traits rides the bootstrap payload")
+        .as_object()
+        .expect("item_traits is a map");
+    assert_eq!(
+        traits.get("Backpack"),
+        Some(&serde_json::json!(["backpack"])),
+        "the chips render from corpus traits"
+    );
+    assert_eq!(
+        traits.get("Chalk"),
+        Some(&serde_json::json!(["consumable"]))
+    );
+    assert_eq!(
+        traits.get("Rations"),
+        Some(&serde_json::json!([])),
+        "a hit without traits keys empty"
+    );
+    assert_eq!(
+        traits.get("Staff"),
+        Some(&serde_json::json!(["magical", "two-hand d6"])),
+        "weapon names resolve — Staff is on `weapons`, not equipment; this \
+         fails if the corpus query drops weapons again"
+    );
+    assert_eq!(traits.get("Bedroll"), Some(&serde_json::json!([])));
+    testing::drop_test_db(pool, "http_item_traits").await;
+}
+
+#[tokio::test]
+async fn bootstrap_item_bulk_resolves_from_the_corpus_and_logs_misses() {
+    let Some((_app, pool, _cookie, payload)) = imported_with_corpus().await else {
+        return;
+    };
+    let character_id = payload
+        .pointer("/character/id")
+        .and_then(Value::as_i64)
+        .expect("character id");
+    let bulk = payload
+        .get("item_bulk")
+        .expect("item_bulk rides the bootstrap payload")
+        .as_object()
+        .expect("item_bulk is a map");
+    assert_eq!(
+        bulk.len(),
+        17,
+        "every imported item AND weapon name is keyed: {bulk:?}"
+    );
+    assert_eq!(
+        bulk.get("Staff"),
+        Some(&serde_json::json!(10)),
+        "the weapon rides the same map: 1 Bulk = ten tenths"
+    );
+    assert_eq!(
+        bulk.get("Backpack"),
+        Some(&serde_json::json!(1)),
+        "L = one tenth of a Bulk"
+    );
+    assert_eq!(
+        bulk.get("Chalk"),
+        Some(&serde_json::json!(0)),
+        "exact-name match is case-insensitive; 0 is a real value"
+    );
+    assert_eq!(
+        bulk.get("Rations"),
+        Some(&serde_json::json!(10)),
+        "1 Bulk = ten tenths"
+    );
+    assert_eq!(
+        bulk.get("Bedroll"),
+        Some(&Value::Null),
+        "a corpus gap degrades to null, never a guess"
+    );
+    assert_eq!(bulk.get("Oil of Weightlessness"), Some(&Value::Null));
+
+    let log = crate::sync::test_helpers::captured_log()
+        .lock()
+        .expect("capture lock")
+        .join("\n");
+    assert!(
+        log.contains("bulk unresolved"),
+        "the misses are logged: {log}"
+    );
+    assert!(
+        log.contains("Bedroll"),
+        "the log names a missed item: {log}"
+    );
+    assert!(
+        log.contains(&format!("character_id={character_id}")),
+        "the log names the character: {log}"
+    );
+
+    testing::drop_test_db(pool, "http_item_bulk").await;
 }

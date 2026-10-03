@@ -1174,6 +1174,42 @@ async fn cas_vitals(
             .await
             .context("CAS money")?
         }
+        VitalsField::FocusCurrent => sqlx::query_scalar(
+            "UPDATE character_vitals SET focus_current = $1, \
+                 focus_version = nextval('field_version_seq'), updated_at = now() \
+                 WHERE character_id = $2 AND focus_version = $3 \
+                 RETURNING focus_version",
+        )
+        .bind(as_i32(value))
+        .bind(character_id)
+        .bind(base_version)
+        .fetch_optional(&mut **tx)
+        .await
+        .context("CAS focus_current")?,
+        VitalsField::HeroPoints => sqlx::query_scalar(
+            "UPDATE character_vitals SET hero_points = $1, \
+                 hero_points_version = nextval('field_version_seq'), updated_at = now() \
+                 WHERE character_id = $2 AND hero_points_version = $3 \
+                 RETURNING hero_points_version",
+        )
+        .bind(as_i32(value))
+        .bind(character_id)
+        .bind(base_version)
+        .fetch_optional(&mut **tx)
+        .await
+        .context("CAS hero_points")?,
+        VitalsField::Daily => sqlx::query_scalar(
+            "UPDATE character_vitals SET daily = $1, \
+                 daily_version = nextval('field_version_seq'), updated_at = now() \
+                 WHERE character_id = $2 AND daily_version = $3 \
+                 RETURNING daily_version",
+        )
+        .bind(value)
+        .bind(character_id)
+        .bind(base_version)
+        .fetch_optional(&mut **tx)
+        .await
+        .context("CAS daily")?,
     };
     let Some(version) = new_version else {
         let winning = read_vitals_version(tx, character_id, field).await?;
@@ -1308,6 +1344,27 @@ async fn read_vitals_version(
                 .await
                 .context("re-read money_version")
         }
+        VitalsField::FocusCurrent => {
+            sqlx::query_scalar("SELECT focus_version FROM character_vitals WHERE character_id = $1")
+                .bind(character_id)
+                .fetch_one(&mut **tx)
+                .await
+                .context("re-read focus_version")
+        }
+        VitalsField::HeroPoints => sqlx::query_scalar(
+            "SELECT hero_points_version FROM character_vitals WHERE character_id = $1",
+        )
+        .bind(character_id)
+        .fetch_one(&mut **tx)
+        .await
+        .context("re-read hero_points_version"),
+        VitalsField::Daily => {
+            sqlx::query_scalar("SELECT daily_version FROM character_vitals WHERE character_id = $1")
+                .bind(character_id)
+                .fetch_one(&mut **tx)
+                .await
+                .context("re-read daily_version")
+        }
     }
 }
 
@@ -1357,6 +1414,32 @@ fn field_path(target: &FieldTarget) -> String {
 }
 
 /// The bounds table (plan T3): reject, never silently fix. Pure.
+/// The whole-row spell-economy write: exact shape, each field in range.
+fn validate_daily(value: &JsonValue) -> Result<(), String> {
+    let Some(object) = value.as_object() else {
+        return Err(
+            "daily must be an object {staff_charge_rank, staff_spent, drain_used}".to_owned(),
+        );
+    };
+    if object.len() != 3 {
+        return Err("daily needs exactly staff_charge_rank, staff_spent, drain_used".to_owned());
+    }
+    match object.get("staff_charge_rank").and_then(JsonValue::as_i64) {
+        Some(rank) if (0..=10).contains(&rank) => {}
+        _ => {
+            return Err("daily.staff_charge_rank must be an integer within 0\u{2014}10".to_owned());
+        }
+    }
+    match object.get("staff_spent").and_then(JsonValue::as_i64) {
+        Some(spent) if (0..=i64::from(i32::MAX)).contains(&spent) => {}
+        _ => return Err("daily.staff_spent must be an integer \u{2265} 0".to_owned()),
+    }
+    if !object.get("drain_used").is_some_and(JsonValue::is_boolean) {
+        return Err("daily.drain_used must be a boolean".to_owned());
+    }
+    Ok(())
+}
+
 fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result<(), String> {
     match target {
         FieldTarget::Vitals {
@@ -1381,6 +1464,12 @@ fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result<(), String
                 }
                 Ok(())
             }
+            // The server validates the shape and its own bounds only — the
+            // focus max is the character's, so the clamp is client-side
+            // (wire-protocol §3).
+            VitalsField::FocusCurrent => int_in_range(value, 0, i32::MAX, "focus_current"),
+            VitalsField::HeroPoints => int_in_range(value, 0, i32::MAX, "hero_points"),
+            VitalsField::Daily => validate_daily(value),
         },
         FieldTarget::Slot { .. } => {
             let Some(object) = value.as_object() else {
@@ -1667,6 +1756,50 @@ mod bounds_tests {
             money(json!({"pp": 1, "gp": 2, "sp": 3})).is_err(),
             "all four"
         );
+
+        // E6's spell-economy fields (design §3): the server validates the
+        // shape and its own bounds only — the focus max clamp is the
+        // character's, so it stays client-side (wire-protocol §3).
+        let focus = |value| validate_bounds(&vitals(VitalsField::FocusCurrent), &value);
+        assert!(focus(json!(0)).is_ok(), "focus 0 is the floor");
+        assert!(focus(json!(3)).is_ok());
+        assert!(focus(json!(-1)).is_err(), "focus >= 0 is a bound");
+        assert!(focus(json!("two")).is_err(), "focus must be an integer");
+
+        let hero = |value| validate_bounds(&vitals(VitalsField::HeroPoints), &value);
+        assert!(hero(json!(0)).is_ok());
+        assert!(hero(json!(-1)).is_err(), "hero points >= 0 is a bound");
+
+        let daily = |value| validate_bounds(&vitals(VitalsField::Daily), &value);
+        let zeroed = json!({"staff_charge_rank": 0, "staff_spent": 0, "drain_used": false});
+        assert!(daily(zeroed).is_ok(), "the zeroed row is the shape");
+        assert!(
+            daily(json!({"staff_charge_rank": 10, "staff_spent": 2, "drain_used": true})).is_ok()
+        );
+        assert!(
+            daily(json!({"staff_charge_rank": 11, "staff_spent": 0, "drain_used": false})).is_err(),
+            "staff_charge_rank tops out at 10"
+        );
+        assert!(
+            daily(json!({"staff_charge_rank": 0, "staff_spent": -1, "drain_used": false})).is_err(),
+            "staff_spent >= 0 is a bound"
+        );
+        assert!(
+            daily(json!({"staff_charge_rank": 0, "staff_spent": 0, "drain_used": "no"})).is_err(),
+            "drain_used must be a boolean"
+        );
+        assert!(
+            daily(json!({"staff_charge_rank": 0, "staff_spent": 0})).is_err(),
+            "whole-row write: all three keys"
+        );
+        assert!(
+            daily(
+                json!({"staff_charge_rank": 0, "staff_spent": 0, "drain_used": false, "extra": 1})
+            )
+            .is_err(),
+            "whole-row write: no extra keys"
+        );
+        assert!(daily(json!("zeroed")).is_err(), "daily must be an object");
 
         let slot = |value| {
             validate_bounds(

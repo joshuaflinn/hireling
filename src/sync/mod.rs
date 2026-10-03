@@ -74,7 +74,7 @@ mod registry_tests;
 
 #[cfg(test)]
 #[path = "../tests/sync/helpers.rs"]
-mod test_helpers;
+pub(crate) mod test_helpers;
 
 #[cfg(test)]
 #[path = "../tests/sync/metrics.rs"]

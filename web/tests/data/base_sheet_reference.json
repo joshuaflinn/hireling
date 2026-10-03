@@ -1,0 +1,533 @@
+{
+  "schema": "hireling.base_sheet.v1",
+  "identity": {
+    "name": "Lorum Ipsum",
+    "class": "Wizard",
+    "dual_class": null,
+    "level": 3,
+    "xp": 18,
+    "ancestry": "Gnome",
+    "heritage": "Wellspring Gnome",
+    "background": "Charlatan",
+    "alignment": "N",
+    "deity": "Not set",
+    "age": "44",
+    "gender": "Male",
+    "size": 1,
+    "size_name": "Small",
+    "keyability": "int",
+    "languages": [
+      "Aklo",
+      "Common",
+      "Dwarven",
+      "Fey",
+      "Gnomish",
+      "Goblin",
+      "Ysoki"
+    ]
+  },
+  "abilities": {
+    "str": 8,
+    "dex": 12,
+    "con": 14,
+    "int": 18,
+    "wis": 10,
+    "cha": 16,
+    "breakdown": {
+      "ancestryBoosts": [
+        "Con",
+        "Cha"
+      ],
+      "ancestryFlaws": [
+        "Str"
+      ],
+      "ancestryFree": [
+        "Int"
+      ],
+      "backgroundBoosts": [
+        "Int",
+        "Cha"
+      ],
+      "classBoosts": [
+        "Int"
+      ],
+      "mapLevelledBoosts": {
+        "1": [
+          "Con",
+          "Cha",
+          "Int",
+          "Dex"
+        ]
+      }
+    }
+  },
+  "hp": {
+    "ancestryhp": 8,
+    "classhp": 6,
+    "bonushp": 0,
+    "bonushp_per_level": 0,
+    "max_hp": 32
+  },
+  "speed": {
+    "base": 25,
+    "bonus": 0
+  },
+  "ac": {
+    "acAbilityBonus": 1,
+    "acItemBonus": 0,
+    "acProfBonus": 5,
+    "acTotal": 16,
+    "shieldBonus": null
+  },
+  "attributes": {
+    "ancestryhp": 8,
+    "bonushp": 0,
+    "bonushpPerLevel": 0,
+    "classhp": 6,
+    "speed": 25,
+    "speedBonus": 0
+  },
+  "proficiencies": {
+    "acrobatics": 0,
+    "advanced": 0,
+    "arcana": 2,
+    "athletics": 0,
+    "castingArcane": 2,
+    "castingDivine": 0,
+    "castingOccult": 2,
+    "castingPrimal": 0,
+    "classDC": 2,
+    "computers": 0,
+    "crafting": 0,
+    "deception": 4,
+    "diplomacy": 2,
+    "fortitude": 2,
+    "heavy": 0,
+    "intimidation": 0,
+    "light": 0,
+    "martial": 0,
+    "medicine": 0,
+    "medium": 0,
+    "nature": 0,
+    "occultism": 2,
+    "perception": 2,
+    "performance": 0,
+    "piloting": 0,
+    "reflex": 2,
+    "religion": 0,
+    "simple": 2,
+    "society": 2,
+    "stealth": 2,
+    "survival": 0,
+    "thievery": 2,
+    "unarmed": 2,
+    "unarmored": 2,
+    "will": 4
+  },
+  "specific_proficiencies": {
+    "expert": [],
+    "legendary": [],
+    "master": [],
+    "trained": []
+  },
+  "lores": [
+    {
+      "name": "Underworld",
+      "rank": 2
+    },
+    {
+      "name": "Mror Holds History",
+      "rank": 4
+    }
+  ],
+  "spellcasters": [
+    {
+      "caster_key": "Wizard",
+      "name": "Wizard",
+      "magic_tradition": "arcane",
+      "spellcasting_type": "prepared",
+      "ability": "int",
+      "proficiency": 2,
+      "innate": false,
+      "focus_points": 0,
+      "per_day": [
+        6,
+        4,
+        3,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "known": [
+        {
+          "rank": 0,
+          "spells": [
+            "Daze",
+            "Detect Magic",
+            "Electric Arc",
+            "Figment",
+            "Light",
+            "Scatter Scree",
+            "Shield",
+            "Telekinetic Hand",
+            "Infectious Enthusiasm",
+            "Phase Bolt"
+          ]
+        },
+        {
+          "rank": 1,
+          "spells": [
+            "Dizzying Colors",
+            "Illusory Object",
+            "Fear",
+            "Befuddle",
+            "Summon Undead",
+            "500 Toads"
+          ]
+        },
+        {
+          "rank": 2,
+          "spells": [
+            "Blazing Bolt",
+            "Illusory Creature",
+            "Invisibility"
+          ]
+        }
+      ],
+      "prepared": [
+        {
+          "rank": 0,
+          "spells": [
+            "Shield",
+            "Daze",
+            "Detect Magic",
+            "Phase Bolt",
+            "Scatter Scree",
+            "Figment"
+          ]
+        },
+        {
+          "rank": 1,
+          "spells": [
+            "500 Toads",
+            "Befuddle",
+            "Fear",
+            "Dizzying Colors"
+          ]
+        },
+        {
+          "rank": 2,
+          "spells": [
+            "Blazing Bolt",
+            "Invisibility",
+            "Illusory Creature"
+          ]
+        }
+      ]
+    },
+    {
+      "caster_key": "Wellspring Gnome",
+      "name": "Wellspring Gnome",
+      "magic_tradition": "occult",
+      "spellcasting_type": "prepared",
+      "ability": "cha",
+      "proficiency": 2,
+      "innate": true,
+      "focus_points": 0,
+      "per_day": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "known": [
+        {
+          "rank": 0,
+          "spells": [
+            "Guidance"
+          ]
+        }
+      ],
+      "prepared": []
+    }
+  ],
+  "equipment": [
+    {
+      "name": "Backpack",
+      "qty": 1,
+      "container": null,
+      "invested": true
+    },
+    {
+      "name": "Bedroll",
+      "qty": 1,
+      "container": "Backpack",
+      "invested": true
+    },
+    {
+      "name": "Chalk",
+      "qty": 10,
+      "container": "Backpack",
+      "invested": true
+    },
+    {
+      "name": "Flint and Steel",
+      "qty": 1,
+      "container": "Backpack",
+      "invested": true
+    },
+    {
+      "name": "Rope",
+      "qty": 1,
+      "container": "Backpack",
+      "invested": true
+    },
+    {
+      "name": "Rations",
+      "qty": 2,
+      "container": "Backpack",
+      "invested": true
+    },
+    {
+      "name": "Torch",
+      "qty": 5,
+      "container": "Backpack",
+      "invested": true
+    },
+    {
+      "name": "Waterskin",
+      "qty": 1,
+      "container": "Backpack",
+      "invested": true
+    },
+    {
+      "name": "Soap",
+      "qty": 1,
+      "container": "Backpack",
+      "invested": true
+    },
+    {
+      "name": "Writing Set",
+      "qty": 1,
+      "container": "Backpack",
+      "invested": true
+    },
+    {
+      "name": "Sack",
+      "qty": 5,
+      "container": "Backpack",
+      "invested": true
+    },
+    {
+      "name": "Lock (Simple)",
+      "qty": 1,
+      "container": "Giant body's sack",
+      "invested": true
+    },
+    {
+      "name": "Manacles (Simple)",
+      "qty": 1,
+      "container": "Giant body's sack",
+      "invested": true
+    },
+    {
+      "name": "Cold Iron Ingot",
+      "qty": 7,
+      "container": "Giant body's sack",
+      "invested": true
+    },
+    {
+      "name": "Silver Chunk",
+      "qty": 2,
+      "container": "Giant body's sack",
+      "invested": true
+    },
+    {
+      "name": "Oil of Weightlessness",
+      "qty": 1,
+      "container": "Giant body's sack",
+      "invested": true
+    }
+  ],
+  "containers": [
+    {
+      "name": "Giant body's sack",
+      "extradimensional": true,
+      "backpack": false,
+      "augmentations": false
+    },
+    {
+      "name": "Backpack",
+      "extradimensional": false,
+      "backpack": true,
+      "augmentations": false
+    }
+  ],
+  "weapons": [
+    {
+      "attack": 4,
+      "damageBonus": -1,
+      "damageType": "B",
+      "die": "d4",
+      "display": "Staff",
+      "extraDamage": [],
+      "grade": "",
+      "increasedDice": false,
+      "isInventor": false,
+      "mat": null,
+      "name": "Staff",
+      "pot": 0,
+      "prof": "simple",
+      "qty": 1,
+      "runes": [],
+      "str": ""
+    }
+  ],
+  "armor": [
+    {
+      "display": "Explorer's Clothing",
+      "grade": "",
+      "mat": null,
+      "name": "Explorer's Clothing",
+      "pot": 0,
+      "prof": "unarmored",
+      "qty": 1,
+      "res": "",
+      "runes": [],
+      "worn": true
+    }
+  ],
+  "money": {
+    "cp": 4,
+    "gp": 24,
+    "pp": 0,
+    "sp": 2
+  },
+  "focus": {
+    "arcane": {
+      "int": {
+        "abilityBonus": 4,
+        "focusCantrips": [],
+        "focusSpells": [
+          "Charming Push"
+        ],
+        "itemBonus": 0,
+        "proficiency": 2
+      }
+    }
+  },
+  "focus_points": 1,
+  "companions": [
+    {
+      "type": "Familiar",
+      "name": "Familiar (Pippin)",
+      "abilities": [
+        "Fast Movement (Land)",
+        "Manual Dexterity"
+      ],
+      "equipment": []
+    }
+  ],
+  "raw": {
+    "feats": [
+      [
+        "Charming Liar",
+        null,
+        "Awarded Feat",
+        1
+      ],
+      [
+        "Wellspring Gnome",
+        null,
+        "Heritage",
+        1,
+        "Heritage Feat",
+        "standardChoice",
+        null
+      ],
+      [
+        "Gnome Obsession",
+        null,
+        "Ancestry Feat",
+        1,
+        "Gnome Feat 1",
+        "parentChoice",
+        null
+      ],
+      [
+        "Additional Lore",
+        null,
+        "Skill Feat",
+        1,
+        "Gnome Feat 1additional lore",
+        "childChoice",
+        "Gnome Feat 1"
+      ],
+      [
+        "Assurance",
+        "Lore: Mror Holds History",
+        "Skill Feat",
+        1,
+        "Gnome Feat 1additional lore assurance",
+        "childChoice",
+        "Gnome Feat 1"
+      ],
+      [
+        "Pickpocket",
+        null,
+        "Skill Feat",
+        2,
+        "Skill Feat 2",
+        "standardChoice",
+        null
+      ],
+      [
+        "Conceal Spell",
+        null,
+        "Class Feat",
+        2,
+        "Wizard Feat 2",
+        "standardChoice",
+        null
+      ],
+      [
+        "Pet",
+        null,
+        "General Feat",
+        3,
+        "General Feat 3",
+        "standardChoice",
+        null
+      ]
+    ],
+    "formula": [],
+    "inventorMods": [],
+    "mods": {},
+    "pets": [],
+    "resistances": [],
+    "rituals": [],
+    "specials": [
+      "Arcane School: School of Mentalism",
+      "Arcane Thesis: Staff Nexus",
+      "Arcane Bond",
+      "Drain Bonded Item",
+      "Spellbook",
+      "Wizard Spellcasting",
+      "Low-Light Vision",
+      "Occult",
+      "Wellspring Gnome"
+    ]
+  }
+}

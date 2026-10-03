@@ -46,6 +46,22 @@ export function partySocketUrl(partyId) {
 }
 
 /**
+ * The composed sync instance — the public API this module returns (E7's
+ * client surface; E6/E10 consume exactly these members).
+ *
+ * @typedef {Object} Sync
+ * @property {() => void} connect
+ * @property {() => void} disconnect
+ * @property {(target: Record<string, *>, value: *) => void} write
+ * @property {() => Record<string, {target: Record<string, *>, value: *, version: number}>} state
+ * @property {() => boolean} isSyncing
+ * @property {() => string} snapshotForBoot
+ * @property {() => Array<{op_id: string, target: Record<string, *>, base_version: number, value: *, created_at: string}>} queue
+ * @property {() => 'connecting' | 'live' | 'offline'} connectionState
+ * @property {(cb: (event: Record<string, *>) => void) => () => boolean} subscribe
+ */
+
+/**
  * @param {{
  *   url: string,
  *   storage: { getItem: (k: string) => string | null, setItem: (k: string, v: string) => void },
@@ -56,6 +72,7 @@ export function partySocketUrl(partyId) {
  *   timers?: { setTimeout: (fn: () => void, ms: number) => *, clearTimeout: (id: *) => void },
  *   idFactory?: () => string,
  * }} options
+ * @returns {Sync}
  */
 export function createSync(options) {
   const {
@@ -111,8 +128,10 @@ export function createSync(options) {
       for (const f of fields) {
         store.applyServerField(f.field, f.value, /** @type {number} */ (f.version));
       }
+      emit({ type: 'fields' });
     } else if (frame.t === 'diff') {
       store.applyServerField(frame.field, frame.value, /** @type {number} */ (frame.version));
+      emit({ type: 'fields' });
     } else if (frame.t === 'ack') {
       settleAck(/** @type {Record<string, *>} */ (frame));
     }
@@ -135,6 +154,21 @@ export function createSync(options) {
     }
     queue.dequeue(opId);
     emit({ type: 'queue', length: queue.length });
+    if (outcome === 'applied' || outcome === 'already_applied') {
+      // E6's inline-error affordance: a win on a field clears any error
+      // shown at that control.
+      emit({ type: 'applied', key: op ? targetKey(op.target) : null });
+    } else if (outcome === 'rejected' || outcome === 'forbidden') {
+      // The store exposed the op (degraded-mode §4); E6 renders the
+      // ack's reason inline at the control.
+      emit({
+        type: 'op_exposed',
+        op_id: opId,
+        outcome,
+        op,
+        reason: ack.reason ?? null,
+      });
+    }
   }
 
   return {

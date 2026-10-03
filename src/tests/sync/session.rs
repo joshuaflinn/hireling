@@ -70,7 +70,7 @@ async fn a_member_connects_and_receives_hello_then_snapshot() {
     else {
         panic!("second frame must be snapshot, got {snapshot:?}")
     };
-    assert_eq!(fields.len(), 4, "one character, four vitals fields");
+    assert_eq!(fields.len(), 7, "one character, seven vitals fields");
     assert_eq!(
         derived.len(),
         1,

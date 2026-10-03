@@ -43,7 +43,8 @@ pub enum FieldTarget {
 }
 
 /// The versioned vitals columns; money is one four-denomination unit (E2's
-/// schema: `money_*_version` is a single column).
+/// schema: `money_*_version` is a single column). `focus_current`,
+/// `hero_points`, and `daily` are E6's Q1 spell-economy fields (design §3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VitalsField {
@@ -51,6 +52,9 @@ pub enum VitalsField {
     TempHp,
     Money,
     LevelAdjust,
+    FocusCurrent,
+    HeroPoints,
+    Daily,
 }
 
 impl VitalsField {
@@ -62,6 +66,9 @@ impl VitalsField {
             Self::TempHp => "temp_hp",
             Self::Money => "money",
             Self::LevelAdjust => "level_adjust",
+            Self::FocusCurrent => "focus_current",
+            Self::HeroPoints => "hero_points",
+            Self::Daily => "daily",
         }
     }
 }
