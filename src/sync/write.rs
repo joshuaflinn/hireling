@@ -40,8 +40,8 @@ pub struct WriteResult {
     pub reason: Option<String>,
     pub broadcast: Option<(FieldTarget, JsonValue)>,
     /// Characters whose derived numbers changed — old ∪ new targets of an
-    /// applied effect op (sorted, deduped). Empty for field writes: hp
-    /// movements feed no engine math.
+    /// applied effect op (sorted, deduped). Empty for field writes except
+    /// `level_adjust`: its `eff_level` feeds the engine's inputs (gh#59).
     pub affected: Vec<i64>,
 }
 
@@ -175,6 +175,19 @@ pub async fn apply_write(
     if outcome != Outcome::Applied {
         // Only an applied write fans out; supersessions echo nothing.
         result.broadcast = None;
+    }
+    if outcome == Outcome::Applied
+        && let FieldTarget::Vitals {
+            character_id,
+            field: VitalsField::LevelAdjust,
+        } = op.target
+    {
+        // eff_level feeds every proficiency-bearing stat, hp_max, and the
+        // cantrip rank (E8 design D3's extraction table) — a committed
+        // level_adjust changes the engine's inputs, so the commit fans out
+        // the derived consequence exactly like an effect write (D4/D6):
+        // one recompute per affected character, after the diff, TCP-ordered.
+        result.affected = vec![character_id];
     }
     Ok(result)
 }
