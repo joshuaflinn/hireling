@@ -176,6 +176,19 @@ pub async fn apply_write(
         // Only an applied write fans out; supersessions echo nothing.
         result.broadcast = None;
     }
+    if outcome == Outcome::Applied
+        && let FieldTarget::Vitals {
+            character_id,
+            field: VitalsField::LevelAdjust,
+        } = op.target
+    {
+        // eff_level feeds every proficiency-bearing stat, hp_max, and the
+        // cantrip rank (E8 design D3's extraction table) — a committed
+        // level_adjust changes the engine's inputs, so the commit fans out
+        // the derived consequence exactly like an effect write (D4/D6):
+        // one recompute per affected character, after the diff, TCP-ordered.
+        result.affected = vec![character_id];
+    }
     Ok(result)
 }
 

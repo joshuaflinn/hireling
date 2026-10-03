@@ -522,3 +522,197 @@ async fn the_derived_fan_out_stays_within_the_smoke_budget() {
     shutdown.send(()).expect("test server alive");
     testing::drop_test_db(pool, "e8_smoke_budget").await;
 }
+
+/// A committed `level_adjust` write fans out the derived consequence —
+/// ack, then the diff, then one `derived` frame carrying the adjusted
+/// numbers (E6 spec §4: the level adjust visibly re-derives; the sheet
+/// renders from the wire post-swap, so nothing may go stale until
+/// reconnect). A superseded write fans out nothing. Found in the MOR-52
+/// pre-swap audit: only effect ops populated the affected set.
+#[tokio::test]
+async fn a_level_adjust_write_diffs_then_derives() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, alpha) = seed_real_member(&pool, "dev-sub-josh").await;
+    let session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
+    let (addr, shutdown) = spawn_server(pool.clone()).await;
+
+    let mut writer = connect(addr, party_id, &session).await;
+    read_frame(&mut writer.stream, "hello").await;
+    read_frame(&mut writer.stream, "snapshot").await;
+
+    // The CAS anchors to the stored version, not zero (the seed consumed
+    // sequence values) — the same anchor the vitals write tests use.
+    let base = sqlx::query_scalar::<_, i64>(
+        "SELECT level_adjust_version FROM character_vitals WHERE character_id = $1",
+    )
+    .bind(alpha)
+    .fetch_one(&pool)
+    .await
+    .expect("level_adjust_version");
+
+    send_raw(
+        &mut writer.sink,
+        &json!({
+            "t": "write",
+            "op_id": "la-applied",
+            "target": {"kind": "vitals", "character_id": alpha, "field": "level_adjust"},
+            "base_version": base,
+            "value": 1
+        })
+        .to_string(),
+    )
+    .await;
+
+    // Applied: ack, then the diff, then the derived consequence — in TCP
+    // order, so every client applies the change and its math in sequence.
+    let ack = read_frame(&mut writer.stream, "level_adjust ack").await;
+    let ServerFrame::Ack(ack) = ack else {
+        panic!("expected the ack, got {ack:?}")
+    };
+    assert_eq!(ack.outcome, Outcome::Applied);
+    assert!(
+        ack.version.is_some(),
+        "the ack carries the committed version"
+    );
+
+    let diff = read_frame(&mut writer.stream, "level_adjust diff").await;
+    let ServerFrame::Diff {
+        field: FieldTarget::Vitals { field, .. },
+        value,
+        ..
+    } = &diff
+    else {
+        panic!("expected the level_adjust diff, got {diff:?}")
+    };
+    assert_eq!(*field, crate::sync::protocol::VitalsField::LevelAdjust);
+    assert_eq!(*value, json!(1));
+    let ServerFrame::Diff { version, .. } = &diff else {
+        unreachable!()
+    };
+    assert_eq!(
+        Some(*version),
+        ack.version,
+        "the diff echoes the committed version"
+    );
+
+    let derived = read_frame(&mut writer.stream, "level_adjust derived").await;
+    let ServerFrame::Derived {
+        character_id,
+        output,
+    } = derived
+    else {
+        panic!("expected the derived consequence, got {derived:?}")
+    };
+    assert_eq!(character_id, alpha, "the adjusted character's frame");
+    // eff_level 4: fortitude = con 2 + trained 2+4 (7 at the export's own
+    // level) — the extractor's math moved with the write, on the wire.
+    assert_eq!(
+        output.derived.fort.total, 8,
+        "the +1 level_adjust is IN the derived total"
+    );
+
+    shutdown.send(()).expect("test server alive");
+    testing::drop_test_db(pool, "e8_level_adjust_derives").await;
+}
+
+/// A superseded `level_adjust` write commits nothing, echoes nothing, and
+/// fans out no derived frame — the next frame on the wire is the next
+/// write's ack, not a recompute. (The applied twin is
+/// [`a_level_adjust_write_diffs_then_derives`].)
+#[tokio::test]
+async fn a_superseded_level_adjust_fans_out_nothing() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, alpha) = seed_real_member(&pool, "dev-sub-josh").await;
+    let session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
+    let (addr, shutdown) = spawn_server(pool.clone()).await;
+
+    let mut writer = connect(addr, party_id, &session).await;
+    read_frame(&mut writer.stream, "hello").await;
+    read_frame(&mut writer.stream, "snapshot").await;
+    let base = sqlx::query_scalar::<_, i64>(
+        "SELECT level_adjust_version FROM character_vitals WHERE character_id = $1",
+    )
+    .bind(alpha)
+    .fetch_one(&pool)
+    .await
+    .expect("level_adjust_version");
+
+    // Land +1 first so the second write's stale base_version misses.
+    send_raw(
+        &mut writer.sink,
+        &json!({
+            "t": "write",
+            "op_id": "la-land",
+            "target": {"kind": "vitals", "character_id": alpha, "field": "level_adjust"},
+            "base_version": base,
+            "value": 1
+        })
+        .to_string(),
+    )
+    .await;
+    let ack = read_frame(&mut writer.stream, "land ack").await;
+    let ServerFrame::Ack(ack) = ack else {
+        panic!("expected the ack, got {ack:?}")
+    };
+    assert_eq!(ack.outcome, Outcome::Applied);
+    let diff = read_frame(&mut writer.stream, "land diff").await;
+    let ServerFrame::Diff { .. } = diff else {
+        panic!("expected the land diff, got {diff:?}")
+    };
+    let derived = read_frame(&mut writer.stream, "land derived").await;
+    let ServerFrame::Derived { .. } = derived else {
+        panic!("expected the derived consequence, got {derived:?}")
+    };
+
+    // Superseded: a second write at the stale base_version commits
+    // nothing, echoes nothing, and fans out no derived frame — the next
+    // frame on the wire is the next write's ack, not a recompute.
+    send_raw(
+        &mut writer.sink,
+        &json!({
+            "t": "write",
+            "op_id": "la-superseded",
+            "target": {"kind": "vitals", "character_id": alpha, "field": "level_adjust"},
+            "base_version": base,
+            "value": 2
+        })
+        .to_string(),
+    )
+    .await;
+    let hp_base = sqlx::query_scalar::<_, i64>(
+        "SELECT hp_version FROM character_vitals WHERE character_id = $1",
+    )
+    .bind(alpha)
+    .fetch_one(&pool)
+    .await
+    .expect("hp_version");
+    send_raw(
+        &mut writer.sink,
+        &json!({
+            "t": "write",
+            "op_id": "hp-after",
+            "target": {"kind": "vitals", "character_id": alpha, "field": "hp"},
+            "base_version": hp_base,
+            "value": 20
+        })
+        .to_string(),
+    )
+    .await;
+    let superseded = read_frame(&mut writer.stream, "superseded ack").await;
+    let ServerFrame::Ack(superseded) = superseded else {
+        panic!("expected the superseded ack, got {superseded:?}")
+    };
+    assert_eq!(superseded.outcome, Outcome::Superseded);
+    let hp_ack = read_frame(&mut writer.stream, "hp ack").await;
+    let ServerFrame::Ack(hp_ack) = hp_ack else {
+        panic!("a superseded level_adjust fanned out; expected the hp ack next, got {hp_ack:?}")
+    };
+    assert_eq!(hp_ack.outcome, Outcome::Applied);
+
+    shutdown.send(()).expect("test server alive");
+    testing::drop_test_db(pool, "e8_level_adjust_superseded").await;
+}
