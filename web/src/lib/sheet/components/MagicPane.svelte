@@ -54,7 +54,7 @@
         {caster}
         slots={slots.filter((/** @type {any} */ slot) => slot.caster_key === caster.caster_key)}
         numbers={view?.derived ?? null}
-        cantripRank={view?.render_base.cantrip_rank ?? null}
+        cantripRank={view?.render_base?.cantrip_rank ?? null}
         {editable}
         {offline}
         known={caster.known}

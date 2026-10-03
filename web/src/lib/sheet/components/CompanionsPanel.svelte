@@ -10,7 +10,7 @@
   let { baseSheet, view } = $props();
 
   const companions = $derived(baseSheet.companions ?? []);
-  const level = $derived(view?.render_base.level ?? null);
+  const level = $derived(view?.render_base?.level ?? null);
   /** The Pet feat (not the Familiar) makes it a pet: 3+level skills, the pet note. */
   const isPet = $derived(
     (baseSheet.raw?.feats ?? []).some((/** @type {any[]} */ feat) => feat[0] === 'Pet') &&

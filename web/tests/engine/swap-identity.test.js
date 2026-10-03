@@ -5,7 +5,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { render } from 'svelte/server';
+import { get } from 'svelte/store';
 
+import { createSync } from '../../src/lib/sync/index.js';
+import { createSheetState } from '../../src/lib/sheet/state.js';
+import { fakeClock, mockSockets, fakeStorage } from '../sync/fakes.js';
 import StatsPane from '../../src/lib/sheet/components/StatsPane.svelte';
 import StrikesPane from '../../src/lib/sheet/components/StrikesPane.svelte';
 import { partitionSkills } from '../../src/lib/engine/partition.js';
@@ -122,4 +126,50 @@ test('the strikes pane renders the pinned rows from the wire fixture', () => {
   assert.match(body, /Fist/);
   assert.match(body, /atk \+6/);
   assert.match(body, /MAP −4 \/ −8/, 'agile');
+});
+
+// The identity claim must arrive through the PRODUCTION path — snapshot
+// frame → sync surface → the engine seam → `createSheetState` — or it
+// pins a fixture against a table and never enters the seam (review F4).
+// This is the same pinned table, routed.
+test('the identity rides the production path: snapshot → sync → derive → state', () => {
+  const clock = fakeClock();
+  const mocks = mockSockets();
+  const sync = createSync({
+    url: 'ws://test/party/1',
+    storage: fakeStorage(),
+    accountSub: 'sub-a',
+    socketFactory: mocks.factory,
+    rng: () => 1,
+    now: clock.now,
+    timers: clock.timers,
+    idFactory: () => 'op-1',
+  });
+  const state = createSheetState({
+    sync,
+    character: {
+      character: { id: 7, name: baseSheet.identity.name },
+      base_sheet: baseSheet,
+      vitals: { hp: 20, temp_hp: 0, money_pp: 0, money_gp: 24, money_sp: 2, money_cp: 4, level_adjust: 0, focus_current: 0, hero_points: 1, daily: { staff_charge_rank: 3, staff_spent: 0, drain_used: false } },
+      slots: [],
+      inventory: [],
+      item_bulk: {},
+    },
+  });
+
+  assert.equal(get(state.view), null, 'nothing before the wire');
+  state.connect();
+  mocks.sockets[0].open();
+  mocks.sockets[0].message(
+    JSON.stringify({ t: 'snapshot', fields: [], derived: [engine], snapshot_bytes: 42 }),
+  );
+
+  const view = get(state.view);
+  assert.ok(view, 'the seam surfaced the snapshot\'s engine output');
+  assert.equal(view, sync.derived(7), 'verbatim: the sync surface\'s own answer object, not a recomputed copy');
+  assert.equal(view.render_base.hp_max, 32, 'pinned hp max, through the path');
+  assert.equal(view.derived.ac.total, 16, 'pinned AC, through the path');
+  assert.equal(view.derived.fort.total, 7);
+  assert.equal(view.derived.skills.find((s) => s.name === 'lore:mror_holds_history').total, 11);
+  assert.equal(get(state.hpMax), 32, 'the ceiling store reads the same output');
 });

@@ -12,6 +12,11 @@
     level,
     editable = true,
     offline = false,
+    /** The wire has spoken at least once ($view !== null). Until it has,
+     * the wire-coupled controls (level adjust, New Day) stay dark — New
+     * Day's focus refill and the level confirm both read engine output
+     * that does not exist yet (review finding F3, design §7). */
+    wireReady = true,
     syncing = false,
     onadjustlevel,
     onnewday,
@@ -51,10 +56,20 @@
   </div>
   <div class="controls">
     {#if editable}
-      <button class="btn" onclick={openPicker} title="Adjust your effective level (1–20)">
+      <button
+        class="btn"
+        onclick={openPicker}
+        disabled={offline || !wireReady}
+        title="Adjust your effective level (1–20)"
+      >
         Level {level ?? '—'}
       </button>
-      <button class="btn gold" onclick={onnewday} disabled={offline} title="Clears cast slots, refills Focus Points, resets staff and Drain Bonded Item">
+      <button
+        class="btn gold"
+        onclick={onnewday}
+        disabled={offline || !wireReady}
+        title="Clears cast slots, refills Focus Points, resets staff and Drain Bonded Item"
+      >
         New Day
       </button>
     {:else}

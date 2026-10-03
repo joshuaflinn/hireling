@@ -312,6 +312,29 @@ test('New Day enqueues the whole reset burst FIFO: slots, focus, daily', () => {
   assert.equal(ids.size, queued.length, 'distinct ops');
 });
 
+test('New Day before the wire is a no-op — no silent partial burst (review F3)', () => {
+  const { mocks, state } = setup();
+  assert.equal(get(state.view), null, 'cold boot: no engine output yet');
+  state.newDay();
+  assert.deepEqual(
+    state.queue(),
+    [],
+    'slots and daily do not fire while the focus refill has no source — two of three promises in one silent stroke is the bug, not the fix',
+  );
+
+  // Once the wire speaks, the burst rides in full.
+  state.connect();
+  handshake(mocks.sockets[0], [
+    { target: slot(1, 0), value: { used: true, prepared: '500 Toads' }, version: 2 },
+  ]);
+  state.newDay();
+  const queued = state.queue();
+  assert.ok(queued.length >= 3, 'slot + focus + daily all present');
+  assert.deepEqual(queued.map((op) => op.target.kind), ['slot', 'vitals', 'vitals']);
+  assert.equal(queued[1].target.field, 'focus_current');
+  assert.equal(queued[2].target.field, 'daily');
+});
+
 test('the syncing store reads the queue, nothing else', () => {
   const { mocks, state } = setup();
   assert.equal(get(state.syncing), false, 'empty queue + dead link = idle');

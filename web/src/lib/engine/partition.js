@@ -1,12 +1,13 @@
 // Lore partition (E6 per MOR-50): E8 folds lores into `derived.skills` as
 // `lore:<name>` entries; the sheet wants them back as a separate list with a
 // display label (spec §2.2's lore rows). Pure transform in a lib module —
-// web/ has no component test harness, so logic in a component ships
-// untested.
+// components render, libs compute and test (the svelte-hooks harness
+// renders components; plain unit tests cover this transform).
 //
-// E6 owns the partition AND the label: the display label is derived here
-// from the key (`lore:Underworld` → `Underworld Lore`), never trusted from
-// the wire, so the render does not depend on the server shipping labels.
+// E6 owns the partition AND the label fallback: the wire's `label` (the
+// export's display name, contract §3) is preferred verbatim; a row that
+// ships none derives its label from the key, so a lore never renders
+// without one.
 
 /**
  * Split the engine's skills array into core skills and lores.

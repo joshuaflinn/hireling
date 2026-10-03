@@ -2,10 +2,11 @@
 // `createSync`. Components get stores; they never see the socket, the
 // queue, or a wire target.
 //
-// Read path: the sync store's fields (strictly-newer merged, optimistic
-// echo applied) fall back to the bootstrap vitals for anything the socket
-// has not delivered yet — the sheet renders instantly on cold boot, never
-// a spinner over nothing (design §7).
+// Read path: the engine's derived output (forwarded verbatim off the
+// socket, never stored durably — design D6) drives the number panes.
+// Until the first snapshot arrives they render skeletons (design §7's
+// loading state — an honest gap, no client math); bootstrap vitals (hp,
+// money, slots, daily) stay live and writable from first paint.
 //
 // Write path: component → client-side bounds validation (invalid input
 // never leaves this layer; the server re-validates anyway) → `sync.write`
@@ -197,7 +198,7 @@ export function createSheetState({ sync, character }) {
   // The ceilings come from `render_base` (contract §3): null until the
   // wire delivers — the coupled writes no-op and their controls render
   // disabled until then (design §7's loading state, no invented numbers).
-  const hpMax = derived(view, ($view) => $view?.render_base.hp_max ?? null);
+  const hpMax = derived(view, ($view) => $view?.render_base?.hp_max ?? null);
   // The readout clamps to max too (review finding 11): a level-down must
   // never display "32 / 16" — the write clamp alone leaves stale values.
   const hp = derived([vitalsStore('hp', character.vitals.hp), hpMax], ([$hp, $max]) => ({
@@ -216,8 +217,8 @@ export function createSheetState({ sync, character }) {
   const daily = vitalsStore('daily', character.vitals.daily);
 
   /** The focus pip ceiling: `render_base.focus_max` (null until the wire). */
-  const focusMax = derived(view, ($view) => $view?.render_base.focus_max ?? null);
-  const heroMax = derived(view, ($view) => $view?.render_base.hero_max ?? null);
+  const focusMax = derived(view, ($view) => $view?.render_base?.focus_max ?? null);
+  const heroMax = derived(view, ($view) => $view?.render_base?.hero_max ?? null);
 
   // ---- slots ---------------------------------------------------------------
   /** The slot layout with live used/prepared/pending per row. */
@@ -463,8 +464,15 @@ export function createSheetState({ sync, character }) {
   /** The New Day burst (spec §3: clear cast slots, refill focus, reset
    * drain): every slot's used flag, focus back to the character's pool
    * (review finding 2 — the pool regains its points, it is not emptied),
-   * then the daily whole-row. */
+   * then the daily whole-row.
+   *
+   * No-op before the wire speaks (review finding F3): the focus refill
+   * has no source until `render_base` arrives, and firing the slot/daily
+   * halves alone would reset two of the three things spec §3 promises in
+   * one silent stroke. The header's New Day button is dark in the same
+   * window — this guard is the state-layer backstop. */
   function newDay() {
+    if (get(view) === null) return;
     for (const row of get(slots)) {
       if (row.used || row.pending) {
         writeSlot(row.caster_key, row.rank, row.slot_index, { used: false });

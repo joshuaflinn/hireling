@@ -19,6 +19,11 @@
 </script>
 
 {#if count > 0}
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+  <!-- Reason (design §9): the hover is keyboard-reachable by design — the
+  tabindex + Escape-blur pair is the a11y affordance and the aria-label
+  carries the full applied/suppressed breakdown; dropping either would
+  silence screen-reader and keyboard users, not just the linter. -->
   <span
     class="prov"
     tabindex="0"

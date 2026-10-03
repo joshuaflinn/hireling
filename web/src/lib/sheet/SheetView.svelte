@@ -97,9 +97,10 @@
   <CharacterHeader
     name={identity.name}
     subline={subline()}
-    level={$view?.render_base.level ?? null}
+    level={$view?.render_base?.level ?? null}
     {editable}
     offline={$offline}
+    wireReady={$view !== null}
     syncing={$syncing}
     onadjustlevel={(/** @type {number} */ level) => sheet.writeLevelAdjust(level)}
     onnewday={() => sheet.newDay()}
