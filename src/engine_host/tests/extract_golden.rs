@@ -234,6 +234,85 @@ fn golden_render_base_matches_the_prototype() {
     assert_eq!(at_twenty.render_base.hp_max, 168, "8 + 8 × 20");
 }
 
+// -- the drift guard: the web fixture must track the extractor (gh#63) --
+
+/// First differing path between two parsed trees — the guard's failure
+/// names the key (`$.render_base.hp_max`), not two whole trees. Order of
+/// object keys and array entries is not drift; presence and value are.
+fn first_drift(
+    path: &str,
+    emitted: &serde_json::Value,
+    fixture: &serde_json::Value,
+) -> Option<String> {
+    use serde_json::Value;
+    match (emitted, fixture) {
+        (Value::Object(a), Value::Object(b)) => {
+            for (key, expected) in a {
+                match b.get(key) {
+                    None => {
+                        return Some(format!("{path}.{key}: extractor emits it, fixture lacks it"));
+                    }
+                    Some(actual) => {
+                        if let Some(deep) = first_drift(&format!("{path}.{key}"), expected, actual)
+                        {
+                            return Some(deep);
+                        }
+                    }
+                }
+            }
+            b.keys()
+                .find(|key| !a.contains_key(*key))
+                .map(|key| format!("{path}.{key}: fixture carries it, extractor does not"))
+        }
+        (Value::Array(a), Value::Array(b)) => a
+            .iter()
+            .zip(b.iter())
+            .enumerate()
+            .find_map(|(index, (expected, actual))| {
+                first_drift(&format!("{path}[{index}]"), expected, actual)
+            })
+            .or_else(|| {
+                (a.len() != b.len()).then(|| {
+                    format!(
+                        "{path}: extractor emits {} entries, fixture has {}",
+                        a.len(),
+                        b.len()
+                    )
+                })
+            }),
+        _ => (emitted != fixture).then(|| format!("{path}: extractor {emitted} ≠ fixture {fixture}")),
+    }
+}
+
+/// The web swap's identity test pins the post-swap render against
+/// `web/tests/data/engine_output_reference.json` — a hand-generated fixture
+/// describing the wire THIS pipeline emits. Nothing else holds it to that:
+/// the day `extract` or `compute` changes a number, the web suite stays
+/// green against a wire that no longer exists. Twin test: the reference
+/// sheet through the same `extract` + `compute` at `level_adjust = 0`,
+/// compared as PARSED TREES (`serde_json::Value`) — field order and
+/// whitespace are not drift. On failure: regenerate the fixture from this
+/// pipeline, commit, then re-run the web suite.
+#[test]
+fn web_engine_output_fixture_tracks_the_extractor() {
+    let base = extract(&reference_sheet(), 0);
+    let output =
+        hireling_engine::compute::compute(7, &base, &[], &std::collections::BTreeMap::new());
+    let emitted = serde_json::to_value(&output).expect("EngineOutput serializes");
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../web/tests/data/engine_output_reference.json"
+    ))
+    .expect("the web fixture parses");
+    if let Some(drift) = first_drift("$", &emitted, &fixture) {
+        panic!(
+            "web/tests/data/engine_output_reference.json has DRIFTED from the \
+             extractor (first delta: {drift}): regenerate the fixture from \
+             extract + compute (reference sheet, level_adjust = 0), commit it, \
+             then re-run the web suite (web/tests/engine/swap-identity.test.js)"
+        );
+    }
+}
+
 // -- level_adjust ±1 asserts the design table (not the prototype) --
 
 /// Trained things rise with `eff_level` — including re-derived strike
