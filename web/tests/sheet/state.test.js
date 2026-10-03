@@ -13,6 +13,11 @@ import { createSheetState } from '../../src/lib/sheet/state.js';
 
 const FIXTURE_PATH = fileURLToPath(new URL('../data/base_sheet_reference.json', import.meta.url));
 const fixture = JSON.parse(await readFile(FIXTURE_PATH, 'utf8'));
+const ENGINE_PATH = fileURLToPath(new URL('../data/engine_output_reference.json', import.meta.url));
+/** The reference character's EngineOutput, verbatim as the wire carries it
+ * (generated from the extractor + compute over the same export — the swap's
+ * byte-identity fixture). */
+const engineOutput = JSON.parse(await readFile(ENGINE_PATH, 'utf8'));
 
 const CHARACTER_ID = 7;
 
@@ -73,8 +78,9 @@ function setup() {
   return { clock, mocks, sync, state };
 }
 
-/** Open the socket and merge a snapshot the way the server sends it. */
-function handshake(socket, fields = []) {
+/** Open the socket and merge a snapshot the way the server sends it —
+ * versioned fields plus the roster's derived array (design D6). */
+function handshake(socket, fields = [], derived = [engineOutput]) {
   socket.open();
   socket.message(
     JSON.stringify({
@@ -84,6 +90,7 @@ function handshake(socket, fields = []) {
         value,
         version,
       })),
+      derived,
       snapshot_bytes: 42,
     }),
   );
@@ -100,11 +107,10 @@ const slot = (rank, index, key = 'Wizard') => ({
   slot_index: index,
 });
 
-test('bootstrap populates the view: numbers from vitals, engine derives, slots list', () => {
+test('before the wire: view is null, vitals render, no invented numbers', () => {
   const { state } = setup();
-  const view = get(state.view);
-  assert.equal(view.level, 3, 'the engine output rides the view');
-  assert.equal(view.derived.ac.total, 16);
+  assert.equal(get(state.view), null, 'derived is never stored — null until the wire');
+  assert.equal(get(state.hpMax), null, 'the ceiling waits for render_base');
   assert.equal(get(state.hp).value, 20, 'bootstrap vitals render before the socket');
   assert.equal(get(state.heroPoints).value, 1);
   assert.deepEqual(get(state.daily).value, {
@@ -116,14 +122,41 @@ test('bootstrap populates the view: numbers from vitals, engine derives, slots l
   assert.equal(get(state.money).value.gp, 24);
 });
 
+test('a write whose clamp needs the max no-ops until the engine output arrives', () => {
+  const { mocks, state } = setup();
+  state.writeHp(30);
+  assert.deepEqual(state.queue(), [], 'no hpMax on the wire yet — nothing rides');
+  assert.equal(get(state.hp).value, 20, 'no optimistic echo was invented');
+
+  state.connect();
+  handshake(mocks.sockets[0]); // derived arrives: hpMax 32
+  state.writeHp(30);
+  assert.equal(get(state.hp).value, 30, 'the echo paints once the ceiling exists');
+  assert.equal(get(state.hp).pending, true, 'the echo is tagged pending');
+});
+
+test('the snapshot delivers the view: render_base and derived, wire-verbatim', () => {
+  const { mocks, state } = setup();
+  state.connect();
+  handshake(mocks.sockets[0], []);
+  const view = get(state.view);
+  assert.equal(view.schema, 'hireling.engine.output.v1', 'the contract shape, verbatim');
+  assert.equal(view.render_base.level, 3);
+  assert.equal(view.render_base.hp_max, 32);
+  assert.equal(view.derived.ac.total, 16);
+  assert.equal(get(state.hpMax), 32);
+  assert.equal(get(state.heroMax), 3);
+  assert.equal(get(state.focusMax), 1);
+});
+
 test('a write echoes pending, then an applied ack settles it', () => {
   const { mocks, state } = setup();
+  state.connect();
+  handshake(mocks.sockets[0]);
   state.writeHp(30);
   assert.equal(get(state.hp).value, 30, 'the echo paints immediately');
   assert.equal(get(state.hp).pending, true, 'the echo is tagged pending');
 
-  state.connect();
-  handshake(mocks.sockets[0], []);
   const sent = mocks.sockets[0].sent.map((raw) => JSON.parse(raw));
   const write = sent.find((frame) => frame.t === 'write' && frame.target.field === 'hp');
   mocks.sockets[0].message(
@@ -152,7 +185,7 @@ test('superseded reverts silently — server truth, no error surfaced', () => {
 test('rejected surfaces the op record inline; the next applied ack clears it', () => {
   const { mocks, state } = setup();
   state.connect();
-  handshake(mocks.sockets[0], []);
+  handshake(mocks.sockets[0]);
 
   state.writeHp(30);
   let write = mocks.sockets[0].sent.map((r) => JSON.parse(r)).find((f) => f.t === 'write');
@@ -198,7 +231,9 @@ test('offline flips the affordance store; reads stay live', () => {
 });
 
 test('client-side bounds: invalid input never leaves the component layer', () => {
-  const { state } = setup();
+  const { mocks, state } = setup();
+  state.connect();
+  handshake(mocks.sockets[0]); // ceilings arrive: hp 32, focus 1, hero 3
   state.writeHp(-5); // clamped to 0
   state.writeHp(9999); // clamped to max 32
   state.writeTempHp(-1); // clamped to 0
@@ -280,10 +315,10 @@ test('New Day enqueues the whole reset burst FIFO: slots, focus, daily', () => {
 test('the syncing store reads the queue, nothing else', () => {
   const { mocks, state } = setup();
   assert.equal(get(state.syncing), false, 'empty queue + dead link = idle');
+  state.connect();
+  handshake(mocks.sockets[0]);
   state.writeHp(30);
   assert.equal(get(state.syncing), true, 'queued write = syncing');
-  state.connect();
-  handshake(mocks.sockets[0], []);
   const write = mocks.sockets[0].sent.map((r) => JSON.parse(r)).find((f) => f.t === 'write');
   mocks.sockets[0].message(
     JSON.stringify({ t: 'ack', op_id: write.op_id, outcome: 'applied', version: 6 }),
@@ -291,11 +326,29 @@ test('the syncing store reads the queue, nothing else', () => {
   assert.equal(get(state.syncing), false, 'settled = idle');
 });
 
-test('level adjust re-derivation is visible through the view store', () => {
-  const { state } = setup();
-  assert.equal(get(state.view).hp_max.total, 32);
-  state.writeLevelAdjust(20); // desired level 20 → adjust 17
-  assert.equal(get(state.view).hp_max.total, 168, 'the adapter re-derives visibly');
+test("the client never re-derives: a level_adjust write moves nothing until the wire's derived frame lands", () => {
+  const { mocks, state } = setup();
+  state.connect();
+  handshake(mocks.sockets[0]);
+  assert.equal(get(state.view).render_base.hp_max, 32);
+
+  state.writeLevelAdjust(4); // desired level 4 → adjust +1
+  assert.equal(get(state.view).render_base.hp_max, 32, 'no client math — the view waits');
+  assert.equal(get(state.hpMax), 32);
+
+  // The server's recompute comes back as a `derived` frame (the fan-out
+  // the write triggers, D4/D6) — THAT is what moves the view.
+  const recomputed = {
+    ...engineOutput,
+    render_base: { ...engineOutput.render_base, level: 4, hp_max: 40 },
+    derived: {
+      ...engineOutput.derived,
+      fort: { ...engineOutput.derived.fort, base: 8, total: 8 },
+    },
+  };
+  mocks.sockets[0].message(JSON.stringify({ t: 'derived', character_id: CHARACTER_ID, output: recomputed }));
+  assert.equal(get(state.view).render_base.hp_max, 40, 'the wire moves the view');
+  assert.equal(get(state.hpMax), 40);
 });
 
 // ---- MOR-48 review fixes: the production path owns the behaviour ----------
@@ -306,15 +359,20 @@ test('the hp readout clamps to the live max — a level-down never shows 32 / 16
   handshake(mocks.sockets[0], [{ target: hp(), value: 32, version: 2 }]);
   assert.equal(get(state.hp).value, 32, 'full HP at level 3 (max 32)');
 
-  // Drop the effective level to 1: max HP re-derives to 16, and the
-  // readout must clamp to it — the write clamp alone left "32 / 16".
+  // The −2 adjust lands as server truth, then the recomputed engine output
+  // arrives (hp_max 16 at eff_level 1): the readout must clamp to it —
+  // the write clamp alone left "32 / 16".
+  const derated = {
+    ...engineOutput,
+    render_base: { ...engineOutput.render_base, level: 1, hp_max: 16 },
+  };
   handshake(mocks.sockets[0], [
     {
       target: { kind: 'vitals', character_id: CHARACTER_ID, field: 'level_adjust' },
       value: -2,
       version: 3,
     },
-  ]);
-  assert.equal(get(state.hpMax), 16, 'max re-derives');
+  ], [derated]);
+  assert.equal(get(state.hpMax), 16, 'max re-derives — on the server, by the wire');
   assert.equal(get(state.hp).value, 16, 'the readout clamps to the live max');
 });

@@ -53,8 +53,8 @@
       <CasterPanel
         {caster}
         slots={slots.filter((/** @type {any} */ slot) => slot.caster_key === caster.caster_key)}
-        numbers={view.derived}
-        cantripRank={view.cantrip_rank}
+        numbers={view?.derived ?? null}
+        cantripRank={view?.render_base.cantrip_rank ?? null}
         {editable}
         {offline}
         known={caster.known}

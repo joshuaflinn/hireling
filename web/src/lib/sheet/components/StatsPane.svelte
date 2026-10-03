@@ -1,7 +1,9 @@
 <script>
   // The stats pane (spec §2.2): HP bar, stat tiles, hero/focus pips,
   // attributes, skills + lores, meta lines. All numbers come from the
-  // adapter output (`numbers`) — the pane computes nothing.
+  // engine output (`view`, the wire's EngineOutput verbatim) — the pane
+  // computes nothing. Post-swap, `derived.skills` carries the lores and
+  // the partition is the one-line fold it always promised to be.
   import HpBar from './HpBar.svelte';
   import PipRow from './PipRow.svelte';
   import SkillRow from './SkillRow.svelte';
@@ -56,33 +58,30 @@
   /** Display name for a skill key: the prototype capitalizes ("Thievery"). */
   const displayName = (/** @type {string} */ key) => key.charAt(0).toUpperCase() + key.slice(1);
   /** Core skills and lores through one partition (MOR-50: the fold and the
-   * label are E6's). Post-swap `derived.skills` carries the lores itself;
-   * base.js still ships them as a separate array, which rides along here
-   * until the adapter swap deletes it — this partition line is already
-   * final. */
-  const partitioned = $derived(
-    partitionSkills([...numbers.skills, ...(numbers.lores ?? [])]),
-  );
+   * label are E6's). The wire's lore rows carry their display name as
+   * `label` (contract §3); the partition prefers it and falls back to
+   * deriving from the key. */
+  const partitioned = $derived(partitionSkills(numbers.skills));
 </script>
 
 <section class="panel" aria-label="Basic info">
   <h2>Basic Info <small>{identity.ancestry ?? ''} {identity.class ?? ''}</small></h2>
-  <HpBar {hp} {temp} max={view.hp_max.total} {editable} {offline} {ondamage} {onheal} {onfull} {ontemp} />
+  <HpBar {hp} {temp} max={view.render_base.hp_max} {editable} {offline} {ondamage} {onheal} {onfull} {ontemp} />
   {#if hpError}
     <p class="op-error" role="alert">{hpError.reason}</p>
   {/if}
 
   <div class="tiles">
-    <StatTile label="AC" value={numbers.ac.total} cls="t-ac gold" note="Armor Class" />
-    <StatTile label="Fort" value={signed(numbers.fort.total)} cls="t-fort" note={rankName(baseSheet.proficiencies.fortitude ?? 0)} />
-    <StatTile label="Perception" value={signed(numbers.perception.total)} cls="t-perception" />
-    <StatTile label="Class DC" value={numbers.class_dc.total ?? '—'} cls="t-classdc" note={(identity.keyability ?? '').toUpperCase()} />
-    <StatTile label="Reflex" value={signed(numbers.ref.total)} cls="t-reflex" />
-    <StatTile label="Speed" value={numbers.speed.total} cls="t-speed" note="feet" />
+    <StatTile label="AC" value={numbers.ac.total} cls="t-ac gold" note="Armor Class" provenance={numbers.ac} />
+    <StatTile label="Fort" value={signed(numbers.fort.total)} cls="t-fort" note={rankName(baseSheet.proficiencies.fortitude ?? 0)} provenance={numbers.fort} />
+    <StatTile label="Perception" value={signed(numbers.perception.total)} cls="t-perception" provenance={numbers.perception} />
+    <StatTile label="Class DC" value={numbers.class_dc.total ?? '—'} cls="t-classdc" note={(identity.keyability ?? '').toUpperCase()} provenance={numbers.class_dc} />
+    <StatTile label="Reflex" value={signed(numbers.ref.total)} cls="t-reflex" provenance={numbers.ref} />
+    <StatTile label="Speed" value={numbers.speed.total} cls="t-speed" note="feet" provenance={numbers.speed} />
     {#if spellDc}
-      <StatTile label="Spell DC" value={spellDc.spell_dc.total} cls="t-spelldc gold" note={`attack ${signed(spellDc.spell_attack.total)}`} />
+      <StatTile label="Spell DC" value={spellDc.spell_dc.total} cls="t-spelldc gold" note={`attack ${signed(spellDc.spell_attack.total)}`} provenance={spellDc.spell_dc} />
     {/if}
-    <StatTile label="Will" value={signed(numbers.will.total)} cls="t-will" />
+    <StatTile label="Will" value={signed(numbers.will.total)} cls="t-will" provenance={numbers.will} />
     <StatTile label="Size" value={identity.size_name ?? '—'} cls="t-size" />
   </div>
 
@@ -104,7 +103,7 @@
     {#each /** @type {Array<'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha'>} */ (attrs) as key (key)}
       <div class="attr" class:key={key === identity.keyability}>
         <div class="k">{key.toUpperCase()}</div>
-        <div class="v">{signed(view.attributes[key])}</div>
+        <div class="v">{signed(view.render_base.attributes[key])}</div>
       </div>
     {/each}
   </div>
@@ -118,6 +117,7 @@
         rankLetter={rankLetter(skill.rank)}
         modifier={signed(skill.total)}
         untrained={skill.rank === 0}
+        provenance={skill}
       />
     {/each}
     {#each partitioned.lores as lore (lore.name)}

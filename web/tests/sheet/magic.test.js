@@ -10,11 +10,14 @@ import CasterPanel from '../../src/lib/sheet/components/CasterPanel.svelte';
 import MagicPane from '../../src/lib/sheet/components/MagicPane.svelte';
 import StaffPanel from '../../src/lib/sheet/components/StaffPanel.svelte';
 import SpellSlotRow from '../../src/lib/sheet/components/SpellSlotRow.svelte';
-import { derive } from '../../src/lib/engine/index.js';
 
 const FIXTURE_PATH = fileURLToPath(new URL('../data/base_sheet_reference.json', import.meta.url));
 const fixture = JSON.parse(await readFile(FIXTURE_PATH, 'utf8'));
-const view = derive({ id: 7, base_sheet: fixture }, { level_adjust: 0, effects: [] });
+const ENGINE_PATH = fileURLToPath(new URL('../data/engine_output_reference.json', import.meta.url));
+/** The reference character's EngineOutput, verbatim as the wire carries it
+ * (extractor + compute over the same export — the swap's byte-identity
+ * fixture). */
+const view = JSON.parse(await readFile(ENGINE_PATH, 'utf8'));
 
 const noop = () => {};
 
@@ -65,7 +68,7 @@ test('CasterPanel renders header pills, rank groups, and heightened cantrip rank
       caster,
       slots: fixtureSlots().filter((slot) => slot.caster_key === caster.caster_key),
       numbers: view.derived,
-      cantripRank: view.cantrip_rank,
+      cantripRank: view.render_base.cantrip_rank,
       known: caster.known,
       oncast: noop,
       onprepare: noop,
@@ -87,7 +90,7 @@ test('CasterPanel view-only: no cast buttons, no prep affordances', () => {
       caster,
       slots: fixtureSlots().filter((slot) => slot.caster_key === caster.caster_key),
       numbers: view.derived,
-      cantripRank: view.cantrip_rank,
+      cantripRank: view.render_base.cantrip_rank,
       editable: false,
       known: caster.known,
     },
@@ -105,7 +108,7 @@ test('the innate caster renders locked-open without prep affordances', () => {
       caster: innate,
       slots: fixtureSlots().filter((slot) => slot.caster_key === innate.caster_key),
       numbers: view.derived,
-      cantripRank: view.cantrip_rank,
+      cantripRank: view.render_base.cantrip_rank,
       known: innate.known,
       oncast: noop,
     },

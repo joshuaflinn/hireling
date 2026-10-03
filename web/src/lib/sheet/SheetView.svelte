@@ -15,6 +15,7 @@
   import InventoryPanel from './components/InventoryPanel.svelte';
   import StrikesPane from './components/StrikesPane.svelte';
   import FeatsPanel from './components/FeatsPanel.svelte';
+  import EffectsStrip from './components/EffectsStrip.svelte';
 
   /** @type {{ character: any, accountSub?: string, editable?: boolean,
     onimport?: () => void, onlogout?: () => void }} */
@@ -96,7 +97,7 @@
   <CharacterHeader
     name={identity.name}
     subline={subline()}
-    level={$view.level}
+    level={$view?.render_base.level ?? null}
     {editable}
     offline={$offline}
     syncing={$syncing}
@@ -106,29 +107,45 @@
     onlogout={onlogout}
   />
 
+  <EffectsStrip effects={$view?.effects ?? []} />
+
   <div class="board">
     <div class="col">
-      <StatsPane
-        view={$view}
-        baseSheet={character.base_sheet}
-        hp={$hp}
-        temp={$tempHp}
-        money={$money}
-        focusCurrent={$focusCurrent}
-        focusMax={$focusMax}
-        heroPoints={$heroPoints}
-        heroMax={$heroMax}
-        opErrors={$opErrors}
-        {editable}
-        offline={$offline}
-        ondamage={(/** @type {number} */ amount) => sheet.writeHp($hp.value - amount)}
-        onheal={(/** @type {number} */ amount) => sheet.writeHp($hp.value + amount)}
-        onfull={() => sheet.writeHp($view.hp_max.total)}
-        ontemp={(/** @type {number} */ value) => sheet.writeTempHp(value)}
-        onfocus={(/** @type {number} */ value) => sheet.writeFocus(value)}
-        onhero={(/** @type {number} */ value) => sheet.writeHeroPoints(value)}
-      />
-      <StrikesPane view={$view} />
+      {#if $view}
+        <StatsPane
+          view={$view}
+          baseSheet={character.base_sheet}
+          hp={$hp}
+          temp={$tempHp}
+          money={$money}
+          focusCurrent={$focusCurrent}
+          focusMax={$focusMax ?? 0}
+          heroPoints={$heroPoints}
+          heroMax={$heroMax ?? 0}
+          opErrors={$opErrors}
+          {editable}
+          offline={$offline}
+          ondamage={(/** @type {number} */ amount) => sheet.writeHp($hp.value - amount)}
+          onheal={(/** @type {number} */ amount) => sheet.writeHp($hp.value + amount)}
+          onfull={() => sheet.writeHp($view.render_base.hp_max)}
+          ontemp={(/** @type {number} */ value) => sheet.writeTempHp(value)}
+          onfocus={(/** @type {number} */ value) => sheet.writeFocus(value)}
+          onhero={(/** @type {number} */ value) => sheet.writeHeroPoints(value)}
+        />
+        <StrikesPane view={$view} />
+      {:else}
+        <!-- Engine output not on the wire yet: pane-shaped skeletons, no
+             invented numbers (design §7's loading state; derived is never
+             stored client-side, so there is nothing honest to show). -->
+        <div class="panel" role="status" aria-label="Loading your stats">
+          <div class="skeleton" style="width: 40%; height: 20px; margin-bottom: 10px;"></div>
+          <div class="skeleton" style="width: 100%; height: 320px;"></div>
+        </div>
+        <div class="panel" role="status" aria-label="Loading your strikes">
+          <div class="skeleton" style="width: 40%; height: 20px; margin-bottom: 10px;"></div>
+          <div class="skeleton" style="width: 100%; height: 180px;"></div>
+        </div>
+      {/if}
       <FeatsPanel baseSheet={character.base_sheet} {editable} />
     </div>
     <div class="col">
@@ -148,7 +165,11 @@
         ondaily={(/** @type {any} */ next) => sheet.writeDaily(next)}
       >
         {#snippet companionsSlot()}
-          <CompanionsPanel baseSheet={character.base_sheet} view={$view} />
+          {#if $view}
+            <CompanionsPanel baseSheet={character.base_sheet} view={$view} />
+          {:else}
+            <p class="meta" role="status">Character numbers still loading…</p>
+          {/if}
         {/snippet}
       </MagicPane>
     </div>

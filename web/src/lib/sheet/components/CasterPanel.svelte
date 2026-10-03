@@ -7,9 +7,10 @@
   // (util/keyboard.js discipline); drag-to-prepare has no place here.
   import Dialog from './Dialog.svelte';
   import SpellSlotRow from './SpellSlotRow.svelte';
+  import Provenance from './Provenance.svelte';
   import { ordinal, signed } from '../../engine/format.js';
 
-  /** @type {{ caster: any, slots: any[], numbers: any, cantripRank: number,
+  /** @type {{ caster: any, slots: any[], numbers: any, cantripRank: number | null,
     editable?: boolean, offline?: boolean, known?: any[], focusSpells?: string[],
     opErrors?: any[],
     oncast?: (row: any, used: boolean) => void,
@@ -43,6 +44,9 @@
   const attack = $derived(
     numbers?.casters?.find((/** @type {any} */ c) => c.caster_key === caster.caster_key) ?? null,
   );
+  // `innate` is the ENGINE's word (contract §3): the sheet renders what the
+  // wire says about this caster block, never the export's local copy.
+  const innate = $derived(attack ? attack.innate : null);
   const preparedNames = $derived(new Set(slots.map((slot) => slot.prepared_spell).filter(Boolean)));
   const bookAt = $derived((/** @type {number} */ rank) =>
     (known.find((list) => list.rank === rank)?.spells ?? []).filter(
@@ -76,7 +80,7 @@
     <span class="pill">{caster.spellcasting_type ?? '—'}</span>
     <span class="pill">{(caster.ability ?? '').toUpperCase()}</span>
     {#if attack}
-      <span class="pill gold">atk {signed(attack.spell_attack.total)} · DC {attack.spell_dc.total}</span>
+      <span class="pill gold">atk {signed(attack.spell_attack.total)} · DC {attack.spell_dc.total}<Provenance applied={attack.spell_attack.applied} suppressed={attack.spell_attack.suppressed} /></span>
     {/if}
     {#if editable && onreset}
       <button class="btn" style="font-size:12px;padding:2px 9px" onclick={onreset} disabled={offline}>
@@ -88,7 +92,7 @@
   {#each ranks as rank (rank)}
     <div class="rank-h">
       <span class="t">{rank === 0 ? 'Cantrips' : `${ordinal(rank)} rank`}</span>
-      <span class="s">{rank === 0 ? `heightened to rank ${cantripRank}` : ''}</span>
+      <span class="s">{rank === 0 && cantripRank !== null ? `heightened to rank ${cantripRank}` : ''}</span>
       <span class="r">{slotsAt(rank).filter((slot) => !slot.used).length}/{slotsAt(rank).length} open</span>
     </div>
     {#each slotsAt(rank) as row (row.slot_index)}
@@ -118,7 +122,7 @@
     {/each}
   {/if}
 
-  {#if caster.innate}
+  {#if innate}
     <p class="meta" style="margin-top:4px">Innate spells are always prepared — nothing to track but the cast.</p>
   {/if}
 

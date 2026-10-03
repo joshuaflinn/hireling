@@ -52,13 +52,13 @@
   <div class="controls">
     {#if editable}
       <button class="btn" onclick={openPicker} title="Adjust your effective level (1–20)">
-        Level {level}
+        Level {level ?? '—'}
       </button>
       <button class="btn gold" onclick={onnewday} disabled={offline} title="Clears cast slots, refills Focus Points, resets staff and Drain Bonded Item">
         New Day
       </button>
     {:else}
-      <span class="pill">Level {level}</span>
+      <span class="pill">Level {level ?? '—'}</span>
     {/if}
     <SyncIndicator {syncing} />
     {#if onimport}

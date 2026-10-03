@@ -104,7 +104,9 @@ export function findOpError(opErrors, kind, match = {}) {
  * will not infer store-ness through a call's return type).
  *
  * @typedef {object} SheetState
- * @property {import('svelte/store').Readable<*>} view
+ * @property {import('svelte/store').Readable<Record<string, *> | null>} view
+ *   the E8 EngineOutput contract shape, verbatim from the wire — null until
+ *   the snapshot or a `derived` frame delivers it (the sheet's loading state)
  * @property {import('svelte/store').Readable<number>} hpMax
  * @property {import('svelte/store').Readable<{value: number, pending: boolean}>} hp
  * @property {import('svelte/store').Readable<{value: *, pending: boolean}>} tempHp
@@ -159,14 +161,21 @@ export function createSheetState({ sync, character }) {
   const fields = writable(/** @type {Record<string, FieldEntry>} */ (sync.state()));
   const pendingKeys = writable(/** @type {Set<string>} */ (new Set()));
 
-  /** The engine view: base sheet + live level + zero effects. */
-  const view = derived([fields], ([$fields]) => {
-    const adjustField = $fields[targetKey(vitalsTarget(characterId, 'level_adjust'))];
-    // Any live entry — a pending echo or server truth — outranks the
-    // bootstrap vitals; nothing recorded yet means "render the export".
-    const adjust = adjustField ? adjustField.value : character.vitals.level_adjust;
-    return derive({ id: characterId, base_sheet: baseSheet }, { level_adjust: adjust, effects: [] });
-  });
+  /**
+   * The engine view: the character's EngineOutput, verbatim from the wire
+   * (contract Q3 — the server computes; this layer only forwards through
+   * the engine seam). Null until the snapshot or a `derived` frame
+   * delivers it; `level_adjust` re-derives server-side, so the view moves
+   * only when the wire moves — the write below never touches it.
+   * @type {import('svelte/store').Writable<Record<string, *> | null>}
+   */
+  const view = writable(sync.derived(characterId));
+  /** Pull the seam's current answer into the store (reference-guarded —
+   * the same output object arriving twice must not re-render the sheet). */
+  function refreshView() {
+    const next = derive(sync, characterId);
+    if (get(view) !== next) view.set(next);
+  }
 
   /**
    * One vitals field as `{value, pending}`: live value when the socket has
@@ -185,11 +194,14 @@ export function createSheetState({ sync, character }) {
     });
   }
 
-  const hpMax = derived(view, ($view) => $view.hp_max.total);
+  // The ceilings come from `render_base` (contract §3): null until the
+  // wire delivers — the coupled writes no-op and their controls render
+  // disabled until then (design §7's loading state, no invented numbers).
+  const hpMax = derived(view, ($view) => $view?.render_base.hp_max ?? null);
   // The readout clamps to max too (review finding 11): a level-down must
   // never display "32 / 16" — the write clamp alone leaves stale values.
   const hp = derived([vitalsStore('hp', character.vitals.hp), hpMax], ([$hp, $max]) => ({
-    value: clamp($hp.value, 0, $max),
+    value: $max === null ? $hp.value : clamp($hp.value, 0, $max),
     pending: $hp.pending,
   }));
   const tempHp = vitalsStore('temp_hp', character.vitals.temp_hp);
@@ -203,9 +215,9 @@ export function createSheetState({ sync, character }) {
   const heroPoints = vitalsStore('hero_points', character.vitals.hero_points);
   const daily = vitalsStore('daily', character.vitals.daily);
 
-  /** The focus pip ceiling: the character's focus max (adapter). */
-  const focusMax = derived(view, ($view) => $view.focus_max);
-  const heroMax = derived(view, ($view) => $view.hero_max);
+  /** The focus pip ceiling: `render_base.focus_max` (null until the wire). */
+  const focusMax = derived(view, ($view) => $view?.render_base.focus_max ?? null);
+  const heroMax = derived(view, ($view) => $view?.render_base.hero_max ?? null);
 
   // ---- slots ---------------------------------------------------------------
   /** The slot layout with live used/prepared/pending per row. */
@@ -291,6 +303,9 @@ export function createSheetState({ sync, character }) {
       connectionState.set(event.state);
     } else if (event.type === 'fields') {
       fields.set(sync.state());
+      refreshView(); // the snapshot's derived array rides the fields event
+    } else if (event.type === 'derived') {
+      refreshView();
     } else if (event.type === 'applied' && event.key) {
       // A win on a field clears its inline error (auto-clear on next ack).
       opErrors.update((errors) => errors.filter((error) => error.key !== event.key));
@@ -322,6 +337,7 @@ export function createSheetState({ sync, character }) {
   /** @param {number} value */
   function writeHp(value) {
     const max = get(hpMax);
+    if (max === null) return; // engine output not on the wire yet
     const parsed = Number(value);
     if (Number.isNaN(parsed)) return;
     write(vitalsTarget(characterId, 'hp'), clamp(Math.round(parsed), 0, max));
@@ -358,6 +374,7 @@ export function createSheetState({ sync, character }) {
   /** @param {number} value */
   function writeFocus(value) {
     const max = get(focusMax);
+    if (max === null) return; // engine output not on the wire yet
     const parsed = Number(value);
     if (Number.isNaN(parsed)) return;
     write(vitalsTarget(characterId, 'focus_current'), clamp(Math.round(parsed), 0, max));
@@ -366,6 +383,7 @@ export function createSheetState({ sync, character }) {
   /** @param {number} value */
   function writeHeroPoints(value) {
     const max = get(heroMax);
+    if (max === null) return; // engine output not on the wire yet
     const parsed = Number(value);
     if (Number.isNaN(parsed)) return;
     write(vitalsTarget(characterId, 'hero_points'), clamp(Math.round(parsed), 0, max));
@@ -452,7 +470,10 @@ export function createSheetState({ sync, character }) {
         writeSlot(row.caster_key, row.rank, row.slot_index, { used: false });
       }
     }
-    write(vitalsTarget(characterId, 'focus_current'), get(focusMax));
+    const focus = get(focusMax);
+    if (focus !== null) {
+      write(vitalsTarget(characterId, 'focus_current'), focus);
+    }
     write(vitalsTarget(characterId, 'daily'), {
       staff_charge_rank: 0,
       staff_spent: 0,
