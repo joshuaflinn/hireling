@@ -8,11 +8,14 @@ import { render } from 'svelte/server';
 
 import StrikesPane from '../../src/lib/sheet/components/StrikesPane.svelte';
 import FeatsPanel from '../../src/lib/sheet/components/FeatsPanel.svelte';
-import { derive } from '../../src/lib/engine/index.js';
 
 const FIXTURE_PATH = fileURLToPath(new URL('../data/base_sheet_reference.json', import.meta.url));
 const fixture = JSON.parse(await readFile(FIXTURE_PATH, 'utf8'));
-const view = derive({ id: 7, base_sheet: fixture }, { level_adjust: 0, effects: [] });
+const ENGINE_PATH = fileURLToPath(new URL('../data/engine_output_reference.json', import.meta.url));
+/** The reference character's EngineOutput, verbatim as the wire carries it
+ * (extractor + compute over the same export — the swap's byte-identity
+ * fixture). */
+const view = JSON.parse(await readFile(ENGINE_PATH, 'utf8'));
 
 test('strikes render at the fixture: attack, MAP row, damage, trait names', () => {
   const { body } = render(StrikesPane, { props: { view } });
@@ -25,10 +28,24 @@ test('strikes render at the fixture: attack, MAP row, damage, trait names', () =
   assert.doesNotMatch(body, /<button/, 'strikes are read-only');
 });
 
-test('strikes re-derive with the level adjust', () => {
-  const adjusted = derive({ id: 7, base_sheet: fixture }, { level_adjust: 2, effects: [] });
+test('strikes render whatever the wire says — no client math, ever', () => {
+  // Post-swap the re-derivation is the server's (D4/D6): the pane renders
+  // the payload verbatim. A different payload renders different numbers —
+  // here, the +1 adjust's output the extractor's golden pins (atk +5 at
+  // eff_level 4), fed straight through.
+  const adjusted = {
+    ...view,
+    derived: {
+      ...view.derived,
+      strikes: view.derived.strikes.map((strike) =>
+        strike.key === 'Staff'
+          ? { ...strike, attack: { ...strike.attack, base: 5, total: 5 } }
+          : strike,
+      ),
+    },
+  };
   const { body } = render(StrikesPane, { props: { view: adjusted } });
-  assert.match(body, /atk \+6/, 'level 5 simple: STR −1 + trained 7');
+  assert.match(body, /atk \+5/, 'the wire\u2019s number, not a local derivation');
 });
 
 test('feats render level-grouped with categories; features tab from specials', () => {

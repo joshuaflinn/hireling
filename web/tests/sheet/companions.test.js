@@ -7,11 +7,14 @@ import { fileURLToPath } from 'node:url';
 import { render } from 'svelte/server';
 
 import CompanionsPanel from '../../src/lib/sheet/components/CompanionsPanel.svelte';
-import { derive } from '../../src/lib/engine/index.js';
 
 const FIXTURE_PATH = fileURLToPath(new URL('../data/base_sheet_reference.json', import.meta.url));
 const fixture = JSON.parse(await readFile(FIXTURE_PATH, 'utf8'));
-const view = derive({ id: 7, base_sheet: fixture }, { level_adjust: 0, effects: [] });
+const ENGINE_PATH = fileURLToPath(new URL('../data/engine_output_reference.json', import.meta.url));
+/** The reference character's EngineOutput, verbatim as the wire carries it
+ * (extractor + compute over the same export — the swap's byte-identity
+ * fixture). */
+const view = JSON.parse(await readFile(ENGINE_PATH, 'utf8'));
 
 test('the familiar card derives from the owner: HP 5×level, owner AC/saves, skill lines', () => {
   const { body } = render(CompanionsPanel, {

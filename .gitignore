@@ -17,7 +17,7 @@
 grizzly-gate-report/
 
 # Frontend
-web/node_modules/
+web/node_modules
 web/dist/
 
 # grizzly-gate local toolchain install dir
