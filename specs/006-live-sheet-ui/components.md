@@ -62,8 +62,9 @@ sheet's numbers arrive exclusively through the engine seam
 
 1. Components never touch the socket — `sheet/state.js` is the only module
    over `createSync`; E10 mounts its own `SheetView` with `editable={owner}`.
-2. Numbers come from `derive(character, liveState)` only (the engine seam);
-   when E8 lands the same components render engine output unchanged.
+2. Numbers come from `derive(sync, characterId)` only (the engine seam —
+   the wire's EngineOutput forwarded verbatim, engine/index.js); the swap
+   deleted base.js, so no second computation path exists.
 3. Writes go through the state layer's write surface (client bounds live
    there); `rejected`/`forbidden` surface on `sheet.opErrors` keyed by field
    target — a card should show them at the same control.
