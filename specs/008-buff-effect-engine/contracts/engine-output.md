@@ -41,7 +41,7 @@ instances of the per-strike and per-caster stats (Q1: **per instance**):
       { "caster_key": "Wizard", "spell_attack": 9, "spell_dc": 22 }
     ],
     "skills": [                         // every skill in the character's set (Q2: core skills + lores)
-      { "name": "acrobatics", "total": 2 }, { "name": "lore:underworld", "total": 7 }
+      { "name": "acrobatics", "total": 2, "rank": 0, "label": null }, { "name": "lore:underworld", "total": 7, "rank": 2, "label": "Underworld" }
     ]
   }
 }
@@ -86,14 +86,15 @@ tracked_manually) and the resolved signed modifiers (constant or
     "class_dc":  { "base": null, "total": null, "applied": [], "suppressed": [] },
     "strikes":   [ { "key": "dagger",
                      "label": "Dagger", "map": 5,
-                     "damage_expr": "1d4+3", "damage_type": "P",
+                     "damage_expr": "d4+3", "damage_type": "P",
                      "damage_type_name": "piercing", "traits": ["Agile", "Finesse"],
                      "attack":     { "base": 11, "total": 12, "applied": [/*…*/], "suppressed": [/*…*/] },
                      "damage_flat": { "base": 3, "total": 4, "applied": [/*…*/], "suppressed": [/*…*/] } } ],
     "casters":   [ { "caster_key": "Wizard", "innate": false,
                      "spell_attack": { "base": 9,  "total": 10, "applied": [/*…*/], "suppressed": [/*…*/] },
                      "spell_dc":     { "base": 22, "total": 23, "applied": [/*…*/], "suppressed": [/*…*/] } } ],
-    "skills":    [ { "name": "acrobatics", "rank": 2, "total": 3, "applied": [/*…*/], "suppressed": [/*…*/] } ]
+    "skills":    [ { "name": "acrobatics", "rank": 2, "total": 3, "applied": [/*…*/], "suppressed": [/*…*/] },
+                   { "name": "lore:underworld", "rank": 2, "label": "Underworld", "total": 7, "applied": [/*…*/], "suppressed": [/*…*/] } ]
   },
   "effects": [   // chips: every active effect targeting this character
     { "effect_id": 41, "name": "Bless", "source_name": "Lorum Ipsum",
@@ -147,7 +148,10 @@ Rules that make this a contract:
   render inputs alongside the modifier-bearing `attack`/`damage_flat`; there
   is deliberately **no** parallel `render_base.strikes[]` keyed by `key` —
   two arrays describing one strike row drift. The unarmed `Fist` row carries
-  the same fields (traits from the POC weapon-trait map).
+  the same fields (traits from the POC weapon-trait map — the two-entry
+  table the reference sheet renders; the post-POC successor is the corpus
+  `item_traits` path the prototype's `base.js` sourced, tracked in
+  joshuaflinn/hireling#62 so the narrowing cannot happen silently).
 - **`casters[].innate`** flags innate caster blocks. A consumer picking
   "the" caster for its stat tiles takes the first entry with `innate: false`.
 - **`skills[].rank`** is the row's raw proficiency rank (untrained 0,
@@ -159,10 +163,19 @@ Rules that make this a contract:
   would fork one skill row across two sources — the same drift the strike
   display-field ruling rejects. Additive, so no schema bump; a consumer
   that ignores `rank` is unaffected.
+- **`skills[].label`** (lore rows only) is the lore's display name,
+  verbatim from the export (`"Underworld"`, `"Mror Holds History"`); core
+  rows omit the field. The canonical `lore:` key lowercases and
+  underscores the name to fit the `StatName` charset, so the display case
+  cannot be recovered from the key — the label rides the row instead,
+  exactly like the strike display fields (MOR-50's derive-the-label
+  ruling presumed the key carried the display form; the realized charset
+  closed that door). Consumers render it verbatim; additive, no bump.
 - **Versioning**: `schema` strings version these shapes; a breaking change
   is a PR to this file plus a version bump, never a silent drift.
-  `render_base`, the strike display fields, `casters[].innate`, and
-  `skills[].rank` were added **without** a bump: purely additive — no
+  `render_base`, the strike display fields, `casters[].innate`,
+  `skills[].rank`, and `skills[].label` were added **without** a bump:
+  purely additive — no
   existing field changed
   meaning or shape, and a consumer that ignores them is unaffected.
 

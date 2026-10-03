@@ -60,7 +60,10 @@ fn golden_globals_match_the_prototype() {
     let base = extract(&reference_sheet(), 0);
     assert_eq!(base.schema, hireling_engine::model::BASE_SCHEMA);
     assert_eq!(base.level, 3);
-    assert_eq!(base.stats.ac, 16, "acTotal verbatim");
+    assert_eq!(
+        base.stats.ac, 16,
+        "AC re-derived from the worn armor's rank — agrees with the frozen acTotal exactly at the export's own level (E6 finding 8; the ±1 test pins the divergence)"
+    );
     assert_eq!(base.stats.speed, 25, "speed + speedBonus");
     assert_eq!(base.stats.fort, 7, "con 2 + trained 2+3");
     assert_eq!(base.stats.reflex, 6, "dex 1 + trained 2+3");
@@ -100,6 +103,55 @@ fn golden_skills_match_the_prototype() {
     );
 }
 
+/// `skills[].rank` rides verbatim (contract §3 — the rank letter and
+/// untrained dimming render from it), and lore rows carry the export's
+/// display name as `label`; core rows omit the field entirely.
+#[test]
+fn golden_skill_render_inputs_ride_the_row() {
+    let base = extract(&reference_sheet(), 0);
+    let row_of = |name: &str| {
+        base.stats
+            .skills
+            .iter()
+            .find(|skill| skill.name == name)
+            .unwrap_or_else(|| panic!("skill {name} missing"))
+    };
+    assert_eq!(row_of("acrobatics").rank, 0, "untrained");
+    assert_eq!(row_of("arcana").rank, 2, "trained");
+    assert_eq!(row_of("deception").rank, 4, "expert");
+    assert_eq!(row_of("acrobatics").label, None, "core rows omit the label");
+    let underworld = row_of("lore:underworld");
+    assert_eq!(underworld.rank, 2);
+    assert_eq!(
+        underworld.label.as_deref(),
+        Some("Underworld"),
+        "the export's display name, verbatim — the canonical key lost the case"
+    );
+    let mror = row_of("lore:mror_holds_history");
+    assert_eq!(mror.rank, 4);
+    assert_eq!(mror.label.as_deref(), Some("Mror Holds History"));
+    // The rank survives compute into the wire shape (the contract's rule:
+    // render input, not derivable from total).
+    let output =
+        hireling_engine::compute::compute(7, &base, &[], &std::collections::BTreeMap::new());
+    let wire = output
+        .derived
+        .skills
+        .iter()
+        .find(|skill| skill.name == "lore:mror_holds_history")
+        .expect("lore on the wire");
+    assert_eq!(wire.rank, 4);
+    assert_eq!(wire.label.as_deref(), Some("Mror Holds History"));
+    let core = output
+        .derived
+        .skills
+        .iter()
+        .find(|skill| skill.name == "acrobatics")
+        .expect("core on the wire");
+    assert_eq!(core.rank, 0);
+    assert_eq!(core.label, None);
+}
+
 /// Prototype parity: strikes re-derived (attack = ability + rank+level +
 /// pot; damage flat = Str + mastery) with the unarmed Fist appended, and
 /// caster blocks derived.
@@ -115,32 +167,78 @@ fn golden_strikes_and_casters_match_the_prototype() {
         "str −1 + trained 2+3 + pot 0 — the export's verbatim 4 coincides"
     );
     assert_eq!(
-        staff.damage, "1d4-1",
-        "die + re-derived flat (str −1) as the roll string"
+        staff.damage, "d4−1",
+        "the die VERBATIM + signed flat (str −1, U+2212) — the sheet's rendered string"
     );
     assert_eq!(staff.damage_flat, -1, "str + mastery(2, 3) = −1");
+    assert_eq!(staff.map, 5, "not Agile: −5/−10");
+    assert_eq!(staff.damage_type, "B");
+    assert_eq!(staff.damage_type_name, "bludgeoning");
+    assert_eq!(staff.traits, vec!["Monk", "Two-Hand d8"], "POC trait map");
     let fist = base.stats.strikes.get(1).expect("fist strike");
     assert_eq!(fist.key, "Fist");
     assert_eq!(fist.label, "Fist");
     assert_eq!(fist.attack, 6, "best(str,dex) = dex 1 + trained 2+3");
-    assert_eq!(fist.damage, "1d4-1", "d4 + str −1");
+    assert_eq!(fist.damage, "d4−1", "d4 + str −1");
     assert_eq!(fist.damage_flat, -1);
+    assert_eq!(fist.map, 4, "Agile: −4/−8");
+    assert_eq!(
+        fist.traits,
+        vec!["Agile", "Finesse", "Nonlethal", "Unarmed"],
+        "the fixed unarmed trait row"
+    );
 
     assert_eq!(base.stats.casters.len(), 2);
     let wizard = base.stats.casters.first().expect("wizard");
     assert_eq!(wizard.caster_key, "Wizard");
     assert_eq!(wizard.spell_attack, 9, "int 4 + trained 2+3");
     assert_eq!(wizard.spell_dc, 19, "spell_attack + 10");
+    assert!(!wizard.innate, "prepared block");
     let gnome = base.stats.casters.get(1).expect("gnome");
     assert_eq!(gnome.caster_key, "Wellspring Gnome");
     assert_eq!(gnome.spell_attack, 8, "cha 3 + trained 2+3 (innate)");
     assert_eq!(gnome.spell_dc, 18);
+    assert!(gnome.innate, "the innate badge rides the block verbatim");
+}
+
+/// Prototype parity for the modifier-free render inputs (contract §3
+/// `render_base`, design D3). `hp_max` is the PROTOTYPE's formula — CON and
+/// the per-level bonus at every level — pinned at the same values
+/// base.test.js pins for the swap's byte-identical check.
+#[test]
+fn golden_render_base_matches_the_prototype() {
+    let base = extract(&reference_sheet(), 0);
+    assert_eq!(base.render_base.level, 3);
+    assert_eq!(
+        base.render_base.hp_max, 32,
+        "8 + (6 + CON 2) × 3 — CON counts at every level"
+    );
+    assert_eq!(base.render_base.focus_max, 1, "focusPoints verbatim");
+    assert_eq!(base.render_base.hero_max, 3, "constant 3 at POC");
+    assert_eq!(base.render_base.cantrip_rank, 2, "⌈3 / 2⌉");
+    let attributes = base.render_base.attributes;
+    assert_eq!(attributes.r#str, -1);
+    assert_eq!(attributes.dex, 1);
+    assert_eq!(attributes.con, 2);
+    assert_eq!(attributes.int, 4);
+    assert_eq!(attributes.wis, 0);
+    assert_eq!(attributes.cha, 3);
+
+    // The hp ceiling re-derives with eff_level; the clamp holds at 20.
+    assert_eq!(extract(&reference_sheet(), 1).render_base.hp_max, 40);
+    assert_eq!(extract(&reference_sheet(), -2).render_base.hp_max, 16);
+    assert_eq!(extract(&reference_sheet(), -2).render_base.cantrip_rank, 1);
+    assert_eq!(extract(&reference_sheet(), 2).render_base.cantrip_rank, 3);
+    let at_twenty = extract(&reference_sheet(), 17);
+    assert_eq!(at_twenty.render_base.level, 20, "clamped");
+    assert_eq!(at_twenty.render_base.hp_max, 168, "8 + 8 × 20");
 }
 
 // -- level_adjust ±1 asserts the design table (not the prototype) --
 
 /// Trained things rise with `eff_level` — including re-derived strike
-/// attacks; untrained skills and verbatim totals (ac, speed) do not move.
+/// attacks and AC (worn-armor rank); untrained skills and the verbatim
+/// speed total do not move.
 #[test]
 fn level_adjust_plus_one_adds_level_to_trained_only() {
     let base = extract(&reference_sheet(), 1);
@@ -151,7 +249,11 @@ fn level_adjust_plus_one_adds_level_to_trained_only() {
     assert_eq!(skill_total(&base, "arcana"), 10);
     assert_eq!(skill_total(&base, "lore:underworld"), 10);
     assert_eq!(skill_total(&base, "acrobatics"), 1, "untrained: no level");
-    assert_eq!(base.stats.ac, 16, "verbatim total: no level");
+    assert_eq!(
+        base.stats.ac, 17,
+        "AC RE-DERIVES from the worn armor's rank at eff_level (E6 finding 8): \
+         10 + dex 1 + trained 2+4 — the frozen acTotal would have stayed 16"
+    );
     assert_eq!(
         base.stats.strikes.first().expect("staff").attack,
         5,
@@ -211,6 +313,31 @@ fn caster_rank_takes_the_tradition_bump_innate_keeps_hers() {
 
 // -- degraded sections and keying rules --
 
+/// `damageType` is READ from the export, not assumed (MOR-69 finding 2):
+/// the reference corpus carries exactly one literal ("B"), which a
+/// hardcoded constant would also pass. A second fixture carries "S" and
+/// asserts the slashing arm; the missing-key default asserts "" — no
+/// invention.
+#[test]
+fn damage_type_reads_the_export_not_a_constant() {
+    let export = model::parse_and_validate(
+        r#"{"success":true,"build":{"name":"Dagger Kit","level":2,"abilities":{"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10},"proficiencies":{},"weapons":[{"name":"Dagger","die":"d4","attack":2,"damageBonus":0,"damageType":"S"}]}}"#,
+    )
+    .expect("dagger export is valid");
+    let base = extract(&transform::transform(&export).0, 0);
+    let dagger = base.stats.strikes.first().expect("dagger strike");
+    assert_eq!(dagger.damage_type, "S", "the export's letter, verbatim");
+    assert_eq!(dagger.damage_type_name, "slashing", "the S arm of the map");
+
+    let minimal = extract(&minimal_sheet(), 0);
+    let staff = minimal.stats.strikes.first().expect("staff strike");
+    assert_eq!(
+        staff.damage_type, "",
+        "no damageType key: empty, not a guess"
+    );
+    assert_eq!(staff.damage_type_name, "");
+}
+
 /// A sheet without `attributes` degrades to speed 0 — never a panic,
 /// never an invention of a plausible value.
 #[test]
@@ -238,7 +365,7 @@ fn duplicate_weapon_names_get_stable_suffixes() {
         second.attack, 0,
         "re-derived: no proficiencies table (untrained), str ±0, no pot — verbatim 3 ignored"
     );
-    assert_eq!(second.damage, "1d8", "re-derived flat 0: bare die");
+    assert_eq!(second.damage, "d8", "re-derived flat 0: bare die, verbatim");
     assert_eq!(second.damage_flat, 0);
     let fist = base.stats.strikes.get(2).expect("fist");
     assert_eq!(fist.key, "Fist");

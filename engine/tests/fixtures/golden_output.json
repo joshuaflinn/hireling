@@ -102,6 +102,15 @@
     "strikes": [
       {
         "key": "dagger",
+        "label": "Dagger",
+        "map": 4,
+        "damage_expr": "d4+3",
+        "damage_type": "P",
+        "damage_type_name": "piercing",
+        "traits": [
+          "Agile",
+          "Finesse"
+        ],
         "attack": {
           "base": 11,
           "total": 11,
@@ -132,6 +141,12 @@
       },
       {
         "key": "longbow",
+        "label": "Longbow",
+        "map": 5,
+        "damage_expr": "d8",
+        "damage_type": "P",
+        "damage_type_name": "piercing",
+        "traits": [],
         "attack": {
           "base": 9,
           "total": 9,
@@ -164,6 +179,7 @@
     "casters": [
       {
         "caster_key": "Wizard",
+        "innate": false,
         "spell_attack": {
           "base": 9,
           "total": 8,
@@ -195,6 +211,7 @@
       },
       {
         "caster_key": "Cleric",
+        "innate": true,
         "spell_attack": {
           "base": 7,
           "total": 6,
@@ -229,6 +246,7 @@
       {
         "name": "acrobatics",
         "total": 1,
+        "rank": 0,
         "applied": [
           {
             "type": "status",
@@ -243,6 +261,8 @@
       {
         "name": "lore:underworld",
         "total": 6,
+        "rank": 2,
+        "label": "Underworld",
         "applied": [
           {
             "type": "status",
@@ -305,5 +325,20 @@
       ],
       "tracked_manually": false
     }
-  ]
+  ],
+  "render_base": {
+    "level": 5,
+    "hp_max": 48,
+    "focus_max": 2,
+    "hero_max": 3,
+    "cantrip_rank": 3,
+    "attributes": {
+      "str": 1,
+      "dex": 3,
+      "con": 2,
+      "int": 4,
+      "wis": 1,
+      "cha": 0
+    }
+  }
 }

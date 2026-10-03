@@ -410,6 +410,14 @@ mod tests {
                 }))
                 .expect("minimal derived shape"),
                 effects: vec![],
+                render_base: hireling_engine::model::RenderBase {
+                    level: 3,
+                    hp_max: 32,
+                    focus_max: 2,
+                    hero_max: 3,
+                    cantrip_rank: 2,
+                    attributes: hireling_engine::model::Attributes::default(),
+                },
             }),
         };
         let encoded = serde_json::to_value(&frame).expect("encodes");
@@ -434,7 +442,12 @@ mod tests {
                         "class_dc": {"base": null, "total": null, "applied": [], "suppressed": []},
                         "strikes": [], "casters": [], "skills": []
                     },
-                    "effects": []
+                    "effects": [],
+                    "render_base": {
+                        "level": 3, "hp_max": 32, "focus_max": 2, "hero_max": 3,
+                        "cantrip_rank": 2,
+                        "attributes": {"str": 0, "dex": 0, "con": 0, "int": 0, "wis": 0, "cha": 0}
+                    }
                 }
             }),
             "the derived frame is the EngineOutput contract shape, verbatim"

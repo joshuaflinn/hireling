@@ -28,6 +28,14 @@ fn sample_base() -> BaseStats {
     BaseStats {
         schema: hireling_engine::model::BASE_SCHEMA.to_owned(),
         level: 3,
+        render_base: hireling_engine::model::RenderBase {
+            level: 3,
+            hp_max: 32,
+            focus_max: 2,
+            hero_max: 3,
+            cantrip_rank: 2,
+            attributes: hireling_engine::model::Attributes::default(),
+        },
         stats: hireling_engine::model::Stats {
             ac: 16,
             fort: 7,
@@ -40,22 +48,31 @@ fn sample_base() -> BaseStats {
                 key: "Staff".to_owned(),
                 label: "Staff".to_owned(),
                 attack: 4,
-                damage: "1d4-1".to_owned(),
+                damage: "d4\u{2212}1".to_owned(),
                 damage_flat: -1,
+                map: 5,
+                damage_type: "B".to_owned(),
+                damage_type_name: "bludgeoning".to_owned(),
+                traits: vec!["Monk".to_owned(), "Two-Hand d8".to_owned()],
             }],
             casters: vec![hireling_engine::model::CasterBase {
                 caster_key: "Wizard".to_owned(),
                 spell_attack: 9,
                 spell_dc: 19,
+                innate: false,
             }],
             skills: vec![
                 hireling_engine::model::SkillBase {
                     name: "acrobatics".to_owned(),
                     total: 1,
+                    rank: 0,
+                    label: None,
                 },
                 hireling_engine::model::SkillBase {
                     name: "lore:underworld".to_owned(),
                     total: 9,
+                    rank: 2,
+                    label: Some("Underworld".to_owned()),
                 },
             ],
         },

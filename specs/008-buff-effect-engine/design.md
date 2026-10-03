@@ -59,7 +59,7 @@ is rank + ability, and the extractor derives it:
 
 | Stat | Base formula | Source fields |
 |---|---|---|
-| `ac` | verbatim total | `ac.acTotal` |
+| `ac` | `10 + acAbilityBonus + eff_level·(rank≥1) + prof_bonus(rank) + acItemBonus + shieldBonus`, rank = the worn armor piece's category in `proficiencies` (`unarmored` when none) — RE-DERIVED per E6 spec §4 / review finding 8 (the sheet's formula, `base.js`): the export's frozen `acTotal` pins the export level and freezes AC forever. Equal to `acTotal` at the export's own level (the reference golden pins 16 both ways); tracks the class table above it | `ac.{acAbilityBonus,acItemBonus,shieldBonus}`, `armor[].{worn,prof}`, `proficiencies`, `abilities` |
 | `speed` | verbatim | `attributes.speed + attributes.speedBonus` |
 | `fort`/`ref`/`will` | `eff_level·(rank≥1) + abil_mod + prof_bonus(rank)` | `proficiencies.{fortitude,reflex,will}`, `abilities` (con/dex/wis) |
 | `perception` | same, wis | `proficiencies.perception` |
@@ -67,6 +67,7 @@ is rank + ability, and the extractor derives it:
 | `skill:<core>` | save formula with the skill's fixed ability | `proficiencies.<skill>` (18 core keys) |
 | `skill:lore:<name>` | save formula, int for lore skills | `lores[]` |
 | `skills[].rank` | verbatim raw rank (0/2/4/6/8, post-progression) — display input for the rank letter and untrained dimming; not derivable from `total`, so it rides the entry | `proficiencies.<skill>`, `lores[].rank` |
+| `skills[].label` (lores) | verbatim display name — the canonical `lore:` key lowercases and underscores to fit the `StatName` charset, so the display case cannot be recovered from the key; rides the row like the strike display fields | `lores[].name` |
 | proficiency table (display above export) | `rank ← max(rank, bump)` when `eff_level > identity.level` and class = `Wizard` — the prototype's `wizardProgression` (Player Core): ≥5 reflex 4, ≥7 castingArcane 4, ≥9 fortitude 4, ≥11 perception/simple/unarmed 4, ≥13 unarmored 4, ≥15 castingArcane 6, ≥17 will 6, ≥19 castingArcane 8 | `identity.{class,level}`, `proficiencies` |
 | `strikes[].attack` | `(Finesse ? max(str,dex) : str)_mod + eff_level·(rank≥1) + prof_bonus(rank) + weapons[].pot` — RE-DERIVED per the prototype (line 1415), never the export's verbatim `attack` (equal at the export's own level, divergent at `level_adjust ≠ 0`) | `weapons[].{prof,pot}`, trait map (`Finesse`), `proficiencies`, `abilities` |
 | `strikes[].damage_flat` | `str_mod + mastery(rank, eff_level)`; `mastery = 0` below eff_level 13, else 4→+2, 6→+3, 8→+4 (the prototype's `spec`) — NOT the verbatim `damageBonus` | `abilities.str`, `weapons[].prof` → rank |
