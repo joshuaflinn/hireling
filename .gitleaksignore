@@ -1,0 +1,17 @@
+# Findings the gate's gitleaks lane is told to skip. One entry per line.
+#
+# Entries use gitleaks' commit-less *global* fingerprint, `<file>:<rule>:<startline>`,
+# not the `<commit>:<file>:<rule>:<startline>` form gitleaks prints in its report.
+# Both are honoured, and the commit-scoped form is the wrong tool here: CI scans
+# `refs/pull/N/merge` at `fetch-depth: 1`, where the merge commit is parentless in
+# the shallow graph, so every file reads as newly added and the finding attributes
+# to the per-PR merge SHA. That SHA changes on every push, so a commit-scoped entry
+# would go stale the moment the branch syncs.
+#
+# Each entry is pinned to one file, one rule, one line. The rule stays armed over
+# the rest of the tree.
+
+# Deliberate stub RSA keypairs for the OIDC/auth suites — generated throwaways
+# that exist to be parsed and to fail a signature check, never live secrets.
+src/tests/fixtures/stub_signing_key.pem:private-key:1
+src/tests/fixtures/stub_decoy_key.pem:private-key:1
