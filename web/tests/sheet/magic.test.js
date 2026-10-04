@@ -1,23 +1,17 @@
-/* global URL */
-import test from 'node:test';
+import { render, cleanup } from '@testing-library/svelte';
+import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-import { render } from 'svelte/server';
+import fixture from '../data/base_sheet_reference.json';
+/** The reference character's EngineOutput, verbatim as the wire carries it
+ * (extractor + compute over the same export — the swap's byte-identity
+ * fixture). */
+import view from '../data/engine_output_reference.json';
 
 import CasterPanel from '../../src/lib/sheet/components/CasterPanel.svelte';
 import MagicPane from '../../src/lib/sheet/components/MagicPane.svelte';
 import StaffPanel from '../../src/lib/sheet/components/StaffPanel.svelte';
 import SpellSlotRow from '../../src/lib/sheet/components/SpellSlotRow.svelte';
-
-const FIXTURE_PATH = fileURLToPath(new URL('../data/base_sheet_reference.json', import.meta.url));
-const fixture = JSON.parse(await readFile(FIXTURE_PATH, 'utf8'));
-const ENGINE_PATH = fileURLToPath(new URL('../data/engine_output_reference.json', import.meta.url));
-/** The reference character's EngineOutput, verbatim as the wire carries it
- * (extractor + compute over the same export — the swap's byte-identity
- * fixture). */
-const view = JSON.parse(await readFile(ENGINE_PATH, 'utf8'));
 
 const noop = () => {};
 
@@ -41,12 +35,14 @@ function fixtureSlots() {
   return slots;
 }
 
+afterEach(cleanup);
+
 test('a slot row renders its spell, cast affordance, and spent state', () => {
   const used = render(SpellSlotRow, {
     props: {
       row: { rank: 1, slot_index: 0, used: true, prepared_spell: 'Fear', pending: false },
     },
-  }).body;
+  }).container.innerHTML;
   assert.match(used, /Fear/);
 
   const open = render(SpellSlotRow, {
@@ -56,14 +52,14 @@ test('a slot row renders its spell, cast affordance, and spent state', () => {
       oncast: noop,
       onprepare: noop,
     },
-  }).body;
+  }).container.innerHTML;
   assert.match(open, /open slot/);
   assert.match(open, /Prepare/);
 });
 
 test('CasterPanel renders header pills, rank groups, and heightened cantrip rank', () => {
   const caster = fixture.spellcasters[0];
-  const { body } = render(CasterPanel, {
+  const { container } = render(CasterPanel, {
     props: {
       caster,
       slots: fixtureSlots().filter((slot) => slot.caster_key === caster.caster_key),
@@ -75,17 +71,17 @@ test('CasterPanel renders header pills, rank groups, and heightened cantrip rank
       onreset: noop,
     },
   });
-  assert.match(body, /Wizard/);
-  assert.match(body, /arcane/, 'tradition pill');
-  assert.match(body, /atk \+9 · DC 19/, 'adapter numbers on the header pill');
-  assert.match(body, /heightened to rank 2/, 'cantrip heightened-rank display');
-  assert.match(body, /Fear/, 'prepared slots render');
-  assert.match(body, /Reset prep to export/);
+  assert.match(container.innerHTML, /Wizard/);
+  assert.match(container.innerHTML, /arcane/, 'tradition pill');
+  assert.match(container.innerHTML, /atk \+9 · DC 19/, 'adapter numbers on the header pill');
+  assert.match(container.innerHTML, /heightened to rank 2/, 'cantrip heightened-rank display');
+  assert.match(container.innerHTML, /Fear/, 'prepared slots render');
+  assert.match(container.innerHTML, /Reset prep to export/);
 });
 
 test('CasterPanel view-only: no cast buttons, no prep affordances', () => {
   const caster = fixture.spellcasters[0];
-  const { body } = render(CasterPanel, {
+  const { container } = render(CasterPanel, {
     props: {
       caster,
       slots: fixtureSlots().filter((slot) => slot.caster_key === caster.caster_key),
@@ -95,15 +91,14 @@ test('CasterPanel view-only: no cast buttons, no prep affordances', () => {
       known: caster.known,
     },
   });
-  assert.match(body, /Fear/);
-  assert.doesNotMatch(body, /Reset prep to export/);
-  const buttons = body.match(/<button/g) ?? [];
-  assert.equal(buttons.length, 0, 'view-only renders no controls at all');
+  assert.match(container.innerHTML, /Fear/);
+  assert.doesNotMatch(container.innerHTML, /Reset prep to export/);
+  assert.equal(container.querySelectorAll('button').length, 0, 'view-only renders no controls at all');
 });
 
 test('the innate caster renders locked-open without prep affordances', () => {
   const innate = fixture.spellcasters[1];
-  const { body } = render(CasterPanel, {
+  const { container } = render(CasterPanel, {
     props: {
       caster: innate,
       slots: fixtureSlots().filter((slot) => slot.caster_key === innate.caster_key),
@@ -113,25 +108,25 @@ test('the innate caster renders locked-open without prep affordances', () => {
       oncast: noop,
     },
   });
-  assert.match(body, /Innate spells are always prepared/);
-  assert.match(body, /Guidance/);
+  assert.match(container.innerHTML, /Innate spells are always prepared/);
+  assert.match(container.innerHTML, /Guidance/);
 });
 
 test('StaffPanel renders the charge select, pips, and drain toggle', () => {
-  const { body } = render(StaffPanel, {
+  const { container } = render(StaffPanel, {
     props: {
       daily: { value: { staff_charge_rank: 3, staff_spent: 1, drain_used: false }, pending: false },
       editable: true,
       onchange: noop,
     },
   });
-  assert.match(body, /Staff charge rank/);
-  assert.match(body, /Drain Bonded Item used/);
-  assert.match(body, /Staff charges: 2 of 3 left/);
+  assert.match(container.innerHTML, /Staff charge rank/);
+  assert.match(container.innerHTML, /Drain Bonded Item used/);
+  assert.match(container.innerHTML, /Staff charges: 2 of 3 left/);
 });
 
 test('MagicPane carries the two tabs and the staff section', () => {
-  const { body } = render(MagicPane, {
+  const { container } = render(MagicPane, {
     props: {
       baseSheet: fixture,
       slots: fixtureSlots(),
@@ -143,15 +138,15 @@ test('MagicPane carries the two tabs and the staff section', () => {
       ondaily: noop,
     },
   });
-  assert.match(body, /Spells/);
-  assert.match(body, /Pet &amp; Minions|Pet & Minions/);
-  assert.match(body, /Staff Nexus/);
+  assert.match(container.innerHTML, /Spells/);
+  assert.match(container.innerHTML, /Pet &amp; Minions|Pet & Minions/);
+  assert.match(container.innerHTML, /Staff Nexus/);
 });
 
 // ---- MOR-48 review fixes: the production path owns the behaviour ----------
 
 test('focus spells from the export render with their caster (finding 11)', () => {
-  const { body } = render(MagicPane, {
+  const { container } = render(MagicPane, {
     props: {
       baseSheet: fixture,
       slots: fixtureSlots(),
@@ -163,12 +158,12 @@ test('focus spells from the export render with their caster (finding 11)', () =>
       ondaily: noop,
     },
   });
-  assert.match(body, /Focus spells/, 'the block exists');
-  assert.match(body, /Charming Push/, 'the export lists it; it renders, not vanishes');
+  assert.match(container.innerHTML, /Focus spells/, 'the block exists');
+  assert.match(container.innerHTML, /Charming Push/, 'the export lists it; it renders, not vanishes');
 });
 
 test('a rejected slot write surfaces inline at that row; a rejected daily write at the staff panel (finding 5)', () => {
-  const { body } = render(MagicPane, {
+  const { container } = render(MagicPane, {
     props: {
       baseSheet: fixture,
       slots: fixtureSlots(),
@@ -196,6 +191,6 @@ test('a rejected slot write surfaces inline at that row; a rejected daily write 
       ondaily: noop,
     },
   });
-  assert.match(body, /Not yours to cast — view-only seat\./);
-  assert.match(body, /The party refused that daily row\./);
+  assert.match(container.innerHTML, /Not yours to cast — view-only seat\./);
+  assert.match(container.innerHTML, /The party refused that daily row\./);
 });

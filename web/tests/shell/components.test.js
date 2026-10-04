@@ -1,10 +1,13 @@
-/* global URL */
-import test from 'node:test';
+import { render, screen, cleanup, fireEvent } from '@testing-library/svelte';
+import { afterEach, test, vi } from 'vitest';
+import { tick } from 'svelte';
 import assert from 'node:assert/strict';
 
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-import { render } from 'svelte/server';
+import fixture from '../data/base_sheet_reference.json';
+/** The reference character's EngineOutput, verbatim as the wire carries it
+ * (extractor + compute over the same export — the swap's byte-identity
+ * fixture). */
+import engine from '../data/engine_output_reference.json';
 
 import EmptyState from '../../src/lib/sheet/components/EmptyState.svelte';
 import ErrorState from '../../src/lib/sheet/components/ErrorState.svelte';
@@ -14,64 +17,62 @@ import CharacterHeader from '../../src/lib/sheet/components/CharacterHeader.svel
 import StatsPane from '../../src/lib/sheet/components/StatsPane.svelte';
 import HpBar from '../../src/lib/sheet/components/HpBar.svelte';
 import PipRow from '../../src/lib/sheet/components/PipRow.svelte';
+import Dialog from '../../src/lib/sheet/components/Dialog.svelte';
 
-
-const FIXTURE_PATH = fileURLToPath(new URL('../data/base_sheet_reference.json', import.meta.url));
-const fixture = JSON.parse(await readFile(FIXTURE_PATH, 'utf8'));
-const ENGINE_PATH = fileURLToPath(new URL('../data/engine_output_reference.json', import.meta.url));
-/** The reference character's EngineOutput, verbatim as the wire carries it
- * (extractor + compute over the same export — the swap's byte-identity
- * fixture). */
-const engine = JSON.parse(await readFile(ENGINE_PATH, 'utf8'));
+afterEach(cleanup);
 
 test('EmptyState is a designed screen: crest, copy, and the import CTA', () => {
-  const { body } = render(EmptyState, { props: { onimport: () => {} } });
-  assert.match(body, /No character yet/);
-  assert.match(body, /Import your character/);
+  render(EmptyState, { props: { onimport: () => {} } });
+  screen.getByText(/No character yet/);
+  screen.getByRole('button', { name: 'Import your character' });
 });
 
 test('ErrorState renders a calm message; the retry affordance only where a retry exists', () => {
-  const withRetry = render(ErrorState, {
+  render(ErrorState, {
     props: { message: 'Boom.', detail: '503', onretry: () => {} },
-  }).body;
-  assert.match(withRetry, /Boom/);
-  assert.match(withRetry, /Try again/);
-  const withoutRetry = render(ErrorState, { props: { message: 'Boom.' } }).body;
-  assert.doesNotMatch(withoutRetry, /Try again/);
+  });
+  screen.getByText(/Boom/);
+  screen.getByRole('button', { name: 'Try again' });
+  cleanup();
+  render(ErrorState, { props: { message: 'Boom.' } });
+  assert.equal(screen.queryByRole('button', { name: 'Try again' }), null);
 });
 
 test('Skeleton renders pane-shaped placeholders, never blank', () => {
-  const { body } = render(Skeleton, { props: { panes: 3 } });
-  const skeletons = body.match(/class="skeleton"/g) ?? [];
+  const { container } = render(Skeleton, { props: { panes: 3 } });
+  const skeletons = container.innerHTML.match(/class="skeleton"/g) ?? [];
   assert.ok(skeletons.length >= 3, `expected at least 3 skeleton blocks, got ${skeletons.length}`);
-  assert.match(body, /Loading your sheet/);
+  screen.getByRole('status', { name: 'Loading your sheet' });
 });
 
 test('SyncIndicator renders iff the queue is non-empty — connection state is irrelevant', () => {
-  assert.doesNotMatch(render(SyncIndicator, { props: { syncing: false } }).body, /syncing/);
-  const syncing = render(SyncIndicator, { props: { syncing: true } }).body;
-  assert.match(syncing, /syncing/);
+  render(SyncIndicator, { props: { syncing: false } });
+  assert.equal(screen.queryByRole('status'), null);
+  cleanup();
+  render(SyncIndicator, { props: { syncing: true } });
+  assert.match(screen.getByRole('status').textContent, /syncing/);
 });
 
 test('CharacterHeader: editable shows the level control and New Day; view-only shows neither', () => {
-  const editable = render(CharacterHeader, {
+  render(CharacterHeader, {
     props: { name: 'Lorum Ipsum', subline: 'Gnome · Wizard', level: 3, syncing: false },
-  }).body;
-  assert.match(editable, /Lorum Ipsum/);
-  assert.match(editable, /Level 3/);
-  assert.match(editable, /New Day/);
+  });
+  screen.getByText(/Lorum Ipsum/);
+  screen.getByRole('button', { name: 'Level 3' });
+  screen.getByRole('button', { name: 'New Day' });
 
-  const viewOnly = render(CharacterHeader, {
+  cleanup();
+  render(CharacterHeader, {
     props: { name: 'Lorum Ipsum', subline: '', level: 3, editable: false },
-  }).body;
-  assert.match(viewOnly, /Level 3/);
-  assert.doesNotMatch(viewOnly, /New Day/);
+  });
+  screen.getByText(/Level 3/);
+  assert.equal(screen.queryByRole('button', { name: 'New Day' }), null);
 });
 
 test('StatsPane renders the fixture through the adapter: tiles, pips, skills, meta', () => {
   const view = engine;
   const noop = () => {};
-  const { body } = render(StatsPane, {
+  const { container } = render(StatsPane, {
     props: {
       view,
       baseSheet: fixture,
@@ -90,17 +91,17 @@ test('StatsPane renders the fixture through the adapter: tiles, pips, skills, me
       onhero: noop,
     },
   });
-  assert.match(body, /Armor Class/);
-  assert.match(body, /\b16\b/, 'AC 16 from the fixture');
-  assert.match(body, /Hero Points/);
-  assert.match(body, /Wellspring Gnome/, 'heritage rides the meta lines');
-  assert.match(body, /Thievery/, 'the skill grid renders');
-  assert.match(body, /Mror Holds History Lore/, 'lores render wide');
+  screen.getByText(/Armor Class/);
+  assert.match(container.innerHTML, /\b16\b/, 'AC 16 from the fixture');
+  screen.getByText(/Hero Points/);
+  screen.getByText(/Wellspring Gnome/);
+  screen.getByText(/Thievery/);
+  screen.getByText(/Mror Holds History Lore/);
 });
 
 test('StatsPane is view-only without controls when editable is false', () => {
   const view = engine;
-  const { body } = render(StatsPane, {
+  const { container } = render(StatsPane, {
     props: {
       view,
       baseSheet: fixture,
@@ -113,9 +114,8 @@ test('StatsPane is view-only without controls when editable is false', () => {
       editable: false,
     },
   });
-  assert.doesNotMatch(body, /Restore to max/, 'no HP buttons');
-  const buttons = body.match(/<button/g) ?? [];
-  assert.equal(buttons.length, 0, 'view-only renders no controls at all');
+  assert.equal(screen.queryByText(/Restore to max/), null, 'no HP buttons');
+  assert.equal(container.querySelectorAll('button').length, 0, 'view-only renders no controls at all');
 });
 
 // ---- MOR-48 review fixes: the production path owns the behaviour ----------
@@ -127,32 +127,34 @@ test('HpBar renders temp HP as markup, never as escaped text (finding 1)', () =>
       temp: { value: 5, pending: false },
       max: 32,
     },
-  }).body;
+  }).container.innerHTML;
   assert.match(withTemp, /\+5 temp/, 'the temp segment renders');
   assert.doesNotMatch(withTemp, /&lt;span/, 'no literal tags in the readout');
+  cleanup();
   const withoutTemp = render(HpBar, {
     props: { hp: { value: 12, pending: false }, temp: { value: 0, pending: false }, max: 32 },
-  }).body;
+  }).container.innerHTML;
   assert.doesNotMatch(withoutTemp, /temp</, 'nothing renders when the pool is empty');
 });
 
 test('PipRow: editable pips are buttons, view-only pips are bare spans (finding 9)', () => {
   const editable = render(PipRow, {
     props: { label: 'Focus', current: 1, max: 1, onset: () => {} },
-  }).body;
-  assert.match(editable, /<button/, 'editable renders controls');
-  assert.match(editable, /aria-label="Focus: 1 of 1"/);
+  }).container;
+  screen.getByRole('group', { name: 'Focus: 1 of 1' });
+  assert.ok(editable.querySelectorAll('button').length > 0, 'editable renders controls');
+  cleanup();
   const viewOnly = render(PipRow, {
     props: { label: 'Focus', current: 1, max: 1, editable: false },
-  }).body;
-  assert.doesNotMatch(viewOnly, /<button/, 'view-only renders no controls');
-  assert.match(viewOnly, /class="pip on"/);
+  }).container;
+  assert.equal(viewOnly.querySelectorAll('button').length, 0, 'view-only renders no controls');
+  assert.match(viewOnly.innerHTML, /class="pip on"/);
 });
 
 test('a rejected write surfaces inline at its control (finding 5)', () => {
   const view = engine;
   const noop = () => {};
-  const rejected = render(StatsPane, {
+  render(StatsPane, {
     props: {
       view,
       baseSheet: fixture,
@@ -178,10 +180,13 @@ test('a rejected write surfaces inline at its control (finding 5)', () => {
       onfocus: noop,
       onhero: noop,
     },
-  }).body;
-  assert.match(rejected, /The party refused that write: stale version\./);
-  assert.match(rejected, /role="alert"/);
-  const calm = render(StatsPane, {
+  });
+  assert.match(
+    screen.getByRole('alert').textContent,
+    /The party refused that write: stale version\./,
+  );
+  cleanup();
+  render(StatsPane, {
     props: {
       view,
       baseSheet: fixture,
@@ -198,12 +203,12 @@ test('a rejected write surfaces inline at its control (finding 5)', () => {
       onfocus: noop,
       onhero: noop,
     },
-  }).body;
-  assert.doesNotMatch(calm, /role="alert"/, 'no error surface without an error');
+  });
+  assert.equal(screen.queryByRole('alert'), null, 'no error surface without an error');
 });
 
 test('the header carries Import and Log out — there is a way off the sheet (finding 10)', () => {
-  const header = render(CharacterHeader, {
+  render(CharacterHeader, {
     props: {
       name: 'Lorum Ipsum',
       subline: '',
@@ -211,22 +216,32 @@ test('the header carries Import and Log out — there is a way off the sheet (fi
       onimport: () => {},
       onlogout: () => {},
     },
-  }).body;
-  assert.match(header, /Log out/);
-  assert.match(header, /Import/);
-  const bare = render(CharacterHeader, {
+  });
+  screen.getByRole('button', { name: 'Log out' });
+  screen.getByRole('button', { name: 'Import' });
+  cleanup();
+  render(CharacterHeader, {
     props: { name: 'Lorum Ipsum', subline: '', level: 3 },
-  }).body;
-  assert.doesNotMatch(bare, /Log out/, 'affordances appear only when wired');
+  });
+  assert.equal(
+    screen.queryByRole('button', { name: 'Log out' }),
+    null,
+    'affordances appear only when wired',
+  );
 });
 
 test('Dialog forwards oncommit to the keyboard discipline (finding 6)', async () => {
-  // SSR cannot synthesize a keydown; the seam this pins is that Dialog
-  // passes its oncommit prop into trapKeys — the exact wire finding 6
-  // found missing (the prop existed in the util, never in the dialog).
-  const source = await readFile(
-    new URL('../../src/lib/sheet/components/Dialog.svelte', import.meta.url),
-    'utf8',
-  );
-  assert.match(source, /onCommit: oncommit/, 'Enter commits is wired, not claimed');
+  // jsdom runs the $effect that installs trapKeys on the open dialog — the
+  // wire finding 6 found missing (the prop existed in the util, never in
+  // the dialog). A real keydown on the mounted dialog proves the
+  // forwarding; the server-mode hook could only grep the source for it.
+  const oncommit = vi.fn();
+  const onclose = vi.fn();
+  const { container } = render(Dialog, { props: { open: true, title: 'Confirm', onclose, oncommit } });
+  await tick();
+  const dialog = container.querySelector('dialog');
+  assert.ok(dialog, 'the open dialog renders');
+  fireEvent.keyDown(dialog, { key: 'Enter' });
+  assert.equal(oncommit.mock.calls.length, 1, 'Enter commits through the wired prop');
+  assert.equal(onclose.mock.calls.length, 0, 'Enter is not a cancel');
 });
