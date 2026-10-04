@@ -1,4 +1,4 @@
-import { render, cleanup } from '@testing-library/svelte';
+import { render, cleanup, screen } from '@testing-library/svelte';
 import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 
@@ -163,7 +163,7 @@ test('focus spells from the export render with their caster (finding 11)', () =>
 });
 
 test('a rejected slot write surfaces inline at that row; a rejected daily write at the staff panel (finding 5)', () => {
-  const { container } = render(MagicPane, {
+  render(MagicPane, {
     props: {
       baseSheet: fixture,
       slots: fixtureSlots(),
@@ -191,6 +191,29 @@ test('a rejected slot write surfaces inline at that row; a rejected daily write 
       ondaily: noop,
     },
   });
-  assert.match(container.innerHTML, /Not yours to cast — view-only seat\./);
-  assert.match(container.innerHTML, /The party refused that daily row\./);
+  // Both surfaces are role=alert (row alert in CasterPanel, staff-panel
+  // alert in StaffPanel) — query the role, not the markup (MOR-77 finding 2).
+  const alerts = screen
+    .getAllByRole('alert')
+    .map((el) => el.textContent)
+    .sort();
+  assert.deepEqual(alerts, [
+    'Not yours to cast — view-only seat.',
+    'The party refused that daily row.',
+  ]);
+
+  cleanup();
+  render(MagicPane, {
+    props: {
+      baseSheet: fixture,
+      slots: fixtureSlots(),
+      view,
+      daily: { value: { staff_charge_rank: 2, staff_spent: 1, drain_used: false } },
+      oncast: noop,
+      onprepare: noop,
+      onreset: noop,
+      ondaily: noop,
+    },
+  });
+  assert.equal(screen.queryByRole('alert'), null, 'no error surface without a refused write');
 });

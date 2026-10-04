@@ -114,7 +114,9 @@ test('StatsPane is view-only without controls when editable is false', () => {
       editable: false,
     },
   });
-  assert.equal(screen.queryByText(/Restore to max/), null, 'no HP buttons');
+  // The affordance is the title attribute on the buttons, not their text —
+  // queryByText cannot see it (MOR-77 review finding 1).
+  assert.equal(screen.queryByTitle(/Restore to max/), null, 'no HP buttons');
   assert.equal(container.querySelectorAll('button').length, 0, 'view-only renders no controls at all');
 });
 

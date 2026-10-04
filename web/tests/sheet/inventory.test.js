@@ -1,4 +1,4 @@
-import { render, cleanup } from '@testing-library/svelte';
+import { render, cleanup, screen } from '@testing-library/svelte';
 import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 
@@ -87,7 +87,7 @@ test('view-only inventory: no inputs, quantities as text', () => {
 // ---- MOR-48 review fixes: the production path owns the behaviour ----------
 
 test('a rejected quantity write surfaces inline at that item; a rejected coin write at the coins (finding 5)', () => {
-  const { container } = render(InventoryPanel, {
+  render(InventoryPanel, {
     props: {
       baseSheet: fixture,
       itemBulk,
@@ -116,6 +116,30 @@ test('a rejected quantity write surfaces inline at that item; a rejected coin wr
       onmoney: () => {},
     },
   });
-  assert.match(container.innerHTML, /The party refused that quantity\./);
-  assert.match(container.innerHTML, /Coins write refused: negative amounts\./);
+  // Both surfaces are role=alert (coins block + item row) — query the
+  // role, not the markup (MOR-77 finding 2).
+  const alerts = screen
+    .getAllByRole('alert')
+    .map((el) => el.textContent)
+    .sort();
+  assert.deepEqual(alerts, [
+    'Coins write refused: negative amounts.',
+    'The party refused that quantity.',
+  ]);
+
+  cleanup();
+  render(InventoryPanel, {
+    props: {
+      baseSheet: fixture,
+      itemBulk,
+      itemTraits,
+      qtyMap,
+      money: { value: { pp: 0, gp: 24, sp: 2, cp: 4 }, pending: false },
+      editable: true,
+      offline: false,
+      onqty: () => {},
+      onmoney: () => {},
+    },
+  });
+  assert.equal(screen.queryByRole('alert'), null, 'no error surface without a refused write');
 });
