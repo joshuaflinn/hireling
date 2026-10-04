@@ -51,12 +51,20 @@ jobs:
             grizzly-gate-${{ runner.os }}-${{ env.GATE_IMAGE }}-
             grizzly-gate-${{ runner.os }}-
 
+      # GIT_CONFIG_*/safe.directory: the cache restore extracts as the runner
+      # user, so cached git state (cargo-deny's advisory DB, any future git
+      # deps) comes back runner-owned while the container runs as root — git
+      # then refuses it with "dubious ownership" and cargo-deny fails. Trust
+      # every repo inside the container; the mount is CI-local by construction.
       - name: Run grizzly-gate
         run: >-
           docker run --rm
           -v "$PWD:/src"
           -v "$HOME/.cache/grizzly-gate:/cache"
           -e CARGO_HOME=/cache/cargo
+          -e GIT_CONFIG_COUNT=1
+          -e GIT_CONFIG_KEY_0=safe.directory
+          -e GIT_CONFIG_VALUE_0=*
           -w /src
           "${{ env.GATE_IMAGE }}"
           --source /src
