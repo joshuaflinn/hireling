@@ -65,11 +65,17 @@ async fn a_member_connects_and_receives_hello_then_snapshot() {
     let ServerFrame::Snapshot {
         fields,
         snapshot_bytes,
+        derived,
     } = snapshot
     else {
         panic!("second frame must be snapshot, got {snapshot:?}")
     };
-    assert_eq!(fields.len(), 4, "one character, four vitals fields");
+    assert_eq!(fields.len(), 7, "one character, seven vitals fields");
+    assert_eq!(
+        derived.len(),
+        1,
+        "one derived array entry per roster character"
+    );
     assert!(snapshot_bytes > 0, "the metric is carried");
     let hp = fields
         .iter()
@@ -291,7 +297,11 @@ async fn a_gm_write_is_forbidden_and_diffs_nothing() {
 }
 
 #[tokio::test]
-async fn garbage_and_effect_writes_are_ignored_and_the_connection_lives() {
+async fn garbage_is_dropped_but_effect_writes_reach_the_engine_and_reject() {
+    // E7's deny-by-default for garbage frames stands; E8 realized the
+    // effect extension (wire-protocol.md §8), so an effect write now
+    // REACHES the write engine — this one is bounds-rejected with a
+    // durable ledger row, and the ack names why. The connection lives.
     let Some(pool) = testing::test_pool().await else {
         return;
     };
@@ -304,26 +314,43 @@ async fn garbage_and_effect_writes_are_ignored_and_the_connection_lives() {
     read_frame(&mut client.stream, "snapshot").await;
 
     send_raw(&mut client.sink, "this is not json").await;
-    let effect_write = json!({
+    let malformed_effect_write = json!({
         "t": "write",
         "op_id": "op-effect-ws",
         "target": {"kind": "effect", "effect_id": 7},
         "base_version": 1,
         "value": {"active": false}
     });
-    send_raw(&mut client.sink, &effect_write.to_string()).await;
+    send_raw(&mut client.sink, &malformed_effect_write.to_string()).await;
+
+    let ack = read_frame(&mut client.stream, "ack for the effect write").await;
+    let ServerFrame::Ack(ack) = ack else {
+        panic!("the malformed effect write must be acked, got {ack:?}")
+    };
+    assert_eq!(ack.op_id, "op-effect-ws");
+    assert_eq!(ack.outcome, Outcome::Rejected);
+    assert!(
+        ack.reason
+            .clone()
+            .is_some_and(|reason| reason.contains("op")),
+        "the rejection names the problem: {ack:?}"
+    );
 
     // The connection stayed open: the next ping is answered.
     send_raw(&mut client.sink, r#"{"t":"ping"}"#).await;
     let pong = read_frame(&mut client.stream, "pong after garbage").await;
     assert!(matches!(pong, ServerFrame::Pong));
 
-    // And the ledger holds neither frame: both were dropped, not applied.
+    // The ledger holds exactly the effect rejection; the garbage frame was
+    // dropped before any handler (no row, no ack).
     let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM client_ops")
         .fetch_one(&pool)
         .await
         .expect("ledger count");
-    assert_eq!(rows, 0, "dropped frames never reach the write engine");
+    assert_eq!(
+        rows, 1,
+        "garbage dropped; the effect write recorded its rejection"
+    );
 
     assert!(
         shutdown.send(()).is_ok(),

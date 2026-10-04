@@ -24,6 +24,7 @@ use crate::auth::AuthState;
 use crate::auth::authz::{Action, Actor, Resource};
 use crate::auth::error::{Forbidden, Unauthenticated};
 use crate::auth::middleware::SessionAccount;
+use crate::pbimport::bulk;
 use crate::pbimport::error::ImportError;
 use crate::pbimport::store::{RunImportError, record_rejection, run_import};
 
@@ -150,7 +151,8 @@ async fn load_me(pool: &sqlx::PgPool, sub: &str) -> Result<Option<serde_json::Va
         "owner": row.get::<String, _>("owner_sub"),
     });
     let vitals = sqlx::query(
-        "SELECT hp, temp_hp, money_gp, money_sp, money_cp, money_pp, level_adjust \
+        "SELECT hp, temp_hp, money_gp, money_sp, money_cp, money_pp, level_adjust, \
+                focus_current, hero_points, daily \
          FROM character_vitals WHERE character_id = $1",
     )
     .bind(character_id)
@@ -165,6 +167,9 @@ async fn load_me(pool: &sqlx::PgPool, sub: &str) -> Result<Option<serde_json::Va
             "money_cp": vitals.get::<i32, _>("money_cp"),
             "money_pp": vitals.get::<i32, _>("money_pp"),
             "level_adjust": vitals.get::<i32, _>("level_adjust"),
+            "focus_current": vitals.get::<i32, _>("focus_current"),
+            "hero_points": vitals.get::<i32, _>("hero_points"),
+            "daily": vitals.get::<serde_json::Value, _>("daily"),
         })
     });
     let slots = sqlx::query(
@@ -202,15 +207,117 @@ async fn load_me(pool: &sqlx::PgPool, sub: &str) -> Result<Option<serde_json::Va
     })
     .collect::<Vec<_>>();
 
+    let (item_bulk, item_traits) = load_item_corpus(pool, character_id, &base_sheet).await?;
+
     Ok(Some(serde_json::json!({
         "character": summary,
         "base_sheet": base_sheet,
         "vitals": vitals,
         "slots": slots,
         "inventory": inventory,
+        "item_bulk": item_bulk,
+        "item_traits": item_traits,
     })))
 }
 
 #[cfg(test)]
 #[path = "tests/http.rs"]
 mod tests;
+
+/// The item-bulk map (E6 design §5): exact-name, case-insensitive
+/// resolution of the sheet's item names against the items corpus, in
+/// tenths of Bulk. Gaps ride as null and the misses are logged with item
+/// name and character id for E4 follow-up — a miss degrades display,
+/// never blocks the bootstrap.
+async fn load_item_corpus(
+    pool: &sqlx::PgPool,
+    character_id: i64,
+    base_sheet: &serde_json::Value,
+) -> Result<
+    (
+        std::collections::BTreeMap<String, Option<i64>>,
+        std::collections::BTreeMap<String, Vec<String>>,
+    ),
+    sqlx::Error,
+> {
+    // Equipment AND weapons both reach the corpus: strike rows read their
+    // trait chips through `item_traits`. Both sections are arrays of
+    // objects carrying `name`. Armor has no chip consumer yet and stays
+    // out until one exists.
+    let mut item_names: Vec<String> = Vec::new();
+    for section in ["equipment", "weapons"] {
+        if let Some(items) = base_sheet
+            .get(section)
+            .and_then(serde_json::Value::as_array)
+        {
+            for item in items {
+                if let Some(name) = item.get("name").and_then(serde_json::Value::as_str) {
+                    item_names.push(name.to_owned());
+                }
+            }
+        }
+    }
+    item_names.sort();
+    item_names.dedup();
+    let rows: Vec<(String, Option<String>, Option<serde_json::Value>)> = sqlx::query_as(
+        "SELECT lower(name), data->'system'->'bulk'->>'value', \
+                data->'system'->'traits'->'value' \
+         FROM corpus_entries WHERE kind = 'item' AND lower(name) = ANY($1)",
+    )
+    .bind(
+        item_names
+            .iter()
+            .map(|name| name.to_lowercase())
+            .collect::<Vec<_>>(),
+    )
+    .fetch_all(pool)
+    .await?;
+    let corpus_rows: Vec<(String, Option<f64>)> = rows
+        .iter()
+        .map(|(name, raw, _)| {
+            (
+                name.clone(),
+                raw.as_ref().and_then(|raw| raw.parse::<f64>().ok()),
+            )
+        })
+        .collect();
+    let trait_rows: Vec<bulk::TraitRow> = rows
+        .iter()
+        .map(|(name, _, traits)| {
+            (
+                name.clone(),
+                traits
+                    .as_ref()
+                    .and_then(serde_json::Value::as_array)
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            )
+        })
+        .collect();
+    let item_bulk = bulk::item_bulk_map(&item_names, &corpus_rows);
+    let item_traits = bulk::item_trait_map(&item_names, &trait_rows);
+    let misses: Vec<&str> = item_names
+        .iter()
+        .map(String::as_str)
+        .filter(|name| !item_bulk.get(*name).is_some_and(Option::is_some))
+        .filter(|name| {
+            !corpus_rows
+                .iter()
+                .any(|(candidate, _)| candidate == &name.to_lowercase())
+        })
+        .collect();
+    if !misses.is_empty() {
+        tracing::info!(
+            character_id,
+            missed = %misses.join(", "),
+            "item bulk unresolved at bootstrap; corpus gaps render as em-dash"
+        );
+    }
+    Ok((item_bulk, item_traits))
+}

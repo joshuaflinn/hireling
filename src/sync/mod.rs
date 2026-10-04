@@ -74,7 +74,7 @@ mod registry_tests;
 
 #[cfg(test)]
 #[path = "../tests/sync/helpers.rs"]
-mod test_helpers;
+pub(crate) mod test_helpers;
 
 #[cfg(test)]
 #[path = "../tests/sync/metrics.rs"]
@@ -87,6 +87,14 @@ mod session_tests;
 #[cfg(test)]
 #[path = "../tests/sync/integration.rs"]
 mod integration_tests;
+
+#[cfg(test)]
+#[path = "../tests/sync/effects.rs"]
+mod effects_tests;
+
+#[cfg(test)]
+#[path = "../tests/sync/derived.rs"]
+mod derived_tests;
 
 #[cfg(test)]
 #[path = "../tests/sync/shaper.rs"]

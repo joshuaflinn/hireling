@@ -30,13 +30,17 @@ pub async fn party_snapshot(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<
     Ok(fields)
 }
 
-/// The four vitals fields per character: `hp`, `temp_hp`, `money` (one versioned
-/// unit of four denominations — E2's schema), `level_adjust`.
+/// The seven vitals fields per character: `hp`, `temp_hp`, `money` (one versioned
+/// unit of four denominations — E2's schema), `level_adjust`, and E6's
+/// spell-economy trio `focus_current` / `hero_points` / `daily`.
 async fn vitals_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<SnapshotField>> {
     let rows = sqlx::query(
         "SELECT c.id, v.hp, v.hp_version, v.temp_hp, v.temp_hp_version, \
                 v.money_pp, v.money_gp, v.money_sp, v.money_cp, v.money_version, \
-                v.level_adjust, v.level_adjust_version \
+                v.level_adjust, v.level_adjust_version, \
+                v.focus_current, v.focus_version, \
+                v.hero_points, v.hero_points_version, \
+                v.daily, v.daily_version \
          FROM characters c JOIN character_vitals v ON v.character_id = c.id \
          WHERE c.party_id = $1 ORDER BY c.id",
     )
@@ -56,6 +60,7 @@ async fn vitals_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<Snaps
             "cp": row.get::<i32, _>("money_cp"),
         });
         let level_adjust: i32 = row.get("level_adjust");
+        let daily: JsonValue = row.get("daily");
         for (field, value, version_column) in [
             (VitalsField::Hp, json!(hp), "hp_version"),
             (VitalsField::TempHp, json!(temp_hp), "temp_hp_version"),
@@ -65,6 +70,17 @@ async fn vitals_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<Snaps
                 json!(level_adjust),
                 "level_adjust_version",
             ),
+            (
+                VitalsField::FocusCurrent,
+                json!(row.get::<i32, _>("focus_current")),
+                "focus_version",
+            ),
+            (
+                VitalsField::HeroPoints,
+                json!(row.get::<i32, _>("hero_points")),
+                "hero_points_version",
+            ),
+            (VitalsField::Daily, daily, "daily_version"),
         ] {
             fields.push(SnapshotField {
                 field: FieldTarget::Vitals {
@@ -149,7 +165,7 @@ async fn inventory_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<Sn
 /// clients can display them, and E8's writes will version this same row.
 async fn effect_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<SnapshotField>> {
     let rows = sqlx::query(
-        "SELECT id, source_character_id, name, duration_note, active, version \
+        "SELECT id, source_character_id, name, duration_note, active, version, tracked_manually \
          FROM effects WHERE party_id = $1 ORDER BY id",
     )
     .bind(party_id)
@@ -183,6 +199,7 @@ async fn effect_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<Snaps
         let name: String = row.get("name");
         let duration_note: String = row.get("duration_note");
         let active: bool = row.get("active");
+        let tracked_manually: bool = row.get("tracked_manually");
         fields.push(SnapshotField {
             field: FieldTarget::Effect { effect_id },
             value: json!({
@@ -191,7 +208,8 @@ async fn effect_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<Snaps
                 "targets": targets,
                 "modifiers": modifiers_json,
                 "duration_note": duration_note,
-                "active": active
+                "active": active,
+                "tracked_manually": tracked_manually
             }),
             version: row.get("version"),
         });

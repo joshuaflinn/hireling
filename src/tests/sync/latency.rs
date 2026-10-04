@@ -57,6 +57,9 @@ fn version_column(field: VitalsField) -> &'static str {
         VitalsField::TempHp => "temp_hp_version",
         VitalsField::Money => "money_version",
         VitalsField::LevelAdjust => "level_adjust_version",
+        VitalsField::FocusCurrent => "focus_version",
+        VitalsField::HeroPoints => "hero_points_version",
+        VitalsField::Daily => "daily_version",
     }
 }
 
@@ -131,7 +134,8 @@ async fn shaped_writer(
                 }
             }
             ServerFrame::Ping => pump_pong(&client.sink).await,
-            ServerFrame::Diff { .. }
+            ServerFrame::Derived { .. }
+            | ServerFrame::Diff { .. }
             | ServerFrame::Hello { .. }
             | ServerFrame::Snapshot { .. }
             | ServerFrame::Pong
@@ -159,6 +163,10 @@ async fn send_target(
         VitalsField::Money => json!({"pp": 1, "gp": n, "sp": 2, "cp": 3}),
         VitalsField::LevelAdjust => json!(i64::from(n % 38) - 19),
         VitalsField::Hp | VitalsField::TempHp => json!(i64::from(n) + 1),
+        VitalsField::FocusCurrent | VitalsField::HeroPoints => json!(i64::from(n)),
+        VitalsField::Daily => {
+            json!({"staff_charge_rank": 0, "staff_spent": 0, "drain_used": false})
+        }
     };
     let op_id = format!("op-{character_id}-{}-{n}", field.as_str());
     let base = latest.get(idx).copied().unwrap_or(0);
@@ -189,7 +197,8 @@ async fn shaped_reader(mut client: PumpClient, expected: usize) -> usize {
         {
             ServerFrame::Diff { .. } => diffs += 1,
             ServerFrame::Ping => pump_pong(&client.sink).await,
-            ServerFrame::Ack(_)
+            ServerFrame::Derived { .. }
+            | ServerFrame::Ack(_)
             | ServerFrame::Hello { .. }
             | ServerFrame::Snapshot { .. }
             | ServerFrame::Pong
@@ -390,7 +399,8 @@ async fn run_load_writer(mut client: PumpClient, character_id: i64, base: i64) {
                 }
                 ServerFrame::Ack(unexpected) => panic!("unexpected load ack: {unexpected:?}"),
                 ServerFrame::Ping => pump_pong(&client.sink).await,
-                ServerFrame::Diff { .. }
+                ServerFrame::Derived { .. }
+                | ServerFrame::Diff { .. }
                 | ServerFrame::Hello { .. }
                 | ServerFrame::Snapshot { .. }
                 | ServerFrame::Pong
@@ -447,6 +457,7 @@ async fn the_snapshot_size_is_logged_on_the_production_path() {
         ServerFrame::Snapshot { snapshot_bytes, .. } => *snapshot_bytes,
         ServerFrame::Hello { .. }
         | ServerFrame::Diff { .. }
+        | ServerFrame::Derived { .. }
         | ServerFrame::Ack(_)
         | ServerFrame::Ping
         | ServerFrame::Pong

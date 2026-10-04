@@ -315,3 +315,115 @@ async fn down_spares_an_occupied_party() {
     );
     testing::drop_test_db(pool, "migrations_down_occupied").await;
 }
+
+// E6: the spell-economy vitals fields (specs/006 design §3).
+#[tokio::test]
+async fn vitals_spell_economy_columns_round_trip() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    exec(
+        &pool,
+        "INSERT INTO accounts (sub, username, display_name, role) \
+         VALUES ('dev-sub-e6', 'e6', 'e6', 'player')",
+        "account for the vitals row",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO characters (party_id, owner_sub, payload_raw, base_sheet) \
+         SELECT id, 'dev-sub-e6', '{}', '{}' FROM parties LIMIT 1",
+        "character for the vitals row",
+    )
+    .await;
+
+    // The up defaults: focus 0, hero 0, daily zeroed — each with its own
+    // version drawn from the one global sequence.
+    exec(
+        &pool,
+        "INSERT INTO character_vitals (character_id) \
+         SELECT id FROM characters WHERE owner_sub = 'dev-sub-e6'",
+        "vitals row with the new defaults",
+    )
+    .await;
+    let (focus, focus_version): (i32, i64) =
+        sqlx::query_as("SELECT focus_current, focus_version FROM character_vitals")
+            .fetch_one(&pool)
+            .await
+            .expect("focus defaults");
+    assert_eq!(focus, 0, "focus starts empty");
+    assert!(focus_version > 0, "focus_version drawn from the sequence");
+    let hero: i32 = sqlx::query_scalar("SELECT hero_points FROM character_vitals")
+        .fetch_one(&pool)
+        .await
+        .expect("hero default");
+    assert_eq!(hero, 0);
+    let daily: serde_json::Value = sqlx::query_scalar("SELECT daily FROM character_vitals")
+        .fetch_one(&pool)
+        .await
+        .expect("daily default");
+    assert_eq!(
+        daily,
+        serde_json::json!({"staff_charge_rank": 0, "staff_spent": 0, "drain_used": false}),
+        "the daily row starts zeroed"
+    );
+
+    // The value CHECKs hold at the database too.
+    let negative_focus = sqlx::query("UPDATE character_vitals SET focus_current = -1")
+        .execute(&pool)
+        .await;
+    assert!(negative_focus.is_err(), "focus_current >= 0 is a CHECK");
+
+    // MOR-48 finding 11: `daily`'s invariant is structural, so the shape
+    // CHECK holds at the database too — object, three keys, right types.
+    for (bad, why) in [
+        (serde_json::json!("nope"), "not an object"),
+        (
+            serde_json::json!({"staff_charge_rank": 0, "staff_spent": 0}),
+            "missing drain_used",
+        ),
+        (
+            serde_json::json!({"staff_charge_rank": "0", "staff_spent": 0, "drain_used": false}),
+            "rank is a string",
+        ),
+        (
+            serde_json::json!({"staff_charge_rank": 0, "staff_spent": 0, "drain_used": "no"}),
+            "drain_used is a string",
+        ),
+    ] {
+        let rejected = sqlx::query("UPDATE character_vitals SET daily = $1")
+            .bind(bad)
+            .execute(&pool)
+            .await;
+        assert!(rejected.is_err(), "daily shape CHECK rejects {why}");
+    }
+    let accepted = sqlx::query("UPDATE character_vitals SET daily = $1")
+        .bind(serde_json::json!({"staff_charge_rank": 3, "staff_spent": 1, "drain_used": true}))
+        .execute(&pool)
+        .await;
+    assert!(
+        accepted.is_ok(),
+        "a well-formed daily row still writes: {:?}",
+        accepted.err()
+    );
+
+    // Down: the columns go, and a fresh up accepts a row again.
+    exec_script(
+        &pool,
+        &migration_file("20261002000002_vitals_spell_economy.down.sql"),
+        "spell economy down",
+    )
+    .await;
+    let gone = sqlx::query("SELECT focus_current FROM character_vitals")
+        .execute(&pool)
+        .await;
+    assert!(gone.is_err(), "the down migration must drop focus_current");
+    exec_script(
+        &pool,
+        &migration_file("20261002000002_vitals_spell_economy.sql"),
+        "spell economy up (round trip)",
+    )
+    .await;
+
+    testing::drop_test_db(pool, "vitals_spell_economy").await;
+}
