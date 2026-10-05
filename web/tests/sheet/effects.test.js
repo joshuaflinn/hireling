@@ -1,7 +1,7 @@
-import test from 'node:test';
+import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 
-import { render } from 'svelte/server';
+import { render, cleanup } from '@testing-library/svelte';
 
 import EffectsStrip from '../../src/lib/sheet/components/EffectsStrip.svelte';
 import Provenance from '../../src/lib/sheet/components/Provenance.svelte';
@@ -11,8 +11,10 @@ import StatTile from '../../src/lib/sheet/components/StatTile.svelte';
 // effect rows; a provenance hover shows applied entries and suppressed
 // entries with the engine's reason text — verbatim, no UI inference.
 
+afterEach(cleanup);
+
 test('the effects strip renders a chip per active effect: name, source, duration', () => {
-  const { body } = render(EffectsStrip, {
+  const body = render(EffectsStrip, {
     props: {
       effects: [
         {
@@ -33,7 +35,7 @@ test('the effects strip renders a chip per active effect: name, source, duration
         },
       ],
     },
-  });
+  }).container.innerHTML;
   assert.match(body, /Bless/);
   assert.match(body, /Lorum Ipsum/, 'the source rides the chip');
   assert.match(body, /10 rounds/, 'the duration rides the title');
@@ -42,14 +44,14 @@ test('the effects strip renders a chip per active effect: name, source, duration
 });
 
 test('the strip renders nothing when no effects target the character', () => {
-  const { body } = render(EffectsStrip, { props: { effects: [] } });
+  const body = render(EffectsStrip, { props: { effects: [] } }).container.innerHTML;
   assert.doesNotMatch(body, /chip/, 'no placeholder theatre');
-  const empty = render(EffectsStrip, { props: {} }).body;
+  const empty = render(EffectsStrip, { props: {} }).container.innerHTML;
   assert.doesNotMatch(empty, /chip/, 'a missing array is the honest empty');
 });
 
 test('a provenance hover shows the applied entry and the suppressed entry with its reason', () => {
-  const { body } = render(Provenance, {
+  const body = render(Provenance, {
     props: {
       applied: [
         { type: 'status', value: 1, effect_id: 41, effect_name: 'Bless', source_character_id: 3 },
@@ -66,7 +68,7 @@ test('a provenance hover shows the applied entry and the suppressed entry with i
         },
       ],
     },
-  });
+  }).container.innerHTML;
   assert.match(body, /\+1 status — Bless/, 'the applied entry, engine-verbatim');
   assert.match(body, /\+1 status — Inspire Courage · same-type-lower-bonus/, 'the suppressed entry with its reason text');
   assert.match(body, /Not stacked/, 'the two lists are named apart');
@@ -79,12 +81,12 @@ test('a provenance hover shows the applied entry and the suppressed entry with i
 });
 
 test('a provenance hover renders nothing for untouched numbers', () => {
-  const { body } = render(Provenance, { props: { applied: [], suppressed: [] } });
+  const body = render(Provenance, { props: { applied: [], suppressed: [] } }).container.innerHTML;
   assert.doesNotMatch(body, /class="prov"/, 'no hover theatre on a plain number');
 });
 
 test('a stat tile carries the hover its stat deserves', () => {
-  const { body } = render(StatTile, {
+  const body = render(StatTile, {
     props: {
       label: 'AC',
       value: 19,
@@ -96,7 +98,7 @@ test('a stat tile carries the hover its stat deserves', () => {
         suppressed: [],
       },
     },
-  });
+  }).container.innerHTML;
   assert.match(body, /19/);
   assert.match(body, /Bless/, 'the tile forwards its stat\u2019s provenance to the hover');
 });

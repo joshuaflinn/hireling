@@ -1,6 +1,6 @@
 // Import-page logic tests (E5 FR-18): one POST body for paste and file,
 // the error mapping, and a render line for every diff kind (data-model §5).
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
 import {

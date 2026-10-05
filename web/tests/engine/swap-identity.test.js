@@ -1,10 +1,7 @@
-/* global URL */
-import test from 'node:test';
+import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-import { render } from 'svelte/server';
+import { render, cleanup } from '@testing-library/svelte';
 import { get } from 'svelte/store';
 
 import { createSync } from '../../src/lib/sync/index.js';
@@ -21,10 +18,10 @@ import { partitionSkills } from '../../src/lib/engine/partition.js';
 // (specs/008 design D3's golden math) over the same reference export the
 // old base math consumed; the other side is this pinned table.
 
-const ENGINE_PATH = fileURLToPath(new URL('../data/engine_output_reference.json', import.meta.url));
-const engine = JSON.parse(await readFile(ENGINE_PATH, 'utf8'));
-const SHEET_PATH = fileURLToPath(new URL('../data/base_sheet_reference.json', import.meta.url));
-const baseSheet = JSON.parse(await readFile(SHEET_PATH, 'utf8'));
+import engine from '../data/engine_output_reference.json';
+import baseSheet from '../data/base_sheet_reference.json';
+
+afterEach(cleanup);
 
 test('render_base carries the pre-swap ceilings and level inputs', () => {
   assert.equal(engine.render_base.level, 3);
@@ -96,7 +93,7 @@ test('the pinned strikes and casters, display fields included', () => {
 });
 
 test('the stats pane renders the pinned numbers from the wire fixture', () => {
-  const { body } = render(StatsPane, {
+  const body = render(StatsPane, {
     props: {
       view: engine,
       baseSheet,
@@ -108,7 +105,7 @@ test('the stats pane renders the pinned numbers from the wire fixture', () => {
       heroPoints: { value: 1, pending: false },
       heroMax: engine.render_base.hero_max,
     },
-  });
+  }).container.innerHTML;
   for (const pinned of [
     'Armor Class', '+7', '+6', 'Class DC', '19', 'Perception', '+5',
     'Thievery', 'Underworld Lore', 'Mror Holds History Lore', '+9', '+11',
@@ -118,7 +115,7 @@ test('the stats pane renders the pinned numbers from the wire fixture', () => {
 });
 
 test('the strikes pane renders the pinned rows from the wire fixture', () => {
-  const { body } = render(StrikesPane, { props: { view: engine } });
+  const body = render(StrikesPane, { props: { view: engine } }).container.innerHTML;
   assert.match(body, /Staff/);
   assert.match(body, /atk \+4/);
   assert.match(body, /MAP −5 \/ −10/);
