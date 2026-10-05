@@ -27,6 +27,7 @@ cargo fmt --all                                           # format
 cargo clippy --all-targets --all-features -- -D warnings  # lint
 cargo deny check                                          # audit dependencies
 docker compose up -d db                                   # dev Postgres
+python3 scripts/check_json_dup_keys.py                    # JSON duplicate-key guardrail (gh#49)
 ```
 
 Configuration is env-var driven, with local-dev defaults — `HIRELING_PORT`
