@@ -18,7 +18,7 @@ run *args:
 web-build:
     npm --prefix web run build
 
-# Frontend unit tests (dependency-free, node's built-in runner).
+# Frontend unit tests (vitest + @testing-library/svelte, jsdom — see gh#41).
 web-test:
     npm --prefix web test
 

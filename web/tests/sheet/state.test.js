@@ -1,9 +1,5 @@
-/* global URL */
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 
 import { get } from 'svelte/store';
 
@@ -11,13 +7,11 @@ import { createSync } from '../../src/lib/sync/index.js';
 import { fakeClock, mockSockets, fakeStorage } from '../sync/fakes.js';
 import { createSheetState } from '../../src/lib/sheet/state.js';
 
-const FIXTURE_PATH = fileURLToPath(new URL('../data/base_sheet_reference.json', import.meta.url));
-const fixture = JSON.parse(await readFile(FIXTURE_PATH, 'utf8'));
-const ENGINE_PATH = fileURLToPath(new URL('../data/engine_output_reference.json', import.meta.url));
+import fixture from '../data/base_sheet_reference.json';
 /** The reference character's EngineOutput, verbatim as the wire carries it
  * (generated from the extractor + compute over the same export — the swap's
  * byte-identity fixture). */
-const engineOutput = JSON.parse(await readFile(ENGINE_PATH, 'utf8'));
+import engineOutput from '../data/engine_output_reference.json';
 
 const CHARACTER_ID = 7;
 

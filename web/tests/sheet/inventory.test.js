@@ -1,15 +1,10 @@
-/* global URL */
-import test from 'node:test';
+import { render, cleanup, screen } from '@testing-library/svelte';
+import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-import { render } from 'svelte/server';
+import fixture from '../data/base_sheet_reference.json';
 
 import InventoryPanel from '../../src/lib/sheet/components/InventoryPanel.svelte';
-
-const FIXTURE_PATH = fileURLToPath(new URL('../data/base_sheet_reference.json', import.meta.url));
-const fixture = JSON.parse(await readFile(FIXTURE_PATH, 'utf8'));
 
 const itemBulk = Object.fromEntries([
   ['Backpack', 1],
@@ -49,8 +44,10 @@ const qtyMap = {
   'Oil of Weightlessness': { qty: 1, pending: false },
 };
 
+afterEach(cleanup);
+
 test('the inventory renders groups, rollups, chips, coins, and the total', () => {
-  const { body } = render(InventoryPanel, {
+  const { container } = render(InventoryPanel, {
     props: {
       baseSheet: fixture,
       itemBulk,
@@ -63,17 +60,17 @@ test('the inventory renders groups, rollups, chips, coins, and the total', () =>
       onmoney: () => {},
     },
   });
-  assert.match(body, /Backpack/, 'container group header');
-  assert.match(body, /extradimensional/, "the sack's exclusion is labeled");
-  assert.match(body, /Carried/, 'the top-level group');
-  assert.match(body, /Total carried: <b>/, 'the rollup total');
-  assert.match(body, /trade/, 'trait chips render from the corpus map');
-  assert.match(body, /GP/, 'coin bar');
-  assert.match(body, /Rope/);
+  assert.match(container.innerHTML, /Backpack/, 'container group header');
+  assert.match(container.innerHTML, /extradimensional/, "the sack's exclusion is labeled");
+  assert.match(container.innerHTML, /Carried/, 'the top-level group');
+  assert.match(container.innerHTML, /Total carried: <b>/, 'the rollup total');
+  assert.match(container.innerHTML, /trade/, 'trait chips render from the corpus map');
+  assert.match(container.innerHTML, /GP/, 'coin bar');
+  assert.match(container.innerHTML, /Rope/);
 });
 
 test('view-only inventory: no inputs, quantities as text', () => {
-  const { body } = render(InventoryPanel, {
+  const { container } = render(InventoryPanel, {
     props: {
       baseSheet: fixture,
       itemBulk,
@@ -83,15 +80,14 @@ test('view-only inventory: no inputs, quantities as text', () => {
       editable: false,
     },
   });
-  const inputs = body.match(/<input/g) ?? [];
-  assert.equal(inputs.length, 0, 'view-only renders no controls');
-  assert.match(body, /×1/, 'quantities render as text');
+  assert.equal(container.querySelectorAll('input').length, 0, 'view-only renders no controls');
+  assert.match(container.innerHTML, /×1/, 'quantities render as text');
 });
 
 // ---- MOR-48 review fixes: the production path owns the behaviour ----------
 
 test('a rejected quantity write surfaces inline at that item; a rejected coin write at the coins (finding 5)', () => {
-  const { body } = render(InventoryPanel, {
+  render(InventoryPanel, {
     props: {
       baseSheet: fixture,
       itemBulk,
@@ -120,6 +116,30 @@ test('a rejected quantity write surfaces inline at that item; a rejected coin wr
       onmoney: () => {},
     },
   });
-  assert.match(body, /The party refused that quantity\./);
-  assert.match(body, /Coins write refused: negative amounts\./);
+  // Both surfaces are role=alert (coins block + item row) — query the
+  // role, not the markup (MOR-77 finding 2).
+  const alerts = screen
+    .getAllByRole('alert')
+    .map((el) => el.textContent)
+    .sort();
+  assert.deepEqual(alerts, [
+    'Coins write refused: negative amounts.',
+    'The party refused that quantity.',
+  ]);
+
+  cleanup();
+  render(InventoryPanel, {
+    props: {
+      baseSheet: fixture,
+      itemBulk,
+      itemTraits,
+      qtyMap,
+      money: { value: { pp: 0, gp: 24, sp: 2, cp: 4 }, pending: false },
+      editable: true,
+      offline: false,
+      onqty: () => {},
+      onmoney: () => {},
+    },
+  });
+  assert.equal(screen.queryByRole('alert'), null, 'no error surface without a refused write');
 });
