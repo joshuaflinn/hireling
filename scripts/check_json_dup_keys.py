@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 Joshua Flinn.
-# ruff: noqa: T201 -- a CLI guardrail: printing its verdict to stdout/stderr is the product.
+# ruff: noqa: T201, S603 -- a CLI guardrail: printing its verdict is the product;
+# subprocess is audited at each call site (fixed argv, no shell, repo-controlled
+# inputs — see the per-site notes).
 """Gate guardrail: fail on duplicate keys in any tracked JSON file (gh#49).
 
 JSON is last-wins: JSON.parse, serde_json and Python's json module all
@@ -196,7 +198,9 @@ def iter_tracked_json(repo_root: Path) -> Iterator[str]:
     # Audited for semgrep (dangerous-subprocess-use-audit): list argv, no
     # shell; args are the which(1)-resolved git path, fixed flags, and paths
     # produced by git itself — nothing attacker-controlled reaches argv.
-    out = subprocess.run(  # noqa: S603 -- fixed argv, repo-controlled enumeration
+    # The nosemgrep below records that audit; the rule matches any subprocess
+    # call structurally, so suppression is its intended post-audit outcome.
+    out = subprocess.run(  # nosemgrep:python.lang.security.audit.dangerous-subprocess-use-audit
         [GIT, "ls-files", "-z", "--", "*.json"],
         cwd=repo_root,
         check=True,
@@ -338,7 +342,7 @@ def _run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
     # Audited for semgrep (dangerous-subprocess-use-audit): list argv, no
     # shell; args are sys.executable, this script's own path, and fixture
     # paths from our own tempdir — nothing attacker-controlled reaches argv.
-    return subprocess.run(  # noqa: S603 -- sys.executable + our own script path
+    return subprocess.run(  # nosemgrep:python.lang.security.audit.dangerous-subprocess-use-audit
         [sys.executable, str(_script_path()), *args],
         capture_output=True,
         text=True,
