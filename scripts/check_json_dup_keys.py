@@ -193,6 +193,9 @@ def iter_tracked_json(repo_root: Path) -> Iterator[str]:
     """Yield every tracked *.json path (repo-relative), via git ls-files."""
     if GIT is None:
         raise GitMissingError
+    # Audited for semgrep (dangerous-subprocess-use-audit): list argv, no
+    # shell; args are the which(1)-resolved git path, fixed flags, and paths
+    # produced by git itself — nothing attacker-controlled reaches argv.
     out = subprocess.run(  # noqa: S603 -- fixed argv, repo-controlled enumeration
         [GIT, "ls-files", "-z", "--", "*.json"],
         cwd=repo_root,
@@ -332,6 +335,9 @@ def _script_path() -> Path:
 
 def _run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
     """Run this script's CLI as the hook and the recipe do. Never raises."""
+    # Audited for semgrep (dangerous-subprocess-use-audit): list argv, no
+    # shell; args are sys.executable, this script's own path, and fixture
+    # paths from our own tempdir — nothing attacker-controlled reaches argv.
     return subprocess.run(  # noqa: S603 -- sys.executable + our own script path
         [sys.executable, str(_script_path()), *args],
         capture_output=True,
