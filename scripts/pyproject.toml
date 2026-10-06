@@ -1,0 +1,7 @@
+# Marker for the grizzly-gate python language adapter (its manifest pins
+# `marker = "pyproject.toml"`). Deliberately minimal: no [project] and no
+# [build-system], because this project is a zero-dependency stdlib script —
+# the gate's deps check then installs nothing but pytest, and the loose
+# layout resolves first-party imports via the gate pytest.ini's pythonpath.
+# The gate forces its own ruff/mypy/pytest configs, so no tool settings
+# belong here. See gh#49 and the PR that wired this in.
