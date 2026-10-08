@@ -37,10 +37,15 @@ async fn get(app: &axum::Router, path: &str, session: &str) -> (StatusCode, Valu
     (status, body)
 }
 
-/// Seed a member whose base sheet is the reference export with
-/// `identity.name` replaced (the imported-field rule needs two fixtures
-/// differing in that one field). Returns (`party_id`, `character_id`).
-async fn seed_named_member(pool: &sqlx::PgPool, sub: &str, name: &str) -> (i64, i64) {
+/// Seed a member into an explicit party — the general form. The imported-field
+/// rule needs two fixtures differing in one field; the party-boundary test
+/// needs a member in a party of their own. Returns (`party_id`, `character_id`).
+async fn seed_member_in_party(
+    pool: &sqlx::PgPool,
+    party_id: i64,
+    sub: &str,
+    name: &str,
+) -> (i64, i64) {
     const REFERENCE: &str = include_str!("../../tests/data/pb_export_reference.json");
     let export = crate::pbimport::model::parse_and_validate(REFERENCE).expect("valid reference");
     let (mut sheet, skips) = crate::pbimport::transform::transform(&export);
@@ -51,10 +56,6 @@ async fn seed_named_member(pool: &sqlx::PgPool, sub: &str, name: &str) -> (i64, 
     sheet.identity.name = name.to_owned();
     let sheet_json = serde_json::to_value(&sheet).expect("sheet serializes");
     testing::seed_account(pool, sub, "player").await;
-    let party_id: i64 = sqlx::query_scalar("SELECT id FROM parties ORDER BY id LIMIT 1")
-        .fetch_one(pool)
-        .await
-        .expect("POC party");
     let character_id: i64 = sqlx::query_scalar(
         "INSERT INTO characters (party_id, owner_sub, payload_raw, base_sheet) \
          VALUES ($1, $2, '{}', $3) RETURNING id",
@@ -71,6 +72,66 @@ async fn seed_named_member(pool: &sqlx::PgPool, sub: &str, name: &str) -> (i64, 
         .await
         .expect("seed vitals");
     (party_id, character_id)
+}
+
+/// Seed a member into the single POC party (the default world). Returns
+/// (`party_id`, `character_id`).
+async fn seed_named_member(pool: &sqlx::PgPool, sub: &str, name: &str) -> (i64, i64) {
+    let party_id: i64 = sqlx::query_scalar("SELECT id FROM parties ORDER BY id LIMIT 1")
+        .fetch_one(pool)
+        .await
+        .expect("POC party");
+    seed_member_in_party(pool, party_id, sub, name).await
+}
+
+#[tokio::test]
+async fn the_roster_never_leaks_another_partys_characters() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (_party_id, josh_character) = seed_named_member(&pool, "dev-sub-josh", "Flinn").await;
+    // A second party with a character of its own — the fixture the WHERE
+    // clause answers (FR-5): scoped and unscoped queries must disagree
+    // here, or the test proves nothing.
+    let elsewhere: i64 =
+        sqlx::query_scalar("INSERT INTO parties (name) VALUES ('Elsewhere') RETURNING id")
+            .fetch_one(&pool)
+            .await
+            .expect("seed second party");
+    let (outsider_party, outsider_character) =
+        seed_member_in_party(&pool, elsewhere, "dev-sub-outsider", "Outsider").await;
+    assert_eq!(
+        outsider_party, elsewhere,
+        "the outsider lives in the second party"
+    );
+    let session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
+    let app = testing::router_for(pool.clone(), &testing::auth_settings());
+
+    let (status, body) = get(&app, "/api/party/roster", &session).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body.get("party_id").and_then(Value::as_i64),
+        Some(1),
+        "josh resolves his own party, not the newest one"
+    );
+    let characters = body
+        .get("characters")
+        .and_then(Value::as_array)
+        .expect("characters array");
+    let ids: Vec<_> = characters
+        .iter()
+        .filter_map(|c| c.pointer("/character/id").and_then(Value::as_i64))
+        .collect();
+    assert_eq!(
+        ids,
+        vec![josh_character],
+        "exactly josh's party — the other party's row never crosses"
+    );
+    assert_ne!(
+        outsider_character, josh_character,
+        "the fixture itself must not collapse the boundary away"
+    );
+    testing::drop_test_db(pool, "party_roster_scoped").await;
 }
 
 #[tokio::test]
