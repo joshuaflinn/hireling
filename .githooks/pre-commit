@@ -17,6 +17,21 @@ fail() {
     exit 1
 }
 
+# Duplicate-key guardrail over tracked JSON (gh#49). Cheap (pure stdlib,
+# milliseconds over the whole tracked set), so it runs on every commit: a
+# manifest defect is a tree defect, not a diff defect. Fails loudly when
+# python3 is missing — a guardrail that skips is not a guardrail.
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+if [ ! -x "$REPO_ROOT/scripts/check_json_dup_keys.py" ] && [ ! -f "$REPO_ROOT/scripts/check_json_dup_keys.py" ]; then
+    fail "ERROR: $REPO_ROOT/scripts/check_json_dup_keys.py is missing — the JSON duplicate-key guardrail cannot run."
+fi
+if command -v python3 >/dev/null 2>&1; then
+    echo "JSON duplicate-key check..."
+    python3 "$REPO_ROOT/scripts/check_json_dup_keys.py" || fail "ERROR: duplicate JSON keys (see above)."
+else
+    fail "ERROR: python3 not found — the JSON duplicate-key check (gh#49) cannot run. Install python3; do not bypass."
+fi
+
 # Only the paths that were actually staged. Captured before formatting, because
 # `cargo fmt` rewrites the whole tree and we need to know what to put back.
 STAGED_RUST="$(git diff --cached --name-only --diff-filter=ACM -- '*.rs')"

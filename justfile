@@ -121,11 +121,20 @@ boundary:
     done; \
     echo "boundary ok: $(echo "$deps" | grep -c .) deps, serde-family only"
 
+# Duplicate-key guardrail over tracked JSON (gh#49). JSON is last-wins — a
+# duplicated manifest key silently replaces the pin above it and no parser
+# (JSON.parse, serde_json, npm) warns. Exact detection via stdlib
+# object_pairs_hook; zero dependencies. Fails loudly if python3 or git is
+# missing: a guardrail that skips is not a guardrail.
+json-keys:
+    python3 scripts/check_json_dup_keys.py --self-test
+    python3 scripts/check_json_dup_keys.py
+
 # The full local gate. Run this before pushing. Covers every check this
 # repo owns that the grizzly-gate image also runs: Rust fmt/clippy/tests/
 # cargo-deny, plus web svelte-check, unit tests, and build. (The gate's
 # eslint/tsc and security scans exist only in the pinned image.)
-ci-local: fmt-check lint test deny boundary web-check web-test web-build
+ci-local: json-keys fmt-check lint test deny boundary web-check web-test web-build
 
 # Alias — same gate, the name the spec calls it by.
 gate: ci-local
