@@ -84,16 +84,18 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
     captured emission. Calling the recorder or emitter helper directly cannot
     catch a missing call from that production path.
   - *A user-visible affordance*: render it through the component, in the state
-    the spec describes. `web/tests/helpers/svelte-hooks.mjs` compiles `.svelte`
-    imports in server mode so `svelte/server`'s `render()` runs real markup,
-    props and runes under `node --test`. A render that only passes the default
-    or empty value never enters the branch the spec is about — exercise the
-    non-default state.
-  - *An affordance server-mode rendering cannot reach* — anything riding an
-    `$effect` or an event handler: prove the consumer exists. Every exported
-    store, util, or handler the spec calls for needs a named caller. A store
-    nothing subscribes to and a helper nothing passes its callback are
-    unverified however many unit tests they carry.
+    the spec describes. `web/` runs `vitest run` against jsdom (config in
+    `web/vite.config.js`); mount with `@testing-library/svelte`'s `render()`
+    and assert what the user can see — by role, by text, by placeholder. A
+    render that only passes the default or empty value never enters the branch
+    the spec is about, so exercise the non-default state.
+  - *An affordance that lives in the wiring* — anything riding an `$effect` or
+    an event handler: drive it. `fireEvent.input`, `.click`, `.keyDown` against
+    the mounted component, then assert the DOM the spec promises. jsdom runs
+    effects and handlers, so "the store is correct and unit-tested" and "the
+    helper accepts an `onCommit`" are not proof — a store nothing subscribes to
+    and a callback nothing passes are unverified however many unit tests they
+    carry. The event is what proves the handler is wired.
   - *A field the spec sources from imported data*: prove it with two fixtures
     that differ in that field, asserting two different results. One fixture
     asserting one literal also passes against a hardcoded constant.
