@@ -107,6 +107,14 @@ export default function swPlugin(options = {}) {
   };
 }
 
+/**
+ * Emit dist/sw.js over the built bundle. Nothing to emit over an empty or
+ * missing dist — never a worker that precaches nothing.
+ *
+ * @param {string} root the vite project root
+ * @param {string} outDir the build output directory, relative to root
+ * @returns {void}
+ */
 function emitSw(root, outDir) {
   const distDir = path.resolve(root, outDir);
   if (!fs.existsSync(distDir)) return;
@@ -121,8 +129,14 @@ function emitSw(root, outDir) {
   fs.writeFileSync(path.join(distDir, 'sw.js'), source);
 }
 
-/** Relative posix paths of every file under dist, except a stale sw.js —
-    the worker never hashes itself. */
+/**
+ * Relative posix paths of every file under dist, except a stale sw.js —
+ * the worker never hashes itself.
+ *
+ * @param {string} dir the directory to descend
+ * @param {string} base the dist root, for relative paths
+ * @returns {string[]} sorted relative file paths
+ */
 function walk(dir, base) {
   const out = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -134,8 +148,14 @@ function walk(dir, base) {
   return out.sort();
 }
 
-/** Content hash of the built bundle: every file's path and bytes, in
-    sorted order. Same build ⇒ same id; any changed byte ⇒ new release. */
+/**
+ * Content hash of the built bundle: every file's path and bytes, in
+ * sorted order. Same build ⇒ same id; any changed byte ⇒ new release.
+ *
+ * @param {string[]} files sorted relative file paths under dist
+ * @param {string} distDir the absolute dist directory
+ * @returns {string} 16 hex characters — plenty for a cache-buster
+ */
 function buildIdFor(files, distDir) {
   const hash = crypto.createHash('sha256');
   for (const file of files) {
