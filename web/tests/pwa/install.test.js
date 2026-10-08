@@ -133,12 +133,17 @@ test('every listed icon file exists and is a real PNG of its claimed size', () =
 
 test('manifest colors come from the app palette (:root tokens)', () => {
   // The plan's hexes were from memory; the binding instruction is to take
-  // them from web/src/app.css. Panel is the app chrome color.
+  // them from web/src/app.css. theme_color is the browser chrome — panel;
+  // background_color is the splash behind first paint — the body's own
+  // `background: var(--bg)`. A splash that flashes a different dark is
+  // the mismatch this pairing exists to prevent.
   const css = fs.readFileSync(path.join(ROOT, 'src', 'app.css'), 'utf8');
   const panel = css.match(/--panel:\s*(#[0-9a-f]{6})/)?.[1];
+  const bg = css.match(/--bg:\s*(#[0-9a-f]{6})/)?.[1];
   assert.ok(panel, 'app.css defines --panel');
+  assert.ok(bg, 'app.css defines --bg');
   assert.equal(manifest.theme_color, panel);
-  assert.equal(manifest.background_color, panel);
+  assert.equal(manifest.background_color, bg);
 });
 
 test('index.html links the manifest, an icon, and carries theme-color', () => {
