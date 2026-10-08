@@ -33,7 +33,12 @@ export function readBootCache(storage, sub) {
 }
 
 /** Warn-once flag: a storage that refuses every write would otherwise
- *  repeat the same console line on every throttled write, forever. */
+ *  repeat the same console line on every throttled write, forever.
+ *  Module state — in production that is one line per tab, which is the
+ *  point. Test constraint: exactly one warn-count assertion per file
+ *  (vitest isolates module registries per file, so the flag starts fresh
+ *  in each); a second case in the same file asserting the count races
+ *  this flag and sees zero. */
 let warnedWriteFailure = false;
 
 /**
