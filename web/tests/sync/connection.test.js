@@ -193,3 +193,40 @@ test('a manual connect supersedes a still-pending scheduled retry', () => {
   clock.advance(30000); // the superseded retry must never fire a third socket
   assert.equal(mocks.sockets.length, 2, 'the cancelled retry stayed cancelled');
 });
+
+test('hangUp: the link dies and no reconnect is ever scheduled again', () => {
+  const { clock, mocks, conn } = setup();
+  conn.connect();
+  handshake(mocks.sockets[0]);
+  assert.equal(conn.state(), 'live');
+
+  conn.hangUp();
+  assert.equal(mocks.sockets[0].closed, true, 'the live socket is closed');
+  assert.equal(conn.state(), 'offline');
+
+  // The close itself fires the death path (onclose) — and any late
+  // error/close delivery must stay inert too. Wait past several backoff
+  // windows: nothing new ever opens.
+  clock.advance(120000);
+  assert.equal(mocks.sockets.length, 1, 'no socket #2 after a hang-up');
+  mocks.sockets[0].error();
+  mocks.sockets[0].close();
+  clock.advance(120000);
+  assert.equal(mocks.sockets.length, 1, 'late death events stay inert');
+
+  // connect() after a hang-up is inert — the session is over.
+  conn.connect();
+  assert.equal(mocks.sockets.length, 1);
+  assert.equal(conn.state(), 'offline');
+});
+
+test('hangUp cancels a pending retry — offline with a scheduled reconnect stops dead', () => {
+  const { clock, mocks, conn } = setup();
+  conn.connect();
+  mocks.sockets[0].error(); // offline, retry pending at 1000 (rng = 1)
+  assert.equal(conn.state(), 'offline');
+
+  conn.hangUp();
+  clock.advance(120000);
+  assert.equal(mocks.sockets.length, 1, 'the scheduled retry never fires');
+});

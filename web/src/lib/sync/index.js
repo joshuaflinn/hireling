@@ -53,7 +53,8 @@ export function partySocketUrl(partyId) {
  *
  * @typedef {Object} Sync
  * @property {() => void} connect
- * @property {() => void} disconnect
+ * @property {() => void} disconnect browser-offline — the reconnect loop keeps running
+ * @property {() => void} hangUp session over (logout) — the socket dies, no reconnect, ever
  * @property {(target: Record<string, *>, value: *) => void} write
  * @property {() => Record<string, {target: Record<string, *>, value: *, version: number}>} state
  * @property {(characterId: number) => EngineOutput | null} derived
@@ -217,9 +218,17 @@ export function createSync(options) {
       connection.connect();
     },
 
-    /** Browser-offline and "hang up" share the connection's one path. */
+    /** Browser-offline — the same reconnect loop as a socket error; the
+     *  link is wanted back when the browser returns. */
     disconnect() {
       connection.notifyOffline();
+    },
+
+    /** The session is over (logout): the socket dies and no reconnect is
+     *  ever scheduled again. NOT the same path as disconnect — that one
+     *  keeps the loop alive on purpose. */
+    hangUp() {
+      connection.hangUp();
     },
 
     /**
