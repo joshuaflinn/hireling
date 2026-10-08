@@ -74,6 +74,7 @@ export function partySocketUrl(partyId) {
  *   now?: () => number,
  *   timers?: { setTimeout: (fn: () => void, ms: number) => *, clearTimeout: (id: *) => void },
  *   idFactory?: () => string,
+ *   bootSnapshot?: { fields: Array<{ field: Record<string, *>, value: *, version: number }> },
  * }} options
  * @returns {Sync}
  */
@@ -92,6 +93,24 @@ export function createSync(options) {
   const queue = createQueue({ storage, accountSub });
   const store = createStore();
   const listeners = new Set();
+
+  /**
+   * One wire-shaped field set through the store's version merge — the
+   * `snapshot` frame's body and E10's `bootSnapshot` seed share this one
+   * path (no new merge semantics anywhere; the seed is just an old
+   * snapshot that lost any race it deserved to lose).
+   * @param {Array<{ field: Record<string, *>, value: *, version: number }>} fields
+   */
+  function applySnapshotFields(fields) {
+    for (const f of fields) {
+      store.applyServerField(f.field, f.value, /** @type {number} */ (f.version));
+    }
+  }
+
+  // The cold-boot seed: last-known wire state from the boot cache, merged
+  // by version exactly like a live snapshot (FR-9). Applied before any
+  // socket exists, so the first paint already carries last-known numbers.
+  applySnapshotFields(options.bootSnapshot?.fields ?? []);
 
   // E8's derived surface (design D4–D6): engine output is never versioned
   // and never stored durably — it is a pure function of already-versioned
@@ -136,9 +155,7 @@ export function createSync(options) {
   function handleFrame(frame) {
     if (frame.t === 'snapshot') {
       const fields = /** @type {Array<Record<string, *>>} */ (frame.fields ?? []);
-      for (const f of fields) {
-        store.applyServerField(f.field, f.value, /** @type {number} */ (f.version));
-      }
+      applySnapshotFields(fields);
       // The catch-up snapshot carries every roster character's engine
       // output (design D6) — applied before the fields event so the
       // sheet's first paint after connect already has its numbers.
