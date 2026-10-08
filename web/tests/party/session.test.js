@@ -49,13 +49,21 @@ function fakeSockets() {
   const factory = (url) => {
     const s = {
       url,
+      closed: false,
       onopen: null,
       onmessage: null,
       onclose: null,
       onerror: null,
       send() {},
       close() {
+        s.closed = true;
         s.onclose?.();
+      },
+      open() {
+        s.onopen?.();
+      },
+      message(data) {
+        s.onmessage?.({ data });
       },
     };
     sockets.push(s);
@@ -220,4 +228,58 @@ test('persist() is asked exactly once per account across two sessions', async ()
   await createPartySession(options());
   await createPartySession(options());
   assert.equal(persist.mock.calls.length, 1, 'the ask is once per sub, ever');
+});
+
+test('close() hangs the link up: a signed-out tab never reopens the socket', async () => {
+  // Real time, no fake timers — the reconnect scheduler holds the sync
+  // module's defaultTimers binding, so an injected clock cannot prove
+  // absence here. rng is pinned to 0: the pre-fix bug reconnected at once
+  // (0 ms delay), so a 50 ms real wait exposes it.
+  const rngSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+  const fetcher = fakeFetch();
+  const sockets = fakeSockets();
+  const session = await createPartySession({
+    fetchImpl: fetcher.impl,
+    storage: fakeStorage(),
+    account: { sub: SUB },
+    socketFactory: sockets.factory,
+    requestPersist: noopPersist,
+  });
+  session.sync.connect();
+  assert.equal(sockets.sockets.length, 1);
+
+  session.close();
+  assert.equal(sockets.sockets[0].closed, true, 'the socket dies with the session');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(sockets.sockets.length, 1, 'no reconnect ever rides out of close()');
+  rngSpy.mockRestore();
+});
+
+test('flush() lands the trailing write and leaves the link alone', async () => {
+  vi.useFakeTimers();
+  const fetcher = fakeFetch();
+  const sockets = fakeSockets();
+  const storage = fakeStorage();
+  const session = await createPartySession({
+    fetchImpl: fetcher.impl,
+    storage,
+    account: { sub: SUB },
+    socketFactory: sockets.factory,
+    requestPersist: noopPersist,
+  });
+  session.sync.connect();
+  sockets.sockets[0].open();
+  sockets.sockets[0].message(
+    JSON.stringify({ t: 'snapshot', fields: [{ field: hpTarget(7), value: 16, version: 2 }] }),
+  );
+  await vi.advanceTimersByTimeAsync(1); // the merge schedules a throttled cache write
+
+  session.flush();
+  const cached = JSON.parse(storage.getItem(`hireling:boot:${SUB}`));
+  assert.equal(
+    cached.snapshot.fields.find((/** @type {any} */ f) => f.value === 16) !== undefined,
+    true,
+    'page hide must not lose the ≤2 s trailing write',
+  );
+  assert.equal(sockets.sockets[0].closed, false, 'flush is not a hang-up — the page owns the socket now');
 });

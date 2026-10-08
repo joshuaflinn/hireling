@@ -9,6 +9,10 @@ import baseSheetFixture from '../data/base_sheet_reference.json';
 
 beforeEach(() => {
   localStorage.clear();
+  // The socket list is per-test state — a stale instance from an earlier
+  // test makes `instances.at(-1)` bind to the wrong socket and every
+  // closed/absence assertion vacuous.
+  FakeSocket.instances = [];
 });
 
 afterEach(() => {
@@ -113,7 +117,7 @@ test('the roster is live: a snapshot frame moves a card with no drill-in', async
 
   // The session opened its own socket at boot (FR-1) — this test never
   // drills in; the roster link does not wait for a sheet to be opened.
-  await waitFor(() => FakeSocket.instances.length > 0);
+  await waitFor(() => { assert.ok(FakeSocket.instances.length > 0, "the session opened its socket"); });
   const socket = FakeSocket.instances.at(-1);
   socket.open();
   socket.message(
@@ -137,7 +141,7 @@ test('page hide flushes the trailing boot-cache write — last-known state survi
   // Produce a pending write: drill in and take 5 damage. The throttled
   // writer holds it for 2 s — the flush must land it now, not never.
   fireEvent.click(screen.getByRole('button', { name: /Flinn/ }));
-  await waitFor(() => FakeSocket.instances.length > 0);
+  await waitFor(() => { assert.ok(FakeSocket.instances.length > 0, "the session opened its socket"); });
   const socket = FakeSocket.instances.at(-1);
   socket.open();
   socket.message(
@@ -153,6 +157,10 @@ test('page hide flushes the trailing boot-cache write — last-known state survi
   const cached = JSON.parse(localStorage.getItem('hireling:boot:dev-sub-josh'));
   const field = cached?.snapshot?.fields?.find((/** @type {any} */ f) => f.value === 15);
   assert.ok(field, 'the ≤2 s trailing write must not die with the tab');
+  // Flush-only by design: the socket dies with the page, and a bfcache
+  // restore reconnects through the normal death path. Page hide must NOT
+  // hang the link up — that is logout's job, and a hang-up is one-way.
+  assert.equal(socket.closed, false, 'page hide flushes, it does not hang up');
 });
 
 test('offline cold boot: the cached roster renders read-only, no error modal', async () => {
@@ -177,7 +185,7 @@ test('drill-in, own card: the sheet renders editable from the session sync', asy
   fireEvent.click(screen.getByRole('button', { name: /Flinn/ }));
   // The session sync connects through the real socket factory — feed it
   // the handshake the server would: snapshot + this character's output.
-  await waitFor(() => FakeSocket.instances.length > 0);
+  await waitFor(() => { assert.ok(FakeSocket.instances.length > 0, "the session opened its socket"); });
   const socket = FakeSocket.instances.at(-1);
   socket.open();
   socket.message(
@@ -200,7 +208,7 @@ test('drill-in, another member: the sheet renders view-only, zero edit buttons',
   await waitFor(() => screen.getByText('Becky'));
 
   fireEvent.click(screen.getByRole('button', { name: /Becky/ }));
-  await waitFor(() => FakeSocket.instances.length > 0);
+  await waitFor(() => { assert.ok(FakeSocket.instances.length > 0, "the session opened its socket"); });
   const socket = FakeSocket.instances.at(-1);
   socket.open();
   socket.message(
@@ -225,7 +233,7 @@ test('GM drill-in, member card: the sheet is view-only — zero edit affordances
   await waitFor(() => screen.getByText('Flinn'));
 
   fireEvent.click(screen.getByRole('button', { name: /Flinn/ }));
-  await waitFor(() => FakeSocket.instances.length > 0);
+  await waitFor(() => { assert.ok(FakeSocket.instances.length > 0, "the session opened its socket"); });
   const socket = FakeSocket.instances.at(-1);
   socket.open();
   socket.message(snapshotFrame([], [{ ...engineFixture, character_id: 7 }]));
@@ -250,7 +258,7 @@ test('GM drill-in, own character row: the role clause holds — still view-only'
   await waitFor(() => screen.getByText('Bruce'));
 
   fireEvent.click(screen.getByRole('button', { name: /Bruce/ }));
-  await waitFor(() => FakeSocket.instances.length > 0);
+  await waitFor(() => { assert.ok(FakeSocket.instances.length > 0, "the session opened its socket"); });
   const socket = FakeSocket.instances.at(-1);
   socket.open();
   socket.message(snapshotFrame([], [{ ...engineFixture, character_id: 9 }]));
@@ -269,7 +277,7 @@ test('backing out of a drill-in leaves the shell\'s socket alive', async () => {
   await waitFor(() => screen.getByText('Flinn'));
 
   fireEvent.click(screen.getByRole('button', { name: /Flinn/ }));
-  await waitFor(() => FakeSocket.instances.length > 0);
+  await waitFor(() => { assert.ok(FakeSocket.instances.length > 0, "the session opened its socket"); });
   const socket = FakeSocket.instances.at(-1);
   socket.open();
 
@@ -297,4 +305,27 @@ test('import flow: CTA opens the import view; returning re-fetches and the new c
     screen.queryByRole('heading', { name: 'Import a character' }) === null,
     'the import view is gone',
   );
+});
+
+test('logout hangs the session up: the tab never reopens the party socket', async () => {
+  stubServer({ roster: { party_id: 1, you: JOSH, characters: [FLINN] } });
+  vi.stubGlobal('WebSocket', FakeSocket);
+  render(App);
+  await waitFor(() => screen.getByText('Flinn'));
+  await waitFor(() => {
+    assert.ok(FakeSocket.instances.length > 0, 'the session opened its socket');
+  });
+  const socket = FakeSocket.instances[0];
+  socket.open();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+  await waitFor(() => screen.getByText('You are signed out.'));
+  assert.equal(socket.closed, true, 'the socket dies with the account');
+
+  // Real time on purpose — the reconnect scheduler holds the sync
+  // module's module-bound timers, so an injected clock cannot prove this
+  // absence. The pre-fix bug reopened a second socket within ~1 s of
+  // logout and kept reopening on backoff; this wait is the proof it cannot.
+  await new Promise((resolve) => setTimeout(resolve, 1300));
+  assert.equal(FakeSocket.instances.length, 1, 'a signed-out tab opens no further socket');
 });

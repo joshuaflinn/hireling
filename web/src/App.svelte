@@ -87,13 +87,16 @@
   // the session exists — the roster is live with no drill-in anywhere —
   // and page hide flushes the trailing boot-cache write (D6: last-known
   // state survives the tab; the throttle can hold up to 2 s of merges).
-  // connect() is idempotent, and refresh() swaps the session object around
-  // the same sync, so the effect re-running on it is a no-op.
+  // Flush, and nothing more: the socket dies with the page, and a bfcache
+  // restore reconnects through the normal death path. Hanging the link up
+  // is logout's job, and it is one-way. connect() is idempotent, and
+  // refresh() swaps the session object around the same sync, so the
+  // effect re-running on it is a no-op.
   $effect(() => {
     const current = session;
     if (!current) return;
     current.sync.connect();
-    const onHide = () => current.close();
+    const onHide = () => current.flush();
     window.addEventListener('pagehide', onHide);
     return () => window.removeEventListener('pagehide', onHide);
   });

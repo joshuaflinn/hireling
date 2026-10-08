@@ -39,8 +39,10 @@ export class RosterUnavailable extends Error {
  * @property {ReturnType<typeof createSync>} sync the session sync — one per tab
  * @property {() => Promise<{roster: *, offlineColdBoot: boolean}>} refresh
  * @property {boolean} offlineColdBoot true when the roster came from the cache
- * @property {() => void} close flush pending boot-cache writes and drop the
- *   socket — logout and page hide
+ * @property {() => void} flush land the trailing boot-cache write — page hide's
+ *   whole job; the socket dies with the page and a restore reconnects
+ * @property {() => void} close flush pending boot-cache writes and hang the
+ *   socket up for good — logout, one-way
  */
 
 /**
@@ -137,17 +139,24 @@ export async function createPartySession(options) {
     }
   }
 
-  // The session owns its socket and its cache writes (D2/D6): `close()`
-  // flushes the trailing throttle — the last ≤2 s of merges must not die
-  // with the tab — then drops the link. Logout and page hide call it.
+  // The session owns its socket and its cache writes (D2/D6), with two
+  // deliberate exits. `flush()` is page hide: land the trailing throttle —
+  // the last ≤2 s of merges must not die with the tab — and nothing more;
+  // the socket dies with the page anyway, and a bfcache restore
+  // reconnects through the normal death path. `close()` is logout: flush,
+  // then HANG UP — no reconnect is ever scheduled again, because a
+  // signed-out tab must not sit there reopening the party socket forever.
   return {
     roster,
     sync: sessionSync,
     refresh,
     offlineColdBoot,
+    flush() {
+      snapshotWriter.flush();
+    },
     close() {
       snapshotWriter.flush();
-      sessionSync.disconnect();
+      sessionSync.hangUp();
     },
   };
 }
