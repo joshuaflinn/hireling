@@ -59,12 +59,14 @@ class FakeSocket {
   constructor(url) {
     this.url = url;
     this.sent = [];
+    this.closed = false;
     FakeSocket.instances.push(this);
   }
   send(data) {
     this.sent.push(data);
   }
   close() {
+    this.closed = true;
     this.onclose?.();
   }
   open() {
@@ -101,6 +103,56 @@ test('GM boot: the roster renders, zero edit affordances, no CTA', async () => {
   await waitFor(() => screen.getByText('Flinn'));
   assert.equal(screen.queryByRole('button', { name: /damage|heal|import|new day/i }), null);
   assert.equal(screen.queryByText('Import your character'), null);
+});
+
+test('the roster is live: a snapshot frame moves a card with no drill-in', async () => {
+  stubServer({ roster: { party_id: 1, you: JOSH, characters: [FLINN] } });
+  vi.stubGlobal('WebSocket', FakeSocket);
+  render(App);
+  await waitFor(() => screen.getByText('Flinn'));
+
+  // The session opened its own socket at boot (FR-1) — this test never
+  // drills in; the roster link does not wait for a sheet to be opened.
+  await waitFor(() => FakeSocket.instances.length > 0);
+  const socket = FakeSocket.instances.at(-1);
+  socket.open();
+  socket.message(
+    snapshotFrame(
+      [{ field: { kind: 'vitals', character_id: 7, field: 'hp' }, value: 12, version: 2 }],
+      [{ ...engineFixture, character_id: 7 }],
+    ),
+  );
+
+  // The card's own HP bar moves: 12 live from the wire, ceiling 32 from
+  // the engine output — the same numbers the sheet would show.
+  await waitFor(() => screen.getByRole('meter', { name: 'Hit Points 12 of 32' }));
+});
+
+test('page hide flushes the trailing boot-cache write — last-known state survives the tab', async () => {
+  stubServer({ roster: { party_id: 1, you: JOSH, characters: [FLINN] } });
+  vi.stubGlobal('WebSocket', FakeSocket);
+  render(App);
+  await waitFor(() => screen.getByText('Flinn'));
+
+  // Produce a pending write: drill in and take 5 damage. The throttled
+  // writer holds it for 2 s — the flush must land it now, not never.
+  fireEvent.click(screen.getByRole('button', { name: /Flinn/ }));
+  await waitFor(() => FakeSocket.instances.length > 0);
+  const socket = FakeSocket.instances.at(-1);
+  socket.open();
+  socket.message(
+    snapshotFrame(
+      [{ field: { kind: 'vitals', character_id: 7, field: 'hp' }, value: 20, version: 2 }],
+      [{ ...engineFixture, character_id: 7 }],
+    ),
+  );
+  await waitFor(() => screen.getByRole('button', { name: 'Damage 5' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Damage 5' }));
+
+  window.dispatchEvent(new Event('pagehide'));
+  const cached = JSON.parse(localStorage.getItem('hireling:boot:dev-sub-josh'));
+  const field = cached?.snapshot?.fields?.find((/** @type {any} */ f) => f.value === 15);
+  assert.ok(field, 'the ≤2 s trailing write must not die with the tab');
 });
 
 test('offline cold boot: the cached roster renders read-only, no error modal', async () => {
@@ -164,6 +216,68 @@ test('drill-in, another member: the sheet renders view-only, zero edit buttons',
     null,
     'zero edit affordances in the read-only sheet',
   );
+});
+
+test('GM drill-in, member card: the sheet is view-only — zero edit affordances', async () => {
+  stubServer({ me: GM, roster: { party_id: 1, you: GM, characters: [FLINN] } });
+  vi.stubGlobal('WebSocket', FakeSocket);
+  render(App);
+  await waitFor(() => screen.getByText('Flinn'));
+
+  fireEvent.click(screen.getByRole('button', { name: /Flinn/ }));
+  await waitFor(() => FakeSocket.instances.length > 0);
+  const socket = FakeSocket.instances.at(-1);
+  socket.open();
+  socket.message(snapshotFrame([], [{ ...engineFixture, character_id: 7 }]));
+  // The panes are really rendered (not skeletons) before the zero-edit
+  // assertion can mean anything — SC-3's "all drill-ins" half.
+  await waitFor(() => screen.getByRole('meter'));
+  assert.equal(
+    screen.queryByRole('button', { name: /damage|heal|new day|import/i }),
+    null,
+    'the GM seat opens every sheet read-only',
+  );
+});
+
+test('GM drill-in, own character row: the role clause holds — still view-only', async () => {
+  // Nothing in the schema forbids a GM owning a character row. The
+  // drill-in gate is owner AND player — this fixture is the case only the
+  // role clause covers, so this test fails if the clause is dropped.
+  const gmOwns = payload(9, 'Bruce', 'dev-sub-gm');
+  stubServer({ me: GM, roster: { party_id: 1, you: GM, characters: [gmOwns] } });
+  vi.stubGlobal('WebSocket', FakeSocket);
+  render(App);
+  await waitFor(() => screen.getByText('Bruce'));
+
+  fireEvent.click(screen.getByRole('button', { name: /Bruce/ }));
+  await waitFor(() => FakeSocket.instances.length > 0);
+  const socket = FakeSocket.instances.at(-1);
+  socket.open();
+  socket.message(snapshotFrame([], [{ ...engineFixture, character_id: 9 }]));
+  await waitFor(() => screen.getByRole('meter'));
+  assert.equal(
+    screen.queryByRole('button', { name: /damage|heal|new day|import/i }),
+    null,
+    'owner-match alone must not unlock the GM seat',
+  );
+});
+
+test('backing out of a drill-in leaves the shell\'s socket alive', async () => {
+  stubServer({ roster: { party_id: 1, you: JOSH, characters: [FLINN] } });
+  vi.stubGlobal('WebSocket', FakeSocket);
+  render(App);
+  await waitFor(() => screen.getByText('Flinn'));
+
+  fireEvent.click(screen.getByRole('button', { name: /Flinn/ }));
+  await waitFor(() => FakeSocket.instances.length > 0);
+  const socket = FakeSocket.instances.at(-1);
+  socket.open();
+
+  // The view borrowed the shell's sync — its teardown must not close the
+  // tab's one link (one socket per tab, D2).
+  fireEvent.click(screen.getByRole('button', { name: '← The party' }));
+  await waitFor(() => screen.getByText('Flinn'), 'back lands on the roster');
+  assert.equal(socket.closed, false, 'a borrowed sync is not the borrower\'s to close');
 });
 
 test('import flow: CTA opens the import view; returning re-fetches and the new card renders', async () => {

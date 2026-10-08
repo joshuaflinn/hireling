@@ -83,6 +83,21 @@
     }
   }
 
+  // The session owns the tab's one socket (FR-1): it connects the moment
+  // the session exists — the roster is live with no drill-in anywhere —
+  // and page hide flushes the trailing boot-cache write (D6: last-known
+  // state survives the tab; the throttle can hold up to 2 s of merges).
+  // connect() is idempotent, and refresh() swaps the session object around
+  // the same sync, so the effect re-running on it is a no-op.
+  $effect(() => {
+    const current = session;
+    if (!current) return;
+    current.sync.connect();
+    const onHide = () => current.close();
+    window.addEventListener('pagehide', onHide);
+    return () => window.removeEventListener('pagehide', onHide);
+  });
+
   // The drill-in (FR-3): every account opens every character; the sheet
   // is editable only for the owner AND a player — E3's rule, rendered.
   /** @param {number} id */
@@ -114,6 +129,7 @@
       status = null; // the request never completed; the session is unknown
     }
     if (logoutAction(status) === 'signed-out') {
+      session?.close(); // the session's socket and pending cache writes die with the account
       account = null;
       session = null;
       sheetTarget = null;
@@ -172,11 +188,9 @@
     <p class="status">You are signed out.</p>
     <button onclick={signIn}>Sign in</button>
   </main>
-{:else if view === 'signed-in' || view === 'logout-failed'}
+{:else if view === 'logout-failed'}
   <main>
-    {#if view === 'logout-failed'}
-      <p class="error">Logging out failed — the session is still live. Try again.</p>
-    {/if}
+    <p class="error">Logging out failed — the session is still live. Try again.</p>
     <p class="status">Signed in as {account?.display_name}</p>
     <button onclick={bootParty}>The party</button>
     <button onclick={logout}>Log out</button>

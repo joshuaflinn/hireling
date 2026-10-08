@@ -84,7 +84,10 @@
     sync.connect();
     return () => {
       sheet.destroy();
-      sync.disconnect();
+      // A borrowed sync belongs to the shell — backing out of a drill-in
+      // must not tear down the party screen's link (one socket per tab).
+      // Only the standalone sync, which this view built, dies here.
+      if (!providedSync) sync.disconnect();
     };
   });
 

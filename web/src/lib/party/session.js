@@ -39,6 +39,8 @@ export class RosterUnavailable extends Error {
  * @property {ReturnType<typeof createSync>} sync the session sync — one per tab
  * @property {() => Promise<{roster: *, offlineColdBoot: boolean}>} refresh
  * @property {boolean} offlineColdBoot true when the roster came from the cache
+ * @property {() => void} close flush pending boot-cache writes and drop the
+ *   socket — logout and page hide
  */
 
 /**
@@ -135,7 +137,19 @@ export async function createPartySession(options) {
     }
   }
 
-  return { roster, sync: sessionSync, refresh, offlineColdBoot };
+  // The session owns its socket and its cache writes (D2/D6): `close()`
+  // flushes the trailing throttle — the last ≤2 s of merges must not die
+  // with the tab — then drops the link. Logout and page hide call it.
+  return {
+    roster,
+    sync: sessionSync,
+    refresh,
+    offlineColdBoot,
+    close() {
+      snapshotWriter.flush();
+      sessionSync.disconnect();
+    },
+  };
 }
 
 /** One roster read: GET /api/party/roster, the shape contracts/roster-rest.md
