@@ -23,6 +23,22 @@ function fakeStorage() {
   };
 }
 
+test('a refused write degrades as documented — never throws, warns once', () => {
+  const throwing = {
+    getItem: () => null,
+    setItem: () => {
+      throw new DOMException('quota exceeded', 'QuotaExceededError');
+    },
+  };
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  assert.doesNotThrow(
+    () => writeBootCache(throwing, 's', { party_id: 1 }, '{"fields":[]}'),
+    'FR-9: a cache that cannot be written is degradation, not an error',
+  );
+  assert.doesNotThrow(() => writeBootCache(throwing, 's', { party_id: 1 }, '{"fields":[]}'));
+  assert.equal(warn.mock.calls.length, 1, 'warned once, not per failed write');
+});
+
 test('boot cache keys isolate per account', () => {
   assert.equal(bootCacheKey('a'), 'hireling:boot:a');
   assert.notEqual(bootCacheKey('a'), bootCacheKey('b'));

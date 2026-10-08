@@ -32,6 +32,10 @@ export function readBootCache(storage, sub) {
   }
 }
 
+/** Warn-once flag: a storage that refuses every write would otherwise
+ *  repeat the same console line on every throttled write, forever. */
+let warnedWriteFailure = false;
+
 /**
  * Persist one account's boot pair. `snapshotJson` is `sync.snapshotForBoot()`
  * output — parsed here so the stored shape is one JSON document.
@@ -42,10 +46,23 @@ export function readBootCache(storage, sub) {
  * @param {string} snapshotJson
  */
 export function writeBootCache(storage, sub, roster, snapshotJson) {
-  storage.setItem(
-    bootCacheKey(sub),
-    JSON.stringify({ roster, snapshot: JSON.parse(snapshotJson), saved_at: Date.now() }),
-  );
+  try {
+    storage.setItem(
+      bootCacheKey(sub),
+      JSON.stringify({ roster, snapshot: JSON.parse(snapshotJson), saved_at: Date.now() }),
+    );
+  } catch (error) {
+    // A cache that cannot be written (quota pressure, private browsing)
+    // degrades exactly as documented (FR-9): last-known state is
+    // best-effort. It must never ride a throw out of a store subscriber —
+    // the writer rides the sync's event loop, and live sync outranks the
+    // cache. Warn once; every failed write after the first repeats a fact
+    // already on the console.
+    if (!warnedWriteFailure) {
+      warnedWriteFailure = true;
+      console.warn(`boot cache write failed — last-known state stays best-effort (${error})`);
+    }
+  }
 }
 
 /**

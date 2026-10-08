@@ -174,6 +174,39 @@ test('sync events throttle-write the snapshot into the boot cache', async () => 
   assert.ok(field, 'the merged store state reached the boot cache');
 });
 
+test('a refused boot-cache write never takes the sync down (subscriber loop)', async () => {
+  vi.useFakeTimers();
+  const fetcher = fakeFetch();
+  const storage = fakeStorage();
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  let refuseBootWrites = false;
+  const realSetItem = storage.setItem;
+  storage.setItem = (k, v) => {
+    // Refuse ONLY the boot-cache key: the write queue's persistence is
+    // E7's degradation story, not this test's subject. Quota pressure on
+    // the boot pair is what rides the subscriber loop.
+    if (refuseBootWrites && String(k).startsWith('hireling:boot:')) {
+      throw new DOMException('quota exceeded', 'QuotaExceededError');
+    }
+    realSetItem(k, v);
+  };
+  const session = await createPartySession({
+    fetchImpl: fetcher.impl,
+    storage,
+    account: { sub: SUB },
+    requestPersist: noopPersist,
+  });
+
+  // Quota pressure / private browsing: every cache write now throws. The
+  // writer rides the sync's event loop — the throw must die in the
+  // writer, never in the frame path.
+  refuseBootWrites = true;
+  assert.doesNotThrow(() => session.sync.write(hpTarget(7), 12));
+  await vi.advanceTimersByTimeAsync(2100); // the throttled write fires, swallowed
+  assert.doesNotThrow(() => session.sync.write(hpTarget(7), 15), 'the sync still lives');
+  assert.equal(warn.mock.calls.length, 1, 'warned once, not per failed write');
+});
+
 test('persist() is asked exactly once per account across two sessions', async () => {
   const fetcher = fakeFetch();
   const storage = fakeStorage();
