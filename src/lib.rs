@@ -14,6 +14,7 @@ pub mod engine_host;
 pub mod health;
 pub mod http;
 pub mod import;
+pub mod party;
 pub mod pbimport;
 pub mod sync;
 
