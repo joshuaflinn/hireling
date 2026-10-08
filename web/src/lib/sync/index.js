@@ -154,7 +154,9 @@ export function createSync(options) {
   /** @param {Record<string, *>} frame */
   function handleFrame(frame) {
     if (frame.t === 'snapshot') {
-      const fields = /** @type {Array<Record<string, *>>} */ (frame.fields ?? []);
+      const fields = /** @type {Array<{ field: Record<string, *>, value: *, version: number }>} */ (
+        frame.fields ?? []
+      );
       applySnapshotFields(fields);
       // The catch-up snapshot carries every roster character's engine
       // output (design D6) — applied before the fields event so the

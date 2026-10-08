@@ -53,7 +53,7 @@ export class RosterUnavailable extends Error {
  * }} options
  * @returns {Promise<PartySession>}
  */
-export async function createPartySession(options = {}) {
+export async function createPartySession(options) {
   const {
     fetchImpl = fetch,
     storage = localStorage,
@@ -68,6 +68,7 @@ export async function createPartySession(options = {}) {
   /** The one sync (D2). With a cache the party id is known before any
    *  fetch answers — an offline cold boot gets its socket ambitions and
    *  its seeded store immediately; without one it waits for the roster. */
+  /** @type {ReturnType<typeof createSync> | null} */
   let sync = null;
   /** @param {number} partyId */
   const makeSync = (partyId) => {
@@ -76,13 +77,13 @@ export async function createPartySession(options = {}) {
       storage,
       accountSub: sub,
       bootSnapshot: cached?.snapshot ?? undefined,
+      ...(socketFactory ? { socketFactory } : {}),
     };
-    if (socketFactory) syncOptions.socketFactory = socketFactory;
     return createSync(syncOptions);
   };
   if (cached?.roster) sync = makeSync(cached.roster.party_id);
 
-  /** @type {ReturnType<typeof fetchRoster>} */
+  /** @type {any} */
   let roster;
   let offlineColdBoot = false;
   try {
@@ -95,6 +96,7 @@ export async function createPartySession(options = {}) {
     offlineColdBoot = true;
   }
   if (!sync) sync = makeSync(roster.party_id);
+  const sessionSync = sync; // non-null from here; the closure reads this
 
   // The persistent-storage grant (FR-9): asked once per account, result
   // logged, never blocking. The flag lives in the same storage the queue
@@ -107,15 +109,15 @@ export async function createPartySession(options = {}) {
 
   // Cache the fresh roster now; throttle-follow every store merge so the
   // next cold boot is never staler than two seconds of merges.
-  writeBootCache(storage, sub, roster, sync.snapshotForBoot());
+  writeBootCache(storage, sub, roster, sessionSync.snapshotForBoot());
   const snapshotWriter = createThrottledWriter(
     /** @param {*} currentRoster @param {string} snapshotJson */
     (currentRoster, snapshotJson) => writeBootCache(storage, sub, currentRoster, snapshotJson),
     2000,
   );
-  sync.subscribe((event) => {
+  sessionSync.subscribe((event) => {
     if (event.type === 'fields' || event.type === 'queue' || event.type === 'derived') {
-      snapshotWriter.call(roster, sync.snapshotForBoot());
+      snapshotWriter.call(roster, sessionSync.snapshotForBoot());
     }
   });
 
@@ -126,14 +128,14 @@ export async function createPartySession(options = {}) {
     try {
       const fresh = await fetchRoster(fetchImpl);
       roster = fresh;
-      writeBootCache(storage, sub, roster, sync.snapshotForBoot());
+      writeBootCache(storage, sub, roster, sessionSync.snapshotForBoot());
       return { roster: fresh, offlineColdBoot: false };
     } catch (error) {
       throw new RosterUnavailable(`The roster refresh failed (${error}).`, roster);
     }
   }
 
-  return { roster, sync, refresh, offlineColdBoot };
+  return { roster, sync: sessionSync, refresh, offlineColdBoot };
 }
 
 /** One roster read: GET /api/party/roster, the shape contracts/roster-rest.md
