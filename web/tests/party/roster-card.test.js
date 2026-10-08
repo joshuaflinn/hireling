@@ -67,7 +67,7 @@ function seededCard() {
     schema: 'hireling.engine.output.v1',
     character_id: 7,
     render_base: { level: 3, hp_max: 32 },
-    effects: [BLESS, GUIDANCE],
+    effects: [BLESS, { ...GUIDANCE, tracked_manually: false }],
   });
   const state = createRosterState({ sync, roster });
   return { sync, state, card: state.cards[0] };
