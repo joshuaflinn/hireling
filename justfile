@@ -40,11 +40,14 @@ web-eslint:
     cd web && ./node_modules/.bin/eslint --no-config-lookup --config gate-eslint.config.mjs src tests scripts plugins vite.config.js
 
 # The gate image's scan:semgrep pass, replicated bench-side over the web
-# tree with the registry rule that fired on it (run 37850972131,
-# sw-plugin.mjs). The image's full rule set is wider; a digest bump that
-# moves it updates this invocation in the same PR. Needs the semgrep CLI
-# on PATH (`pipx install semgrep`) — a scan that skips is not a scan, so
-# a missing CLI fails loudly instead.
+# tree with the registry rules it has enforced there (calibrated by fire
+# against runs 37850972131 and 37981907115: missing-template-string-
+# indicator on the emitted-worker template; package-dependencies-check
+# on web/package.json — exact versions only, which the tree already
+# kept). The image's full rule set is wider; a digest bump that moves it
+# updates this invocation in the same PR. Needs the semgrep CLI on PATH
+# (`pipx install semgrep`) — a scan that skips is not a scan, so a
+# missing CLI fails loudly instead.
 scan-semgrep:
     #!/usr/bin/env bash
     if ! command -v semgrep >/dev/null 2>&1; then
@@ -53,6 +56,7 @@ scan-semgrep:
     fi
     SEMGREP_SEND_METRICS=off semgrep scan --metrics=off --error \
         --config https://semgrep.dev/r/javascript.lang.correctness.missing-template-string-indicator \
+        --config https://semgrep.dev/r/json.npm.security.package-dependencies-check \
         web
 
 # Vite dev server for frontend-only iteration (proxies nothing; use `just dev`
