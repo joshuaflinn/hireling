@@ -1,3 +1,5 @@
+/* global console, DOMException */
+
 import { afterEach, test, vi } from 'vitest';
 import assert from 'node:assert/strict';
 
@@ -92,10 +94,10 @@ test('the throttled writer coalesces bursts into one durable write', () => {
 });
 
 test('requestPersistentStorage: true on grant, false without the API, never rejects', async () => {
-  assert.equal(await requestPersistentStorage({ storage: { persist: async () => true } }), true);
+  assert.equal(await requestPersistentStorage({ storage: { persist: () => Promise.resolve(true) } }), true);
   assert.equal(await requestPersistentStorage({}), false, 'no storage object — honest false');
   assert.equal(
-    await requestPersistentStorage({ storage: { persist: async () => Promise.reject(new Error('no')) } }),
+    await requestPersistentStorage({ storage: { persist: () => Promise.reject(new Error('no')) } }),
     false,
     'a denial is a logged condition, not a crash',
   );

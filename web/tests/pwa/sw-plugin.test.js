@@ -1,3 +1,5 @@
+/* global process */
+
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -49,6 +51,9 @@ test('the fetch handler returns before any respondWith on the bypass path', () =
 
 test('the emitted worker parses as a script', () => {
   const source = composed();
+  // The Function constructor is the point: parsing the emitted worker is
+  // this test's whole subject (and `node --check` on disk backs it up).
+  // eslint-disable-next-line no-new-func
   new Function(source); // throws on syntax error
 });
 

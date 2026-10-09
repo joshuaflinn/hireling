@@ -4,6 +4,8 @@
    non-blocking — the app remains a plain web page; installability is an
    enhancement, never a gate. */
 
+/* global navigator, location, console */
+
 /**
  * Register `/sw.js` (scope `/`) when `env.PROD`, and implement the update
  * policy's page half (contract §4): on `controllerchange`, reload once —

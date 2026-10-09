@@ -1,3 +1,5 @@
+/* global console, DOMException, setTimeout */
+
 import { afterEach, test, vi } from 'vitest';
 import assert from 'node:assert/strict';
 
@@ -27,18 +29,19 @@ function fakeStorage() {
   };
 }
 
-/** A fetchImpl with a mutable world. */
+/** A fetchImpl with a mutable world. Throws reject (Promise.reject) — what a
+ *  real fetch does — so the offline path is exercised for real. */
 function fakeFetch({ ok = true, body = ROSTER, fail = false } = {}) {
   const calls = [];
   return {
     calls,
-    impl: async (url) => {
+    impl: (url) => {
       calls.push(url);
-      if (fail) throw new TypeError('network is gone');
+      if (fail) return Promise.reject(new TypeError('network is gone'));
       return {
         ok,
         status: ok ? 200 : 409,
-        json: async () => body,
+        json: () => Promise.resolve(body),
       };
     },
   };
@@ -72,7 +75,7 @@ function fakeSockets() {
   return { sockets, factory };
 }
 
-const noopPersist = async () => false;
+const noopPersist = () => Promise.resolve(false);
 
 test('online: roster fetched, sync aims at the roster party, cache written', async () => {
   vi.useFakeTimers();
@@ -218,7 +221,7 @@ test('a refused boot-cache write never takes the sync down (subscriber loop)', a
 test('persist() is asked exactly once per account across two sessions', async () => {
   const fetcher = fakeFetch();
   const storage = fakeStorage();
-  const persist = vi.fn(async () => true);
+  const persist = vi.fn(() => Promise.resolve(true));
   const options = () => ({
     fetchImpl: fetcher.impl,
     storage,

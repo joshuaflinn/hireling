@@ -8,7 +8,7 @@
 // down (E7's one-path rule): a fetch failure with a cache is an offline
 // cold boot from last-known state; without a cache it is an honest throw.
 
-/* global fetch, localStorage, window, JSON */
+/* global fetch, localStorage */
 
 import { createSync, partySocketUrl } from '../sync/index.js';
 import {

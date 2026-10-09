@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { render, screen, cleanup } from '@testing-library/svelte';
+import { render, cleanup } from '@testing-library/svelte';
 import { tick } from 'svelte';
 
 import SheetView from '../../src/lib/sheet/SheetView.svelte';

@@ -6,6 +6,8 @@
    Placeholder art, flagged swappable: replace the files in web/public/
    with real art any time — no code change (spec FR-7). */
 
+/* global Buffer, console */
+
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';

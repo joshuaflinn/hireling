@@ -1,3 +1,5 @@
+/* global window, localStorage, Event, setTimeout */
+
 import { afterEach, beforeEach, test, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/svelte';
@@ -39,19 +41,21 @@ function payload(id, name, owner, hp = 20) {
 const FLINN = payload(7, 'Flinn', 'dev-sub-josh');
 const BECKY = payload(8, 'Becky', 'dev-sub-becky');
 
-/** The server, as far as this file's tests go: /api/me, the roster, logout. */
+/** The server, as far as this file's tests go: /api/me, the roster, logout.
+ *  Plain function returning promises — the throw paths reject (Promise.reject),
+ *  exactly what a real fetch does, awaitable or not. */
 function stubServer({ me = JOSH, roster, rosterFails = false, secondRoster = null } = {}) {
   const calls = [];
-  const handler = async (url) => {
+  const handler = (url) => {
     calls.push(String(url));
-    if (url === '/api/me') return { ok: true, status: 200, json: async () => me };
+    if (url === '/api/me') return { ok: true, status: 200, json: () => Promise.resolve(me) };
     if (url === '/api/party/roster') {
-      if (rosterFails) throw new TypeError('network is gone');
+      if (rosterFails) return Promise.reject(new TypeError('network is gone'));
       const body = calls.filter((c) => c === '/api/party/roster').length > 1 && secondRoster ? secondRoster : roster;
-      return { ok: true, status: 200, json: async () => body };
+      return { ok: true, status: 200, json: () => Promise.resolve(body) };
     }
-    if (url === '/api/auth/logout') return { ok: true, status: 204, json: async () => ({}) };
-    throw new Error(`unexpected fetch ${url}`);
+    if (url === '/api/auth/logout') return { ok: true, status: 204, json: () => Promise.resolve({}) };
+    return Promise.reject(new Error(`unexpected fetch ${url}`));
   };
   vi.stubGlobal('fetch', vi.fn(handler));
   return calls;
