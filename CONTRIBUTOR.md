@@ -43,6 +43,10 @@ is the agent side; `CONSTITUTION.md` governs both.
 - **cargo-deny** — prebuilt binary from EmbarkStudios/cargo-deny releases, or
   `cargo install cargo-deny`. The pre-commit hook skips the audit without it, but
   CI doesn't.
+- **semgrep** — `pipx install semgrep` (or pip). `just scan-semgrep`, the local
+  replica of the gate image's `scan:semgrep` pass, fails loudly without it. Or
+  skip the local install and run the pinned gate image directly (below) — it
+  carries its own.
 - **just** — optional convenience; every recipe is also a plain cargo command.
 - **docker** — two uses: the throwaway dev Postgres (`just db` wraps
   `docker compose up -d db`), and running the grizzly-gate check locally exactly

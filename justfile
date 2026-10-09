@@ -27,6 +27,34 @@ web-test:
 web-check:
     npm --prefix web run check
 
+# The gate image's node:eslint pass, replicated bench-side. The image
+# lints with --no-config-lookup and its own flat config — ES builtins
+# only, no browser/node env — so every platform global must be declared
+# in-file (/* global */ header; convention: web/src/lib/sync/index.js).
+# The replica config is web/gate-eslint.config.mjs, calibrated
+# one-for-one against gate run 37850972131 (44 findings before the
+# header fixes, clean after, nothing extra). A gate-image digest bump
+# that moves the rule set updates that config in the same PR. Needs
+# `npm --prefix web ci` once per clone (eslint is a devDependency).
+web-eslint:
+    cd web && ./node_modules/.bin/eslint --no-config-lookup --config gate-eslint.config.mjs src tests scripts plugins vite.config.js
+
+# The gate image's scan:semgrep pass, replicated bench-side over the web
+# tree with the registry rule that fired on it (run 37850972131,
+# sw-plugin.mjs). The image's full rule set is wider; a digest bump that
+# moves it updates this invocation in the same PR. Needs the semgrep CLI
+# on PATH (`pipx install semgrep`) — a scan that skips is not a scan, so
+# a missing CLI fails loudly instead.
+scan-semgrep:
+    #!/usr/bin/env bash
+    if ! command -v semgrep >/dev/null 2>&1; then
+        echo "scan-semgrep: semgrep CLI not found — install it (pipx install semgrep) or run the pinned gate image (CONTRIBUTOR.md)" >&2
+        exit 1
+    fi
+    SEMGREP_SEND_METRICS=off semgrep scan --metrics=off --error \
+        --config https://semgrep.dev/r/javascript.lang.correctness.missing-template-string-indicator \
+        web
+
 # Vite dev server for frontend-only iteration (proxies nothing; use `just dev`
 # for the real full-stack path).
 web-dev:
@@ -130,11 +158,14 @@ json-keys:
     python3 scripts/check_json_dup_keys.py --self-test
     python3 scripts/check_json_dup_keys.py
 
-# The full local gate. Run this before pushing. Covers every check this
-# repo owns that the grizzly-gate image also runs: Rust fmt/clippy/tests/
-# cargo-deny, plus web svelte-check, unit tests, and build. (The gate's
-# eslint/tsc and security scans exist only in the pinned image.)
-ci-local: json-keys fmt-check lint test deny boundary web-check web-test web-build
+# The full local gate. Run this before pushing. Mirrors the grizzly-gate
+# image check-for-check: Rust fmt/clippy/tests/cargo-deny, web
+# svelte-check/unit tests/build, and — replicated, after three pushes
+# went to GitHub red while this recipe said green — the image's
+# node:eslint (web-eslint) and scan:semgrep (scan-semgrep) passes. The
+# gate image remains the authority; these replicas are calibrated
+# against its observed behavior and must move with any digest bump.
+ci-local: json-keys fmt-check lint test deny boundary web-check web-test web-build web-eslint scan-semgrep
 
 # Alias — same gate, the name the spec calls it by.
 gate: ci-local
