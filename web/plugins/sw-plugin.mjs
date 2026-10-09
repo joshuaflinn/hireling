@@ -17,6 +17,13 @@ const STRATEGY_MODULE = path.join('src', 'lib', 'pwa', 'strategy.js');
 /**
  * Compose the service-worker source. Pure: same inputs, same bytes.
  *
+ * Gate note (run 37850972131): semgrep's missing-template-string-indicator
+ * rule heuristically flags plain `{...}` in any template literal, and this
+ * one holds generated JS — the braces are the point. False positive,
+ * suppressed on the PRECACHE line with the rule's id; the directive rides
+ * inside the build-time interpolation, so the emitted worker never sees it
+ * and the output bytes are unchanged.
+ *
  * @param {{
  *   buildId: string,
  *   precache: string[],
@@ -35,7 +42,7 @@ export function composeSw({ buildId, precache, strategySource }) {
 ${strategy}
 
 const BUILD_ID = ${JSON.stringify(buildId)};
-const PRECACHE = ${JSON.stringify(precache, null, 2)};
+const PRECACHE = ${JSON.stringify(precache, null, 2) /* nosemgrep: missing-template-string-indicator */};
 
 async function precacheAll() {
   const cache = await caches.open(shellCacheName(BUILD_ID));
