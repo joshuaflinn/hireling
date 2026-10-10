@@ -42,7 +42,11 @@ Behavior:
   the column default: a custom item has no Pathbuilder anchor base
   (base_qty 0) and quantity renders as `base_qty + delta`
   (`src/pbimport/anchor.rs`), so a row inserted at the default `0`
-  renders **qty 0** and fails US-3 AC-1 (qty 1).
+  renders **qty 0** and fails US-3 AC-1 (qty 1). The name is the
+  inventory anchor (`PRIMARY KEY (character_id, item_name)`), so a
+  second create of the same item name **accumulates** —
+  `qty_delta = qty_delta + 1`, answering `201` again; the corpus rows
+  stay distinct (duplicate names, §3).
 - **Response `201`**: the created row as the client renders it —
   `{ "corpus_entry_id": …, "kind": …, "name": …, "lane": "custom",
   "description": …, "value_or_rank": …, "created_by_sub": … }`.
@@ -54,11 +58,17 @@ Behavior:
 Edit one custom row. Body: any subset of `{ "name": …,
 "description": …, "value_or_rank": … }` (same caps).
 
-- **Authz**: session account is the row's `created_by_sub` (sole
-  writer, FR-5). Anyone else — including other character owners and the
-  GM — → **403** AND an audit row: `event='forbidden_custom_write'`,
-  `actor_sub=<session>`, `target='custom/{corpus_entry_id}'`,
-  `outcome='denied'` (enum value already exists; E2 migration 7).
+- **Authz**: the path's party must exist and name a party the session
+  account holds a character in — a foreign or nonexistent party is a
+  resource path that does not exist → **404**. Then the session account
+  must be the row's `created_by_sub` (sole writer, FR-5). Anyone else —
+  including other character owners and the GM — → **403** AND an audit
+  row: `event='forbidden_custom_write'`, `actor_sub=<session>`,
+  `target='custom/{corpus_entry_id}'`, `outcome='denied'` (enum value
+  already exists; E2 migration 7). **GM refusals never reach this
+  handler**: the `gm_read_only` middleware intercepts them upstream and
+  carries `forbidden_gm_write` instead — middleware-first is the
+  architecture; double-auditing one refusal would be worse.
 - Non-custom lane (`imported`/`core`) → 403 same audit path (curation
   editing is E15; the route structurally cannot edit what it does not
   own).
@@ -73,10 +83,17 @@ Edit one custom row. Body: any subset of `{ "name": …,
   (E8) already returns every corpus condition with `lane`; custom
   conditions appear automatically (`tier` NULL ⇒ `"display_only"`,
   `modifiers` NULL ⇒ `valued: false` — E8's read logic, unchanged).
-- **Custom spells/items for composer/inventory merge** —
-  `GET /api/parties/{party_id}/custom?kind=spell|item` returns the
-  client-side list shape `[{corpus_entry_id, name, description,
-  value_or_rank, created_by_sub}]`. Party-readable (member or GM) —
+- **Custom spells/items/conditions for composer, inventory merge, and
+  chips** — `GET /api/parties/{party_id}/custom?kind=spell|item|condition`
+  returns the client-side list shape `[{corpus_entry_id, name,
+  description, value_or_rank, created_by_sub}]`. Custom-condition rows
+  carry their `description` so the chip popup can show the creator's
+  text (US-1 AC-5); the chips themselves stay name-only on the wire —
+  the description join is client-side (design D6). The custom lane is
+  **corpus-global**: `corpus_entries` has no party column, so the party
+  segment gates access only (membership via `party_readable`) — it does
+  not filter rows. At the one-hall POC the distinction is invisible;
+  the read is honest about what it does. Party-readable (member or GM) —
   reads gate nothing (ownership gates writes).
 - Tooltips carry no fetch (design D1/D6).
 

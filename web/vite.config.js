@@ -12,6 +12,10 @@ import swPlugin from './plugins/sw-plugin.mjs';
 // svelteTesting flips svelte's module conditions to the browser build so
 // components mount client-side under jsdom (build output is untouched).
 export default defineConfig({
+  // Keep vite's transform cache inside the workspace: agent sandboxes sweep
+  // TMPDIR between commands (it happened mid-heartbeat — every suite failed
+  // to load at once), and node_modules/.vite is vite's own default home.
+  cacheDir: 'node_modules/.vite',
   plugins: [svelte(), svelteTesting(), swPlugin()],
   test: {
     environment: 'jsdom',

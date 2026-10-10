@@ -5,6 +5,7 @@
   import ImportPage from './lib/import/ImportPage.svelte';
   import PartyView from './lib/party/PartyView.svelte';
   import SheetView from './lib/sheet/SheetView.svelte';
+  import AboutView from './lib/sheet/components/AboutView.svelte';
   import ErrorState from './lib/sheet/components/ErrorState.svelte';
   import Skeleton from './lib/sheet/components/Skeleton.svelte';
 
@@ -115,6 +116,9 @@
   }
 
   function backToParty() {
+    // The one way back to the hub, for both exits: the sheet drill-in and
+    // the about view. Clearing the drill-in here is what makes an about
+    // round-trip land on the hub, never on a stale sheet.
     sheetTarget = null;
     view = session?.roster?.characters.length ? 'party' : 'party-empty';
   }
@@ -166,6 +170,11 @@
     onopenCharacter={openCharacter}
     onlogout={logout}
   />
+  <footer class="app-footer">
+    <button class="linkish" onclick={() => (view = 'about')}>About · licenses</button>
+  </footer>
+{:else if view === 'about'}
+  <AboutView onback={backToParty} />
 {:else if view === 'sheet' && sheetTarget && session}
   <main>
     <button class="back" onclick={backToParty}>← The party</button>
@@ -173,8 +182,8 @@
       character={sheetTarget.payload}
       accountSub={account?.sub ?? ''}
       editable={sheetTarget.editable}
+      partyId={session.roster?.party_id ?? 1}
       sync={session.sync}
-      partyId={session.roster.party_id}
       roster={session.roster.characters.map((/** @type {any} */ c) => ({
         id: c.character.id,
         name: c.character.name,
@@ -248,6 +257,21 @@
     display: block;
     margin: 0 0 1rem auto;
     text-align: left;
+  }
+
+  .app-footer {
+    margin: 1.5rem 0 1rem;
+  }
+
+  .linkish {
+    margin: 0;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.85rem;
+    background: none;
+    border: none;
+    color: #9aa4b2;
+    cursor: pointer;
+    text-decoration: underline;
   }
 
   .status {
