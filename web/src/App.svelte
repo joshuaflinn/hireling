@@ -5,6 +5,7 @@
   import ImportPage from './lib/import/ImportPage.svelte';
   import PartyView from './lib/party/PartyView.svelte';
   import SheetView from './lib/sheet/SheetView.svelte';
+  import AboutView from './lib/sheet/components/AboutView.svelte';
   import ErrorState from './lib/sheet/components/ErrorState.svelte';
   import Skeleton from './lib/sheet/components/Skeleton.svelte';
 
@@ -119,6 +120,12 @@
     view = session?.roster?.characters.length ? 'party' : 'party-empty';
   }
 
+  // The about view (E9 Task 10): one footer link on the party hub opens
+  // it; back returns to that hub — never to a stale drill-in.
+  function backFromAbout() {
+    view = session?.roster?.characters.length ? 'party' : 'party-empty';
+  }
+
   // Logout (E3 Story 6 AC3): a confirmed logout lands on a signed-out
   // screen with an explicit Sign in action — never an automatic probe, or
   // the probe's redirect would ride the surviving house IdP session right
@@ -166,6 +173,11 @@
     onopenCharacter={openCharacter}
     onlogout={logout}
   />
+  <footer class="app-footer">
+    <button class="linkish" onclick={() => (view = 'about')}>About · licenses</button>
+  </footer>
+{:else if view === 'about'}
+  <AboutView onback={backFromAbout} />
 {:else if view === 'sheet' && sheetTarget && session}
   <main>
     <button class="back" onclick={backToParty}>← The party</button>
@@ -243,6 +255,21 @@
     display: block;
     margin: 0 0 1rem auto;
     text-align: left;
+  }
+
+  .app-footer {
+    margin: 1.5rem 0 1rem;
+  }
+
+  .linkish {
+    margin: 0;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.85rem;
+    background: none;
+    border: none;
+    color: #9aa4b2;
+    cursor: pointer;
+    text-decoration: underline;
   }
 
   .status {
