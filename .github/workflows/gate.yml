@@ -85,9 +85,6 @@ jobs:
       # just, so the guard steps run the recipes themselves. Copied commands
       # drift from the justfile bodies exactly the way the leg lists drifted
       # to create these guards.
-      # just, so the guard steps run the recipes themselves. Copied commands
-      # drift from the justfile bodies exactly the way the leg lists drifted
-      # to create these guards.
       #
       # Pinned per toolkit-conventions version-pinning: crates.io just
       # max-stable 1.58.0, looked up from the crates.io API on 2026-10-10
