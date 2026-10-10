@@ -23,8 +23,8 @@ is the agent side; `CONSTITUTION.md` governs both.
 4. **PR.** Small beats clever. Description carries the *why*: what changed, what
    you rejected, what you verified (tests/build output, not vibes). CI runs
    **grizzly-gate** (Bear's quality gate, standalone mode) — the gate is the
-   first reviewer; a human is the second.
-5. **Human review, human merge.** The reviewer is never the person (or session)
+   first reviewer; an independent reviewer is the second.
+5. **Independent review, then the merge.** The reviewer is never the person (or session)
    that wrote it. Who can merge what is governed by `CONSTITUTION.md` Article
    III and its *Governance* section — this file does not restate it. Agents
    additionally follow `AGENTS.md`.
@@ -35,7 +35,7 @@ is the agent side; `CONSTITUTION.md` governs both.
   wrong — figure out which before merging. PRD changes are PRs too.
 - **Respect the non-goals.** No combat tracker, no character builder, no dice
   roller, no GM homework. The constitution explains why.
-- **Agents propose, humans dispose.** Never merge agent output you haven't read.
+- **Read what you merge.** Never merge agent output you haven't read.
   If you can't explain what a PR does, it isn't ready.
 - **Keep the stack boring.** New dependency? Justify it in the PR.
 - **Be decent.** Six users, all friends. Feedback on code, not people. Dave's
