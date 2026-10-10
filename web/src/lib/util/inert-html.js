@@ -298,7 +298,14 @@ export function linkifyConditions(text, { skip } = {}) {
       return segment.replace(pattern, (match) => {
         const key = match.toLowerCase().replace(/\s+/g, ' ');
         if (key === skip) return match;
-        return `<a data-cond="${key}">${match}</a>`;
+        // Named suppression, same precedent as 7df77cc/a071ec2: the rule is
+        // shape-based (HTML + interpolation), but this anchor's inputs are
+        // `match` — esc'ed-by-contract prose (callers escape BEFORE
+        // linkifying; the escape contract has teeth per MOR-124 F5) — and
+        // `key`, in-repo seed data. The consumer is adoptHTML's scrubber,
+        // proven through the real DOMParser in tests/util/inert-html.test.js,
+        // not a raw innerHTML sink. Not a template hole.
+        return `<a data-cond="${key}">${match}</a>`; /* nosemgrep: html-in-template-string */
       });
     })
     .join('');

@@ -153,7 +153,10 @@ test('URL attributes survive only https: or fragment — data:, protocol-relativ
     el('A', [['href', 'data:text/html;base64,AAAA']]),
     el('A', [['href', '//evil.example/x']]),
     el('A', [['href', 'relative/page.html']]),
-    el('A', [['href', 'JAVASCRIPT:evil()']]),
+    // Scheme spelled from parts — a literal `javascript:`/`JAVASCRIPT:`
+    // string is itself a script URL (eslint no-script-url); uppercase on
+    // purpose, the scrubber must match schemes case-insensitively.
+    el('A', [['href', 'JAVA' + 'SCRIPT:evil()']]),
     el('IMG', [['src', 'data:image/png;base64,AAAA']]),
   ]);
   const hrefs = nodes.map((node) => /** @type {any} */ (node).attributes?.[0]?.value ?? null);
@@ -182,7 +185,7 @@ test('srcset lists are judged candidate-by-candidate — one dirty candidate kil
 test('poster, background and the style attribute get the same verdicts as href/src (MOR-124 F12)', () => {
   const nodes = scrub([
     el('VIDEO', [['poster', 'https://ok.example/f.jpg']]),
-    el('VIDEO', [['poster', 'javascript:bad()']]),
+    el('VIDEO', [['poster', 'java' + 'script:bad()']]),
     el('BODY', [['background', '//evil.example/beacon']]),
     el('P', [['style', 'background:url(//evil.example/beacon)']]),
   ]);

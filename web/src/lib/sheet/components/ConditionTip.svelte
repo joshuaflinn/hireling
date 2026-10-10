@@ -193,9 +193,11 @@
   });
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 <!-- Reason (design D6): the tip is a focusable, keyboard-operable popover —
-tabindex + role carry the a11y affordance; Escape/Enter are handled above. -->
+tabindex + role="button" carry the a11y affordance; Escape/Enter are handled
+above. The wrapper needs no svelte-ignore: it IS interactive, so the a11y
+rules pass on it — and a dead ignore comment is its own lint error
+(svelte/no-unused-svelte-ignore). The popup below suppresses for itself. -->
 <span
   class="tip-wrap"
   bind:this={host}
@@ -215,9 +217,11 @@ tabindex + role carry the a11y affordance; Escape/Enter are handled above. -->
 >
   {#if children}{@render children()}{:else}{name}{/if}
   {#if open}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- Reason: key events are handled on the wrapper (Enter/Escape, above);
-    the popup's click is delegation-only for the second-layer links. -->
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+    <!-- Reason: the popup is role="tooltip" carrying delegation-only click
+    handling for the second-layer links — key events live on the wrapper
+    (Enter/Escape, above). The tooltip role is non-interactive by design,
+    so the interactions rule is answered here, on the element that raises it. -->
     <span class="pop" role="tooltip" bind:this={popHost} onclick={onPopupClick}></span>
   {/if}
 </span>
