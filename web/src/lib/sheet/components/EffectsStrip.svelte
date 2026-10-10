@@ -5,23 +5,48 @@
   // `tracked` badge (`tracked_manually`) so a zero-math condition never
   // looks like math. Hidden when the array is empty — no placeholder
   // theatre.
-  /** @type {{ effects?: any[] }} */
-  let { effects = [] } = $props();
+  //
+  // E9: every chip is a ConditionTip trigger (name-match is the gate,
+  // design D6 — the wire's chips carry no corpus link). `customConditions`
+  // is the party's custom-row join, passed down by SheetView when the
+  // custom read has landed: a chip whose name matches renders the creator's
+  // description + the custom badge; anything else gets the honest fallback
+  // popup. Additive — the chip markup/DOM is unchanged inside the wrapper.
+  import ConditionTip from './ConditionTip.svelte';
+
+  /** @type {{ effects?: any[], customConditions?: Array<{name: string,
+    description: string, value_or_rank?: number | null}> }} */
+  let { effects = [], customConditions = [] } = $props();
+
+  const normalize = (/** @type {string} */ value) =>
+    value.toLowerCase().replace(/\s+/g, ' ').trim();
+  const customByName = $derived(
+    new Map(customConditions.map((row) => [normalize(row.name), row])),
+  );
+  /** @param {string} name */
+  const customFor = (name) => customByName.get(normalize(name)) ?? null;
 </script>
 
 {#if effects.length}
   <div class="strip" role="list" aria-label="Active effects">
     {#each effects as effect (effect.effect_id)}
-      <span
-        class="chip"
-        class:manual={effect.tracked_manually}
-        role="listitem"
-        title={effect.duration_note
-          ? `${effect.source_name} · ${effect.duration_note}`
-          : effect.source_name}
+      {@const custom = customFor(effect.name)}
+      <ConditionTip
+        name={effect.name}
+        customDescription={custom?.description ?? null}
+        customValue={custom?.value_or_rank ?? null}
       >
-        {effect.name}<small>{effect.source_name}</small>{#if effect.tracked_manually}<em>tracked</em>{/if}
-      </span>
+        <span
+          class="chip"
+          class:manual={effect.tracked_manually}
+          role="listitem"
+          title={effect.duration_note
+            ? `${effect.source_name} · ${effect.duration_note}`
+            : effect.source_name}
+        >
+          {effect.name}<small>{effect.source_name}</small>{#if effect.tracked_manually}<em>tracked</em>{/if}
+        </span>
+      </ConditionTip>
     {/each}
   </div>
 {/if}

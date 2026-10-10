@@ -1,7 +1,7 @@
 import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 
-import { render, cleanup } from '@testing-library/svelte';
+import { render, cleanup, screen, fireEvent } from '@testing-library/svelte';
 
 import EffectsStrip from '../../src/lib/sheet/components/EffectsStrip.svelte';
 import Provenance from '../../src/lib/sheet/components/Provenance.svelte';
@@ -101,4 +101,100 @@ test('a stat tile carries the hover its stat deserves', () => {
   }).container.innerHTML;
   assert.match(body, /19/);
   assert.match(body, /Bless/, 'the tile forwards its stat\u2019s provenance to the hover');
+});
+
+// ---- E9 Task 4: chips and provenance entries are ConditionTip triggers ----
+
+
+/** The tip popup inside a rendered surface, when open. @param {HTMLElement} container */
+function tipPopup(container) {
+  return /** @type {HTMLElement | null} */ (container.querySelector('.pop'));
+}
+
+test('a Frightened chip is a tooltip trigger: hover shows prose, cite, and the AoN href', () => {
+  const { container } = render(EffectsStrip, {
+    props: {
+      effects: [
+        {
+          effect_id: 41,
+          name: 'Frightened',
+          source_name: 'Lorum Ipsum',
+          duration_note: '',
+          active: true,
+          tracked_manually: false,
+        },
+      ],
+    },
+  });
+  const chip = screen.getByRole('button', { name: /Frightened/ });
+  fireEvent.mouseEnter(chip);
+  const pop = /** @type {HTMLElement} */ (tipPopup(container));
+  assert.match(pop.innerHTML, /Status penalty equal to the value/, 'curated prose via the strip');
+  assert.match(pop.innerHTML, /Player Core p\. 444/, 'the cite');
+  assert.match(
+    pop.innerHTML,
+    /Conditions\.aspx\?ID=76/,
+    'the AoN anchor rides the same popup',
+  );
+  fireEvent.mouseLeave(chip);
+  assert.equal(tipPopup(container), null, 'unpinned hover closes on leave');
+});
+
+test('two fixtures: a joined custom condition shows its description; without the join, the fallback', () => {
+  const joined = render(EffectsStrip, {
+    props: {
+      effects: [
+        {
+          effect_id: 44,
+          name: 'Sunlit',
+          source_name: 'Lorum Ipsum',
+          duration_note: '',
+          active: true,
+          tracked_manually: true,
+        },
+      ],
+      customConditions: [{ name: 'Sunlit', description: 'Standing in the sun', value_or_rank: 2 }],
+    },
+  });
+  fireEvent.mouseEnter(screen.getByRole('button', { name: /Sunlit/ }));
+  const pop = /** @type {HTMLElement} */ (tipPopup(joined.container));
+  assert.match(pop.innerHTML, /Standing in the sun/, 'the creator description');
+  assert.match(pop.innerHTML, /custom/, 'the custom badge');
+  assert.match(pop.innerHTML, /Value: 2/, 'the value display note');
+  joined.unmount();
+
+  const orphan = render(EffectsStrip, {
+    props: {
+      effects: [
+        {
+          effect_id: 45,
+          name: 'Sunlit',
+          source_name: 'Lorum Ipsum',
+          duration_note: '',
+          active: true,
+          tracked_manually: true,
+        },
+      ],
+    },
+  });
+  fireEvent.mouseEnter(screen.getByRole('button', { name: /Sunlit/ }));
+  assert.match(
+    /** @type {HTMLElement} */ (tipPopup(orphan.container)).innerHTML,
+    /No paraphrase yet/i,
+    'no join data — the honest fallback, never invented prose',
+  );
+});
+
+test('a provenance entry named for a condition is a tooltip trigger too', () => {
+  const { container } = render(Provenance, {
+    props: {
+      applied: [
+        { type: 'status', value: 1, effect_id: 41, effect_name: 'Frightened', source_character_id: 3 },
+      ],
+      suppressed: [],
+    },
+  });
+  fireEvent.mouseEnter(screen.getByRole('button', { name: /Frightened/ }));
+  const pop = /** @type {HTMLElement} */ (tipPopup(container));
+  assert.match(pop.innerHTML, /Status penalty equal to the value/, 'the breakdown entry opens the tip');
 });
