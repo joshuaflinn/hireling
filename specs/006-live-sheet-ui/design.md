@@ -227,7 +227,7 @@ values in `aria-label`s).
   HpBar clamp/temp-segment and slot cast toggling; empty/loading/error
   renders.
 - **Gate:** `just ci-local` (fmt, clippy-deny, tests, cargo-deny, web suite)
-  green before PR; grizzly-gate fail-closed; an owner merges.
+  green before PR; grizzly-gate fail-closed; merge ask goes to Thrane.
 
 ## 11. Decisions (with rejected alternatives)
 

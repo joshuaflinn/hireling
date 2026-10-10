@@ -174,7 +174,7 @@ card = HpBar + EffectsStrip + SyncBadge; drill-in = SheetView editable={owner}).
 - PR `feat/8-live-sheet-ui` → `main`: `Closes #8`, link the Paperclip task,
   decisions with rejected alternatives in the body (AGENTS rule 5), scope
   table fence restated.
-- Grizzly-gate must pass; an owner merges. Orsik reviews independently.
+- Grizzly-gate must pass; merge ask goes to Thrane. Orsik reviews independently.
 - **Verify:** `just ci-local` exit 0, evidence pasted.
 
 ---

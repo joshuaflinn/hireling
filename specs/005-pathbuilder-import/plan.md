@@ -122,7 +122,7 @@
 
 - [ ] Full drill via API: import fixture as player A → mutate live state (direct SQL or future-path stub: set hp, spend a slot, prep a swap, add inventory delta) → re-import modified export → assert preservation + diff (SC-3).
 - [ ] `just ci-local` green end-to-end (fmt, clippy -D warnings, unit, integration w/ compose Postgres, cargo-deny, svelte-check) — paste the output in the PR body.
-- [ ] Push, open PR: body carries `Closes #7`, Paperclip task link, decisions-with-rejected-alternatives summary (from design §8), the two raised migrations called out, and the ci-local evidence. Request Orsik's independent review via the Paperclip flow; an owner merges.
+- [ ] Push, open PR: body carries `Closes #7`, Paperclip task link, decisions-with-rejected-alternatives summary (from design §8), the two raised migrations called out, and the ci-local evidence. Request Orsik's independent review via the Paperclip flow; merge ask goes to Thrane.
 
 ## Self-review checklist (before PR)
 

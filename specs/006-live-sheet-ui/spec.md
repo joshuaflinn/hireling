@@ -231,7 +231,7 @@ indicator). E6 obligations on top:
   P2 (gh#18).
 - **Verification:** `just ci-local` green before any PR opens (includes the
   web test suite — vitest, the E7 pattern); grizzly-gate fail-closed on the
-  PR; an owner merges. Claim gh#8 before any code (AGENTS.md sync point 1).
+  PR; merge ask goes to Thrane. Claim gh#8 before any code (AGENTS.md sync point 1).
 
 ## 8. Clarify rulings (answered — Josh, 2026-10-01, card `348fd82b` on MOR-45)
 

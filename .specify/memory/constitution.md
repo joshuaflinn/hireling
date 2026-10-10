@@ -35,8 +35,8 @@ Both owners build with AI agents. That's the workflow, not a secret.
   the exact head commit being merged, and an accept from a reviewer who is not
   the session that wrote it.
 - **The press is delegable; the judgment is not.** An owner may name a merge
-  authority in `AGENTS.md`, and that authority may be an agent. It is Thrane.
-  A named authority may press merge only when all three hold:
+  authority in `AGENTS.md`, and that authority may be an agent. A named
+  authority may press merge only when all three hold:
   1. `gate` is `success` at the exact head being merged, read from the
      check-runs API and not from a pasted local log;
   2. an independent reviewer has accepted that head;
