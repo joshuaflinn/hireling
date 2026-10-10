@@ -25,13 +25,13 @@
 
 ---
 
-### Task 1: The inert core — `util/inert-html.js` + boundary rule
+### Task 1: The inert core — **extend** `util/inert-html.js` + boundary rule
 
-**Files:** Create `web/src/lib/util/inert-html.js` (`setInertHTML`, `esc`, `linkifyConditions` — the contract's §1–2, ported from the prototype's `setHTML`/`esc`/`linkConds`); Create `web/tests/util/inert-html.test.js`; Modify the boundary check to ban `{@html}` outside `ConditionTip`/`AboutView` (find the boundary script; same pattern as the engine-boundary rule).
+**Files:** **Modify** `web/src/lib/util/inert-html.js` — the module **already ships** (E6; `specs/006-live-sheet-ui/spec.md` names E6 the shipper, E9 the consumer) with `parseInert`/`scrub`/`adoptHTML` and **zero production callers** (reachability rule: unbuilt until E9 mounts it). **`adoptHTML` is the setter** — no rename, no second setter (D7). Extend: `scrub`'s discard list (`iframe`, `object`, `embed`, `link`, `meta`, `style` beyond the shipped `script`), attribute filter upgraded to https-or-fragment-only (contract §1), and two new exports `esc` + `linkifyConditions` (contract §2, ported from the prototype's `esc`/`linkConds`). **Extend** `web/tests/util/inert-html.test.js` (7 tests ship — add contract §4's new rows only, keep the 7 untouched); Modify the boundary check to ban `{@html}` outside `ConditionTip`/`AboutView` (find the boundary script; same pattern as the engine-boundary rule).
 
 **Steps:**
-- [ ] Port the three functions verbatim-in-spirit from the frozen prototype; add the attribute strip + scheme filter + discarded-elements list (contract §1 — beyond the prototype, deliberate).
-- [ ] Test first: the hostile matrix (contract §4) as unit suite — script/no-exec, onerror strip, `javascript:` drop, tag-passthrough/linkify-in-text-only, `skip` name, `link:false` exclusion. Each row is a named test.
+- [ ] Port `esc`/`linkifyConditions` verbatim-in-spirit from the frozen prototype; extend `scrub` + `scrubAttributes` per contract §1 — beyond both the prototype and the shipped module, deliberate.
+- [ ] Test first: contract §4's new rows only — discard-set fixtures, scheme allowlist (`data:`/protocol-relative/relative dropped; `https:` + fragment survive), `esc`, linkify (text-segment-only, tag passthrough, `skip`, `link:false`). The 7 shipped tests stay untouched. Each new row is a named test.
 
 **Done when:** `npx vitest run web/tests/util/inert-html.test.js` green; `grep -rn "{@html}" web/src` shows zero outside the two sanctioned components; `just ci-local` green.
 
@@ -51,7 +51,7 @@
 
 **Steps:**
 - [ ] Behavior (prototype baseline): `mouseenter`/`focus` opens; `mouseleave`/`blur` closes *unless pinned*; `click`/`Enter` pins; `keydown Escape` and click-outside close; a linkified name inside the popup swaps content in place (second layer, never a third).
-- [ ] Renders: prose via `setInertHTML` + `linkifyConditions` (curated only — descriptions are plain text), `Player Core p. N`, AoN anchor (`https://2e.aonprd.com/Conditions.aspx?ID=N`, `rel="noopener"`), tier/lane/`custom` badges, fallback badge for no-prose.
+- [ ] Renders: prose via `adoptHTML` + `linkifyConditions` (curated only — descriptions are plain text), `Player Core p. N`, AoN anchor (`https://2e.aonprd.com/Conditions.aspx?ID=N`, `rel="noopener"`), tier/lane/`custom` badges, custom condition's optional value as a display note in the tip body, fallback badge for no-prose.
 - [ ] Test first (fireEvent, per AGENTS affordance rule): hover→visible with prose+cite+href; click→pinned (survives mouseleave); Escape→closed; focus+Enter pins (keyboard path); hostile prose through the mounted component (matrix row 5 — production path); two fixtures — matching name vs non-matching (fallback) — assert different visible results.
 
 **Done when:** vitest green; keyboard discipline reuses `util/keyboard.js` patterns (focus restore on close).
@@ -71,7 +71,7 @@
 **Files:** Modify `src/http.rs` (two `API_ROUTES` rows); Create `src/custom/mod.rs` (or extend an existing module home — executor's call per locality); Create `src/tests/custom_rows.rs`; register in the test tree where `engine_rest.rs` registers.
 
 **Steps:**
-- [ ] Test first, through the real router: 201 per kind with the row visible via `GET /conditions` (condition) / custom read (all); custom item → inventory row exists for the creator's character; every cap boundary → 400 with `{field, reason}` (`"name" 65`, description 281, rank 11, item-with-value); GM create → 403; no session → 401.
+- [ ] Test first, through the real router: 201 per kind with the row visible via `GET /conditions` (condition) / custom read (all); custom item → inventory row exists for the creator's character **with `qty_delta = 1` asserted** (renders qty 1 — base 0 + 1; the column default 0 would render qty 0 and fail US-3 AC-1); every cap boundary → 400 with `{field, reason}` (`"name" 65`, description 281, rank 11, item-with-value); GM create → 403; no session → 401.
 - [ ] Implement `POST /api/parties/{party_id}/custom` per `contracts/custom-rows-rest.md` §1 (transaction: corpus row + item inventory row; validation before write).
 
 **Done when:** integration suite green; `GET /conditions` shows the custom condition with `lane:"custom"`, `tier:"display_only"`, `valued:false` — asserted, not assumed.
@@ -81,7 +81,7 @@
 **Files:** extend Task 5's files.
 
 **Steps:**
-- [ ] Test first: creator PATCH → 200 + updated row; other member PATCH → 403 **and** an `audit_events` row `forbidden_custom_write`/`denied` (assert the persisted row — observability rule); GM PATCH → 403 + audit; PATCH an imported row → 403 + audit; importer re-run with custom rows present → custom rows byte-identical (FR-8 — run the real importer path against the test DB).
+- [ ] Test first: creator PATCH → 200 + updated row; other member PATCH → 403 **and** an `audit_events` row `forbidden_custom_write`/`denied` (assert the persisted row — observability rule); GM PATCH → 403 + audit; PATCH an imported row → 403 + audit; **E4 corpus-importer** re-run with custom rows present → custom rows byte-identical (FR-8 — run the real corpus import path against the test DB, not the Pathbuilder importer; the pbimport kept-delta notice is expected, §3 of the REST contract).
 - [ ] Implement the PATCH gate + audit emission.
 
 **Done when:** suite green; audit assertions read the table, not a log line.
@@ -111,14 +111,14 @@
 **Files:** Create `web/src/lib/sheet/components/ConditionPicker.svelte` (dialog over `GET /api/parties/{id}/conditions`: search, tier/lane/valued badges, value input for valued, apply, custom rows inline, "Add custom condition"); Modify `SheetView.svelte` (owner-gated "Add condition" affordance near `EffectsStrip`); `custom-store.js` (apply via the existing effect-create write the sync layer already exposes — `sheet/state.js` is the only socket module; route through it); tests.
 
 **Steps:**
-- [ ] Test first: picker renders corpus rows from the fetched list with badges (two fixtures: `engine_math`/valued vs `display_only` vs `custom` — different badges, different affordances); valued condition requires value input, apply issues the existing effect-create call shape (`corpus_entry_id` + `condition_value`); display-only applies without value; GM/view-only never sees the open affordance; custom row applies → chip renders `tracked` (integration with Task 4's trigger is the reachability proof for FR-6).
+- [ ] Test first: picker renders corpus rows from the fetched list with badges (two fixtures: `engine_math`/valued vs `display_only` vs `custom` — different badges, different affordances; custom rows show their optional value as a display note); valued condition requires value input, apply issues the existing effect-create call shape (`corpus_entry_id` + `condition_value`); display-only applies without value; GM/view-only never sees the open affordance; custom row applies → chip renders `tracked` (integration with Task 4's trigger is the reachability proof for FR-6).
 - [ ] Implement; tooltips on picker rows (Task 3 unit mounted here — production path).
 
 **Done when:** suite green; applying `Frightened 2` through the picker moves the target sheet's numbers via the engine — covered by E8's existing suites; E9's new assertion is only the wiring (call shape + badges).
 
 ### Task 10: NOTICE lane + `AboutView`
 
-**Files:** Modify `NOTICE.md` (curated-prose lane, CUP, prototype-freeze provenance — text drafted in `data-model.md` §3); Create `web/src/lib/rules/notice.md` (build-time copy or import) + `web/src/lib/sheet/components/AboutView.svelte` (renders through `setInertHTML`); entry point (app footer/info — executor's call, keep it one link); tests.
+**Files:** Modify `NOTICE.md` (curated-prose lane, CUP, prototype-freeze provenance — text drafted in `data-model.md` §3); Create `web/src/lib/rules/notice.md` (build-time copy or import) + `web/src/lib/sheet/components/AboutView.svelte` (renders through `adoptHTML`); entry point (app footer/info — executor's call, keep it one link); tests.
 
 **Steps:**
 - [ ] Test first: about view renders a known NOTICE line (e.g. the curated-prose lane sentence) through the mounted component; hostile markup fixture in a test copy proves the inert path (production-path rule).

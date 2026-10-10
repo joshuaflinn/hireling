@@ -102,7 +102,8 @@ affordance. Owner-gated.
   options: fold into E9's plan as added tasks (≈ +1–2 heats), or a
   standalone backfill task ahead of E13. Korrin's recommendation:
   standalone task — it is E8-shaped (engine seam, wire frames) and E13
-  builds directly on it.
+  builds directly on it. **Answered (post-escalation): standalone —
+  filed as gh#74, sequenced ahead of E13 (gh#15); does not block E9.**
 - **Rejected — spec E9 around a picker that might exist**: an affordance
   pointed at a surface nobody ships is a spec bug, not scope discipline.
 
@@ -124,8 +125,11 @@ affordance. Owner-gated.
   `prepared: "<name>"`. The composer lists custom rows from the custom
   fetch; the write is unchanged.
 - **Custom item**: create inserts the corpus row AND one
-  `character_inventory_live` row (qty 1) for the creating character in
-  the same transaction; qty changes thereafter are ordinary `inv`
+  `character_inventory_live` row for the creating character in
+  the same transaction — **`qty_delta = 1` explicitly, not the column
+  default 0**: a custom item has no anchor base (base 0), and quantity
+  renders as `base_qty + delta`, so the default would render qty 0 and
+  fail US-3 AC-1. Qty changes thereafter are ordinary `inv`
   writes by exact name.
 - **Audit**: `forbidden_custom_write` already exists in the enum — no
   migration. Successful creates are not audit events (the table's
@@ -154,17 +158,31 @@ descriptions render as the prose body.
   conditions go dark; provenance rows and nested prose links (which
   carry only names) would need a separate lookup path anyway.
 
-## D7 — Inert rendering: one shared module, boundary-checked
+## D7 — Inert rendering: one shared module (E6's), extended in place, boundary-checked
 
-Port the prototype's `setHTML` (DOMParser → `replaceChildren`),
-`esc`, and `linkConds` (text-node-only linkification, tag segments
-passed through untouched) into `web/src/lib/util/inert-html.js`. All
-prose — curated, custom descriptions, NOTICE — renders through it;
-Svelte `{@html}` is banned for prose (the boundary check gains this
-rule; see plan Task 1).
+`web/src/lib/util/inert-html.js` **already ships** — E6 built it
+(`parseInert`/`scrub`/`adoptHTML`, 7 unit tests;
+`specs/006-live-sheet-ui/spec.md` names E6 the shipper and E9 the
+consumer). **`adoptHTML(el, html)` is the setter** — the prototype's
+`setHTML` under its shipped name. E9 does not create a second setter
+(a second setter is a second chance to get it wrong — the exact failure
+this decision exists to prevent); it **extends the module in place**:
+`scrub`'s discard list grows to the contract's network-bearing set
+(`iframe`, `object`, `embed`, `link`, `meta`, `style` beyond `script`),
+the attribute filter upgrades from `javascript:`-dropping to
+https-or-fragment-only (kills `data:` and protocol-relative), and two
+new exports land — `esc` and `linkifyConditions` (the prototype's
+`linkConds`: text-node-only linkification, tag segments passed through
+untouched). All prose — curated, custom descriptions, NOTICE — renders
+through it; Svelte `{@html}` is banned for prose (the boundary check
+gains this rule; see plan Task 1).
 
 - **Why one module**: the guardrail is a property of the *path*, not of
   each call site — a second setter is a second chance to get it wrong.
+- **Reachability**: the shipped module has **zero production callers**
+  today — by AGENTS.md's reachability rule E6's requirement is unbuilt
+  until E9 mounts `ConditionTip`/`AboutView` on it. E9 is the epic that
+  closes that.
 - **Rejected — sanitize-then-`{@html}`** (DOMPurify-style allowlist):
   a new dependency (banned) or a hand-rolled allowlist (more code than
   DOMParser + text-only construction) for the same guarantee.
@@ -199,7 +217,7 @@ shipped scope (file + archive + verdict) left open.
 
 | Unit | New/Changed | Notes |
 |---|---|---|
-| `util/inert-html.js` | new | setter, esc, linkify (contracted) |
+| `util/inert-html.js` | **changed (extend)** | E6 shipped `parseInert`/`scrub`/`adoptHTML` (7 tests, zero callers); E9 extends scrub + attrs (contract §1) and adds `esc`/linkify (contract §2) |
 | `rules/condition-prose.json` | new | 42-entry seed, build-time import |
 | `rules/prose.js` | new | lookup: name → entry (ci-exact), fallback shape |
 | `ConditionTip` | new | hover/focus + pin + second layer; renders badges, cite, AoN, custom description |

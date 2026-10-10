@@ -211,7 +211,9 @@ same. Integration-test the custom-create endpoint at the caps and beyond.
   description), enforces caps (name 1..64 chars; description 0..280
   chars; spell rank 0..10; condition value 1..20 optional), creates a
   `custom`-lane row that surfaces immediately where created, and joins
-  the relevant picker for the whole party, badged `custom`.
+  the relevant picker for the whole party, badged `custom`. A custom
+  condition's optional value renders as a display note in its tooltip
+  body and picker row — never an apply input (FR-6).
 - **FR-5 — creator-owned write model**: Any character owner in the party
   may create; the creator is the row's sole writer (edit path); the GM
   is read-only (no create, no edit); non-creator writes are refused with
@@ -229,10 +231,14 @@ same. Integration-test the custom-create endpoint at the caps and beyond.
   rows with tier/lane/valued badges, a value input for valued
   conditions, apply through the existing effect-create write, and the
   "Add custom condition" affordance. Owner-gated (no GM apply).
-- **FR-8 — importer isolation**: Importer re-runs MUST never touch
-  `custom` rows — structurally guaranteed (custom rows carry no
-  `source_id`, so they sit outside the upsert index) and asserted by an
-  integration test that runs an import with a custom row present.
+- **FR-8 — importer isolation (corpus importer)**: The **E4 corpus
+  importer's** re-runs MUST never touch `custom` rows — structurally
+  guaranteed (custom rows carry no `source_id`, so they sit outside the
+  upsert index) and asserted by an integration test that runs a corpus
+  import with a custom row present. The **Pathbuilder importer** is a
+  separate path (Edge Cases): it never writes corpus rows, but a custom
+  item surfaces as a kept-delta notice in every pbimport diff — accepted
+  review noise, not a mutation.
 - **FR-9 — licensing**: `NOTICE.md` MUST name the curated-paraphrase
   lane (Paizo Community Use Policy, consistent with ORC/OGL as
   archived), and an in-app about view MUST render the notice through
@@ -269,9 +275,10 @@ same. Integration-test the custom-create endpoint at the caps and beyond.
   slots, inventory rows, applied effects all key by name/id) and is not
   wanted for the POC.
 - **The freeform effect composer UI** (PRD FG3 Step 3 P0 element,
-  unbuilt) — a real gap, but not gh#11's scope; surfaced to Thrane with
-  this spec (see Clarify Log Q2). Not silently absorbed, not silently
-  dropped.
+  unbuilt) — a real gap, but not gh#11's scope; **filed as gh#74**
+  (standalone, sequenced ahead of E13/gh#15 — does not block E9;
+  see Clarify Log Q2 and design D4). Not silently absorbed, not
+  silently dropped.
 - **Party-wide item picker / book value** — E12 (P1). Custom items exist
   in the corpus now; E12 consumes them later.
 - Constitution non-goals stand: no builder, no combat tracker, no GM
@@ -294,7 +301,8 @@ same. Integration-test the custom-create endpoint at the caps and beyond.
    the minimal picker (FR-7) because three gh#11 requirements live
    there. The **freeform effect composer UI** (PRD Step 3 P0) remains
    unbuilt after E8 closed — E9 does not absorb it; flagged to Thrane
-   for an ownership call with the sizing read.
+   for an ownership call with the sizing read. **Answered: filed as
+   gh#74** — standalone, ahead of E13; not E9 scope.
 3. **Custom item surfacing**: creator's inventory row (qty 1) + corpus
    row; the party-wide surface for items at POC is the read-only sheet
    (E10 cross-member view) — the party-wide *picker* for items is E12
@@ -333,6 +341,13 @@ same. Integration-test the custom-create endpoint at the caps and beyond.
   the coverage test (fixture-driven), fixed by curation PR.
 - **Custom item quantity reaching 0**: row persists (qty rows persist
   today); no auto-delete.
+- **Pathbuilder re-import of a party holding custom items**: a custom
+  item is absent from every Pathbuilder export by construction, so the
+  importer's kept-delta reconciliation (`KeptEntry::item`,
+  `src/pbimport/anchor.rs`) surfaces it as a notice in the import diff
+  on every re-import, forever. Accepted: the diff is a review surface,
+  never a mutation; the corpus row and inventory row are untouched.
+  Suppressing the notice is an explicit non-goal.
 - **Tooltip inside tooltip** (second layer open, hover a third name):
   second layer replaces its content in place — the prototype's pattern;
   never a third stacked layer.

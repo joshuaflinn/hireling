@@ -8,12 +8,33 @@ Every string that reaches the DOM as anything other than plain text —
 curated condition prose, custom-row descriptions, the license notice —
 passes through this module. Nothing else may construct prose markup.
 
+**The module already ships (E6).** `web/src/lib/util/inert-html.js` —
+E6's spec (`specs/006-live-sheet-ui/spec.md`, tooltip-infrastructure row)
+names E6 the shipper and E9 the consumer. It exports `parseInert`,
+`scrub`, `adoptHTML`, with 7 unit tests (`web/tests/util/inert-html.test.js`).
+It has **zero production callers** today — by AGENTS.md's reachability
+rule that requirement is unbuilt, and E9 mounting `ConditionTip` /
+`AboutView` on it is what builds it. E9 **modifies** the module; it does
+not create a second one.
+
 ## 1. The setter
 
-`setInertHTML(el, html)` — port of the prototype's `setHTML`:
+**`adoptHTML(el, html)` is the setter** — the prototype's `setHTML` under
+its shipped name. E9 does not rename it and does not add a `setInertHTML`
+wrapper: one setter, the module's existing export.
 
-1. `DOMParser().parseFromString(html, "text/html")`
-2. `el.replaceChildren(...parsed.body.childNodes)`
+1. `DOMParser().parseFromString(html, "text/html")` — shipped, unchanged
+2. scrub, then `el.replaceChildren(...nodes)` — shipped shape, unchanged
+
+E9's extensions to the scrub (strictly stronger than what ships —
+the shipped `scrub` discards `script` only, and the shipped attribute
+filter drops `javascript:` only):
+
+- `scrub`'s discard list grows to every network-bearing element type:
+  `script`, `iframe`, `object`, `embed`, `link`, `meta`, `style`.
+- The shipped attribute filter drops only `javascript:` URLs; E9
+  upgrades it to the https-or-fragment guarantee below (also kills
+  `data:` and protocol-relative forms).
 
 Guarantees (test-enforced, §4):
 
@@ -27,10 +48,12 @@ Guarantees (test-enforced, §4):
 - URL-bearing attributes (`href`) survive only with `https:` (or
   fragment) schemes; `javascript:`, `data:`, and relative-protocol forms
   are dropped.
-- No network-bearing element types are moved at all: `script`, `iframe`,
-  `object`, `embed`, `link`, `meta`, `style` are discarded.
+- No network-bearing element types are moved at all (the extended
+  discard list above).
 
-## 2. Escaping and linkification
+## 2. Escaping and linkification — new exports
+
+Both are additions to the shipped module (it exports neither today):
 
 - `esc(s)` — `& < > "` to entities, as the prototype. Used on every
   dynamic string *before* it enters a template (names, descriptions,
@@ -50,21 +73,27 @@ Guarantees (test-enforced, §4):
 ## 3. Svelte discipline
 
 - `{@html …}` is **banned for prose** repo-wide; the boundary check
-  enforces it (plan Task 1): prose must route through `setInertHTML`
+  enforces it (plan Task 1): prose must route through `adoptHTML`
   inside `ConditionTip`/`AboutView`.
 - Plain-text interpolation of names/descriptions (no markup expected)
   stays ordinary Svelte interpolation — the ban is on markup-carrying
   strings only.
 
-## 4. The hostile-fixture matrix (unit + production-path)
+## 4. The hostile-fixture matrix
 
-| Fixture | Asserted |
-|---|---|
-| `"<script>window.__pwn=1</script>text"` | no script node in `el`; `window.__pwn` undefined; `text` present |
-| `"<img src=x onerror=window.__pwn=2>"` | img may render (broken), `onerror` attribute absent, handler never fires |
-| `"<a href=\"javascript:window.__pwn=3\">x</a>"` | anchor present, href dropped or neutralized to fragment |
-| `"Frightened <b>Off-Guard</b> applies"` | `Off-Guard` and `Frightened` linkified in *text* segments; the `<b>` tag passes through unchanged; attributes inside tags are never rewritten |
-| through mounted `ConditionTip` with the same prose | same assertions against the rendered DOM (the component is the production path; the unit suite alone proves the module, not the wiring) |
+The 7 shipped tests already pin: parse-through-DOMParser, `script`
+discard (including nested), `on*`/`javascript:` attribute strip, host
+clear + `replaceChildren` adoption, and the no-DOMParser error path.
+**E9 extends the suite with only what those do not cover** — do not
+re-test what ships:
+
+| Fixture | Asserted | Why new |
+|---|---|---|
+| fixtures containing each of `iframe`, `object`, `embed`, `link`, `meta`, `style` | none of the discard set survives into `el`; surrounding text does | shipped `scrub` drops `script` only |
+| a `data:` href, a protocol-relative href (`//evil.example/x`), a plain relative href | dropped; `https://…` and `#frag` hrefs survive | shipped filter drops `javascript:` only |
+| `esc` outputs on inputs carrying `& < "` | entity-escaped, every time | new export |
+| `"Frightened <b>Off-Guard</b> applies"` (+ `skip` / `link:false` variants) | condition names linkified in *text* segments only; the `<b>` tag and its attributes pass through untouched; the `skip` name is not self-linked; `link:false` entries never match | new export (`linkifyConditions`) |
+| the same hostile prose through a mounted `ConditionTip` | same assertions against the rendered DOM | production-path rule: the unit suite proves the module, not the wiring |
 
 ## 5. Sources and their trust
 

@@ -17,7 +17,9 @@ Create one `custom`-lane row. Body:
   "description": "…",                  // 0..280 chars, trimmed
   "value_or_rank": 3                   // optional int
                                       //   spell: 0..10 (rank, required)
-                                      //   condition: 1..20 (optional, display note)
+                                      //   condition: 1..20 (optional, display note —
+                                      //     renders in the condition's tip body and
+                                      //     picker row; never an apply input, FR-6)
                                       //   item: rejected (400)
 }
 ```
@@ -36,7 +38,11 @@ Behavior:
   `modifiers = NULL`. For `kind='item'`, also `INSERT INTO
   character_inventory_live (character_id, item_name)` — one row owned by
   the creating account's character (their first character in the party;
-  POC: one character per account) — qty starts at the default.
+  POC: one character per account) — **`qty_delta = 1` explicitly**, not
+  the column default: a custom item has no Pathbuilder anchor base
+  (base_qty 0) and quantity renders as `base_qty + delta`
+  (`src/pbimport/anchor.rs`), so a row inserted at the default `0`
+  renders **qty 0** and fails US-3 AC-1 (qty 1).
 - **Response `201`**: the created row as the client renders it —
   `{ "corpus_entry_id": …, "kind": …, "name": …, "lane": "custom",
   "description": …, "value_or_rank": …, "created_by_sub": … }`.
@@ -79,9 +85,16 @@ Edit one custom row. Body: any subset of `{ "name": …,
 - **No delete** (spec non-goal). **No WS broadcast** on create/edit
   (design D3): party-wide visibility is the picker/composer query truth;
   clients refresh on open/boot.
-- **Importer isolation**: custom rows carry `source_id = NULL` ⇒ outside
-  `corpus_entries_kind_source_id_key`; re-runs cannot touch them
-  (asserted by test, FR-8).
+- **Importer isolation (corpus importer)**: custom rows carry
+  `source_id = NULL` ⇒ outside `corpus_entries_kind_source_id_key`;
+  **E4 corpus-importer** re-runs cannot touch them (asserted by test,
+  FR-8). The **Pathbuilder importer** is a different path and never
+  writes corpus rows — but a custom item is absent from every
+  Pathbuilder export by construction, so it surfaces as a kept-delta
+  notice (`KeptEntry::item`, `src/pbimport/anchor.rs`) in every
+  re-import diff, forever. Accepted: the diff is a review surface,
+  never a mutation; the corpus row and inventory row are untouched
+  (spec Edge Cases). Suppressing the notice is an explicit non-goal.
 - **Idempotency**: creates are not idempotent (no client op ledger —
   they are not sync writes); the client disables submit while a create
   is in flight. Duplicate names are allowed (two creators may share a
@@ -97,5 +110,6 @@ Edit one custom row. Body: any subset of `{ "name": …,
   description, rank 11, item with value) with field+reason.
 - 403 + audit: GM create; member edit of another creator's row; edit of
   an imported row. Audit rows asserted in `audit_events`.
-- FR-8: run the importer against a party holding custom rows; assert
-  custom rows byte-identical before/after.
+- FR-8: run the **E4 corpus importer** against a party holding custom
+  rows; assert custom rows byte-identical before/after. (The pbimport
+  kept-delta notice is expected behavior, not a failure — §3.)

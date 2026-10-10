@@ -28,10 +28,20 @@ Notes:
   defaults. No E8 contract change.
 - The `custom` block's `description` is plain text (never markup —
   `contracts/inert-html.md` §5); `value_or_rank` is a display note for
-  conditions, the preparable rank for spells.
+  conditions (rendered in the tip body and picker row; never an apply
+  input — FR-6), the preparable rank for spells.
 - `character_inventory_live` gains rows only via custom **item** creates
-  (one per create, owned by the creator's character); qty changes
-  thereafter are ordinary `inv` writes. No shape change.
+  (one per create, owned by the creator's character) — inserted with
+  **`qty_delta = 1`**, not the column default 0: a custom item has no
+  anchor base, and quantity renders as `base_qty + delta`
+  (`src/pbimport/anchor.rs`), so the default would render qty 0 (US-3
+  AC-1 promises qty 1). Qty changes thereafter are ordinary `inv`
+  writes. No shape change.
+- **Pathbuilder importer consequence** (different path from FR-8's
+  corpus importer): a custom item is absent from every Pathbuilder
+  export by construction, so `KeptEntry::item` (`src/pbimport/anchor.rs`)
+  surfaces it as a kept-delta notice in every re-import diff — accepted
+  review noise, never a mutation; suppressing it is a non-goal.
 
 ## 2. Audit events — existing enum, new emissions
 
