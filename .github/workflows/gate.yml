@@ -145,6 +145,18 @@ jobs:
       # deps) comes back runner-owned while the container runs as root — git
       # then refuses it with "dubious ownership" and cargo-deny fails. Trust
       # every repo inside the container; the mount is CI-local by construction.
+      # The guards must leave the tree as the image expects to find it. A
+      # host-installed web/node_modules survives the image's own npm ci as
+      # .grizzly-gate.node_modules (observed on runs 38085893214 and
+      # 38085913608: with node_modules present, node:eslint lints dependency
+      # sources — that dotted name escapes eslint's node_modules ignore —
+      # and fails on third-party code; without it, the same pass is green).
+      # The image installs its own deps; web/dist is a build artifact it
+      # never sees otherwise.
+      - name: Clean guard artifacts before the image run
+        if: ${{ !cancelled() }}
+        run: rm -rf web/node_modules web/dist
+
       - name: Run grizzly-gate
         if: ${{ !cancelled() }}
         run: >-
