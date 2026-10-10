@@ -47,6 +47,15 @@ test('the effects strip renders a chip per active effect: name, source, duration
     2,
     'each chip is a real listitem on the outer node — the a11y fix is held, not just typed (MOR-124 F13)',
   );
+  // Ownership, not just count (MOR-129 F16): getAllByRole resolves by role
+  // mapping and does not prune ARIA presentational children, so the count
+  // above holds even with a listitem slipped inside ConditionTip's
+  // role="button" host. The list must own its items.
+  assert.equal(
+    screen.getAllByRole('listitem').filter((node) => node.closest('[role="button"]')).length,
+    0,
+    'a listitem inside the tip trigger is not owned by the list — button children are presentational',
+  );
 });
 
 test('the strip renders nothing when no effects target the character', () => {
