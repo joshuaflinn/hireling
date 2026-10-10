@@ -104,7 +104,8 @@ pass.
   earlier revision of this spec narrowed it to remove only; corrected, MOR-103); End
   composes `end`. All address `{kind:"effect","effect_id":N}` with CAS `base_version`
   from the REST rows. The last remaining target offers no remove control — an empty set
-  is refused by bounds, End is the operation there. A lost race surfaces on the next
+  is refused by the write path's bounds (at least one target, gh#85), End is
+  the operation there. A lost race surfaces on the next
   fetch — the list is refetched after every op, and an applied manager op never discards
   a half-composed form.
 - **FR-C7 — Seam for E13**: the composer is a component over the state layer's effect
