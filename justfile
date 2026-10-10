@@ -183,6 +183,12 @@ deny:
 # fix: without it the pipeline's status is sed's, and cargo's death dies
 # in the substitution. An empty dep set is refused for the same reason —
 # it is cargo failing quietly, not a clean core.
+#
+# The ban is separator-anchored (^axum(-|_|$)) per Orsik's F4 on #93: the
+# stacks arrive as family crates — axum-core, tower-service, tokio-util —
+# and a whole-line match passes them green, which is the violation the
+# guard exists for. Bare prefix is wrong the other way: svelteish and
+# tokiotest are not the framework.
 boundary:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -195,7 +201,7 @@ boundary:
         exit 1
     fi
     for banned in axum sqlx tokio tower hyper leptos svelte; do
-        if grep -qx "$banned" <<< "$deps"; then
+        if grep -qE "^${banned}(-|_|$)" <<< "$deps"; then
             echo "BOUNDARY VIOLATION: hireling-engine depends on $banned" >&2
             exit 1
         fi

@@ -74,7 +74,10 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: ${{ !cancelled() }}
         with:
-          node-version: 22
+          # The one source for the node major is .nvmrc (with package.json
+          # engines) — this field hardcoded 22 beside it until the F3
+          # residual fold (Orsik, MOR-137).
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -153,6 +156,14 @@ jobs:
           # image's pass list is not readable from the repo, the justfile
           # already names the image as the authority, and a digest bump
           # moves both together.
+          #
+          # What the derivation still cannot see: textual presence is not
+          # execution (Thrane, MOR-130). A guard step with `if: false`, or
+          # an `if:` narrowed to push, stays in this derived set while no
+          # longer running on PRs — no parse closes that hole. The
+          # deliberate-break run is the cover: a guard proven to red on the
+          # thing it guards (run 38088014628 for web-test; per-leg proofs in
+          # this PR's body) is evidence a parse cannot be.
           workflow = open(".github/workflows/gate.yml").read()
           repo_side = set(re.findall(r"^ *run: just ([\w-]+) *$", workflow, re.M))
 
