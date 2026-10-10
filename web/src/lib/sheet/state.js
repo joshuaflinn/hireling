@@ -136,6 +136,9 @@ export function findOpError(opErrors, kind, match = {}) {
  * @property {(casterKey: string, rank: number, index: number, patch?: {used?: boolean, prepared?: string | null}) => void} writeSlot
  * @property {(itemName: string, quantity: number) => void} writeItemQty
  * @property {(casterKey: string) => void} resetPrep
+ * @property {(create: {name: string, source_character_id: number,
+ *   targets: number[], modifiers?: any[], duration_note?: string,
+ *   corpus_entry_id?: number | null, condition_value?: number | null}) => void} writeEffect
  * @property {() => void} newDay
  * @property {() => void} destroy
  */
@@ -144,10 +147,11 @@ export function findOpError(opErrors, kind, match = {}) {
  * @param {{
  *   sync: import('../sync/index.js').Sync,
  *   character: Bootstrap,
+ *   partyId?: number,
  * }} setup
  * @returns {SheetState}
  */
-export function createSheetState({ sync, character }) {
+export function createSheetState({ sync, character, partyId = 1 }) {
   const characterId = character.character.id;
   const baseSheet = character.base_sheet;
 
@@ -440,6 +444,28 @@ export function createSheetState({ sync, character }) {
   }
 
   /**
+   * Create one effect through the wire's existing effect-create frame (E8;
+   * E9's condition picker applies through this — FR-6 keeps custom rows on
+   * the same path: corpus-sourced, zero inline modifiers, the server
+   * resolves NULL mappings to tracked-manually). No client math, ever.
+   * @param {{name: string, source_character_id: number, targets: number[],
+   *   modifiers?: any[], duration_note?: string, corpus_entry_id?: number | null,
+   *   condition_value?: number | null}} create
+   */
+  function writeEffect(create) {
+    write(
+      { kind: 'effect_new', partyId },
+      {
+        modifiers: [],
+        duration_note: '',
+        corpus_entry_id: null,
+        condition_value: null,
+        ...create,
+      },
+    );
+  }
+
+  /**
    * Reset one caster's preparation to the export's list (spec §2.3): every
    * slot whose prepared spell drifted gets a whole-slot write back to the
    * bootstrap value (which is the export's seeding, FR-12). Used flags stay.
@@ -519,6 +545,7 @@ export function createSheetState({ sync, character }) {
     writeDaily,
     writeSlot,
     writeItemQty,
+    writeEffect,
     resetPrep,
     newDay,
     destroy: () => unsubscribe(),

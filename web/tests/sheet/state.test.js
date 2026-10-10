@@ -393,3 +393,27 @@ test('the hp readout clamps to the live max — a level-down never shows 32 / 16
   assert.equal(get(state.hpMax), 16, 'max re-derives — on the server, by the wire');
   assert.equal(get(state.hp).value, 16, 'the readout clamps to the live max');
 });
+
+test('writeEffect issues the existing effect-create frame (E9 T9 apply path)', () => {
+  const { mocks, state } = setup();
+  state.connect();
+  handshake(mocks.sockets[0], []);
+  state.writeEffect({
+    name: 'Frightened',
+    source_character_id: CHARACTER_ID,
+    targets: [CHARACTER_ID],
+    corpus_entry_id: 76,
+    condition_value: 2,
+  });
+  const write = mocks.sockets[0].sent.map((r) => JSON.parse(r)).find((f) => f.t === 'write');
+  assert.deepEqual(write.target, { kind: 'effect_new', partyId: 1 });
+  assert.deepEqual(write.value, {
+    name: 'Frightened',
+    source_character_id: CHARACTER_ID,
+    targets: [CHARACTER_ID],
+    modifiers: [],
+    duration_note: '',
+    corpus_entry_id: 76,
+    condition_value: 2,
+  });
+});
