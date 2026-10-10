@@ -5,6 +5,7 @@ import { get } from 'svelte/store';
 
 import { createSync } from '../../src/lib/sync/index.js';
 import { fakeClock, mockSockets, fakeStorage } from '../sync/fakes.js';
+import { assertWriteTarget } from '../helpers/wire-contract.js';
 import { createSheetState } from '../../src/lib/sheet/state.js';
 
 import fixture from '../data/base_sheet_reference.json';
@@ -153,6 +154,7 @@ test('a write echoes pending, then an applied ack settles it', () => {
 
   const sent = mocks.sockets[0].sent.map((raw) => JSON.parse(raw));
   const write = sent.find((frame) => frame.t === 'write' && frame.target.field === 'hp');
+  assertWriteTarget(write.target);
   mocks.sockets[0].message(
     JSON.stringify({ t: 'ack', op_id: write.op_id, outcome: 'applied', version: 6 }),
   );
@@ -169,6 +171,7 @@ test('superseded reverts silently — server truth, no error surfaced', () => {
   state.writeHp(30);
   const sent = mocks.sockets[0].sent.map((raw) => JSON.parse(raw));
   const write = sent.find((frame) => frame.t === 'write');
+  assertWriteTarget(write.target);
   mocks.sockets[0].message(
     JSON.stringify({ t: 'ack', op_id: write.op_id, outcome: 'superseded', winning_version: 9 }),
   );
@@ -183,6 +186,7 @@ test('rejected surfaces the op record inline; the next applied ack clears it', (
 
   state.writeHp(30);
   let write = mocks.sockets[0].sent.map((r) => JSON.parse(r)).find((f) => f.t === 'write');
+  assertWriteTarget(write.target);
   mocks.sockets[0].message(
     JSON.stringify({
       t: 'ack',
@@ -205,6 +209,7 @@ test('rejected surfaces the op record inline; the next applied ack clears it', (
     .reverse()
     .map((r) => JSON.parse(r))
     .find((f) => f.t === 'write');
+  assertWriteTarget(write.target);
   mocks.sockets[0].message(
     JSON.stringify({ t: 'ack', op_id: write.op_id, outcome: 'applied', version: 6 }),
   );
@@ -235,6 +240,7 @@ test('client-side bounds: invalid input never leaves the component layer', () =>
   state.writeFocus(99); // clamped to focus_max (1 on the fixture)
   state.writeHeroPoints(7); // clamped to hero_max (3)
   const queued = state.queue();
+  for (const op of queued) assertWriteTarget(op.target);
   assert.deepEqual(
     queued.map((op) => op.value),
     [0, 32, 0, 17, 1, 3],
@@ -248,6 +254,7 @@ test('slot writes carry the whole-slot value with current prepared spell', () =>
   handshake(mocks.sockets[0], []);
   state.writeSlot('Wizard', 1, 0, { used: true });
   const write = mocks.sockets[0].sent.map((r) => JSON.parse(r)).find((f) => f.t === 'write');
+  assertWriteTarget(write.target);
   assert.deepEqual(write.target, slot(1, 0));
   assert.deepEqual(write.value, { used: true, prepared: '500 Toads' }, 'prepared rides along');
 });
@@ -264,6 +271,7 @@ test('qty writes are deltas against base, clamped at zero', () => {
   const writes = mocks.sockets[0].sent
     .map((r) => JSON.parse(r))
     .filter((f) => f.t === 'write');
+  for (const write of writes) assertWriteTarget(write.target);
   assert.deepEqual(
     writes.map((write) => [write.target.item_name, write.value.qty_delta]),
     [
@@ -290,6 +298,7 @@ test('New Day enqueues the whole reset burst FIFO: slots, focus, daily', () => {
   state.newDay();
   const queued = state.queue();
   const targets = queued.map((op) => op.target);
+  for (const op of queued) assertWriteTarget(op.target);
   assert.deepEqual(targets[0], slot(1, 0), 'the used slot goes first');
   assert.deepEqual(queued[0].value, { used: false, prepared: '500 Toads' });
   assert.deepEqual(targets.at(-2), focus(), 'focus second-to-last');
@@ -337,6 +346,7 @@ test('the syncing store reads the queue, nothing else', () => {
   state.writeHp(30);
   assert.equal(get(state.syncing), true, 'queued write = syncing');
   const write = mocks.sockets[0].sent.map((r) => JSON.parse(r)).find((f) => f.t === 'write');
+  assertWriteTarget(write.target);
   mocks.sockets[0].message(
     JSON.stringify({ t: 'ack', op_id: write.op_id, outcome: 'applied', version: 6 }),
   );
