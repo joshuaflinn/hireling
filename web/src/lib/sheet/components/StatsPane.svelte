@@ -49,7 +49,7 @@
   );
   // Inline rejections (spec §6): the matching opError renders at its
   // control, calm and auto-clearing (the state layer clears on the next
-  // applied ack — review finding 5).
+  // applied ack).
   /** @param {string} field */
   const vitalError = (field) => findOpError(opErrors, 'vitals', { field });
   const hpError = $derived(vitalError('hp') ?? vitalError('temp_hp'));
@@ -57,8 +57,8 @@
   const focusError = $derived(vitalError('focus_current'));
   /** Display name for a skill key: the prototype capitalizes ("Thievery"). */
   const displayName = (/** @type {string} */ key) => key.charAt(0).toUpperCase() + key.slice(1);
-  /** Core skills and lores through one partition (MOR-50: the fold and the
-   * label are E6's). The wire's lore rows carry their display name as
+  /** Core skills and lores through one partition: the fold and the
+   * label are E6's. The wire's lore rows carry their display name as
    * `label` (contract §3); the partition prefers it and falls back to
    * deriving from the key. */
   const partitioned = $derived(partitionSkills(numbers.skills));

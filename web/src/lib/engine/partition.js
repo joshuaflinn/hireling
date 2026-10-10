@@ -1,4 +1,4 @@
-// Lore partition (E6 per MOR-50): E8 folds lores into `derived.skills` as
+// Lore partition (E6): E8 folds lores into `derived.skills` as
 // `lore:<name>` entries; the sheet wants them back as a separate list with a
 // display label (spec §2.2's lore rows). Pure transform in a lib module —
 // components render, libs compute and test (the svelte-hooks harness

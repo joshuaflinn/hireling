@@ -111,7 +111,7 @@ async fn a_player_imports_the_reference_export_over_http() {
             .get("vitals")
             .and_then(|v| v.get("focus_current")),
         Some(&serde_json::json!(1)),
-        "focus boots at the export's pool (MOR-48 finding 2)"
+        "focus boots at the export's pool"
     );
 
     testing::drop_test_db(pool, "http_import").await;
@@ -437,6 +437,7 @@ async fn imported_with_corpus() -> Option<(axum::Router, sqlx::PgPool, String, V
         ("chalk", 0.0, vec!["consumable"]),
         ("Rations", 1.0, vec![]),
         ("Staff", 1.0, vec!["magical", "two-hand d6"]),
+        ("Explorer's Clothing", 0.1, vec![]),
     ] {
         sqlx::query(
             "INSERT INTO corpus_entries (kind, name, lane, data, source_id, pack_version, imported_at) \
@@ -511,8 +512,13 @@ async fn bootstrap_item_bulk_resolves_from_the_corpus_and_logs_misses() {
         .expect("item_bulk is a map");
     assert_eq!(
         bulk.len(),
-        17,
-        "every imported item AND weapon name is keyed: {bulk:?}"
+        18,
+        "every imported item, weapon, AND armor name is keyed: {bulk:?}"
+    );
+    assert_eq!(
+        bulk.get("Explorer's Clothing"),
+        Some(&serde_json::json!(1)),
+        "the worn armor piece rides the same map: clothing is L = one tenth"
     );
     assert_eq!(
         bulk.get("Staff"),
