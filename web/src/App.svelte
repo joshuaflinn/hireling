@@ -184,6 +184,10 @@
       editable={sheetTarget.editable}
       partyId={session.roster?.party_id ?? 1}
       sync={session.sync}
+      roster={session.roster.characters.map((/** @type {any} */ c) => ({
+        id: c.character.id,
+        name: c.character.name,
+      }))}
       onlogout={logout}
     />
   </main>

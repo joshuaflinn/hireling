@@ -19,16 +19,21 @@
   import AddCustomForm from './components/AddCustomForm.svelte';
   import Dialog from './components/Dialog.svelte';
   import { createCustomStore } from '../rules/custom-store.js';
+  import EffectsComposer from './components/EffectsComposer.svelte';
 
   /** @type {{ character: any, accountSub?: string, editable?: boolean,
-    partyId?: number,
-    sync?: any, onimport?: () => void, onlogout?: () => void }} */
+    partyId?: number | null,
+    sync?: any, roster?: Array<{id: number, name: string | null}>,
+    fetchImpl?: typeof fetch,
+    onimport?: () => void, onlogout?: () => void }} */
   let {
     character, // the /api/characters/me payload — or a roster element, same shape
     accountSub = '',
     editable = true,
-    partyId = 1, // the shell passes session.roster.party_id; standalone is the POC party
+    partyId = null, // the session's party (specs/010) — null hides the composer; epic surfaces fall back to the POC party
     sync: providedSync, // the shell's session sync (E10 D2) — one socket per tab
+    roster = [], // the party roster — the composer's target picker
+    fetchImpl, // injectable REST face for tests; the real app uses global fetch
     onimport,
     onlogout,
   } = $props();
@@ -43,10 +48,10 @@
       storage: localStorage,
       accountSub,
     });
-  const sheet = createSheetState({ sync, character, partyId });
+  const sheet = createSheetState({ sync, character, partyId: partyId ?? POC_PARTY_ID, fetchImpl });
 
   // ---- E9: the party's custom rows (store: rules/custom-store.js) --------
-  const customStore = createCustomStore({ partyId });
+  const customStore = createCustomStore({ partyId: partyId ?? POC_PARTY_ID });
   /** Which AddCustomForm is open: null | 'item' | 'spell' | 'condition'. */
   let customFormKind = $state(/** @type {null | 'item' | 'spell' | 'condition'} */ (null));
   let pickerOpen = $state(false);
@@ -108,6 +113,8 @@
     syncing,
     offline,
     opErrors,
+    composerOp,
+    partyEffects,
   } = sheet;
 
   /**
@@ -145,6 +152,36 @@
 
   const identity = character.base_sheet.identity;
 
+  // The composer (specs/010): an editable sheet with a party and a delivered
+  // engine output (the vocabulary source). Absent any of the three, the
+  // entry point is absent — the GM seat and non-owner drill-ins render no
+  // edit control (PRD), and a pre-wire sheet has no vocabulary to pick from.
+  let composerOpen = $state(false);
+  const canCompose = $derived(Boolean(editable && partyId !== null && $view !== null));
+
+  function openComposer() {
+    sheet.clearComposerOp();
+    if (partyId !== null) sheet.loadPartyEffects(partyId);
+    composerOpen = true;
+  }
+
+  // An applied CREATE ack closes the dialog (spec FR-C5); an applied
+  // MANAGER op (retarget/end, kind 'effect') must not — the phase-only
+  // settle used to discard a half-composed form with it. A manager settle
+  // refetches the rows instead (FR-C6: the list is refetched after every
+  // op) and the dialog stays open. A denial leaves it open with the reason
+  // inline — the state layer owns the verdict.
+  $effect(() => {
+    if ($composerOp?.phase !== 'applied') return;
+    if ($composerOp.kind === 'effect_new') {
+      composerOpen = false;
+      sheet.clearComposerOp();
+    } else {
+      if (partyId !== null) sheet.loadPartyEffects(partyId);
+      sheet.clearComposerOp();
+    }
+  });
+
   function subline() {
     const parts = [identity.ancestry, identity.class, identity.heritage].filter(Boolean);
     return parts.join(' · ');
@@ -166,7 +203,28 @@
     onlogout={onlogout}
   />
 
-  <EffectsStrip effects={$view?.effects ?? []} customConditions={customConditionRows} />
+  <div class="effects-head">
+    <EffectsStrip effects={$view?.effects ?? []} customConditions={customConditionRows} />
+    {#if canCompose}
+      <button class="new-effect" onclick={openComposer}>New effect</button>
+    {/if}
+  </div>
+
+  {#if composerOpen && partyId !== null}
+    <EffectsComposer
+      open={composerOpen}
+      onclose={() => (composerOpen = false)}
+      partyId={partyId}
+      characterId={character.character.id}
+      {roster}
+      view={$view}
+      effectsState={$partyEffects}
+      composerOpState={$composerOp}
+      oncreate={sheet.createEffect}
+      onretarget={sheet.retargetEffect}
+      onend={sheet.endEffect}
+    />
+  {/if}
 
   {#if editable}
     <div style="margin:-4px 0 8px">
@@ -178,7 +236,7 @@
 
   {#if pickerOpen}
     <ConditionPicker
-      {partyId}
+      partyId={partyId ?? POC_PARTY_ID}
       targetId={character.character.id}
       sourceId={character.character.id}
       open={pickerOpen}
@@ -287,3 +345,21 @@
     </div>
   </div>
 </div>
+
+<style>
+  .effects-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .new-effect {
+    background: none;
+    border: 1px solid var(--gold-dim, #b8963e);
+    border-radius: 999px;
+    color: var(--gold, #d4af5f);
+    font-size: 0.8rem;
+    padding: 2px 12px;
+    cursor: pointer;
+  }
+</style>
