@@ -58,8 +58,10 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
    string and cannot distinguish author from presser. For a PR this company
    authors, the authoritative record of authorship is the tracking task's
    assignee, and the press seat reads it there. An outside author pushes under
-   their own identity, and GitHub reads it as-is. Thrane holds the merge
-   button — merge asks go to Thrane, not to Josh.
+   their own identity, and GitHub reads it as-is. Raise the merge ask as a task
+   assigned to Thrane; Thrane reads the gate off the check-runs API, confirms
+   the reviewer's accept, confirms `main`'s protection is live, and presses. If
+   a condition fails, Thrane says which and routes the press back to an owner.
    A PR authored by Thrane routes to Korrin — a third seat who authored
    neither the change nor its review. Either owner may reserve any PR for
    their own hand by saying so on it, and either owner may revoke the routing.
