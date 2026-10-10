@@ -77,7 +77,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   tests; everything else gets a curated end-to-end suite.
 - **A test for a spec'd behavior must exercise the production path that owns
   it.** Testing the module underneath that path proves the module, not the
-  behavior. Four instances of the same rule:
+  behavior. Five instances of the same rule:
   - *Observability* (audit, log, metric): send an HTTP request through the
     configured router for HTTP behavior, or call the public orchestration
     function for non-HTTP behavior; then assert the persisted record or
@@ -99,8 +99,43 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   - *A field the spec sources from imported data*: prove it with two fixtures
     that differ in that field, asserting two different results. One fixture
     asserting one literal also passes against a hardcoded constant.
+  - *A number the game rules fix* (the level a feature is gained at, a DC, a
+    dice step): assert both sides of the threshold — `threshold - 1` and
+    `threshold` — with different results. One fixture on one side passes
+    against every wrong threshold on that side. See
+    [Rules exactness](#rules-exactness) for the full rule, citations included.
 - Log generously on the backend: major branches, request IDs.
 - Commit messages: imperative, one line, what + why if non-obvious.
+
+## Rules exactness
+
+A green gate cannot catch a rules error: no lint, no clippy rule and no test
+count distinguishes a correct Pathfinder 2e number from a wrong one. PR #73
+shipped a class-feature table wrong in eight of eight rows with `just ci-local`
+green and 364 tests passed. The only guardrails that work are a citation that
+can be checked and an assertion that moves when the number moves. Both are
+required for any constant, table row, or branch that encodes a rules fact.
+
+The rules corpus is conditions + equipment only (`src/import/model.rs`); there
+is no corpus for class features, so class-feature tables and level thresholds
+are hand-maintained by necessity. "Derive it from the corpus" is not available
+here — which is why the citation rule carries the weight it does.
+
+1. **Cite per row, not per table.** Any constant, table row, or branch that
+   encodes a Pathfinder 2e rules fact names the source book and page for *that
+   value* in its doc comment. A single citation covering a whole table is not
+   acceptable — it certifies rows nobody checked, and a wrong citation is
+   worse than none because the next reader stops checking. Where a value's
+   book differs from the table's (Magus is *Impossible Magic*, not *Player
+   Core*), the row says so. Write the citation off the source page — never
+   from memory, and never from a review comment.
+2. **A boundary assertion per asserted value.** A test guarding a rules
+   threshold asserts both sides of it — at `threshold - 1` and at `threshold`,
+   with different results — through the production path that owns the value.
+   One fixture on one side of a threshold passes against every wrong threshold
+   on that side, so it guards nothing. This is the rules-threshold instance of
+   the two-fixture rule in [Style](#style): a sourced number is proven by two
+   inputs that differ in it, asserting two different results.
 
 ## Humans
 
