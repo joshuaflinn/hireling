@@ -199,8 +199,8 @@ export function createSheetState({ sync, character }) {
   // wire delivers — the coupled writes no-op and their controls render
   // disabled until then (design §7's loading state, no invented numbers).
   const hpMax = derived(view, ($view) => $view?.render_base?.hp_max ?? null);
-  // The readout clamps to max too: a level-down must
-  // never display "32 / 16" — the write clamp alone leaves stale values.
+  // The readout clamps to max too: a level-down must never display
+  // "32 / 16" — the write clamp alone leaves stale values.
   const hp = derived([vitalsStore('hp', character.vitals.hp), hpMax], ([$hp, $max]) => ({
     value: $max === null ? $hp.value : clamp($hp.value, 0, $max),
     pending: $hp.pending,
@@ -466,11 +466,11 @@ export function createSheetState({ sync, character }) {
    * (the pool regains its points, it is not emptied), then the daily
    * whole-row.
    *
-   * No-op before the wire speaks: the focus refill
-   * has no source until `render_base` arrives, and firing the slot/daily
-   * halves alone would reset two of the three things spec §3 promises in
-   * one silent stroke. The header's New Day button is dark in the same
-   * window — this guard is the state-layer backstop. */
+   * No-op before the wire speaks: the focus refill has no source until
+   * `render_base` arrives, and firing the slot/daily halves alone would
+   * reset two of the three things spec §3 promises in one silent stroke.
+   * The header's New Day button is dark in the same window — this guard
+   * is the state-layer backstop. */
   function newDay() {
     if (get(view) === null) return;
     for (const row of get(slots)) {

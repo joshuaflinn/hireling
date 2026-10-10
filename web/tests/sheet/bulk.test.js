@@ -76,12 +76,12 @@ test('the character total folds wielded weapons and worn armor in', () => {
   assert.equal(
     totalTenths,
     12,
-    'Torch 1 + Longsword 10 + worn clothing 1; stowed shield never counts',
+    'Torch 1 + Longsword 10 + worn clothing 1; the stowed shield row is outside the fold',
   );
   assert.equal(totalText, '1 Bulk + 2 L');
 });
 
-test('stowed (non-worn) armor never counts; corpus gaps contribute zero', () => {
+test('non-worn armor is outside the gh#46 fold; corpus gaps contribute zero', () => {
   const gaps = {
     Torch: 1,
     Longsword: null,

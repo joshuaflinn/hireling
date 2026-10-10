@@ -82,11 +82,15 @@ export function inventoryView(baseSheet, itemBulk, itemTraits, qtyOf) {
     };
   });
 
-  // Carried and worn both count (PF2e Bulk): the weapon in hand and the
-  // armor on their back join the character total. Same tenths map, same
-  // gap degrade (null → 0); stowed (non-worn) armor never counts. These
-  // rows render in the strikes/AC panes, not the inventory list, so they
-  // add to the total without adding list rows.
+  // Carried and worn both count (PF2e Bulk): the weapon in hand joins the
+  // total at its listed Bulk — the listed value IS the held value (Player
+  // Core pg. 275, Weapons → Bulk); worn armor joins at its listed Bulk,
+  // which already is the worn value (Player Core pg. 271, Armor
+  // Statistics → Bulk). Same tenths map, same gap degrade (null → 0).
+  // Non-worn armor is OUT OF SCOPE for gh#46, not weightless: a carried
+  // suit is listed + 1 Bulk (pg. 271) — deferred to #80. These rows
+  // render in the strikes/AC panes, not the inventory list, so they add
+  // to the total without adding list rows.
   const carriedOnBody = [...(baseSheet.weapons ?? [])]
     .concat((baseSheet.armor ?? []).filter((/** @type {any} */ piece) => piece.worn))
     .reduce(

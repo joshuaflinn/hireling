@@ -114,6 +114,11 @@ test('Total carried renders the wielded weapon and worn armor', () => {
     /Total carried: <b>1 Bulk \+ 2 L<\/b>/,
     'Torch 1 + Staff 10 + worn clothing 1',
   );
+  assert.match(
+    carried.container.innerHTML,
+    /includes wielded and worn gear; extradimensional contents excluded/,
+    'the readout discloses what the number includes',
+  );
   cleanup();
   const pack = render(InventoryPanel, props({ Torch: 1, Staff: null, "Explorer's Clothing": null }));
   assert.match(

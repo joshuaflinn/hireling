@@ -376,11 +376,10 @@ async fn handle_write(
     // awaits — so a stalled writer's outbound sink cannot hold the party's
     // committed diff hostage (spec FR-3, scenario 2). Only then is the ack
     // attempted; a stalled or vanished writer delays (worst case forever)
-    // only its own ack, never
-    // the party's view. Effect ops replace the default (target, op.value)
-    // echo with the write path's RESOLVED row — a corpus-condition create
-    // fans out the applied signed modifiers, and a create's address is the
-    // new effect id (E8).
+    // only its own ack, never the party's view. Effect ops replace the
+    // default (target, op.value) echo with the write path's RESOLVED row —
+    // a corpus-condition create fans out the applied signed modifiers, and
+    // a create's address is the new effect id (E8).
     if result.outcome == Outcome::Applied
         && let Some(version) = result.version
     {

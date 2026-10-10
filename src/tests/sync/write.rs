@@ -389,8 +389,7 @@ async fn concurrent_same_field_writes_produce_exactly_one_winner() {
 /// (hp and money of the same character). The ledger's PK must serialize
 /// them: at most one field commits, the loser never claims `applied`, and
 /// the ledger holds exactly one row — a DO NOTHING insert after the CAS
-/// would commit both fields and silently drop one ledger row (review
-/// finding, PR #34).
+/// would commit both fields and silently drop one ledger row.
 #[tokio::test]
 async fn concurrent_reuse_of_an_op_id_commits_at_most_one_field() {
     let Some(pool) = testing::test_pool().await else {
