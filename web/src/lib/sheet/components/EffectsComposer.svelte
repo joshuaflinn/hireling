@@ -40,7 +40,7 @@
   let durationNote = $state('');
   /** One row per modifier: stat → type → value (the PRD's picker order). */
   /** @type {Array<{type: string, stat: string, value: number | string}>} */
-  let rows = $state([{ type: 'status', stat: '', value: 1 }]);
+  const rows = $state([{ type: 'status', stat: '', value: 1 }]);
   /** Selected target character ids. */
   /** @type {number[]} */
   let selected = $state([]);
