@@ -34,7 +34,10 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
    (`feat/`, `fix/`, `refactor/`, `docs/`, `ci/`, `chore/`), referencing the
    issue where one exists (`feat/12-buff-engine`). Never commit to `main`.
    Never force-push shared branches. Open a PR; the author never merges their own
-   work. Thrane holds the merge button — merge asks go to Thrane, not to Josh.
+   work. Raise the merge ask as a task assigned to Thrane; Thrane reads the gate
+   off the check-runs API, confirms the reviewer's accept, confirms `main`'s
+   protection is live, and presses. If a condition fails, Thrane says which and
+   routes the press back to an owner.
 4. **Verify before claiming done.** Run the build and the tests. Report actual
    output. If you couldn't verify something, say exactly that.
 5. **Write it down.** Decisions with rejected alternatives go in the PR description.
