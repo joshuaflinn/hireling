@@ -39,6 +39,14 @@ web-check:
 web-eslint:
     cd web && ./node_modules/.bin/eslint --no-config-lookup --config gate-eslint.config.mjs src tests scripts plugins vite.config.js
 
+# The prose boundary (E9, contracts/inert-html.md §3): `{@html}` is banned
+# for prose repo-wide — every markup-carrying string renders through the one
+# inert setter (util/inert-html.js adoptHTML) inside ConditionTip/AboutView.
+# Same discipline as the engine `boundary` recipe: a loud grep gate, not an
+# unaudited convention.
+web-html-boundary:
+    node web/scripts/check-html-boundary.mjs
+
 # The gate image's scan:semgrep pass, replicated bench-side over the web
 # tree with the registry rules it has enforced there (calibrated by fire
 # against runs 37850972131 and 37981907115: missing-template-string-
@@ -169,7 +177,7 @@ json-keys:
 # node:eslint (web-eslint) and scan:semgrep (scan-semgrep) passes. The
 # gate image remains the authority; these replicas are calibrated
 # against its observed behavior and must move with any digest bump.
-ci-local: json-keys fmt-check lint test deny boundary web-check web-test web-build web-eslint scan-semgrep
+ci-local: json-keys fmt-check lint test deny boundary web-check web-test web-build web-html-boundary web-eslint scan-semgrep
 
 # Alias — same gate, the name the spec calls it by.
 gate: ci-local
