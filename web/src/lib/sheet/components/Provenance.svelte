@@ -7,6 +7,7 @@
   // nothing when both lists are empty — no hover theatre on numbers the
   // engine left untouched.
   import { signed } from '../../engine/format.js';
+  import ConditionTip from './ConditionTip.svelte';
 
   /** @type {{ applied?: any[], suppressed?: any[] }} */
   let { applied = [], suppressed = [] } = $props();
@@ -41,7 +42,7 @@
         <b>Applied</b>
         <ul>
           {#each applied as entry (entry.effect_id)}
-            <li>{signed(entry.value)} {entry.type} — {entry.effect_name}</li>
+            <li>{signed(entry.value)} {entry.type} — <ConditionTip name={entry.effect_name} /></li>
           {/each}
         </ul>
       {/if}
@@ -49,7 +50,7 @@
         <b>Not stacked</b>
         <ul>
           {#each suppressed as entry (entry.effect_id)}
-            <li>{signed(entry.value)} {entry.type} — {entry.effect_name} · {entry.reason}</li>
+            <li>{signed(entry.value)} {entry.type} — <ConditionTip name={entry.effect_name} /> · {entry.reason}</li>
           {/each}
         </ul>
       {/if}

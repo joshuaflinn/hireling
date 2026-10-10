@@ -103,3 +103,7 @@ mod shaper;
 #[cfg(test)]
 #[path = "../tests/sync/latency.rs"]
 mod latency_tests;
+
+#[cfg(test)]
+#[path = "../tests/sync/contract.rs"]
+mod contract_tests;

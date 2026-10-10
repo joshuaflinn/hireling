@@ -9,6 +9,7 @@
 
 pub mod auth;
 pub mod config;
+pub mod custom;
 pub mod db;
 pub mod engine_host;
 pub mod health;

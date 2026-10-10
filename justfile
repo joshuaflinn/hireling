@@ -39,12 +39,43 @@ web-check:
 web-eslint:
     cd web && ./node_modules/.bin/eslint --no-config-lookup --config gate-eslint.config.mjs src tests scripts plugins vite.config.js
 
+# The prose boundary (E9, contracts/inert-html.md §3): `{@html}` is banned
+# for prose repo-wide — every markup-carrying string renders through the one
+# inert setter (util/inert-html.js adoptHTML) inside ConditionTip/AboutView.
+# Same discipline as the engine `boundary` recipe: a loud grep gate, not an
+# unaudited convention.
+web-html-boundary:
+    node web/scripts/check-html-boundary.mjs
+
+# The compiler is the only thing that can see a scoped selector die: nodes
+# minted in JS and adopted into the tree carry no svelte-<hash>, so
+# `.badge.svelte-xxxx` never matches and vite-plugin-svelte strips the rule —
+# shipped markup, unstyled, every test still green (MOR-124 F10, the
+# css_unused_selector trap). Runs the build and fails if that signature
+# fires; green means zero unused-selector warnings, not exit 0.
+web-css-guard:
+    #!/usr/bin/env bash
+    log=$(mktemp)
+    trap 'rm -f "$log"' EXIT
+    if ! npm --prefix web run build >"$log" 2>&1; then
+        cat "$log"
+        echo "web-css-guard: the web build failed" >&2
+        exit 1
+    fi
+    if grep -Ein "unused css selector|css_unused_selector" "$log"; then
+        echo "web-css-guard: a scoped selector died in the bundle — wrap adopted-node selectors in .pop :global(...) (MOR-124 F10)" >&2
+        exit 1
+    fi
+    echo "web-css-guard ok: no unused-selector warnings in the build"
+
 # The gate image's scan:semgrep pass, replicated bench-side over the web
 # tree with the registry rules it has enforced there (calibrated by fire
 # against runs 37850972131 and 37981907115: missing-template-string-
 # indicator on the emitted-worker template; package-dependencies-check
 # on web/package.json — exact versions only, which the tree already
-# kept). The image's full rule set is wider; a digest bump that moves it
+# kept; and 38080211231: html-in-template-string, the run that red-flagged
+# the vetted anchor literal in inert-html.js while ci-local was green).
+# The image's full rule set is wider; a digest bump that moves it
 # updates this invocation in the same PR. Needs the semgrep CLI on PATH
 # (`pipx install semgrep`) — a scan that skips is not a scan, so a
 # missing CLI fails loudly instead.
@@ -57,6 +88,7 @@ scan-semgrep:
     SEMGREP_SEND_METRICS=off semgrep scan --metrics=off --error \
         --config https://semgrep.dev/r/javascript.lang.correctness.missing-template-string-indicator \
         --config https://semgrep.dev/r/json.npm.security.package-dependencies-check \
+        --config https://semgrep.dev/r/javascript.lang.security.html-in-template-string \
         web
 
 # Vite dev server for frontend-only iteration (proxies nothing; use `just dev`
@@ -169,7 +201,7 @@ json-keys:
 # node:eslint (web-eslint) and scan:semgrep (scan-semgrep) passes. The
 # gate image remains the authority; these replicas are calibrated
 # against its observed behavior and must move with any digest bump.
-ci-local: json-keys fmt-check lint test deny boundary web-check web-test web-build web-eslint scan-semgrep
+ci-local: json-keys fmt-check lint test deny boundary web-check web-test web-css-guard web-html-boundary web-eslint scan-semgrep
 
 # Alias — same gate, the name the spec calls it by.
 gate: ci-local

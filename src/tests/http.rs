@@ -58,6 +58,9 @@ async fn response_body(response: axum::response::Response) -> String {
 #[path = "engine_rest.rs"]
 mod engine_rest;
 
+#[path = "custom_rows.rs"]
+mod custom_rows;
+
 #[path = "party.rs"]
 mod party;
 
@@ -181,7 +184,19 @@ async fn every_listed_api_route_rejects_anonymous_requests_with_the_standard_401
         );
 
         if !route.writes {
+            // Methods that are themselves declared write routes on this same
+            // path are mounted, declared handlers — not hiding ones. E9's
+            // contract mounts GET and POST on `/custom` together; the 405
+            // probe covers only the methods nothing declares.
+            let declared_writes: Vec<&str> = API_ROUTES
+                .iter()
+                .filter(|other| other.writes && other.path == route.path)
+                .map(|other| other.method)
+                .collect();
             for method in ["POST", "PUT", "PATCH", "DELETE"] {
+                if declared_writes.contains(&method) {
+                    continue;
+                }
                 let write_probe = test_router()
                     .oneshot(
                         Request::builder()
@@ -542,6 +557,17 @@ async fn a_player_write_to_a_read_route_is_not_the_gm_rejection() {
     let cookie = format!("{}={}", oidc::SESSION_COOKIE, session);
 
     for route in API_ROUTES.iter().filter(|route| !route.writes) {
+        // A same-path declared write route (E9's POST on `/custom`) is a
+        // mounted handler, not a hiding one — the probe skips it, derived
+        // from the matrix exactly like the anonymous probe above.
+        let declared_writes: Vec<&str> = API_ROUTES
+            .iter()
+            .filter(|other| other.writes && other.path == route.path)
+            .map(|other| other.method)
+            .collect();
+        if declared_writes.contains(&"POST") {
+            continue;
+        }
         let response = app
             .clone()
             .oneshot(

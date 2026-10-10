@@ -19,7 +19,11 @@ use crate::auth::middleware::SessionAccount;
 /// The party-read gate: the account owns a character in the party or holds
 /// the GM seat — the handshake rule, per request. Deny on database trouble
 /// (a failed lookup admits nobody).
-async fn party_readable(pool: &sqlx::PgPool, account: &SessionAccount, party_id: i64) -> bool {
+pub(crate) async fn party_readable(
+    pool: &sqlx::PgPool,
+    account: &SessionAccount,
+    party_id: i64,
+) -> bool {
     if account.role == crate::auth::authz::Role::Gm {
         return sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM parties WHERE id = $1)")
             .bind(party_id)

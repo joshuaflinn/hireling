@@ -1,0 +1,228 @@
+{
+  "_readme": [
+    "Human-reviewed, PR-reviewed curation data (E4's condition-tiers.json",
+    "pattern). Paraphrase, page cite, and AoN id for every Player Core",
+    "condition as of the prototype freeze (merge cb0f397); ported verbatim",
+    "from the frozen reference prototype's CONDITIONS map. Ships under the",
+    "Paizo Community Use Policy (see NOTICE.md). Changes by PR; in-app",
+    "editing is E15.",
+    "",
+    "Entry shape: {\"page\": N (Player Core), \"aonId\": N (Archives of",
+    "Nethys condition id), \"text\": paraphrase, \"link\": false? — objects-only",
+    "and meta conditions set link:false and are excluded from",
+    "linkification. Key: lowercase condition name; joined to corpus and",
+    "effect names by case-insensitive exact match."
+  ],
+  "blinded": {
+    "page": 442,
+    "aonId": 59,
+    "text": "You can't see. Normal terrain is difficult terrain, you can't detect anything with vision, and Perception checks that need sight automatically critically fail. If vision is your only precise sense, −4 status penalty to Perception. Immune to visual effects. Overrides dazzled."
+  },
+  "broken": {
+    "page": 442,
+    "aonId": 60,
+    "link": false,
+    "text": "Objects only. At or below its Broken Threshold an object can't do its normal job and grants no bonuses. Broken armor still gives its item bonus to AC but adds a status penalty: −1 light, −2 medium, −3 heavy. Penalties for carrying or wearing it still apply."
+  },
+  "clumsy": {
+    "page": 442,
+    "aonId": 61,
+    "text": "Status penalty equal to the value on Dexterity-based rolls and DCs: AC, Reflex saves, ranged attack rolls, and Acrobatics, Stealth and Thievery checks."
+  },
+  "concealed": {
+    "page": 442,
+    "aonId": 62,
+    "text": "Fog or something similar makes you hard to see. You can still be observed, but a creature targeting you with an attack, spell or other effect must pass a DC 5 flat check or it doesn't affect you. Area effects skip the check."
+  },
+  "confused": {
+    "page": 442,
+    "aonId": 63,
+    "text": "Off-guard, treats no one as an ally, and can't Delay, Ready or use reactions. Spends its actions Striking or casting offensive cantrips at targets the GM picks at random, hitting itself if nothing else is available. Each time it takes damage from an attack or spell, it can attempt a DC 11 flat check to end the condition."
+  },
+  "controlled": {
+    "page": 442,
+    "aonId": 64,
+    "link": false,
+    "text": "Your will is subverted. The controller dictates how you act and can make you use any of your actions, including attacks, reactions or Delay, usually without spending its own actions."
+  },
+  "dazzled": {
+    "page": 442,
+    "aonId": 65,
+    "text": "Vision is swimming. If sight is the creature's only precise sense, all creatures and objects are concealed from it."
+  },
+  "deafened": {
+    "page": 443,
+    "aonId": 66,
+    "text": "You can't hear. Perception checks that need hearing automatically critically fail, and you take a −2 status penalty to initiative and to checks involving sound that also use other senses. Auditory actions need a DC 5 flat check or they're lost. Immune to auditory effects."
+  },
+  "doomed": {
+    "page": 443,
+    "aonId": 67,
+    "text": "The dying value at which you die drops by the doomed value; if that reaches 0 you die instantly. Drops by 1 with each full night's rest, and ends when you die."
+  },
+  "drained": {
+    "page": 443,
+    "aonId": 68,
+    "text": "Status penalty equal to the value on Constitution-based rolls and DCs, such as Fortitude saves. You lose HP equal to your level × the value, and max HP drops by the same amount (this isn't damage). Drops by 1 with each full night's rest, which raises max HP but doesn't restore the lost HP."
+  },
+  "dying": {
+    "page": 443,
+    "aonId": 69,
+    "text": "Unconscious and bleeding out; at dying 4 you die. Attempt a recovery check at the start of each turn. Taking damage raises dying by 1, or by 2 from a critical hit or a critically failed save."
+  },
+  "encumbered": {
+    "page": 443,
+    "aonId": 70,
+    "text": "Carrying more than you can manage: clumsy 1 and a −10-foot penalty to all Speeds (minimum 5 feet)."
+  },
+  "enfeebled": {
+    "page": 443,
+    "aonId": 71,
+    "text": "Status penalty equal to the value on Strength-based rolls and DCs, including Strength-based melee attack and damage rolls and Athletics checks."
+  },
+  "fascinated": {
+    "page": 443,
+    "aonId": 72,
+    "text": "−2 status penalty to Perception and skill checks, and no concentrate actions unless they relate to the subject of your fascination. Ends if anyone uses hostile actions against you or your allies."
+  },
+  "fatigued": {
+    "page": 444,
+    "aonId": 73,
+    "text": "−1 status penalty to AC and saving throws, and no exploration activities while traveling. A full night's rest removes it."
+  },
+  "fleeing": {
+    "page": 444,
+    "aonId": 74,
+    "text": "Must spend every action escaping the source as quickly as possible. Can't Delay or Ready."
+  },
+  "friendly": {
+    "page": 444,
+    "aonId": 75,
+    "text": "Attitude: likes the character and will usually agree to Requests that are simple, safe and cheap. Hostile acts against it worsen its attitude."
+  },
+  "frightened": {
+    "page": 444,
+    "aonId": 76,
+    "text": "Status penalty equal to the value on all checks and DCs. The value drops by 1 at the end of each of the creature's turns."
+  },
+  "grabbed": {
+    "page": 444,
+    "aonId": 77,
+    "text": "Held in place: off-guard and immobilized. Each manipulate action needs a DC 5 flat check or it's lost."
+  },
+  "helpful": {
+    "page": 444,
+    "aonId": 78,
+    "text": "Attitude: wants to actively help the character and accepts reasonable Requests that don't undercut its own goals. Hostile acts against it worsen its attitude."
+  },
+  "hidden": {
+    "page": 444,
+    "aonId": 79,
+    "text": "The creature knows your space but not your exact spot. It's off-guard to you and must pass a DC 11 flat check to target you with an attack, spell or other effect. Area effects skip the check. It can Seek to try to observe you."
+  },
+  "hostile": {
+    "page": 444,
+    "aonId": 80,
+    "text": "Attitude: actively wants to harm the character. It won't necessarily attack, but it won't accept Requests."
+  },
+  "immobilized": {
+    "page": 444,
+    "aonId": 81,
+    "text": "Can't use actions with the move trait. A force trying to move it out of its space must beat the DC of whatever holds it there."
+  },
+  "indifferent": {
+    "page": 444,
+    "aonId": 82,
+    "text": "Attitude: doesn't care one way or the other about the character. This is the default attitude."
+  },
+  "invisible": {
+    "page": 444,
+    "aonId": 83,
+    "text": "Can't be seen: undetected to everyone. A creature that Seeks and beats your Stealth DC makes you hidden to it until you Sneak again. Anyone already watching when you turn invisible starts with you hidden. You can't become observed except by special abilities or magic."
+  },
+  "observed": {
+    "page": 444,
+    "aonId": 84,
+    "text": "In plain view. A creature that avoids detection, such as by Hiding, can be hidden or undetected instead. Only precise senses can observe."
+  },
+  "off-guard": {
+    "page": 445,
+    "aonId": 58,
+    "text": "−2 circumstance penalty to AC. Some effects apply it only against certain creatures or attacks."
+  },
+  "paralyzed": {
+    "page": 445,
+    "aonId": 85,
+    "text": "Frozen in place: off-guard, and you can only Recall Knowledge or use actions that need just your mind. Your senses work only where you can perceive without moving, so you can't Seek."
+  },
+  "persistent damage": {
+    "page": 445,
+    "aonId": 86,
+    "text": "Take the listed damage at the end of each of your turns, rolling it fresh each time, then attempt a DC 15 flat check to end it. Help from yourself or an ally, usually 2 actions, grants an extra flat check. It normally runs its course after about 1 minute."
+  },
+  "petrified": {
+    "page": 445,
+    "aonId": 87,
+    "text": "Turned to stone: you can't act or sense anything. You become an object with double your Bulk, AC 9, Hardness 8 and your current HP, and you don't age. If the statue is destroyed, you die."
+  },
+  "prone": {
+    "page": 445,
+    "aonId": 88,
+    "text": "Lying on the ground: off-guard and −2 circumstance penalty to attack rolls. Crawl and Stand are the only move actions available. Taking Cover while prone gives +4 AC against ranged attacks."
+  },
+  "quickened": {
+    "page": 446,
+    "aonId": 89,
+    "text": "Gain 1 extra action at the start of each turn, often restricted to certain uses. Becoming quickened during your turn gives nothing until your next turn."
+  },
+  "restrained": {
+    "page": 446,
+    "aonId": 90,
+    "text": "Tied up or pinned: off-guard and immobilized, with no attack or manipulate actions except to Escape or Force Open. Overrides grabbed."
+  },
+  "sickened": {
+    "page": 446,
+    "aonId": 91,
+    "text": "Status penalty equal to the value on all checks and DCs, and you can't willingly ingest anything, potions and elixirs included. Spend 1 action retching to attempt a Fortitude save against the effect's DC: success lowers the value by 1, critical success by 2."
+  },
+  "slowed": {
+    "page": 446,
+    "aonId": 92,
+    "text": "When you regain actions at the start of your turn, regain that many fewer. Becoming slowed during your turn doesn't cost actions until your next turn."
+  },
+  "stunned": {
+    "page": 446,
+    "aonId": 93,
+    "text": "Can't act. Stunned N: lose N actions in total as you regain actions, possibly across turns. \"Stunned for 1 round\" is a duration and loses every action for that time. Overrides slowed."
+  },
+  "stupefied": {
+    "page": 446,
+    "aonId": 94,
+    "text": "Status penalty equal to the value on Int, Wis and Cha rolls and DCs, including Will saves, spell attacks and spell DCs. Casting a spell requires a DC 5 + value flat check or the spell is disrupted."
+  },
+  "unconscious": {
+    "page": 446,
+    "aonId": 95,
+    "text": "Knocked out: can't act, −4 status penalty to AC, Perception and Reflex, and blinded and off-guard. You fall prone and drop what you're holding. If you're unconscious from dying, getting back to 1 HP or more ends both conditions."
+  },
+  "undetected": {
+    "page": 447,
+    "aonId": 96,
+    "text": "The creature can't see you, doesn't know your space and can't target you directly, though area effects still work. It's off-guard to you. It can guess a square and attack (with a secret DC 11 flat check) or Seek to find you."
+  },
+  "unfriendly": {
+    "page": 447,
+    "aonId": 97,
+    "text": "Attitude: dislikes and distrusts the character and won't accept Requests."
+  },
+  "unnoticed": {
+    "page": 447,
+    "aonId": 98,
+    "text": "The creature has no idea you're present, so you're also undetected by it. Some abilities work only against targets that are unaware of you."
+  },
+  "wounded": {
+    "page": 447,
+    "aonId": 99,
+    "text": "Seriously hurt. Gaining dying while wounded adds the wounded value to dying; losing dying raises wounded by 1. Ends when Treat Wounds restores HP, or at full HP after 10 minutes of rest."
+  }
+}
