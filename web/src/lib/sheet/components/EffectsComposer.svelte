@@ -214,7 +214,8 @@
                 {nameOf(targetId)}
                 {#if row.targets.length > 1}
                   <!-- Finding 5: the last remaining target's ✕ would be a
-                       dead control (empty sets are refused by bounds) —
+                       dead control (an empty target set is refused by the
+                       write path's bounds — at least one target, gh#85) —
                        End is the operation there. -->
                   <button
                     class="x"
