@@ -55,7 +55,7 @@ export function partySocketUrl(partyId) {
  * @property {() => void} connect
  * @property {() => void} disconnect browser-offline — the reconnect loop keeps running
  * @property {() => void} hangUp session over (logout) — the socket dies, no reconnect, ever
- * @property {(target: Record<string, *>, value: *) => void} write
+ * @property {(target: Record<string, *>, value: *, baseVersion?: number) => void} write
  * @property {() => Record<string, {target: Record<string, *>, value: *, version: number}>} state
  * @property {(characterId: number) => EngineOutput | null} derived
  * @property {() => boolean} isSyncing
@@ -234,15 +234,26 @@ export function createSync(options) {
     /**
      * Queue a write for a versioned field. Never throws, never refuses.
      *
+     * `baseVersion` (specs/010's effect mutations) pins the whole-row CAS
+     * version explicitly — the effect ops carry the REST face's row version
+     * when the live store has no diff for that row yet. Omitted, the
+     * store-derived field version is used, exactly as before.
+     *
      * @param {Record<string, *>} target
      * @param {*} value
+     * @param {number} [baseVersion]
      */
-    write(target, value) {
+    write(target, value, baseVersion) {
       const current = store.state()[targetKey(target)];
       const op = {
         op_id: idFactory(),
         target,
-        base_version: current ? current.version : 0,
+        base_version:
+          baseVersion !== undefined
+            ? baseVersion
+            : current
+              ? current.version
+              : 0,
         value,
         created_at: new Date(now()).toISOString(),
       };
