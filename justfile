@@ -162,13 +162,21 @@ json-keys:
     python3 scripts/check_json_dup_keys.py --self-test
     python3 scripts/check_json_dup_keys.py
 
-# The full local gate. Run this before pushing. Mirrors the grizzly-gate
-# image check-for-check: Rust fmt/clippy/tests/cargo-deny, web
-# svelte-check/unit tests/build, and — replicated, after three pushes
-# went to GitHub red while this recipe said green — the image's
-# node:eslint (web-eslint) and scan:semgrep (scan-semgrep) passes. The
-# gate image remains the authority; these replicas are calibrated
-# against its observed behavior and must move with any digest bump.
+# The full local gate. Run this before pushing. Two kinds of leg:
+#
+# Image mirrors — the pinned gate image runs the same check (rust:fmt on
+# fmt-check, rust:clippy on lint, rust:test on test, rust:deny on deny,
+# node:svelte-check on web-check, node:eslint on web-eslint, scan:semgrep
+# on scan-semgrep). Replicated bench-side, after three pushes went to
+# GitHub red while this recipe said green; calibrated against observed
+# gate behavior and must move with any digest bump. The image remains
+# the authority.
+#
+# Repo-side legs — no image pass runs these; CI gates them in the
+# repo-guards job of .github/workflows/gate.yml, in parallel with the
+# image job: json-keys, boundary, web-test, web-build. That job's
+# drift-check step fails any ci-local leg no CI job runs, so a new leg
+# lands together with its CI home.
 ci-local: json-keys fmt-check lint test deny boundary web-check web-test web-build web-eslint scan-semgrep
 
 # Alias — same gate, the name the spec calls it by.
