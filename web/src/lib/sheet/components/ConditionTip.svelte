@@ -210,6 +210,9 @@ tabindex + role carry the a11y affordance; Escape/Enter are handled above. -->
 >
   {#if children}{@render children()}{:else}{name}{/if}
   {#if open}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- Reason: key events are handled on the wrapper (Enter/Escape, above);
+    the popup's click is delegation-only for the second-layer links. -->
     <span class="pop" role="tooltip" bind:this={popHost} onclick={onPopupClick}></span>
   {/if}
 </span>

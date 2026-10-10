@@ -172,9 +172,11 @@ function scrubAttributes(node) {
 /**
  * The prototype's `setHTML`, as one call: parse inertly, scrub, adopt.
  * `replace` must expose `replaceChildren(...nodes)`; when it exposes
- * `removeChild`/`appendChild` instead, adoption falls back to them.
+ * `removeChild`/`appendChild` instead, adoption falls back to them. The
+ * host type is deliberately wide — real DOM elements and the tests'
+ * doubles both fit.
  *
- * @param {{replaceChildren?: (...nodes: InertNode[]) => void, appendChild?: (node: InertNode) => void, removeChild?: (node: InertNode) => void, childNodes?: InertNode[]}} replace
+ * @param {{replaceChildren?: (...nodes: any[]) => void, appendChild?: (node: any) => void, removeChild?: (node: any) => void, childNodes?: ArrayLike<any>}} replace
  * @param {string} html
  * @param {{parserClass?: new () => { parseFromString: (html: string, type: string) => { body: { childNodes: InertNode[] } } }}} [options]
  */
@@ -184,7 +186,7 @@ export function adoptHTML(replace, html, options = {}) {
     replace.replaceChildren(...nodes);
     return;
   }
-  for (const child of [...(replace.childNodes ?? [])]) {
+  for (const child of Array.from(replace.childNodes ?? [])) {
     replace.removeChild?.(child);
   }
   for (const node of nodes) replace.appendChild?.(node);
