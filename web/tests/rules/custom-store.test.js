@@ -46,6 +46,16 @@ test('validateCustom bounds rank 0..10 for spells and value 1..20 for conditions
   assert.equal(validateCustom('spell', { name: 'Toads', value_or_rank: 11 }).field, 'value_or_rank');
   assert.equal(validateCustom('spell', { name: 'Toads', value_or_rank: 10 }), null);
   assert.equal(validateCustom('spell', { name: 'Toads', value_or_rank: 0 }), null);
+  assert.equal(
+    validateCustom('spell', { name: 'Toads', value_or_rank: null }).field,
+    'value_or_rank',
+    'a blank spell rank is MISSING, not a cantrip — refused before Number() (MOR-124 F14)',
+  );
+  assert.equal(
+    validateCustom('spell', { name: 'Toads', value_or_rank: '' }).field,
+    'value_or_rank',
+    'the empty-string form of the same blank',
+  );
   assert.equal(validateCustom('condition', { name: 'Sunlit', value_or_rank: 0 }).field, 'value_or_rank');
   assert.equal(validateCustom('condition', { name: 'Sunlit', value_or_rank: 21 }).field, 'value_or_rank');
   assert.equal(validateCustom('condition', { name: 'Sunlit', value_or_rank: null }), null, 'optional');
@@ -128,6 +138,17 @@ test('an invalid row never leaves the client — no request, the field and reaso
     /** @param {any} error */ (error) => error.field === 'name' && /64/.test(error.reason),
   );
   assert.equal(spy.calls.length, 0, 'no request for a row the caps already refuse');
+});
+
+test('a blank spell rank never leaves the client — the form posts null, the caps stop it (MOR-124 F14)', async () => {
+  const spy = fetchSpy([]);
+  const store = createCustomStore({ partyId: PARTY, fetchImpl: spy.impl });
+  await assert.rejects(
+    store.create('spell', { name: 'Toads', description: '', value_or_rank: null }),
+    /** @param {any} error */ (error) =>
+      error.field === 'value_or_rank' && /rank/.test(error.reason),
+  );
+  assert.equal(spy.calls.length, 0, 'no request — the server 400 path is never reached');
 });
 
 test('a 400 from the server surfaces its field and reason', async () => {

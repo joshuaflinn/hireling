@@ -47,6 +47,27 @@ web-eslint:
 web-html-boundary:
     node web/scripts/check-html-boundary.mjs
 
+# The compiler is the only thing that can see a scoped selector die: nodes
+# minted in JS and adopted into the tree carry no svelte-<hash>, so
+# `.badge.svelte-xxxx` never matches and vite-plugin-svelte strips the rule —
+# shipped markup, unstyled, every test still green (MOR-124 F10, the
+# css_unused_selector trap). Runs the build and fails if that signature
+# fires; green means zero unused-selector warnings, not exit 0.
+web-css-guard:
+    #!/usr/bin/env bash
+    log=$(mktemp)
+    trap 'rm -f "$log"' EXIT
+    if ! npm --prefix web run build >"$log" 2>&1; then
+        cat "$log"
+        echo "web-css-guard: the web build failed" >&2
+        exit 1
+    fi
+    if grep -Ein "unused css selector|css_unused_selector" "$log"; then
+        echo "web-css-guard: a scoped selector died in the bundle — wrap adopted-node selectors in .pop :global(...) (MOR-124 F10)" >&2
+        exit 1
+    fi
+    echo "web-css-guard ok: no unused-selector warnings in the build"
+
 # The gate image's scan:semgrep pass, replicated bench-side over the web
 # tree with the registry rules it has enforced there (calibrated by fire
 # against runs 37850972131 and 37981907115: missing-template-string-
@@ -177,7 +198,7 @@ json-keys:
 # node:eslint (web-eslint) and scan:semgrep (scan-semgrep) passes. The
 # gate image remains the authority; these replicas are calibrated
 # against its observed behavior and must move with any digest bump.
-ci-local: json-keys fmt-check lint test deny boundary web-check web-test web-build web-html-boundary web-eslint scan-semgrep
+ci-local: json-keys fmt-check lint test deny boundary web-check web-test web-css-guard web-html-boundary web-eslint scan-semgrep
 
 # Alias — same gate, the name the spec calls it by.
 gate: ci-local

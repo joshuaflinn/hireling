@@ -168,6 +168,40 @@ test('URL attributes survive only https: or fragment — data:, protocol-relativ
   ]);
 });
 
+test('srcset lists are judged candidate-by-candidate — one dirty candidate kills the attribute (MOR-124 F11)', () => {
+  const nodes = scrub([
+    el('IMG', [['srcset', 'https://ok.example/a.jpg 1x, //evil.example/b.jpg 2x']]),
+    el('IMG', [['imagesrcset', 'https://ok.example/a.jpg 1x, javascript:bad() 2x']]),
+    el('IMG', [['srcset', 'https://ok.example/a.jpg 1x, https://ok.example/b.jpg 2x']]),
+  ]);
+  assert.equal(nodes[0].attributes.length, 0, 'the protocol-relative candidate kills the list');
+  assert.equal(nodes[1].attributes.length, 0, 'the script-scheme candidate kills the list');
+  assert.equal(nodes[2].attributes[0]?.name, 'srcset', 'an all-https list survives whole');
+});
+
+test('poster, background and the style attribute get the same verdicts as href/src (MOR-124 F12)', () => {
+  const nodes = scrub([
+    el('VIDEO', [['poster', 'https://ok.example/f.jpg']]),
+    el('VIDEO', [['poster', 'javascript:bad()']]),
+    el('BODY', [['background', '//evil.example/beacon']]),
+    el('P', [['style', 'background:url(//evil.example/beacon)']]),
+  ]);
+  assert.equal(nodes[0].attributes[0]?.name, 'poster', 'https poster survives');
+  assert.equal(nodes[1].attributes.length, 0, 'script-scheme poster dies');
+  assert.equal(nodes[2].attributes.length, 0, 'protocol-relative background dies');
+  assert.equal(nodes[3].attributes.length, 0, 'the style attribute is dropped outright');
+});
+
+test('a hostile srcset list dies through the real DOMParser adoption path too (MOR-124 F11)', () => {
+  const host = document.createElement('div');
+  adoptHTML(host, '<img srcset="https://ok.example/a.jpg 1x, javascript:bad() 2x">');
+  assert.equal(
+    host.querySelector('img')?.getAttribute('srcset') ?? null,
+    null,
+    'the scrubbed image lands with no srcset at all',
+  );
+});
+
 test('the same guarantees hold through the real DOMParser adoption path', () => {
   // jsdom ships the platform DOMParser — adopt the hostile prose the way the
   // components do and assert the live tree, not the double.

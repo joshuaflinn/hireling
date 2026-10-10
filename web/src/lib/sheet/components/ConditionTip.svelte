@@ -75,8 +75,9 @@
     } else {
       const entry = lookupEntry(currentKey);
       if (entry.found) {
-        // Curated prose may carry <b>/<i> and is linkified; the popup's own
-        // subject is never self-linked.
+        // Curated prose is esc'ed FIRST (any seed markup would render as
+        // literal text — the seed carries none today) and then linkified;
+        // the popup's own subject is never self-linked.
         body = `<p>${linkifyConditions(esc(entry.text), { skip: currentKey })}</p>`;
         foot =
           `<div class="foot"><span>Player Core p. ${esc(entry.page)}</span>` +
@@ -250,17 +251,22 @@ tabindex + role carry the a11y affordance; Escape/Enter are handled above. -->
     white-space: normal;
     cursor: default;
   }
-  .tt-h {
+  /* The header/badge/foot nodes are minted inside contentHtml() and adopted —
+     they carry no svelte-<hash>, so bare scoped selectors can never match and
+     vite strips them: shipped markup, unstyled (MOR-124 F10). Everything that
+     names an adopted node goes through .pop :global(...) — same as the rules
+     below, which is why they survived. */
+  .pop :global(.tt-h) {
     display: flex;
     align-items: baseline;
     gap: 6px;
     margin-bottom: 3px;
   }
-  .tt-name {
+  .pop :global(.tt-name) {
     font-weight: 700;
     color: var(--gold, #d4af5f);
   }
-  .badge {
+  .pop :global(.badge) {
     font-size: 9.5px;
     text-transform: uppercase;
     letter-spacing: 0.6px;
@@ -285,7 +291,7 @@ tabindex + role carry the a11y affordance; Escape/Enter are handled above. -->
     text-decoration: underline;
     cursor: pointer;
   }
-  .foot {
+  .pop :global(.foot) {
     display: flex;
     justify-content: space-between;
     gap: 10px;

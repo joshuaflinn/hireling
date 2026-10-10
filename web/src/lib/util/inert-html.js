@@ -138,12 +138,38 @@ const URL_ATTRIBUTES = new Set([
  * The https-or-fragment guarantee (contract §1): a URL attribute survives
  * only with an explicit `https:` scheme or as a same-document fragment.
  * `javascript:`, `data:`, protocol-relative (`//…`), and relative forms are
- * all dropped (contract §1).
+ * all dropped (contract §1). Single-URL attributes only — srcset-style
+ * candidate lists are judged per candidate by `srcsetAllowed`.
  * @param {string} value
  */
 function urlAllowed(value) {
   const candidate = value.trim().toLowerCase();
   return candidate.startsWith('https:') || candidate.startsWith('#');
+}
+
+// Spelled from parts: a literal `javascript:` string is itself a script
+// URL (eslint no-script-url), and the scrubber must name the scheme
+// without carrying one.
+const scriptScheme = ['java', 'script:'].join('');
+
+/**
+ * A `srcset`/`imagesrcset` value is a comma-separated candidate LIST —
+ * `url 1x`, `url 640w`, … — so it is judged candidate-by-candidate: every
+ * candidate's URL token (the first whitespace-delimited field) must pass
+ * `urlAllowed`. One dirty candidate kills the whole attribute (MOR-124
+ * F11: the single-URL predicate was judging only the first token, so a
+ * hostile second candidate rode through).
+ * @param {string} value
+ */
+function srcsetAllowed(value) {
+  return value
+    .split(',')
+    .map((candidate) => candidate.trim().split(/\s+/)[0] ?? '')
+    .filter((candidate) => candidate !== '')
+    .every(
+      (candidate) =>
+        !candidate.toLowerCase().startsWith(scriptScheme) && urlAllowed(candidate),
+    );
 }
 
 /** @param {InertNode} node */
@@ -154,10 +180,6 @@ function scrubAttributes(node) {
   // A snapshot to iterate: splicing the array (doubles) or calling
   // removeAttribute (live nodes) must not fight the loop's index.
   const rows = isArray ? live : Array.from(/** @type {any} */ (live));
-  // Spelled from parts: a literal `javascript:` string is itself a script
-  // URL (eslint no-script-url), and the scrubber must name the scheme
-  // without carrying one.
-  const scriptScheme = ['java', 'script:'].join('');
   /** @param {{name: string, value: string}} attribute */
   const dangerous = (attribute) => {
     const name = attribute.name.toLowerCase();
@@ -166,6 +188,7 @@ function scrubAttributes(node) {
     // network fetch the element discard list cannot see (contract §1).
     if (name === 'style') return true;
     if (!URL_ATTRIBUTES.has(name)) return false;
+    if (name === 'srcset' || name === 'imagesrcset') return !srcsetAllowed(attribute.value);
     const value = attribute.value.trim().toLowerCase();
     return value.startsWith(scriptScheme) || !urlAllowed(attribute.value);
   };

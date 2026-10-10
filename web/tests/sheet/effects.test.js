@@ -14,7 +14,7 @@ import StatTile from '../../src/lib/sheet/components/StatTile.svelte';
 afterEach(cleanup);
 
 test('the effects strip renders a chip per active effect: name, source, duration', () => {
-  const body = render(EffectsStrip, {
+  const rendered = render(EffectsStrip, {
     props: {
       effects: [
         {
@@ -35,12 +35,18 @@ test('the effects strip renders a chip per active effect: name, source, duration
         },
       ],
     },
-  }).container.innerHTML;
+  });
+  const body = rendered.container.innerHTML;
   assert.match(body, /Bless/);
   assert.match(body, /Lorum Ipsum/, 'the source rides the chip');
   assert.match(body, /10 rounds/, 'the duration rides the title');
   assert.match(body, /Fascinated/);
   assert.match(body, /tracked/, 'a display-only condition badges itself');
+  assert.equal(
+    screen.getAllByRole('listitem').length,
+    2,
+    'each chip is a real listitem on the outer node — the a11y fix is held, not just typed (MOR-124 F13)',
+  );
 });
 
 test('the strip renders nothing when no effects target the character', () => {

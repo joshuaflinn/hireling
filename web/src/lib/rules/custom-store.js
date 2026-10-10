@@ -40,6 +40,18 @@ export function validateCustom(kind, { name, description = '', value_or_rank = n
     return { field: 'description', reason: `over the ${CAPS.descriptionMax}-character cap` };
   }
   if (kind === 'spell') {
+    // A blank rank is a MISSING rank, not a cantrip: `Number(null)` and
+    // `Number('')` are both 0 and would sail past the range check, but the
+    // server requires a rank for spells (400 `required for spells`). Refuse
+    // it here so the invalid row never leaves the client — the mirror of
+    // MOR-115 F3's valueless condition on the same wire field (MOR-124 F14).
+    const blankRank =
+      value_or_rank === null ||
+      value_or_rank === undefined ||
+      String(value_or_rank).trim() === '';
+    if (blankRank) {
+      return { field: 'value_or_rank', reason: `rank must be ${CAPS.rankMin}..${CAPS.rankMax}` };
+    }
     const rank = Number(value_or_rank);
     if (!Number.isInteger(rank) || rank < CAPS.rankMin || rank > CAPS.rankMax) {
       return { field: 'value_or_rank', reason: `rank must be ${CAPS.rankMin}..${CAPS.rankMax}` };
