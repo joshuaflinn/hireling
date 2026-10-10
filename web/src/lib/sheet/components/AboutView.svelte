@@ -30,7 +30,8 @@
     const out = [];
     let inFence = false;
     let inList = false;
-    let paragraph = [];
+    /** @type {string[]} */
+    let paragraph = /** @type {string[]} */ ([]);
     const flushParagraph = () => {
       if (paragraph.length > 0) {
         out.push(`<p>${paragraph.map(escapeHtml).join('<br>') }</p>`);
