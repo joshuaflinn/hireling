@@ -259,6 +259,125 @@ async fn a_custom_spell_creates_with_rank_and_surfaces_through_the_kind_read() {
 }
 
 #[tokio::test]
+async fn condition_kind_read_lists_custom_conditions_with_their_descriptions() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, _) = seed_member(&pool, "dev-sub-josh").await;
+    let session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
+    let app = router(&pool);
+    let path = format!("/api/parties/{party_id}/custom");
+
+    // Two rows, two different descriptions — the read must carry each row's
+    // own description (US-1 AC-5's client-side chip join), not a shape
+    // constant. A single-row literal cannot tell those apart.
+    assert_created(
+        &app,
+        "POST",
+        &path,
+        &session,
+        json!({"kind": "condition", "name": "Sunlit", "description": "House reminder: standing in the sun."}),
+    )
+    .await;
+    assert_created(
+        &app,
+        "POST",
+        &path,
+        &session,
+        json!({"kind": "condition", "name": "Winded", "description": "House reminder: catch your breath.", "value_or_rank": 2}),
+    )
+    .await;
+
+    let (status, rows) = get_json(
+        &app,
+        &format!("/api/parties/{party_id}/custom?kind=condition"),
+        &session,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let listed = rows.as_array().expect("a JSON array of custom rows");
+    for (name, description) in [
+        ("Sunlit", "House reminder: standing in the sun."),
+        ("Winded", "House reminder: catch your breath."),
+    ] {
+        let row = listed
+            .iter()
+            .find(|row| row.get("name").and_then(Value::as_str) == Some(name))
+            .unwrap_or_else(|| panic!("the custom condition {name} lists for the chip join"));
+        assert_eq!(
+            row.get("description").and_then(Value::as_str),
+            Some(description),
+            "the chip join reads this row's own description"
+        );
+        assert_eq!(
+            row.get("created_by_sub").and_then(Value::as_str),
+            Some("dev-sub-josh"),
+            "the creator rides the list row"
+        );
+    }
+    assert_eq!(
+        listed
+            .iter()
+            .find(|row| row.get("name").and_then(Value::as_str) == Some("Winded"))
+            .expect("the Winded row lists")
+            .get("value_or_rank")
+            .and_then(Value::as_i64),
+        Some(2),
+        "the optional display value rides the list row too"
+    );
+
+    // The kind bind filters: a spell never rides the condition read.
+    assert_created(
+        &app,
+        "POST",
+        &path,
+        &session,
+        json!({"kind": "spell", "name": "Conjure Toad Swarm", "value_or_rank": 3, "description": "500 toads."}),
+    )
+    .await;
+    let (_, relisted) = get_json(
+        &app,
+        &format!("/api/parties/{party_id}/custom?kind=condition"),
+        &session,
+    )
+    .await;
+    assert!(
+        relisted
+            .as_array()
+            .expect("a JSON array")
+            .iter()
+            .all(|row| row.get("name").and_then(Value::as_str) != Some("Conjure Toad Swarm")),
+        "spells stay out of the condition read"
+    );
+    testing::drop_test_db(pool, "custom_rows_condition_kind_read").await;
+}
+
+#[tokio::test]
+async fn kind_read_refusals_name_every_accepted_kind() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, _) = seed_member(&pool, "dev-sub-josh").await;
+    let session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
+    let app = router(&pool);
+
+    // Missing kind and unknown kind both name every kind the read accepts.
+    for query in ["", "?kind=feat"] {
+        assert_validation(
+            &app,
+            "GET",
+            &format!("/api/parties/{party_id}/custom{query}"),
+            &session,
+            json!({}),
+            "kind",
+            "spell, item, or condition",
+        )
+        .await;
+    }
+    testing::drop_test_db(pool, "custom_rows_kind_read_refusals").await;
+}
+
+#[tokio::test]
 async fn a_custom_item_writes_the_inventory_row_with_qty_delta_one() {
     let Some(pool) = testing::test_pool().await else {
         return;

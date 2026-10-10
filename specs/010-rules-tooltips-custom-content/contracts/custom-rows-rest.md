@@ -73,11 +73,14 @@ Edit one custom row. Body: any subset of `{ "name": …,
   (E8) already returns every corpus condition with `lane`; custom
   conditions appear automatically (`tier` NULL ⇒ `"display_only"`,
   `modifiers` NULL ⇒ `valued: false` — E8's read logic, unchanged).
-- **Custom spells/items for composer/inventory merge** —
-  `GET /api/parties/{party_id}/custom?kind=spell|item` returns the
-  client-side list shape `[{corpus_entry_id, name, description,
-  value_or_rank, created_by_sub}]`. Party-readable (member or GM) —
-  reads gate nothing (ownership gates writes).
+- **Custom spells/items/conditions for composer, inventory merge, and
+  chips** — `GET /api/parties/{party_id}/custom?kind=spell|item|condition`
+  returns the client-side list shape `[{corpus_entry_id, name,
+  description, value_or_rank, created_by_sub}]`. Custom-condition rows
+  carry their `description` so the chip popup can show the creator's
+  text (US-1 AC-5); the chips themselves stay name-only on the wire —
+  the description join is client-side (design D6). Party-readable
+  (member or GM) — reads gate nothing (ownership gates writes).
 - Tooltips carry no fetch (design D1/D6).
 
 ## 3. Semantics settled by this contract

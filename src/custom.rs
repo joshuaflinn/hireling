@@ -400,7 +400,7 @@ pub async fn create(
     )
 }
 
-/// The list query: `?kind=spell|item` — the picker's conditions read is the
+/// The list query: `?kind=spell|item|condition` — the picker read is the
 /// separate, already-shipped surface.
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
@@ -417,9 +417,12 @@ type StoredCustom = (
     Option<String>,
 );
 
-/// `GET /api/parties/{party_id}/custom?kind=spell|item` — the client-side
-/// list shape for the composer and the inventory merge. Party-readable
-/// (member or GM) — reads gate nothing (ownership gates writes).
+/// `GET /api/parties/{party_id}/custom?kind=spell|item|condition` — the
+/// client-side list shape for the composer, the inventory merge, and the
+/// custom-condition chips (US-1 AC-5: the chip popup joins the creator's
+/// description client-side from this read; chips stay name-only on the
+/// wire). Party-readable (member or GM) — reads gate nothing (ownership
+/// gates writes).
 pub async fn list(
     State(auth): State<Arc<AuthState>>,
     account: SessionAccount,
@@ -430,10 +433,10 @@ pub async fn list(
         return Forbidden.into_response();
     }
     let Some(kind_raw) = query.kind.as_deref() else {
-        return Rejection::new("kind", "spell or item").respond();
+        return Rejection::new("kind", "spell, item, or condition").respond();
     };
-    let Ok(kind @ (Kind::Spell | Kind::Item)) = Kind::parse(kind_raw) else {
-        return Rejection::new("kind", "spell or item").respond();
+    let Ok(kind @ (Kind::Spell | Kind::Item | Kind::Condition)) = Kind::parse(kind_raw) else {
+        return Rejection::new("kind", "spell, item, or condition").respond();
     };
     let rows: Vec<StoredCustom> = match sqlx::query_as(
         "SELECT id, name, \
