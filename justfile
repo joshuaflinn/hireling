@@ -175,15 +175,32 @@ deny:
 # only — no axum, sqlx, tokio, or any UI/transport/DB crate may appear in
 # the portable core's normal edge set. A new dep that drags the framework
 # in fails the gate here, loudly.
+#
+# A guard that cannot fail is not a guard (MOR-130, Thrane's finding on
+# #93: dead cargo — even rustup with no default toolchain — produced
+# "boundary ok: 0 deps", exit 0, because the substitution discarded
+# cargo's status and the trailing echo owned the recipe). pipefail is the
+# fix: without it the pipeline's status is sed's, and cargo's death dies
+# in the substitution. An empty dep set is refused for the same reason —
+# it is cargo failing quietly, not a clean core.
 boundary:
-    deps=$(cargo tree -p hireling-engine --edges normal --charset ascii | tail -n +2 | sed -E 's/^[|` -]+//; s/ v.*//; s/\(\*\)//' | sort -u); \
-    echo "$deps" | grep -qv . && true; \
-    for banned in axum sqlx tokio tower hyper leptos svelte; do \
-        if echo "$deps" | grep -q "^$banned"; then \
-            echo "BOUNDARY VIOLATION: hireling-engine depends on $banned"; exit 1; \
-        fi; \
-    done; \
-    echo "boundary ok: $(echo "$deps" | grep -c .) deps, serde-family only"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! deps=$(cargo tree -p hireling-engine --edges normal --charset ascii | tail -n +2 | sed -E 's/^[|` -]+//; s/ v.*//; s/\(\*\)//' | sort -u); then
+        echo "boundary: cargo tree exited non-zero — the engine dependency gate cannot run" >&2
+        exit 1
+    fi
+    if [ -z "$deps" ]; then
+        echo "boundary: cargo resolved zero dependencies — cargo is broken or hireling-engine moved; refusing to pass" >&2
+        exit 1
+    fi
+    for banned in axum sqlx tokio tower hyper leptos svelte; do
+        if grep -qx "$banned" <<< "$deps"; then
+            echo "BOUNDARY VIOLATION: hireling-engine depends on $banned" >&2
+            exit 1
+        fi
+    done
+    echo "boundary ok: $(wc -l <<< "$deps" | tr -d ' ') deps, serde-family only"
 
 # Duplicate-key guardrail over tracked JSON (gh#49). JSON is last-wins — a
 # duplicated manifest key silently replaces the pin above it and no parser
