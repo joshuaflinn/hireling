@@ -220,19 +220,6 @@ sync:
         git fetch origin main:main; \
     fi
 
-# Merge the current branch into main, push main, and delete the branch.
-merge:
-    branch=$(git rev-parse --abbrev-ref HEAD)
-    if [ "$branch" = "main" ]; then echo "already on main"; exit 1; fi
-    git switch main
-    git pull --ff-only origin main
-    git merge --no-ff "$branch"
-    git push origin main
-    git branch -d "$branch"
-    if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then \
-        git push origin --delete "$branch"; \
-    fi
-
 # Stage all changes, commit with MSG, and push the current branch.
 ship msg:
     git add -A
