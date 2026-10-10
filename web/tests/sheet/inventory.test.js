@@ -84,9 +84,53 @@ test('view-only inventory: no inputs, quantities as text', () => {
   assert.match(container.innerHTML, /×1/, 'quantities render as text');
 });
 
-// ---- MOR-48 review fixes: the production path owns the behaviour ----------
+// -- the total the panel renders folds the weapon rows and worn armor
+// in (gh#46): two maps differing only in the weapon/armor entries —
+// two different rendered totals --
 
-test('a rejected quantity write surfaces inline at that item; a rejected coin write at the coins (finding 5)', () => {
+test('Total carried renders the weapons and worn armor', () => {
+  const sheet = {
+    equipment: [{ name: 'Torch', qty: 1 }],
+    weapons: [{ name: 'Staff', qty: 1 }],
+    armor: [{ name: "Explorer's Clothing", worn: true, qty: 1 }],
+    containers: [],
+  };
+  const props = (bulkMap) => ({
+    props: {
+      baseSheet: sheet,
+      itemBulk: bulkMap,
+      itemTraits: {},
+      qtyMap: { Torch: { qty: 1, pending: false } },
+      money: { value: { pp: 0, gp: 0, sp: 0, cp: 0 }, pending: false },
+      editable: false,
+    },
+  });
+  const carried = render(
+    InventoryPanel,
+    props({ Torch: 1, Staff: 10, "Explorer's Clothing": 1 }),
+  );
+  assert.match(
+    carried.container.innerHTML,
+    /Total carried: <b>1 Bulk \+ 2 L<\/b>/,
+    'Torch 1 + Staff 10 + worn clothing 1',
+  );
+  assert.match(
+    carried.container.innerHTML,
+    /includes carried and worn gear; extradimensional contents excluded/,
+    'the readout discloses what the number includes',
+  );
+  cleanup();
+  const pack = render(InventoryPanel, props({ Torch: 1, Staff: null, "Explorer's Clothing": null }));
+  assert.match(
+    pack.container.innerHTML,
+    /Total carried: <b>1 L<\/b>/,
+    'weapon and armor unresolved (corpus gaps): pack only',
+  );
+});
+
+// ---- the production path owns the behaviour ----------
+
+test('a rejected quantity write surfaces inline at that item; a rejected coin write at the coins', () => {
   render(InventoryPanel, {
     props: {
       baseSheet: fixture,
@@ -117,7 +161,7 @@ test('a rejected quantity write surfaces inline at that item; a rejected coin wr
     },
   });
   // Both surfaces are role=alert (coins block + item row) — query the
-  // role, not the markup (MOR-77 finding 2).
+  // role, not the markup.
   const alerts = screen
     .getAllByRole('alert')
     .map((el) => el.textContent)

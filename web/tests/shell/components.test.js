@@ -115,14 +115,14 @@ test('StatsPane is view-only without controls when editable is false', () => {
     },
   });
   // The affordance is the title attribute on the buttons, not their text —
-  // queryByText cannot see it (MOR-77 review finding 1).
+  // queryByText cannot see it.
   assert.equal(screen.queryByTitle(/Restore to max/), null, 'no HP buttons');
   assert.equal(container.querySelectorAll('button').length, 0, 'view-only renders no controls at all');
 });
 
-// ---- MOR-48 review fixes: the production path owns the behaviour ----------
+// ---- the production path owns the behaviour ----------
 
-test('HpBar renders temp HP as markup, never as escaped text (finding 1)', () => {
+test('HpBar renders temp HP as markup, never as escaped text', () => {
   const withTemp = render(HpBar, {
     props: {
       hp: { value: 12, pending: false },

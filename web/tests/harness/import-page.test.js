@@ -1,7 +1,7 @@
-// Harness smoke proof (gh#41): a .svelte component from main mounts in jsdom
-// and its spec'd affordances are asserted against the real DOM. The path is
-// the point — tests/harness/ is invisible to the old `node --test` glob, and
-// this file is what proves the replacement runner sees it.
+// Harness smoke proof (gh#41): a .svelte component from main mounts in
+// jsdom and its spec'd affordances are asserted against the real DOM. The
+// path is the point — tests/harness/ is invisible to a `node --test` glob,
+// so this file is what proves the vitest runner sees it.
 import { render, screen, cleanup, fireEvent } from '@testing-library/svelte';
 import { afterEach, test, vi } from 'vitest';
 import assert from 'node:assert/strict';

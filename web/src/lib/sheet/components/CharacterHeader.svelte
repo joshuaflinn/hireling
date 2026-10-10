@@ -15,7 +15,7 @@
     /** The wire has spoken at least once ($view !== null). Until it has,
      * the wire-coupled controls (level adjust, New Day) stay dark — New
      * Day's focus refill and the level confirm both read engine output
-     * that does not exist yet (review finding F3, design §7). */
+     * that does not exist yet (design §7). */
     wireReady = true,
     syncing = false,
     onadjustlevel = undefined,

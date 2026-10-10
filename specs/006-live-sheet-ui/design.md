@@ -154,8 +154,14 @@ the character's imported item names, resolved server-side by exact-name match
 rendered "—", never blocking. Container rollup: sum member item bulks × qty
 in tenths (`L`=1, number=×10, "—"/null=0), **skip entire containers flagged
 `extradimensional`**, format via `format.js` (X Bulk + Y L). Character total
-excludes extradimensional contents. Unit tests use a fixture map, not the
-live corpus.
+excludes extradimensional contents. The character total also folds all
+`weapons` rows at their listed Bulk (the listed value is the held
+value — Player Core pg. 275, Weapons → Bulk) and `armor` rows with
+`worn: true` at their listed Bulk (which already is the worn value —
+Player Core pg. 271, Armor Statistics → Bulk); non-worn armor stays
+outside this fold — a carried suit is listed + 1 Bulk (pg. 271), out of
+scope here, tracked in #80. Unit tests use a fixture map, not the live
+corpus.
 
 ## 6. Components and the E10 reuse contract
 

@@ -389,8 +389,7 @@ async fn concurrent_same_field_writes_produce_exactly_one_winner() {
 /// (hp and money of the same character). The ledger's PK must serialize
 /// them: at most one field commits, the loser never claims `applied`, and
 /// the ledger holds exactly one row — a DO NOTHING insert after the CAS
-/// would commit both fields and silently drop one ledger row (review
-/// finding, PR #34).
+/// would commit both fields and silently drop one ledger row.
 #[tokio::test]
 async fn concurrent_reuse_of_an_op_id_commits_at_most_one_field() {
     let Some(pool) = testing::test_pool().await else {
@@ -759,8 +758,7 @@ async fn a_money_write_sets_all_four_denominations_under_one_version() {
 /// A write whose target lives outside the bound party is forbidden even
 /// when the writer owns it — the socket's party is the addressing scope
 /// (contract §1), and the bound party is a required parameter of the
-/// engine, so the guard cannot be bypassed by any caller (review finding,
-/// PR #34).
+/// engine, so the guard cannot be bypassed by any caller.
 #[tokio::test]
 async fn a_write_outside_the_bound_party_is_forbidden_and_recorded() {
     let Some(pool) = testing::test_pool().await else {

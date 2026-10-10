@@ -288,7 +288,7 @@ async fn an_end_restores_the_priors() {
     .await;
     // The writer's own socket: the ack is a direct send, so it precedes the
     // party's queued diff + derived (wire contract: either order on the
-    // writer's socket; MOR-42 fixed the fan-out-vs-ack hazard the other way).
+    // writer's socket).
     let ack = read_frame(&mut writer.stream, "create ack").await;
     let ServerFrame::Ack(ack) = ack else {
         panic!("expected the ack, got {ack:?}")
@@ -527,8 +527,7 @@ async fn the_derived_fan_out_stays_within_the_smoke_budget() {
 /// ack, then the diff, then one `derived` frame carrying the adjusted
 /// numbers (E6 spec §4: the level adjust visibly re-derives; the sheet
 /// renders from the wire post-swap, so nothing may go stale until
-/// reconnect). A superseded write fans out nothing. Found in the MOR-52
-/// pre-swap audit: only effect ops populated the affected set.
+/// reconnect). A superseded write fans out nothing.
 #[tokio::test]
 async fn a_level_adjust_write_diffs_then_derives() {
     let Some(pool) = testing::test_pool().await else {
