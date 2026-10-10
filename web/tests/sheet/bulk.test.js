@@ -71,7 +71,7 @@ const wornBulk = {
 };
 const qtyOne = () => 1;
 
-test('the character total folds wielded weapons and worn armor in', () => {
+test('the character total folds all weapons and worn armor in', () => {
   const { totalTenths, totalText } = inventoryView(wornSheet, wornBulk, {}, qtyOne);
   assert.equal(
     totalTenths,

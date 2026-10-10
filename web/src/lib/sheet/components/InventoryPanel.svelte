@@ -115,6 +115,6 @@
 
   <div class="bulk">
     Total carried: <b>{viewOf.totalText}</b>
-    <span style="color:var(--dim)">(includes wielded and worn gear; extradimensional contents excluded)</span>
+    <span style="color:var(--dim)">(includes carried and worn gear; extradimensional contents excluded)</span>
   </div>
 </section>

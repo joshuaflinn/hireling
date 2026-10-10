@@ -84,11 +84,11 @@ test('view-only inventory: no inputs, quantities as text', () => {
   assert.match(container.innerHTML, /×1/, 'quantities render as text');
 });
 
-// -- the total the panel renders folds the wielded weapon and worn armor
+// -- the total the panel renders folds the weapon rows and worn armor
 // in (gh#46): two maps differing only in the weapon/armor entries —
 // two different rendered totals --
 
-test('Total carried renders the wielded weapon and worn armor', () => {
+test('Total carried renders the weapons and worn armor', () => {
   const sheet = {
     equipment: [{ name: 'Torch', qty: 1 }],
     weapons: [{ name: 'Staff', qty: 1 }],
@@ -116,7 +116,7 @@ test('Total carried renders the wielded weapon and worn armor', () => {
   );
   assert.match(
     carried.container.innerHTML,
-    /includes wielded and worn gear; extradimensional contents excluded/,
+    /includes carried and worn gear; extradimensional contents excluded/,
     'the readout discloses what the number includes',
   );
   cleanup();

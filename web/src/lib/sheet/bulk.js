@@ -82,7 +82,7 @@ export function inventoryView(baseSheet, itemBulk, itemTraits, qtyOf) {
     };
   });
 
-  // Carried and worn both count (PF2e Bulk): the weapon in hand joins the
+  // Carried and worn both count (PF2e Bulk): every `weapons` row joins the
   // total at its listed Bulk — the listed value IS the held value (Player
   // Core pg. 275, Weapons → Bulk); worn armor joins at its listed Bulk,
   // which already is the worn value (Player Core pg. 271, Armor
