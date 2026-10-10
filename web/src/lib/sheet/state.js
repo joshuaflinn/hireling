@@ -249,14 +249,16 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
    * version the CAS ops address. Called when the composer opens; settled
    * ops broadcast diffs the store already merges.
    *
-   * @param {number} partyId
+   * @param {number} forPartyId — named apart from createSheetState's own
+   *   partyId: the composer asks for a specific party's rows, and a same-
+   *   named inner param shadows the closure's (gate no-shadow).
    * @param {typeof fetch} [injectFetch]
    */
-  async function loadPartyEffects(partyId, injectFetch) {
+  async function loadPartyEffects(forPartyId, injectFetch) {
     partyEffects.set({ status: 'loading', rows: [] });
     const doFetch = injectFetch ?? fetchImpl ?? globalThis.fetch;
     try {
-      const response = await doFetch(`/api/parties/${partyId}/effects`);
+      const response = await doFetch(`/api/parties/${forPartyId}/effects`);
       if (!response.ok) throw new Error(`the server answered ${response.status}`);
       const rows = await response.json();
       partyEffects.set({ status: 'ready', rows: Array.isArray(rows) ? rows : [] });

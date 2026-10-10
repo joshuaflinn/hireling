@@ -35,6 +35,7 @@ export default [
       'require-await': 'error',
       'no-new-func': 'error',
       'no-script-url': 'error',
+      'no-shadow': 'error',
     },
   },
   {
