@@ -95,10 +95,10 @@ test('Total carried renders the wielded weapon and worn armor', () => {
     armor: [{ name: "Explorer's Clothing", worn: true, qty: 1 }],
     containers: [],
   };
-  const props = (itemBulk) => ({
+  const props = (bulkMap) => ({
     props: {
       baseSheet: sheet,
-      itemBulk,
+      itemBulk: bulkMap,
       itemTraits: {},
       qtyMap: { Torch: { qty: 1, pending: false } },
       money: { value: { pp: 0, gp: 0, sp: 0, cp: 0 }, pending: false },
