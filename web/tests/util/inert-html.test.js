@@ -190,6 +190,16 @@ test('the same guarantees hold through the real DOMParser adoption path', () => 
   assert.equal(host.textContent, 'hello js aon', 'the text around the dropped nodes survives');
 });
 
+test('a NESTED payload is detached from the live tree before adoption (the removeChild branch)', () => {
+  // The top-level row above drops script/iframe by simply not adopting them;
+  // a nested one must be removed from its parent first, because adoption
+  // moves the parent wholesale (MOR-115 F6 — this is the E6-fix branch).
+  const host = document.createElement('div');
+  adoptHTML(host, '<p>safe<script>bad()</script></p>');
+  assert.equal(host.querySelectorAll('script').length, 0, 'the nested script never reaches the host');
+  assert.equal(host.textContent, 'safe', 'the safe text survives');
+});
+
 test('esc entity-escapes markup characters, every time', () => {
   assert.equal(
     esc('Fish & "Chips" <b>are</b> \'food\''),

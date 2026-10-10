@@ -7,11 +7,16 @@
 // members require a spec change, not a quiet edit here.
 /* global console, process */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 const ROOT = join(import.meta.dirname, '..', 'src');
-/** Components that may own `{@html}`: the prose renderers. */
-const SANCTIONED = new Set(['ConditionTip.svelte', 'AboutView.svelte']);
+/** Components that may own `{@html}`: the prose renderers. Paths are
+ * repo-relative to `src` — a basename match would exempt any future file
+ * that happens to share the name (MOR-115 finding 8). */
+const SANCTIONED = new Set([
+  'lib/sheet/components/ConditionTip.svelte',
+  'lib/sheet/components/AboutView.svelte',
+]);
 
 /** @param {string} dir @returns {string[]} */
 function walk(dir) {
@@ -26,7 +31,8 @@ function walk(dir) {
 
 const offenders = [];
 for (const path of walk(ROOT)) {
-  if (SANCTIONED.has(path.split('/').pop() ?? '')) continue;
+  const relative = path.slice(ROOT.length + 1).split(sep).join('/');
+  if (SANCTIONED.has(relative)) continue;
   const lines = readFileSync(path, 'utf8').split('\n');
   lines.forEach((line, index) => {
     if (line.includes('{@html')) {

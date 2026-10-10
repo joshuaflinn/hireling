@@ -31,22 +31,26 @@
   <div class="strip" role="list" aria-label="Active effects">
     {#each effects as effect (effect.effect_id)}
       {@const custom = customFor(effect.name)}
-      <ConditionTip
-        name={effect.name}
-        customDescription={custom?.description ?? null}
-        customValue={custom?.value_or_rank ?? null}
-      >
-        <span
-          class="chip"
-          class:manual={effect.tracked_manually}
-          role="listitem"
-          title={effect.duration_note
-            ? `${effect.source_name} · ${effect.duration_note}`
-            : effect.source_name}
+      <!-- listitem stays on the OUTER node: the tip's trigger is a button,
+        and a button's contents are presentational — the list's children must
+        not live inside it (MOR-115 finding 4). -->
+      <span role="listitem">
+        <ConditionTip
+          name={effect.name}
+          customDescription={custom?.description ?? null}
+          customValue={custom?.value_or_rank ?? null}
         >
-          {effect.name}<small>{effect.source_name}</small>{#if effect.tracked_manually}<em>tracked</em>{/if}
-        </span>
-      </ConditionTip>
+          <span
+            class="chip"
+            class:manual={effect.tracked_manually}
+            title={effect.duration_note
+              ? `${effect.source_name} · ${effect.duration_note}`
+              : effect.source_name}
+          >
+            {effect.name}<small>{effect.source_name}</small>{#if effect.tracked_manually}<em>tracked</em>{/if}
+          </span>
+        </ConditionTip>
+      </span>
     {/each}
   </div>
 {/if}

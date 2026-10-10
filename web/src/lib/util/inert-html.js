@@ -11,11 +11,11 @@
 // change) still cannot arm a payload through this util. No component may
 // innerHTML-assign; there is exactly one shared primitive.
 //
-// E9 extends the module in place (contracts/inert-html.md — binding): the
-// scrub's discard list grows to the network-bearing set, the URL filter
-// upgrades to https-or-fragment-only, and `esc` + `linkifyConditions` join
-// the exports. Svelte `{@html}` is banned for prose repo-wide — the
-// boundary check (web/scripts/check-html-boundary.mjs) enforces it.
+// esc + linkifyConditions live here too (contracts/inert-html.md — binding):
+// the scrub's discard list is the network-bearing element set and the URL
+// filter is https-or-fragment-only. Svelte `{@html}` is banned for prose
+// repo-wide — the boundary check (web/scripts/check-html-boundary.mjs)
+// enforces it.
 
 /**
  * A parsed, inert node: the util only touches `nodeName`, `attributes`,
@@ -23,9 +23,7 @@
  * with minimal doubles. Real DOMParser output works too: `attributes` may
  * be a NamedNodeMap and `childNodes` a NodeList (array-likes), and live
  * nodes may carry `removeAttribute`/`removeChild` — the scrub normalizes
- * both shapes. (Shipped E6 read both as Arrays — which real parses never
- * are — so the defensive scrub silently no-op'd on production input; the
- * E9 hostile-matrix row through the real DOMParser caught it.)
+ * both shapes.
  * @typedef {Object} InertNode
  * @property {string} nodeName
  * @property {InertNode[]} [childNodes]
@@ -61,8 +59,7 @@ export function parseInert(html, { parserClass } = {}) {
  *
  * Discard set (E9, contract §1): every element type whose mere presence can
  * fetch, embed, or execute — script, iframe, object, embed, link, meta,
- * style. The shipped E6 scrub dropped script only; this is strictly
- * stronger.
+ * style.
  *
  * @param {InertNode[]} nodes
  * @returns {InertNode[]}
@@ -125,14 +122,23 @@ function isDiscarded(node) {
 }
 
 /** URL-bearing attributes — the ones a scrubbed tree may still carry. */
-const URL_ATTRIBUTES = new Set(['href', 'src', 'xlink:href', 'action', 'formaction']);
+const URL_ATTRIBUTES = new Set([
+  'href',
+  'src',
+  'srcset',
+  'imagesrcset',
+  'xlink:href',
+  'action',
+  'formaction',
+  'poster',
+  'background',
+]);
 
 /**
  * The https-or-fragment guarantee (contract §1): a URL attribute survives
  * only with an explicit `https:` scheme or as a same-document fragment.
  * `javascript:`, `data:`, protocol-relative (`//…`), and relative forms are
- * all dropped — E6 shipped a `javascript:`-only filter; this is the
- * upgraded, deliberate rule.
+ * all dropped (contract §1).
  * @param {string} value
  */
 function urlAllowed(value) {
@@ -156,6 +162,9 @@ function scrubAttributes(node) {
   const dangerous = (attribute) => {
     const name = attribute.name.toLowerCase();
     if (name.startsWith('on')) return true;
+    // `style` as an ATTRIBUTE is dropped outright: `background:url(…)` is a
+    // network fetch the element discard list cannot see (contract §1).
+    if (name === 'style') return true;
     if (!URL_ATTRIBUTES.has(name)) return false;
     const value = attribute.value.trim().toLowerCase();
     return value.startsWith(scriptScheme) || !urlAllowed(attribute.value);

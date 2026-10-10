@@ -454,8 +454,12 @@ export function createSheetState({ sync, character, partyId = 1 }) {
    */
   function writeEffect(create) {
     write(
-      { kind: 'effect_new', partyId },
+      // The wire shape is `src/sync/protocol.rs`'s: `FieldTarget::EffectNew`
+      // carries `party_id` (snake_case on the wire) and the value must name
+      // `op: 'create'` (`write.rs` dispatches on it).
+      { kind: 'effect_new', party_id: partyId },
       {
+        op: 'create',
         modifiers: [],
         duration_note: '',
         corpus_entry_id: null,

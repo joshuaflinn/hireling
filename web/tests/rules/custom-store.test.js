@@ -80,6 +80,46 @@ test('create posts the row and inserts it optimistically — the store answers t
   assert.equal(spells[0].name, 'Conjure Toad Swarm');
 });
 
+test('a condition posts its value as given; a valueless one posts null — two fixtures, one wire field', async () => {
+  // The two-fixture rule: a single valued fixture also passes against a
+  // `Number(null)` coercion; the valueless one is what catches it (MOR-115 F3).
+  const spy = fetchSpy([
+    {
+      status: 201,
+      body: {
+        corpus_entry_id: 92,
+        kind: 'condition',
+        name: 'Sunlit',
+        lane: 'custom',
+        description: '',
+        value_or_rank: 2,
+        created_by_sub: 'dev-sub-josh',
+      },
+    },
+    {
+      status: 201,
+      body: {
+        corpus_entry_id: 93,
+        kind: 'condition',
+        name: 'Winded',
+        lane: 'custom',
+        description: '',
+        value_or_rank: null,
+        created_by_sub: 'dev-sub-josh',
+      },
+    },
+  ]);
+  const store = createCustomStore({ partyId: PARTY, fetchImpl: spy.impl });
+  await store.create('condition', { name: 'Sunlit', description: '', value_or_rank: 2 });
+  await store.create('condition', { name: 'Winded', description: '' });
+  assert.equal(JSON.parse(spy.calls[0].init.body).value_or_rank, 2, 'the valued fixture posts 2');
+  assert.equal(
+    JSON.parse(spy.calls[1].init.body).value_or_rank,
+    null,
+    'the valueless fixture posts null — never Number(null) → 0',
+  );
+});
+
 test('an invalid row never leaves the client — no request, the field and reason come back', async () => {
   const spy = fetchSpy([]);
   const store = createCustomStore({ partyId: PARTY, fetchImpl: spy.impl });

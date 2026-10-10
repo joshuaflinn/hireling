@@ -15,10 +15,11 @@
   // activates a nested link), Escape cancels, and closing restores focus to
   // the trigger when focus had moved into the popup.
   import { adoptHTML, esc, linkifyConditions } from '../../util/inert-html.js';
-  import { lookup } from '../../rules/prose.js';
+  import { lookup as curatedLookup } from '../../rules/prose.js';
 
   /** @type {{ name: string, lane?: string | null, tier?: string | null,
     customDescription?: string | null, customValue?: number | string | null,
+    lookup?: (key: string) => { found: boolean, text: string, page: number | null, aonId: number | null, link?: boolean },
     children?: import('svelte').Snippet }} */
   let {
     name,
@@ -26,6 +27,9 @@
     tier = null,
     customDescription = null,
     customValue = null,
+    /** Injectable for tests: the curated-seed lookup, so a hostile fixture
+     * can drive the real adopt path through the mounted popup. */
+    lookup: lookupEntry = curatedLookup,
     children,
   } = $props();
 
@@ -69,7 +73,7 @@
       }
       foot = '<div class="foot"><span>Custom entry</span></div>';
     } else {
-      const entry = lookup(currentKey);
+      const entry = lookupEntry(currentKey);
       if (entry.found) {
         // Curated prose may carry <b>/<i> and is linkified; the popup's own
         // subject is never self-linked.

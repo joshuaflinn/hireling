@@ -112,16 +112,16 @@ export function createCustomStore({ partyId, fetchImpl = fetch }) {
   async function create(kind, fields) {
     const invalid = validateCustom(kind, fields);
     if (invalid) throw invalid;
+    // A blank value stays `null` on the wire — `Number(null)` is 0, and the
+    // server reads 0 as an out-of-range condition value (1..20) and a spell
+    // rank of 0 (cantrip) where "required for spells" was meant (MOR-115 F3).
+    const raw = fields.value_or_rank;
+    const blank = raw === null || raw === undefined || String(raw) === '';
     const body = {
       kind,
       name: String(fields.name).trim(),
       description: String(fields.description ?? '').trim(),
-      value_or_rank:
-        fields.value_or_rank === undefined ||
-        String(fields.value_or_rank) === '' ||
-        kind === 'item'
-          ? null
-          : Number(fields.value_or_rank),
+      value_or_rank: blank || kind === 'item' ? null : Number(raw),
     };
     const response = await fetchImpl(`/api/parties/${partyId}/custom`, {
       method: 'POST',

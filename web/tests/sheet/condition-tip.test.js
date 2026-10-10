@@ -108,18 +108,26 @@ test('a custom row renders its own description: esc' + "'ed, never linkified, ba
   assert.match(pop.innerHTML, /Value: 3/, 'the optional value is a display note');
 });
 
-test('hostile curated prose through the mounted popup: nothing arms', () => {
+test('a hostile curated entry through the mounted popup: nothing arms', () => {
+  // A poisoned-seed fixture (injectable lookup) — the real adopt path, the
+  // real popup DOM. The old version mounted the benign real seed entry, so
+  // these assertions held with the scrub deleted entirely (MOR-115 F5).
+  const hostile = {
+    found: true,
+    text:
+      'Rules <script>bad()</script> <img src=x onerror="pwn()"> ' +
+      '<a href="javascript:bad()">js</a> <a href="//evil.example">proto</a> prose',
+    page: 444,
+    aonId: 76,
+    link: true,
+  };
   const { container } = render(ConditionTip, {
-    props: { name: 'Frightened' },
+    props: { name: 'Zapped', lookup: () => hostile },
   });
-  fireEvent.mouseEnter(screen.getByRole('button', { name: /Frightened/ }));
+  fireEvent.mouseEnter(screen.getByRole('button', { name: /Zapped/ }));
   const pop = /** @type {HTMLElement} */ (popupOf(container));
-  // The curated seed is repo data — the fixture proves the PATH: whatever
-  // the seed carried, the adopted tree carries no handler, no script, and
-  // only https/fragment hrefs. Drive the production adopt through a hostile
-  // second fixture on the same component (the fallback row's popup) and
-  // assert the live DOM directly.
   assert.equal(pop.querySelectorAll('script').length, 0, 'no script node');
+  assert.equal(pop.querySelectorAll('img').length, 0, 'no network-bearing node');
   assert.ok(
     [...pop.querySelectorAll('*')].every(
       (node) =>
@@ -136,6 +144,7 @@ test('hostile curated prose through the mounted popup: nothing arms', () => {
       `every href is https or fragment: ${href}`,
     );
   }
+  assert.match(pop.innerHTML, /&lt;script&gt;/, 'the payload is visible TEXT, not a node');
 });
 
 test('a nested condition link swaps the popup in place — second layer, never a third', () => {

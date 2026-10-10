@@ -406,8 +406,12 @@ test('writeEffect issues the existing effect-create frame (E9 T9 apply path)', (
     condition_value: 2,
   });
   const write = mocks.sockets[0].sent.map((r) => JSON.parse(r)).find((f) => f.t === 'write');
-  assert.deepEqual(write.target, { kind: 'effect_new', partyId: 1 });
+  // The WIRE shape: `protocol.rs` FieldTarget::EffectNew is `party_id`, and
+  // `write.rs` dispatches on `op: 'create'` — assert the contract, not the
+  // client's own idea of it (MOR-115 findings 1–2).
+  assert.deepEqual(write.target, { kind: 'effect_new', party_id: 1 });
   assert.deepEqual(write.value, {
+    op: 'create',
     name: 'Frightened',
     source_character_id: CHARACTER_ID,
     targets: [CHARACTER_ID],
