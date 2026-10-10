@@ -229,7 +229,9 @@ async fn a_retarget_at_a_stale_base_is_superseded() {
         &pool,
         &player("sub-alpha"),
         party_id,
-        retarget_op("op-rt-2", effect_id, base, &[]),
+        // gh#85: an empty proposal is refused at bounds before the CAS —
+        // the stale op must stay a valid write to exercise supersession.
+        retarget_op("op-rt-2", effect_id, base, &[beta]),
     )
     .await
     .expect("stale retarget resolves");
@@ -311,7 +313,7 @@ async fn only_the_creator_mutates_and_the_gm_is_denied_everywhere() {
         &pool,
         &player("sub-other"),
         party_id,
-        retarget_op("op-auth-1", effect_id, version, &[]),
+        retarget_op("op-auth-1", effect_id, version, &[alpha]),
     )
     .await
     .expect("stranger retarget resolves");
@@ -329,7 +331,7 @@ async fn only_the_creator_mutates_and_the_gm_is_denied_everywhere() {
         &pool,
         &gm("sub-gm"),
         party_id,
-        retarget_op("op-auth-2", effect_id, version, &[]),
+        retarget_op("op-auth-2", effect_id, version, &[alpha]),
     )
     .await
     .expect("gm retarget resolves");
@@ -408,6 +410,88 @@ async fn an_out_of_party_target_or_source_is_rejected() {
         .expect("count");
     assert_eq!(rows, 0, "nothing was created");
     testing::drop_test_db(pool, "e8_party_scope").await;
+}
+
+#[tokio::test]
+async fn an_empty_target_set_is_rejected_on_create_and_update() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, alpha) = seed_member(&pool, "sub-alpha").await;
+
+    // Create: a zero-target create never mints a row (gh#85).
+    let created = apply_write(
+        &pool,
+        &player("sub-alpha"),
+        party_id,
+        on_party(create_op("op-empty-1", alpha, &[]), party_id),
+    )
+    .await
+    .expect("resolves");
+    assert_eq!(created.outcome, Outcome::Rejected);
+    assert!(
+        created
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("at least one target")),
+        "the reason reaches the client: {created:?}"
+    );
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM effects")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(rows, 0, "no ghost row");
+    let (outcome, _): (String, Option<i64>) = sqlx::query_as(
+        "SELECT outcome, resulting_version FROM client_ops WHERE op_id = 'op-empty-1'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("ledger row");
+    assert_eq!(outcome, "rejected", "the denial is recorded");
+
+    // Update: stripping every target off a live effect is refused — the
+    // row keeps its targets, its version, and its active flag. End is the
+    // operation that clears an effect.
+    let live = apply_write(
+        &pool,
+        &player("sub-alpha"),
+        party_id,
+        on_party(create_op("op-empty-2", alpha, &[alpha]), party_id),
+    )
+    .await
+    .expect("live effect");
+    let Some((FieldTarget::Effect { effect_id }, _)) = live.broadcast else {
+        panic!("create broadcasts");
+    };
+    let base = effect_version(&pool, effect_id).await;
+    let stripped = apply_write(
+        &pool,
+        &player("sub-alpha"),
+        party_id,
+        retarget_op("op-empty-3", effect_id, base, &[]),
+    )
+    .await
+    .expect("resolves");
+    assert_eq!(stripped.outcome, Outcome::Rejected);
+    assert!(
+        stripped
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("at least one target")),
+        "the reason reaches the client: {stripped:?}"
+    );
+    let (active, _, _) = effect_row(&pool, effect_id).await;
+    assert!(active, "no ghost: the effect is untouched");
+    assert_eq!(effect_version(&pool, effect_id).await, base);
+    let targets: Vec<i64> = sqlx::query_scalar(
+        "SELECT character_id FROM effect_targets WHERE effect_id = $1 ORDER BY character_id",
+    )
+    .bind(effect_id)
+    .fetch_all(&pool)
+    .await
+    .expect("targets");
+    assert_eq!(targets, vec![alpha], "every target still on the row");
+    testing::drop_test_db(pool, "e8_empty_targets").await;
 }
 
 #[tokio::test]
