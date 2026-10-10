@@ -48,6 +48,12 @@ const invTarget = (characterId, itemName) => ({
   item_name: itemName,
 });
 
+/** @param {number} partyId */
+const effectNewTarget = (partyId) => ({
+  kind: 'effect_new',
+  party_id: partyId,
+});
+
 /** @param {number} value @param {number} min @param {number} max */
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -456,8 +462,10 @@ export function createSheetState({ sync, character, partyId = 1 }) {
     write(
       // The wire shape is `src/sync/protocol.rs`'s: `FieldTarget::EffectNew`
       // carries `party_id` (snake_case on the wire) and the value must name
-      // `op: 'create'` (`write.rs` dispatches on it).
-      { kind: 'effect_new', party_id: partyId },
+      // `op: 'create'` (`write.rs` dispatches on it). Built by the shared
+      // target-builder family, not an inline literal — the literal is what
+      // let the camelCase frame ship (MOR-121).
+      effectNewTarget(partyId),
       {
         op: 'create',
         modifiers: [],
