@@ -111,10 +111,11 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
 
 A green gate cannot catch a rules error: no lint, no clippy rule and no test
 count distinguishes a correct Pathfinder 2e number from a wrong one. PR #73
-shipped a class-feature table wrong in eight of eight rows with `just ci-local`
-green and 364 tests passed. The only guardrails that work are a citation that
-can be checked and an assertion that moves when the number moves. Both are
-required for any constant, table row, or branch that encodes a rules fact.
+proposed a class-feature table wrong in eight of eight rows with `just ci-local`
+green and 364 tests passed — review caught it before merge; the gate could not
+have. The only guardrails that work are a citation that can be checked and an
+assertion that moves when the number moves. Both are required for any constant,
+table row, or branch that encodes a rules fact.
 
 The rules corpus is conditions + equipment only (`src/import/model.rs`); there
 is no corpus for class features, so class-feature tables and level thresholds
