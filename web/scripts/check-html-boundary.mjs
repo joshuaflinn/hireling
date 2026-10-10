@@ -46,4 +46,6 @@ if (offenders.length > 0) {
   );
   process.exit(1);
 }
-console.log(`html-boundary ok: no {@html} outside ${[...SANCTIONED].sort().join(', ')}`);
+console.log(
+  `html-boundary ok: no {@html} outside ${[...SANCTIONED].sort().join(', ')}` /* nosemgrep: missing-template-string-indicator — the {@html} literal is prose, not a template hole */,
+);
