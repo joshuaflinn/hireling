@@ -114,11 +114,19 @@
     composerOpen = true;
   }
 
-  // An applied ack closes the dialog (spec FR-C5); a denial leaves it open
-  // with the reason inline — the state layer owns the verdict.
+  // An applied CREATE ack closes the dialog (spec FR-C5); an applied
+  // MANAGER op (retarget/end, kind 'effect') must not — the phase-only
+  // settle used to discard a half-composed form with it. A manager settle
+  // refetches the rows instead (FR-C6: the list is refetched after every
+  // op) and the dialog stays open. A denial leaves it open with the reason
+  // inline — the state layer owns the verdict.
   $effect(() => {
-    if ($composerOp?.phase === 'applied') {
+    if ($composerOp?.phase !== 'applied') return;
+    if ($composerOp.kind === 'effect_new') {
       composerOpen = false;
+      sheet.clearComposerOp();
+    } else {
+      if (partyId !== null) sheet.loadPartyEffects(partyId);
       sheet.clearComposerOp();
     }
   });

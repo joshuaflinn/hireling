@@ -62,9 +62,10 @@ pass.
    the store and `derived` frames already own it).
 5. **Given** the creator's own active effects (REST face
    `GET /api/parties/{party_id}/effects`, rows carrying `effect_id` + `version`),
-   **When** they remove a target or end the effect, **Then** the sync surface emits the
-   `effect`-targeted `{op:"update", targets}` / `{op:"end"}` op with
-   `base_version` = the fetched row's version (FR-14 whole-row CAS).
+   **When** they remove a target, add a target, or end the effect, **Then** the sync
+   surface emits the `effect`-targeted `{op:"update", targets}` / `{op:"end"}` op with
+   `base_version` = the fetched row's version (FR-14 whole-row CAS), and an applied
+   manager op leaves the dialog open.
 6. **Given** the GM seat (or any non-owner drill-in), **When** the sheet renders,
    **Then** no composer entry point exists — PRD: "Bruce's account never renders an
    edit control."
@@ -90,14 +91,22 @@ pass.
   positive ids; ≤16 modifiers; integer value −50..=50); invalid input never leaves the
   layer.
 - **FR-C5 — Denial and settlement**: the state layer maps `rejected`/`forbidden` events
-  for effect targets to an inline reason (server text verbatim) and `applied` to close.
-  Supersession stays silent per the degraded-mode contract; the manager refetches truth
-  on open.
+  for effect targets to an inline reason (server text verbatim), and `applied` settles
+  by target kind — a create's `applied` closes the dialog; a manager op's `applied`
+  refetches the rows and keeps it open (FR-C6). Supersession stays silent per the
+  degraded-mode contract, but the composer's in-flight state unsticks when the queue no
+  longer holds its op (a lost race never parks the dialog on "Applying…"). The manager
+  refetches truth on open, and a failed fetch names itself in the dialog.
 - **FR-C6 — Manager face**: the composer dialog lists the creator's own active effects
   with current targets; per-target remove composes the whole remaining target set into
-  one `update` op; End composes `end`. Both address `{kind:"effect","effect_id":N}` with
-  CAS `base_version` from the REST rows. A lost race surfaces on the next fetch — the
-  list is refetched after every op.
+  one `update` op; **Add <member>** composes the whole target set with that roster member
+  included into one `update` op (PRD FG3: the creator adds AND removes targets — an
+  earlier revision of this spec narrowed it to remove only; corrected, MOR-103); End
+  composes `end`. All address `{kind:"effect","effect_id":N}` with CAS `base_version`
+  from the REST rows. The last remaining target offers no remove control — an empty set
+  is refused by bounds, End is the operation there. A lost race surfaces on the next
+  fetch — the list is refetched after every op, and an applied manager op never discards
+  a half-composed form.
 - **FR-C7 — Seam for E13**: the composer is a component over the state layer's effect
   ops; the seeded-spell tapper composes the same ops. Nothing tapper-shaped is built
   here; no conflict pre-warn in the target picker (E13 owns both).

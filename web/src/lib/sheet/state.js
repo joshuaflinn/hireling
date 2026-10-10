@@ -1,3 +1,4 @@
+/* global console */
 // Sheet state layer (E6 design §2) — the ONLY module that talks to
 // `createSync`. Components get stores; they never see the socket, the
 // queue, or a wire target.
@@ -172,9 +173,10 @@ export function findOpError(opErrors, kind, match = {}) {
  * @property {import('svelte/store').Readable<boolean>} syncing
  * @property {import('svelte/store').Readable<boolean>} offline
  * @property {import('svelte/store').Readable<OpError[]>} opErrors
- * @property {import('svelte/store').Readable<{phase: string, reason?: string} | null>} composerOp
- *   the in-flight composer op: `writing` → `applied` (dialog closes) or
- *   `denied` with the server's reason verbatim (spec FR-C5)
+ * @property {import('svelte/store').Readable<{phase: string, kind?: string, reason?: string} | null>} composerOp
+ *   the in-flight composer op: `writing` → `applied` (kinded — 'effect_new'
+ *   closes the dialog, 'effect' settles and refetches) or `denied` with the
+ *   server's reason verbatim (spec FR-C5)
  * @property {import('svelte/store').Readable<{status: string, rows: Array<any>}>} partyEffects
  *   the manager's REST rows (GET /api/parties/{party_id}/effects — effect_id
  *   + version for CAS addressing)
@@ -221,10 +223,14 @@ export function createSheetState({ sync, character, fetchImpl }) {
   const opErrors = writable(/** @type {OpError[]} */ ([]));
 
   // ---- the effect composer (specs/010) ------------------------------------
-  const composerOp = writable(/** @type {{phase: string, reason?: string} | null} */ (null));
+  const composerOp = writable(/** @type {{phase: string, kind?: string, reason?: string} | null} */ (null));
   /** targetKey of the op the composer is waiting on — acks and exposures
    *  settle by key, so the composer never needs the op id back. */
   let pendingEffectKey = /** @type {string | null} */ (null);
+  /** The pending op's target kind — the applied settle carries it, because
+   *  a create and a manager op settle differently (finding 3): 'effect_new'
+   *  closes the dialog, 'effect' refetches rows and keeps it open. */
+  let pendingEffectKind = /** @type {'effect_new' | 'effect' | null} */ (null);
   const partyEffects = writable(/** @type {{status: string, rows: Array<any>}} */ ({
     status: 'idle',
     rows: [],
@@ -247,7 +253,12 @@ export function createSheetState({ sync, character, fetchImpl }) {
       if (!response.ok) throw new Error(`the server answered ${response.status}`);
       const rows = await response.json();
       partyEffects.set({ status: 'ready', rows: Array.isArray(rows) ? rows : [] });
-    } catch {
+    } catch (error) {
+      // Finding 4: no silent failures — “no effects” and “couldn't load”
+      // must not look identical. The !ok branch throws the status in the
+      // message; a network rejection carries its own.
+      const detail = error instanceof Error ? error.message : String(error);
+      console.warn(`[sheet] loadPartyEffects failed: ${detail}`);
       partyEffects.set({ status: 'error', rows: [] });
     }
   }
@@ -273,6 +284,7 @@ export function createSheetState({ sync, character, fetchImpl }) {
     if (value === null) return; // bounds refuse; the form's own state shows why
     const target = effectNewTarget(payload.partyId);
     pendingEffectKey = targetKey(target);
+    pendingEffectKind = 'effect_new';
     composerOp.set({ phase: 'writing' });
     write(target, value);
   }
@@ -284,6 +296,7 @@ export function createSheetState({ sync, character, fetchImpl }) {
     if (distinct.length < 1) return;
     const target = effectTarget(effectId);
     pendingEffectKey = targetKey(target);
+    pendingEffectKind = 'effect';
     composerOp.set({ phase: 'writing' });
     write(target, { op: 'update', targets: distinct }, effectCasVersion(target, restVersion));
   }
@@ -292,12 +305,14 @@ export function createSheetState({ sync, character, fetchImpl }) {
   function endEffect(effectId, restVersion) {
     const target = effectTarget(effectId);
     pendingEffectKey = targetKey(target);
+    pendingEffectKind = 'effect';
     composerOp.set({ phase: 'writing' });
     write(target, { op: 'end' }, effectCasVersion(target, restVersion));
   }
 
   function clearComposerOp() {
     pendingEffectKey = null;
+    pendingEffectKind = null;
     composerOp.set(null);
   }
 
@@ -443,6 +458,15 @@ export function createSheetState({ sync, character, fetchImpl }) {
       const pending = new Set(sync.queue().map((op) => targetKey(op.target)));
       pendingKeys.set(pending);
       fields.set(sync.state());
+      // Finding 2: a lost CAS race (superseded) dequeues the op and emits
+      // ONLY this queue event — no applied, no op_exposed. If the composer
+      // is waiting on a key that no queued op targets anymore, unstick it:
+      // the visible writing state clears (Apply re-arms). The key itself
+      // stays — settleAck emits this event BEFORE the applied ack for a
+      // winning op, and the settle below must not be eaten.
+      if (pendingEffectKey !== null && !pending.has(pendingEffectKey)) {
+        composerOp.set(null);
+      }
     } else if (event.type === 'connection') {
       connectionState.set(event.state);
     } else if (event.type === 'fields') {
@@ -453,11 +477,14 @@ export function createSheetState({ sync, character, fetchImpl }) {
     } else if (event.type === 'applied' && event.key) {
       // A win on a field clears its inline error (auto-clear on next ack).
       opErrors.update((errors) => errors.filter((error) => error.key !== event.key));
-      // The composer's win: the dialog closes (the parent owns the
-      // transition), the store shows the settled echo (spec FR-C5).
+      // The composer's win: the settle carries the op's target kind — a
+      // create closes the dialog (the parent owns the transition), a
+      // manager op only settles and refetches (finding 3). The store shows
+      // the settled echo (spec FR-C5).
       if (pendingEffectKey !== null && event.key === pendingEffectKey) {
         pendingEffectKey = null;
-        composerOp.set({ phase: 'applied' });
+        composerOp.set({ phase: 'applied', kind: pendingEffectKind ?? 'effect_new' });
+        pendingEffectKind = null;
       }
     } else if (event.type === 'op_exposed') {
       const key = event.op ? targetKey(event.op.target) : null;

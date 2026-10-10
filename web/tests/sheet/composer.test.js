@@ -1,4 +1,5 @@
-import { afterEach, test } from 'vitest';
+/* global console */
+import { afterEach, test, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import { render, cleanup, fireEvent, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
@@ -104,13 +105,17 @@ const EFFECT_ROWS = [
     duration_note: '10 rounds', active: true, version: 1042, tracked_manually: false,
   },
 ];
-function stubFetchEffects() {
+/** @param {Array<any>} rows the REST face's answer */
+function fetchStubFor(rows) {
   return (url) => {
     if (url === `/api/parties/${PARTY_ID}/effects`) {
-      return { ok: true, status: 200, json: () => Promise.resolve(EFFECT_ROWS) };
+      return { ok: true, status: 200, json: () => Promise.resolve(rows) };
     }
     return Promise.reject(new Error(`unexpected fetch ${url}`));
   };
+}
+function stubFetchEffects() {
+  return fetchStubFor(EFFECT_ROWS);
 }
 
 function optionsOf(select) {
@@ -338,13 +343,165 @@ test('another player\u2019s effects show in the manager data but carry no contro
   const rows = [
     { ...EFFECT_ROWS[0], effect_id: 77, name: 'Inspire Courage', source_character_id: 3, version: 900 },
   ];
-  const view = openComposerViaSheet(sync, {
-    fetchImpl: (url) =>
-      url === `/api/parties/${PARTY_ID}/effects`
-        ? { ok: true, status: 200, json: () => Promise.resolve(rows) }
-        : Promise.reject(new Error(`unexpected fetch ${url}`)),
-  });
+  const view = openComposerViaSheet(sync, { fetchImpl: fetchStubFor(rows) });
   await waitFor(() => assert.match(view.container.textContent, /Inspire Courage/));
   assert.doesNotMatch(view.container.textContent, /End Inspire Courage/, 'not the creator — no end control');
   assert.doesNotMatch(view.container.textContent, /Remove .* from Inspire Courage/, 'not the creator — no retarget control');
+  assert.doesNotMatch(view.container.textContent, /Your active effects/, 'not the creator\u2019s — never under that heading (finding 7)');
+  const headings = [...view.container.querySelectorAll('h4')].map((h) => h.textContent?.trim());
+  assert.deepEqual(headings, ['Party effects']);
+});
+
+// -- review rework (MOR-103 / gh#74): the seven findings, each proven at
+//    the mounted component -------------------------------------------------
+
+// Finding 1 — P0 unbuilt: PRD FG3 says the creator ADDS targets too.
+test('the creator can ADD a target — the whole set, member added (PRD FG3, spec FR-C6)', async () => {
+  const sync = fakeSessionSync();
+  const view = openComposerViaSheet(sync, { fetchImpl: stubFetchEffects() });
+  await waitFor(() => assert.match(view.container.textContent, /Bless/));
+
+  assert.ok(view.getByRole('button', { name: 'Add Bear to Bless' }), 'roster members not targeted render an Add control');
+  assert.equal(view.queryByRole('button', { name: 'Add Josh to Bless' }), null, 'already targeted — no Add for Josh');
+  assert.equal(view.queryByRole('button', { name: 'Add Becky to Bless' }), null, 'already targeted — no Add for Becky');
+
+  fireEvent.click(view.getByRole('button', { name: 'Add Bear to Bless' }));
+  await tick();
+  assert.equal(sync.writes.length, 1);
+  assert.deepEqual(sync.writes[0].target, { kind: 'effect', effect_id: 41 });
+  assert.equal(sync.writes[0].base_version, 1042, 'whole-row CAS on the fetched version (FR-14)');
+  assert.deepEqual(sync.writes[0].value, { op: 'update', targets: [3, 5, 7] }, 'the whole set, member added');
+});
+
+// Finding 2 — settleAck on `superseded` dequeues the op and emits ONLY the
+// queue event; the composer must not park on “Applying…” forever.
+test('a lost CAS race unsticks the composer — the queue event with the op gone clears \u201cApplying\u2026\u201d', async () => {
+  const sync = fakeSessionSync();
+  const view = openComposerViaSheet(sync);
+  await tick();
+
+  fireEvent.input(view.getByLabelText('Effect name'), { target: { value: 'Bless' } });
+  fireEvent.change(view.getByLabelText('Stat'), { target: { value: 'attack' } });
+  fireEvent.click(view.getByRole('checkbox', { name: 'Josh' }));
+  fireEvent.click(view.getByRole('button', { name: 'Apply effect' }));
+  await tick();
+  const writing = view.getByRole('button', { name: 'Applying\u2026' });
+  assert.equal(writing.disabled, true, 'the op is in flight');
+
+  sync.emit({ type: 'queue', length: 0 });
+  await tick();
+  assert.doesNotMatch(view.container.textContent, /Applying/);
+  const rearmed = view.getByRole('button', { name: 'Apply effect' });
+  assert.equal(rearmed.disabled, false, 'Apply re-armed — the dialog is not dead');
+});
+
+// Finding 3 — an applied MANAGER op must not close the dialog (the
+// phase-only settle discarded the half-composed form); the rows refetch.
+test('an applied manager op settles without closing — the rows refetch (FR-C6)', async () => {
+  const sync = fakeSessionSync();
+  let fetches = 0;
+  const view = openComposerViaSheet(sync, {
+    fetchImpl: (url) => {
+      if (url === `/api/parties/${PARTY_ID}/effects`) {
+        fetches += 1;
+        return { ok: true, status: 200, json: () => Promise.resolve(EFFECT_ROWS) };
+      }
+      return Promise.reject(new Error(`unexpected fetch ${url}`));
+    },
+  });
+  await waitFor(() => assert.equal(fetches, 1, 'the open fetch'));
+
+  fireEvent.click(view.getByRole('button', { name: 'Remove Josh from Bless' }));
+  assert.equal(sync.writes.length, 1, 'the retarget op left the layer');
+  sync.emit({ type: 'applied', key: targetKey({ kind: 'effect', effect_id: 41 }) });
+  await waitFor(() => assert.equal(fetches, 2, 'the settle refetch (FR-C6: refetch after every op)'));
+  assert.ok(
+    view.getByRole('button', { name: 'Apply effect' }),
+    'the dialog stayed open — the half-composed form survives',
+  );
+});
+
+// Finding 4 — a failed effects fetch is visible; no silent failures.
+test('a failed effects fetch is visible, not a silent empty list', async () => {
+  const sync = fakeSessionSync();
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const view = openComposerViaSheet(sync, {
+      fetchImpl: () => Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve([]) }),
+    });
+    await waitFor(() => assert.match(view.container.textContent, /Couldn't load active effects/));
+    assert.equal(view.queryByRole('button', { name: 'End Bless' }), null, 'no rows — no controls');
+    assert.ok(
+      warn.mock.calls.some((call) => call.join(' ').includes('503')),
+      'the warn carries the status',
+    );
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+// Finding 5 — the empty-set guard is right; the dead ✕ on the last target
+// is the defect. Both sides of the threshold asserted.
+test('the last remaining target offers no remove control — End is the operation', async () => {
+  const sync = fakeSessionSync();
+  const single = [{ ...EFFECT_ROWS[0], targets: [3] }];
+  const view = openComposerViaSheet(sync, { fetchImpl: fetchStubFor(single) });
+  await waitFor(() => assert.match(view.container.textContent, /Bless/));
+  assert.equal(
+    view.queryByRole('button', { name: 'Remove Josh from Bless' }),
+    null,
+    'one target left — the ✕ is not rendered (an empty set is refused; End is the operation)',
+  );
+  assert.ok(view.getByRole('button', { name: 'End Bless' }), 'End still offered');
+  cleanup();
+
+  const two = [{ ...EFFECT_ROWS[0] }];
+  const view2 = openComposerViaSheet(sync, { fetchImpl: fetchStubFor(two) });
+  await waitFor(() => assert.match(view2.container.textContent, /Bless/));
+  assert.ok(
+    view2.getByRole('button', { name: 'Remove Josh from Bless' }),
+    'two targets — the remove control exists (threshold minus one vs threshold)',
+  );
+});
+
+// Finding 6 — Math.round made 1.6 valid and shipped value: 2. The number
+// that lands must be the number shown.
+test('a fractional modifier value never arms Apply — the number shown ships', async () => {
+  const sync = fakeSessionSync();
+  const view = openComposerViaSheet(sync);
+  await tick();
+
+  fireEvent.input(view.getByLabelText('Effect name'), { target: { value: 'Bless' } });
+  fireEvent.change(view.getByLabelText('Stat'), { target: { value: 'attack' } });
+  fireEvent.click(view.getByRole('checkbox', { name: 'Josh' }));
+  fireEvent.input(view.getByLabelText('Value'), { target: { value: '1.6' } });
+  const apply = view.getByRole('button', { name: 'Apply effect' });
+  assert.equal(apply.disabled, true, '1.6 is not an integer — Apply stays dark');
+  fireEvent.click(apply);
+  await tick();
+  assert.equal(sync.writes.length, 0, 'nothing shipped');
+
+  fireEvent.input(view.getByLabelText('Value'), { target: { value: '2' } });
+  assert.equal(apply.disabled, false, 'the whole number arms Apply');
+  fireEvent.click(apply);
+  assert.equal(sync.writes.length, 1);
+  assert.equal(sync.writes[0].value.modifiers[0].value, 2, 'the shipped number is the shown number');
+});
+
+// Finding 7 — the others block rendered inside “Your active effects”.
+test('another player\u2019s effects render under their own heading, not \u201cYour active effects\u201d', async () => {
+  const sync = fakeSessionSync();
+  const rows = [
+    EFFECT_ROWS[0],
+    { ...EFFECT_ROWS[0], effect_id: 77, name: 'Inspire Courage', source_character_id: 3, version: 900 },
+  ];
+  const view = openComposerViaSheet(sync, { fetchImpl: fetchStubFor(rows) });
+  await waitFor(() => assert.match(view.container.textContent, /Inspire Courage/));
+  const headings = [...view.container.querySelectorAll('h4')].map((h) => h.textContent?.trim());
+  assert.deepEqual(headings, ['Your active effects', 'Party effects']);
+  const text = view.container.textContent ?? '';
+  assert.ok(
+    text.indexOf('Party effects') < text.indexOf('Inspire Courage'),
+    'the other player\u2019s row renders after the party heading, not under yours',
+  );
 });

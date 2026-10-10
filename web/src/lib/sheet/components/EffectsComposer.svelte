@@ -4,10 +4,13 @@
   // vocabulary (vocab.js — no client-side stat constant), duration note,
   // target picker from the party roster. Apply composes the exact
   // `effect_new` create op through the sheet's state layer; the manager
-  // face below it lists active effects — the creator's carry remove-a-target
-  // and End controls (the CAS mutation ops), everyone else's are read-only.
-  // Denials render the server's reason verbatim; an applied ack closes the
-  // dialog (the parent owns that transition).
+  // face below it lists active effects — the creator's carry add/remove-a-target
+  // and End controls (the CAS mutation ops; PRD FG3: the creator adds AND
+  // removes targets), everyone else's are read-only under their own heading.
+  // Denials render the server's reason verbatim; an applied CREATE ack closes
+  // the dialog (the parent owns that transition — an applied manager op only
+  // settles and refetches). A failed effects fetch names itself here — no
+  // silent failures.
   //
   // Zero client math: the composer composes ops; the server owns every
   // verdict, recompute, and provenance (the existing read path renders it).
@@ -53,11 +56,14 @@
    * name 1..=120, ≥1 target, ≤16 modifiers, integer value −50..=50).
    */
   const trimmedName = $derived(name.trim());
+  // No rounding: the value that lands on the wire must be the value in the
+  // field. A fraction fails the integer gate below (finding 6) — it never
+  // silently becomes the nearest whole number.
   const cleanRows = $derived(
     rows.map((row) => ({
       type: row.type,
       stat: row.stat,
-      value: row.value === '' || row.value === null ? NaN : Math.round(Number(row.value)),
+      value: row.value === '' || row.value === null ? NaN : Number(row.value),
     })),
   );
   const valid = $derived(
@@ -117,6 +123,14 @@
       current.filter((id) => id !== leaving),
       effectsState?.rows.find((row) => row.effect_id === effectId)?.version ?? 0,
     );
+  }
+
+  /** Add one roster member to an active effect's target set — the whole-set
+   *  update op rides (PRD FG3: the creator adds AND removes targets; spec
+   *  FR-C6). The state layer dedupes and bounds-checks the set.
+   *  @param {any} row @param {number} id */
+  function addTarget(row, id) {
+    onretarget?.(row.effect_id, [...row.targets, id], row.version);
   }
 
   /** @param {any} row */
@@ -183,32 +197,61 @@
     {/each}
   </fieldset>
 
+  {#if effectsState?.status === 'error'}
+    <!-- Finding 4: “no effects” and “couldn't load” must not look the same. -->
+    <p class="fetch-error" role="alert">Couldn't load active effects — reopen the dialog to retry.</p>
+  {/if}
+
   {#if effectsState?.status === 'ready' && (managed.length > 0 || others.length > 0)}
     <div class="managed">
-      <h4>Your active effects</h4>
-      {#each managed as row (row.effect_id)}
-        <div class="managed-row">
-          <b>{row.name}</b>
-          {#each row.targets as targetId (targetId)}
-            <span class="managed-target">
-              {nameOf(targetId)}
-              <button
-                class="x"
-                type="button"
-                aria-label={`Remove ${nameOf(targetId)} from ${row.name}`}
-                onclick={() => removeTarget(row.effect_id, row.targets, targetId)}>✕</button
-              >
-            </span>
-          {/each}
-          <button class="end" type="button" aria-label={`End ${row.name}`} onclick={() => endEffect(row)}>End</button>
-        </div>
-      {/each}
-      {#each others as row (row.effect_id)}
-        <div class="managed-row other">
-          <b>{row.name}</b>
-          <span class="from">from {nameOf(row.source_character_id)}</span>
-        </div>
-      {/each}
+      {#if managed.length > 0}
+        <h4>Your active effects</h4>
+        {#each managed as row (row.effect_id)}
+          <div class="managed-row">
+            <b>{row.name}</b>
+            {#each row.targets as targetId (targetId)}
+              <span class="managed-target">
+                {nameOf(targetId)}
+                {#if row.targets.length > 1}
+                  <!-- Finding 5: the last remaining target's ✕ would be a
+                       dead control (empty sets are refused by bounds) —
+                       End is the operation there. -->
+                  <button
+                    class="x"
+                    type="button"
+                    aria-label={`Remove ${nameOf(targetId)} from ${row.name}`}
+                    onclick={() => removeTarget(row.effect_id, row.targets, targetId)}>✕</button
+                  >
+                {/if}
+              </span>
+            {/each}
+            {#each roster as member (member.id)}
+              {#if !row.targets.includes(member.id)}
+                <!-- Finding 1 (P0): the creator ADDS targets too — the
+                     whole-set update op with the member included. -->
+                <button
+                  class="add-target"
+                  type="button"
+                  aria-label={`Add ${nameOf(member.id)} to ${row.name}`}
+                  onclick={() => addTarget(row, member.id)}>+ {nameOf(member.id)}</button
+                >
+              {/if}
+            {/each}
+            <button class="end" type="button" aria-label={`End ${row.name}`} onclick={() => endEffect(row)}>End</button>
+          </div>
+        {/each}
+      {/if}
+      {#if others.length > 0}
+        <!-- Finding 7: someone else's effects never render under “Your
+             active effects” — their own heading. -->
+        <h4>Party effects</h4>
+        {#each others as row (row.effect_id)}
+          <div class="managed-row other">
+            <b>{row.name}</b>
+            <span class="from">from {nameOf(row.source_character_id)}</span>
+          </div>
+        {/each}
+      {/if}
     </div>
   {/if}
 
@@ -328,6 +371,26 @@
 
   .managed-row .from {
     color: var(--muted, #8a94a3);
+  }
+
+  .fetch-error {
+    margin: 0 0 10px;
+    padding: 6px 9px;
+    border-left: 3px solid #e07a6a;
+    background: rgba(224, 122, 106, 0.08);
+    color: #e07a6a;
+    font-family: ui-monospace, monospace;
+    font-size: 0.85rem;
+  }
+
+  .add-target {
+    background: none;
+    border: 1px dashed var(--edge, #465070);
+    border-radius: 6px;
+    color: var(--muted, #8a94a3);
+    padding: 2px 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
   }
 
   .managed-target {
