@@ -217,8 +217,8 @@ fn prof_bonus(rank: i64) -> i32 {
     i32_of(rank)
 }
 
-/// AC RE-DERIVED from the export's parts (E6 spec §4, review finding 8 —
-/// the sheet's own formula, `web/src/lib/engine/base.js`, byte for byte):
+/// AC RE-DERIVED from the export's parts (E6 spec §4 — the sheet's own
+/// AC formula):
 /// `10 + acAbilityBonus + proficiency(worn-armor rank, eff_level) +
 /// acItemBonus + shieldBonus-while-raised`, with `proficiency = rank > 0 ?
 /// rank + eff_level : 0` and the armor category taken from the worn piece
