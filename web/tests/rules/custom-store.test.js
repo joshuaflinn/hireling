@@ -9,30 +9,18 @@ import { createCustomStore, validateCustom } from '../../src/lib/rules/custom-st
 
 const PARTY = 1;
 
-/** @param {*} body @param {number} [status] */
-function jsonRoute(body, status = 200) {
-  return /** @type {typeof fetch} */ (
-    /** @returns {Promise<Response>} */ async () =>
-      /** @type {any} */ ({
-        ok: status >= 200 && status < 300,
-        status,
-        json: async () => body,
-      })
-  );
-}
-
 /** Records calls, answers from a queue. @param {Array<{body: any, status: number}>} answers */
 function fetchSpy(answers) {
   /** @type {Array<{url: string, init: any}>} */
   const calls = [];
   const impl = /** @type {typeof fetch} */ (
-    /** @param {string} url @param {any} init */ async (url, init) => {
+    /** @param {string} url @param {any} init @returns {Promise<any>} */ (url, init) => {
       calls.push({ url, init });
       const answer = answers.shift() ?? { body: [], status: 200 };
-      return /** @type {any} */ ({
+      return Promise.resolve({
         ok: answer.status >= 200 && answer.status < 300,
         status: answer.status,
-        json: async () => answer.body,
+        json: () => Promise.resolve(answer.body),
       });
     }
   );

@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { render, cleanup, screen, fireEvent } from '@testing-library/svelte';
+import { render, cleanup, fireEvent } from '@testing-library/svelte';
 import { tick } from 'svelte';
 
 import SheetView from '../../src/lib/sheet/SheetView.svelte';
@@ -96,11 +96,15 @@ test('the affordance opens the picker, which renders the party conditions (E8 RE
   ];
   const original = globalThis.fetch;
   globalThis.fetch = /** @type {typeof fetch} */ (
-    /** @param {string} url */ async (url) => {
+    /** @param {string} url @returns {Promise<any>} */ (url) => {
       requested.push(String(url));
-      if (String(url).includes('/custom?kind=')) return { ok: true, status: 200, json: async () => [] };
-      if (String(url).includes('/conditions')) return { ok: true, status: 200, json: async () => rows };
-      return { ok: true, status: 200, json: async () => ({}) };
+      if (String(url).includes('/custom?kind=')) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) });
+      }
+      if (String(url).includes('/conditions')) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(rows) });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
     }
   );
   try {

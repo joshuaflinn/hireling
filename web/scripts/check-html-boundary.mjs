@@ -5,6 +5,7 @@
 // (the engine's dependency edge): a grep-based gate that fails loudly, not a
 // lint rule nobody configured. Sanctioned set is exact and closed: new
 // members require a spec change, not a quiet edit here.
+/* global console, process */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 

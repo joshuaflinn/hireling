@@ -10,7 +10,7 @@ import AddCustomForm from '../../src/lib/sheet/components/AddCustomForm.svelte';
 
 afterEach(cleanup);
 
-test('an over-cap name shows the inline error and never reaches onsubmit', async () => {
+test('an over-cap name shows the inline error and never reaches onsubmit', () => {
   let submissions = 0;
   const { container } = render(AddCustomForm, {
     props: { kind: 'item', onsubmit: () => { submissions += 1; } },
@@ -38,7 +38,7 @@ test('a blank name refuses too — required is a bound, not a formality', () => 
   assert.equal(submissions, 0);
 });
 
-test('a valid submit hands onsubmit the entered fields — the store owns the trim', async () => {
+test('a valid submit hands onsubmit the entered fields — the store owns the trim', () => {
   /** @type {any[]} */ const seen = [];
   render(AddCustomForm, {
     props: {

@@ -1,3 +1,4 @@
+/* global document */
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 

@@ -1,5 +1,6 @@
 import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
+/* global document */
 import { render, cleanup, screen, fireEvent } from '@testing-library/svelte';
 
 import ConditionTip from '../../src/lib/sheet/components/ConditionTip.svelte';

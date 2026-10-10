@@ -20,11 +20,11 @@ import ConditionPicker from '../../src/lib/sheet/components/ConditionPicker.svel
 /** @returns {typeof fetch} */
 function conditionsRoute(rows) {
   return /** @type {typeof fetch} */ (
-    /** @returns {Promise<any>} */ async (url) => {
+    /** @param {string} url @returns {Promise<any>} */ (url) => {
       if (String(url).includes('/conditions')) {
-        return { ok: true, status: 200, json: async () => rows };
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(rows) });
       }
-      return { ok: false, status: 404, json: async () => ({}) };
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
     }
   );
 }
@@ -35,8 +35,8 @@ const ROWS = [
   { corpus_entry_id: 99, name: 'Sunlit', tier: 'display_only', lane: 'custom', valued: false },
 ];
 
-/** @param {number} targetId @returns {{applies: any[], apply}} */
-function applySpy(targetId) {
+/** @returns {{applies: any[], apply}} */
+function applySpy() {
   /** @type {any[]} */ const applies = [];
   return {
     applies,
@@ -84,7 +84,7 @@ test('a valued condition carries a value input; display-only and custom rows do 
 });
 
 test('applying a valued condition issues the existing effect-create shape', async () => {
-  const spy = applySpy(7);
+  const spy = applySpy();
   render(ConditionPicker, {
     props: {
       partyId: 1,

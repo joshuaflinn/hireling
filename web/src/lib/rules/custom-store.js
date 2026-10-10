@@ -8,6 +8,7 @@
 // (defense in depth, FR-4 AC-3) — an invalid row never leaves the client,
 // and the server's 400 body surfaces with the same {field, reason} shape.
 
+/* global fetch */
 import { writable } from 'svelte/store';
 
 /** The caps (contract §1) — one table, the form and the store both read it. */
