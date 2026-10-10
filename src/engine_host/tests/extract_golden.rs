@@ -153,8 +153,8 @@ fn golden_skill_render_inputs_ride_the_row() {
 }
 
 /// Prototype parity: strikes re-derived (attack = ability + rank+level +
-/// pot; damage flat = Str + mastery) with the unarmed Fist appended, and
-/// caster blocks derived.
+/// pot; damage flat = Str) with the unarmed Fist appended, and caster
+/// blocks derived.
 #[test]
 fn golden_strikes_and_casters_match_the_prototype() {
     let base = extract(&reference_sheet(), 0);
@@ -170,7 +170,10 @@ fn golden_strikes_and_casters_match_the_prototype() {
         staff.damage, "d4−1",
         "the die VERBATIM + signed flat (str −1, U+2212) — the sheet's rendered string"
     );
-    assert_eq!(staff.damage_flat, -1, "str + mastery(2, 3) = −1");
+    assert_eq!(
+        staff.damage_flat, -1,
+        "str −1; a wizard gains no Weapon Specialization"
+    );
     assert_eq!(staff.map, 5, "not Agile: −5/−10");
     assert_eq!(staff.damage_type, "B");
     assert_eq!(staff.damage_type_name, "bludgeoning");
@@ -392,6 +395,82 @@ fn caster_rank_takes_the_tradition_bump_innate_keeps_hers() {
     assert_eq!(
         gnome.spell_attack, 12,
         "cha 3 + trained 2+7 — innate: her own block rank, no tradition max"
+    );
+}
+
+// -- Weapon Specialization is a class feature, not a level feature (gh#44) --
+
+/// A level-13 fighter with martial expert: Weapon Specialization's +2 is
+/// ON (the class grants it at 5; expert rank at 13 pays +2).
+const FIGHTER: &str = r#"{"success":true,"build":{"name":"Shield Hand","class":"Fighter","level":13,"abilities":{"str":18,"dex":12,"con":14,"int":10,"wis":10,"cha":10},"proficiencies":{"martial":4},"weapons":[{"name":"Longsword","die":"d8","prof":"martial","pot":0,"damageType":"S"}]}}"#;
+
+/// Both arms ride `extract` + `compute` — the production path whose wire
+/// the sheet renders — not the helper in isolation.
+#[test]
+fn mastery_damage_reads_the_class_not_just_the_level() {
+    // The wizard's Staff at display level 13 (export 3, adjust +10):
+    // wizards have no Weapon Specialization — the flat stays Str −1.
+    let base = extract(&reference_sheet(), 10);
+    assert_eq!(base.level, 13);
+    let output =
+        hireling_engine::compute::compute(7, &base, &[], &std::collections::BTreeMap::new());
+    let staff = output.derived.strikes.first().expect("staff strike");
+    assert_eq!(
+        staff.damage_flat.total, -1,
+        "a wizard never gains Weapon Specialization, at any level"
+    );
+
+    // The fighter's longsword at 13, martial expert: +2 ON.
+    let export = model::parse_and_validate(FIGHTER).expect("fighter export is valid");
+    let fighter_base = extract(&transform::transform(&export).0, 0);
+    let fighter_output = hireling_engine::compute::compute(
+        7,
+        &fighter_base,
+        &[],
+        &std::collections::BTreeMap::new(),
+    );
+    let sword = fighter_output
+        .derived
+        .strikes
+        .first()
+        .expect("longsword strike");
+    assert_eq!(
+        sword.damage_flat.total, 6,
+        "str 4 + Weapon Specialization +2 — a class the table grants it"
+    );
+}
+
+// -- the shield bonus counts only while the shield is raised (gh#45) --
+
+/// Two exports differing ONLY in `ac.shieldRaised`; AC differs by exactly
+/// the shield bonus. Both ride `extract` + `compute` (the derive path the
+/// sheet's AC renders from).
+#[test]
+fn shield_bonus_applies_only_while_raised() {
+    let shielded = |raised: &str| {
+        format!(
+            r#"{{"success":true,"build":{{"name":"Bulwark","class":"Fighter","level":3,"abilities":{{"str":16,"dex":14,"con":14,"int":10,"wis":10,"cha":10}},"proficiencies":{{"unarmored":2}},"acTotal":{{"acAbilityBonus":1,"acItemBonus":0,"shieldBonus":2,"acTotal":18{raised}}}}}}}"#
+        )
+    };
+    let raised = model::parse_and_validate(&shielded(",\"shieldRaised\":true"))
+        .expect("raised export is valid");
+    let lowered = model::parse_and_validate(&shielded("")).expect("lowered export is valid");
+    let ac = |sheet: &transform::BaseSheet| {
+        let base = extract(sheet, 0);
+        hireling_engine::compute::compute(7, &base, &[], &std::collections::BTreeMap::new())
+            .derived
+            .ac
+            .total
+    };
+    assert_eq!(
+        ac(&transform::transform(&raised).0),
+        18,
+        "10 + dex 1 + trained 2+3 + shield 2, raised"
+    );
+    assert_eq!(
+        ac(&transform::transform(&lowered).0),
+        16,
+        "same sheet, shield not raised: the +2 is off"
     );
 }
 

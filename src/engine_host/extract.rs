@@ -220,13 +220,15 @@ fn prof_bonus(rank: i64) -> i32 {
 /// AC RE-DERIVED from the export's parts (E6 spec §4, review finding 8 —
 /// the sheet's own formula, `web/src/lib/engine/base.js`, byte for byte):
 /// `10 + acAbilityBonus + proficiency(worn-armor rank, eff_level) +
-/// acItemBonus + shieldBonus`, with `proficiency = rank > 0 ? rank +
-/// eff_level : 0` and the armor category taken from the worn piece
-/// (`unarmored` when none). The export's frozen `acTotal` is NOT used: it
-/// pins the export level and freezes AC forever, so a `level_adjust` never
-/// moved it. At the export's own level the two agree exactly (the
-/// reference golden pins 16 both ways); above it the re-derivation tracks
-/// the class table — which is the point.
+/// acItemBonus + shieldBonus-while-raised`, with `proficiency = rank > 0 ?
+/// rank + eff_level : 0` and the armor category taken from the worn piece
+/// (`unarmored` when none). The shield's bonus counts only while the sheet
+/// state marks the shield raised (`ac.shieldRaised: true` — Raise a Shield
+/// is an action, not a constant). The export's frozen `acTotal` is NOT
+/// used: it pins the export level and freezes AC forever, so a
+/// `level_adjust` never moved it. At the export's own level the two agree
+/// exactly (the reference golden pins 16 both ways); above it the
+/// re-derivation tracks the class table — which is the point.
 fn ac_of(sheet: &BaseSheet, ranks: &std::collections::HashMap<String, i64>, eff_level: i64) -> i32 {
     let ac_section = sheet.ac.as_ref();
     let part = |key: &str| {
@@ -248,13 +250,18 @@ fn ac_of(sheet: &BaseSheet, ranks: &std::collections::HashMap<String, i64>, eff_
         .and_then(serde_json::Value::as_str);
     let armor_prof = worn_prof.unwrap_or("unarmored");
     let rank = ranks.get(armor_prof).copied().unwrap_or(0);
+    let raised = ac_section
+        .and_then(|ac| ac.get("shieldRaised"))
+        .and_then(serde_json::Value::as_bool)
+        == Some(true);
+    let shield = if raised { part("shieldBonus") } else { 0 };
     i32_of(
         10_i64
             + part("acAbilityBonus")
             + eff_level * i64::from(rank >= 1)
             + i64::from(prof_bonus(rank))
             + part("acItemBonus")
-            + part("shieldBonus"),
+            + shield,
     )
 }
 
@@ -277,8 +284,9 @@ fn speed_total(sheet: &BaseSheet) -> i32 {
 /// RE-DERIVED — ability (Finesse → best of Str/Dex) + proficiency
 /// (rank + level at rank ≥ 1) + potency — never the export's verbatim
 /// `attack` (equal at the export's own level, divergent above it).
-/// Damage flat is Str plus the mastery bonus (level ≥ 13). The unarmed
-/// Fist row the sheet renders is appended (prototype line 1419).
+/// Damage flat is Str plus Weapon Specialization (a class feature —
+/// `mastery_damage`). The unarmed Fist row the sheet renders is appended
+/// (prototype line 1419).
 fn strike_bases(
     sheet: &BaseSheet,
     ranks: &std::collections::HashMap<String, i64>,
@@ -286,11 +294,12 @@ fn strike_bases(
 ) -> Vec<StrikeBase> {
     let str_mod = i32_of(ability_mod(sheet.abilities.str));
     let dex_mod = i32_of(ability_mod(sheet.abilities.dex));
+    let class = sheet.identity.class.as_deref();
     let pb = |rank: i64| i32_of(eff_level) * i32::from(rank >= 1) + prof_bonus(rank);
     let rank_of = |key: &str| ranks.get(key).copied().unwrap_or(0);
     let Some(weapons) = sheet.weapons.as_ref().and_then(serde_json::Value::as_array) else {
         // No weapons: the sheet still renders the unarmed Fist.
-        let flat = str_mod + mastery_damage(rank_of("unarmed"), eff_level);
+        let flat = str_mod + mastery_damage(class, rank_of("unarmed"), eff_level);
         return vec![fist_row(
             "Fist",
             str_mod.max(dex_mod) + pb(rank_of("unarmed")),
@@ -332,7 +341,7 @@ fn strike_bases(
                 str_mod
             };
             let attack = ability_mod_used + pb(rank) + i32_of(pot);
-            let damage_flat = str_mod + mastery_damage(rank, eff_level);
+            let damage_flat = str_mod + mastery_damage(class, rank, eff_level);
             let die = weapon
                 .get("die")
                 .and_then(serde_json::Value::as_str)
@@ -367,7 +376,7 @@ fn strike_bases(
         format!("Fist#{fist_seen}")
     };
     let unarmed = rank_of("unarmed");
-    let unarmed_flat = str_mod + mastery_damage(unarmed, eff_level);
+    let unarmed_flat = str_mod + mastery_damage(class, unarmed, eff_level);
     strikes.push(fist_row(
         &key,
         str_mod.max(dex_mod) + pb(unarmed),
@@ -407,10 +416,30 @@ fn weapon_traits(name: &str) -> &'static [&'static str] {
     }
 }
 
-/// Extra strike damage from mastery ranks at level 13+ (the prototype's
-/// `spec`): expert +2, master +3, legendary +4; nothing below level 13.
-fn mastery_damage(rank: i64, level: i64) -> i32 {
-    if level < 13 {
+/// Weapon Specialization — a CLASS feature, not a level feature: the
+/// classes that grant it and the level they grant it at (Player Core;
+/// every other class — wizards included — never gains it).
+const WEAPON_SPECIALIZATION: &[(&str, i64)] = &[
+    ("Barbarian", 13),
+    ("Champion", 13),
+    ("Fighter", 5),
+    ("Magus", 13),
+    ("Monk", 13),
+    ("Ranger", 13),
+    ("Rogue", 13),
+    ("Swashbuckler", 13),
+];
+
+/// Extra strike damage from Weapon Specialization (the prototype's
+/// `spec`): expert +2, master +3, legendary +4 with the weapon's rank,
+/// from the class's specialization level on — nothing for classes the
+/// table does not name.
+fn mastery_damage(class: Option<&str>, rank: i64, level: i64) -> i32 {
+    let gained_at = WEAPON_SPECIALIZATION
+        .iter()
+        .find(|(name, _)| Some(*name) == class)
+        .map_or(i64::MAX, |&(_, at)| at);
+    if level < gained_at {
         return 0;
     }
     match rank {
