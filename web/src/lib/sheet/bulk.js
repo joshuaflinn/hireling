@@ -24,7 +24,8 @@
  */
 
 /**
- * @param {*} baseSheet the normalized sheet (equipment + containers)
+ * @param {*} baseSheet the normalized sheet (equipment + containers +
+ * weapons + armor)
  * @param {Record<string, number | null>} itemBulk the bootstrap bulk map
  * @param {Record<string, string[]>} itemTraits the bootstrap trait map
  * @param {(name: string) => number} qtyOf effective quantity per item name
@@ -80,6 +81,19 @@ export function inventoryView(baseSheet, itemBulk, itemTraits, qtyOf) {
       bulkText: extra ? 'excluded' : tenthsText(sum ?? 0),
     };
   });
+
+  // Carried and worn both count (PF2e Bulk): the weapon in hand and the
+  // armor on their back join the character total. Same tenths map, same
+  // gap degrade (null → 0); stowed (non-worn) armor never counts. These
+  // rows render in the strikes/AC panes, not the inventory list, so they
+  // add to the total without adding list rows.
+  const carriedOnBody = [...(baseSheet.weapons ?? [])]
+    .concat((baseSheet.armor ?? []).filter((/** @type {any} */ piece) => piece.worn))
+    .reduce(
+      (acc, item) => acc + (itemBulk[item.name] ?? 0) * (item.qty ?? 1),
+      0,
+    );
+  total += carriedOnBody;
 
   return { groups, totalTenths: total, totalText: tenthsText(total) };
 }

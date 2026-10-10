@@ -84,6 +84,45 @@ test('view-only inventory: no inputs, quantities as text', () => {
   assert.match(container.innerHTML, /×1/, 'quantities render as text');
 });
 
+// -- the total the panel renders folds the wielded weapon and worn armor
+// in (gh#46): two maps differing only in the weapon/armor entries —
+// two different rendered totals --
+
+test('Total carried renders the wielded weapon and worn armor', () => {
+  const sheet = {
+    equipment: [{ name: 'Torch', qty: 1 }],
+    weapons: [{ name: 'Staff', qty: 1 }],
+    armor: [{ name: "Explorer's Clothing", worn: true, qty: 1 }],
+    containers: [],
+  };
+  const props = (itemBulk) => ({
+    props: {
+      baseSheet: sheet,
+      itemBulk,
+      itemTraits: {},
+      qtyMap: { Torch: { qty: 1, pending: false } },
+      money: { value: { pp: 0, gp: 0, sp: 0, cp: 0 }, pending: false },
+      editable: false,
+    },
+  });
+  const carried = render(
+    InventoryPanel,
+    props({ Torch: 1, Staff: 10, "Explorer's Clothing": 1 }),
+  );
+  assert.match(
+    carried.container.innerHTML,
+    /Total carried: <b>1 Bulk \+ 2 L<\/b>/,
+    'Torch 1 + Staff 10 + worn clothing 1',
+  );
+  cleanup();
+  const pack = render(InventoryPanel, props({ Torch: 1, Staff: null, "Explorer's Clothing": null }));
+  assert.match(
+    pack.container.innerHTML,
+    /Total carried: <b>1 L<\/b>/,
+    'weapon and armor unresolved (corpus gaps): pack only',
+  );
+});
+
 // ---- MOR-48 review fixes: the production path owns the behaviour ----------
 
 test('a rejected quantity write surfaces inline at that item; a rejected coin write at the coins (finding 5)', () => {
