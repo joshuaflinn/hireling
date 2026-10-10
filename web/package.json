@@ -18,9 +18,11 @@
     "@testing-library/dom": "10.4.2",
     "@testing-library/svelte": "5.4.2",
     "eslint": "10.12.0",
+    "eslint-plugin-svelte": "3.23.1",
     "jsdom": "30.1.1",
     "svelte": "5.57.1",
     "svelte-check": "4.7.6",
+    "svelte-eslint-parser": "1.9.0",
     "typescript": "5.9.3",
     "vite": "8.3.0",
     "vitest": "5.0.3"

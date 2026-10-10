@@ -10,6 +10,18 @@
 // reproduced the image's 44 findings one-for-one, and flagged nothing
 // extra. A gate-image digest bump that moves the rule set updates this
 // file in the same PR.
+//
+// Second calibration, by fire (gate run 38080211231 red on `73512a9`
+// while `ci-local` was green): the image also enforces `no-script-url`
+// on JS and lints `.svelte` files — `svelte/no-unused-svelte-ignore`
+// was the finding the js/mjs-only replica could never see. The svelte
+// block carries the parser and the one rule the image has been observed
+// to enforce on components; widening it further waits for observed
+// findings, not speculation. eslint-plugin-svelte + svelte-eslint-parser
+// are devDependencies for this replica alone.
+import sveltePlugin from 'eslint-plugin-svelte';
+import svelteParser from 'svelte-eslint-parser';
+
 export default [
   {
     files: ['**/*.js', '**/*.mjs'],
@@ -22,6 +34,21 @@ export default [
       'no-unused-vars': 'error',
       'require-await': 'error',
       'no-new-func': 'error',
+      'no-script-url': 'error',
+    },
+  },
+  {
+    files: ['**/*.svelte'],
+    languageOptions: {
+      parser: svelteParser,
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+    },
+    plugins: {
+      svelte: sveltePlugin,
+    },
+    rules: {
+      'svelte/no-unused-svelte-ignore': 'error',
     },
   },
 ];

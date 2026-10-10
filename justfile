@@ -73,7 +73,9 @@ web-css-guard:
 # against runs 37850972131 and 37981907115: missing-template-string-
 # indicator on the emitted-worker template; package-dependencies-check
 # on web/package.json — exact versions only, which the tree already
-# kept). The image's full rule set is wider; a digest bump that moves it
+# kept; and 38080211231: html-in-template-string, the run that red-flagged
+# the vetted anchor literal in inert-html.js while ci-local was green).
+# The image's full rule set is wider; a digest bump that moves it
 # updates this invocation in the same PR. Needs the semgrep CLI on PATH
 # (`pipx install semgrep`) — a scan that skips is not a scan, so a
 # missing CLI fails loudly instead.
@@ -86,6 +88,7 @@ scan-semgrep:
     SEMGREP_SEND_METRICS=off semgrep scan --metrics=off --error \
         --config https://semgrep.dev/r/javascript.lang.correctness.missing-template-string-indicator \
         --config https://semgrep.dev/r/json.npm.security.package-dependencies-check \
+        --config https://semgrep.dev/r/javascript.lang.security.html-in-template-string \
         web
 
 # Vite dev server for frontend-only iteration (proxies nothing; use `just dev`
