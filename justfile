@@ -172,11 +172,11 @@ json-keys:
 # gate behavior and must move with any digest bump. The image remains
 # the authority.
 #
-# Repo-side legs — no image pass runs these; CI gates them in the
-# repo-guards job of .github/workflows/gate.yml, in parallel with the
-# image job: json-keys, boundary, web-test, web-build. That job's
-# drift-check step fails any ci-local leg no CI job runs, so a new leg
-# lands together with its CI home.
+# Repo-side legs — no image pass runs these; CI gates them as guard steps
+# in the gate job of .github/workflows/gate.yml, ahead of the image run:
+# json-keys, boundary, web-test, web-build. That job's drift-check step
+# fails any ci-local leg no CI job runs, so a new leg lands together with
+# its CI home.
 ci-local: json-keys fmt-check lint test deny boundary web-check web-test web-build web-eslint scan-semgrep
 
 # Alias — same gate, the name the spec calls it by.

@@ -51,12 +51,102 @@ jobs:
             grizzly-gate-${{ runner.os }}-${{ env.GATE_IMAGE }}-
             grizzly-gate-${{ runner.os }}-
 
+      # Repo-side guardrails, run before the image below. The gate image owns
+      # 16 passes; `just ci-local` (see justfile) carries legs it has never
+      # run — today web-test, web-build, json-keys, boundary; PR #83 swaps
+      # web-build for web-css-guard and adds web-html-boundary. They ride
+      # this job because the main-gate ruleset requires exactly one status
+      # context, `gate` — a second job would publish an unrequired context
+      # that could sit red while the merge button stays live. Every guard
+      # step and the image run below carry if: ${{ !cancelled() }}: one red
+      # run must list every failure it has (a json-keys red must not hide a
+      # web-test red), while a real cancel still stops everything. The guards
+      # buy earlier failure DETAIL, not an earlier red — the required
+      # context publishes at job end either way.
+      #
+      # Host cargo steps read the restored gate registry ONLY with
+      # CARGO_HOME pointed at it (boundary, below) — the default ~/.cargo
+      # would cold-fetch the index this cache step just restored.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install node dependencies
+        run: npm --prefix web ci
+
+      # just, so the guard steps run the recipes themselves. Copied commands
+      # drift from the justfile bodies exactly the way the leg lists drifted
+      # to create these guards.
+      - name: Install just
+        if: ${{ !cancelled() }}
+        run: cargo install just --locked
+
+      - name: web-test — vitest suite
+        if: ${{ !cancelled() }}
+        run: just web-test
+
+      - name: web-build — production bundle
+        if: ${{ !cancelled() }}
+        run: just web-build
+
+      - name: json-keys — duplicate-key guard
+        if: ${{ !cancelled() }}
+        run: just json-keys
+
+      - name: boundary — engine dependency gate
+        if: ${{ !cancelled() }}
+        run: just boundary
+        env:
+          CARGO_HOME: /home/runner/.cache/grizzly-gate/cargo
+
+      # The guardrail guarding the guardrails: every ci-local leg must be
+      # gated by the image passes (rust:fmt/clippy/test/deny,
+      # node:svelte-check, node:eslint, scan:semgrep — the mapping lives in
+      # the justfile) or by the guard steps above. Landing a ci-local leg
+      # with no CI home turns this red and names the leg. (PR #83
+      # red-checks here until its two legs replace web-build above:
+      # deliberate.)
+      - name: Drift check — no ci-local leg left ungated
+        if: ${{ !cancelled() }}
+        run: |
+          python3 - <<'EOF'
+          import re
+          import sys
+
+          justfile = open("justfile").read()
+          m = re.search(r"^ci-local: *(.+)$", justfile, re.M)
+          if not m:
+              sys.exit("drift check: no ci-local recipe found in justfile")
+          legs = m.group(1).split()
+
+          # Legs the pinned gate image runs (the docker run below).
+          mirrored = {
+              "fmt-check", "lint", "test", "deny",
+              "web-check", "web-eslint", "scan-semgrep",
+          }
+          # Legs the guard steps above run.
+          repo_side = {"web-test", "web-build", "json-keys", "boundary"}
+
+          ungated = sorted(set(legs) - mirrored - repo_side)
+          if ungated:
+              sys.exit(
+                  "drift check: ci-local leg(s) gated by no CI job: "
+                  + ", ".join(ungated)
+                  + " — add them to the guard steps in this workflow"
+                  " (or to `mirrored` if the gate image runs them)"
+              )
+          print(f"drift check ok: all {len(legs)} ci-local legs are gated")
+          EOF
+
       # GIT_CONFIG_*/safe.directory: the cache restore extracts as the runner
       # user, so cached git state (cargo-deny's advisory DB, any future git
       # deps) comes back runner-owned while the container runs as root — git
       # then refuses it with "dubious ownership" and cargo-deny fails. Trust
       # every repo inside the container; the mount is CI-local by construction.
       - name: Run grizzly-gate
+        if: ${{ !cancelled() }}
         run: >-
           docker run --rm
           -v "$PWD:/src"
@@ -77,91 +167,4 @@ jobs:
         if: always()
         run: sudo chown -R "$(id -u):$(id -g)" /home/runner/.cache/grizzly-gate || true
 
-  # Repo-side guardrails. The gate image above owns 16 passes; `just
-  # ci-local` (see justfile) carries legs the image has never run — today
-  # web-test, web-build, json-keys, boundary; PR #83 adds web-css-guard and
-  # web-html-boundary to that set. Those legs live here, in parallel with
-  # the gate job. The split is kept honest mechanically: the drift-check
-  # step at the bottom parses the ci-local leg list and fails, naming the
-  # leg, if any leg is gated by no CI job — so this job and the justfile
-  # cannot drift apart quietly again.
-  repo-guards:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # web legs. engines say node >=20; vite 8 wants newer — run the
-      # active LTS.
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      # boundary (and installing just, below) cold-fetch the cargo registry
-      # index; keyed on the lockfile, that cost is paid once per dependency
-      # change instead of on every run.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cargo/registry
-          key: repo-guards-${{ runner.os }}-cargo-registry-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            repo-guards-${{ runner.os }}-cargo-registry-
-
-      - name: Install node dependencies
-        run: npm --prefix web ci
-
-      # just, so the steps below run the recipes themselves. Copied commands
-      # drift from the justfile bodies exactly the way the leg lists drifted
-      # to create this job; running the recipe keeps one source of truth.
-      - name: Install just
-        run: cargo install just --locked
-
-      - name: web-test — vitest suite
-        run: just web-test
-
-      - name: web-build — production bundle
-        run: just web-build
-
-      - name: json-keys — duplicate-key guard
-        run: just json-keys
-
-      - name: boundary — engine dependency gate
-        run: just boundary
-
-      # The guardrail guarding the guardrails: every ci-local leg must be
-      # gated either by the gate image (the `gate` job above) or by this
-      # job's steps. Landing a ci-local leg without a CI home turns this
-      # red and names the leg — the gap that created this job cannot reopen
-      # quietly. (Landing PR #83 red-checks here until its two legs join
-      # the steps above: deliberate.)
-      - name: Drift check — no ci-local leg left ungated
-        run: |
-          python3 - <<'EOF'
-          import re
-          import sys
-
-          justfile = open("justfile").read()
-          m = re.search(r"^ci-local: *(.+)$", justfile, re.M)
-          if not m:
-              sys.exit("drift check: no ci-local recipe found in justfile")
-          legs = m.group(1).split()
-
-          # Legs the pinned gate image runs (the `gate` job above).
-          mirrored = {
-              "fmt-check", "lint", "test", "deny",
-              "web-check", "web-eslint", "scan-semgrep",
-          }
-          # Legs this job runs (the just steps above).
-          repo_side = {"web-test", "web-build", "json-keys", "boundary"}
-
-          ungated = sorted(set(legs) - mirrored - repo_side)
-          if ungated:
-              sys.exit(
-                  "drift check: ci-local leg(s) gated by no CI job: "
-                  + ", ".join(ungated)
-                  + " — add them to the repo-guards job in this workflow"
-                  " (or to `mirrored` if the gate image runs them)"
-              )
-          print(f"drift check ok: all {len(legs)} ci-local legs are gated")
-          EOF
