@@ -8,6 +8,9 @@
 // One path rules: browser-offline (notifyOffline), socket error, and socket
 // close all land in the same disconnect handler → state `offline` → schedule
 // a reconnect. `offline` covers unreachable and browser-offline identically.
+// The one exit is `hangUp()`: the session is over (logout). It clears any
+// pending retry and the watchdog, closes the live socket, and no reconnect
+// is ever scheduled again — connect() stays inert afterwards.
 //
 // Reconnect sequence on every (re)connect: the snapshot frame is delivered
 // as a `frame` event, then the phase markers `snapshot → merge → drain →
@@ -68,6 +71,8 @@ export function createConnection(options) {
   /** True between the socket's open and its death — the send window. */
   let socketOpen = false;
   let attempt = 0;
+  /** Set by hangUp() — after it, no reconnect is ever scheduled again. */
+  let stopped = false;
   /** @type {* | null} */
   let reconnectTimer = null;
   /** @type {* | null} */
@@ -122,6 +127,7 @@ export function createConnection(options) {
     const delay = rng() * Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** attempt);
     attempt += 1;
     setState('offline');
+    if (stopped) return; // a hang-up's own close event must not reschedule
     reconnectTimer = timers.setTimeout(() => {
       reconnectTimer = null;
       connect();
@@ -130,6 +136,8 @@ export function createConnection(options) {
   }
 
   function connect() {
+    // A hung-up link never rises again — the session that owned it is over.
+    if (stopped) return;
     // A manual connect supersedes a still-pending scheduled retry.
     if (reconnectTimer !== null) {
       timers.clearTimeout(reconnectTimer);
@@ -204,10 +212,28 @@ export function createConnection(options) {
 
     /**
      * Browser-offline enters here — the same path as a socket error.
-     * No-op when already down or connecting.
+     * The link is wanted back when the browser returns, so the reconnect
+     * loop keeps running. No-op when already down or connecting.
      */
     notifyOffline() {
       if (socket !== null) handleDisconnect(socket, 'browser-offline');
+    },
+
+    /**
+     * Hang up for good — the session is over (logout). Clears any pending
+     * retry and the watchdog, closes the live socket, and no reconnect is
+     * ever scheduled again; a later connect() is inert. This is the one
+     * exit from the reconnect loop, and it is one-way.
+     */
+    hangUp() {
+      if (stopped) return;
+      stopped = true;
+      if (reconnectTimer !== null) {
+        timers.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      clearWatchdog();
+      if (socket !== null) handleDisconnect(socket, 'hang-up');
     },
 
     /**

@@ -129,8 +129,10 @@ the final hashed asset list and a `BUILD_ID` (content hash of the bundle).
 Registration lives in `web/src/lib/pwa/register.js`, called from `main.js`
 only when `import.meta.env.PROD` — dev stays SW-free.
 
-Fetch strategy (pure functions in `web/src/lib/pwa/strategy.js`, imported by
-the emitted `sw.js` — unit-testable without a SW runtime):
+Fetch strategy (pure functions in `web/src/lib/pwa/strategy.js`; the
+emitted `sw.js` inlines this source verbatim with the `export` keywords
+stripped — a classic worker script, not an ES-module import, so the
+strategies stay unit-testable without a SW runtime):
 
 | request | strategy |
 |---|---|

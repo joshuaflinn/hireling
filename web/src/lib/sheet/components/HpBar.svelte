@@ -11,10 +11,10 @@
     max = 1,
     editable = true,
     offline = false,
-    ondamage,
-    onheal,
-    onfull,
-    ontemp,
+    ondamage = undefined,
+    onheal = undefined,
+    onfull = undefined,
+    ontemp = undefined,
   } = $props();
 
   const total = $derived(max + temp.value);

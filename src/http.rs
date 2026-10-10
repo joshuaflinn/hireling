@@ -70,6 +70,14 @@ pub(crate) const API_ROUTES: &[ApiRoute] = &[
         path: "/api/characters/me",
         writes: false,
     },
+    // E10's party bootstrap read (FR-5): every party character's `me`
+    // shape plus the party id and the caller's role. A read; session-
+    // protected like every row below.
+    ApiRoute {
+        method: "GET",
+        path: "/api/party/roster",
+        writes: false,
+    },
     // The party socket: the GET itself only upgrades — writes ride the
     // frames, authorized per message through E3's authorize() (spec FR-1).
     ApiRoute {
@@ -124,6 +132,7 @@ pub fn router(auth: Arc<AuthState>, static_dir: &Path, sync: crate::sync::SyncSt
             post(crate::pbimport::handlers::import_character),
         )
         .route("/characters/me", get(crate::pbimport::handlers::me))
+        .route("/party/roster", get(crate::party::roster_read))
         .route(
             "/ws/party/{party_id}",
             get(crate::sync::session::party_ws),

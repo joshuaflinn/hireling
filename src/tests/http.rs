@@ -58,6 +58,9 @@ async fn response_body(response: axum::response::Response) -> String {
 #[path = "engine_rest.rs"]
 mod engine_rest;
 
+#[path = "party.rs"]
+mod party;
+
 /// The value of the first `Set-Cookie` header whose cookie is named `name`.
 fn set_cookie_value(response: &axum::response::Response, name: &str) -> Option<String> {
     response

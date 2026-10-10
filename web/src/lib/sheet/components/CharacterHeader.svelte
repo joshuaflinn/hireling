@@ -18,10 +18,10 @@
      * that does not exist yet (review finding F3, design §7). */
     wireReady = true,
     syncing = false,
-    onadjustlevel,
-    onnewday,
-    onimport,
-    onlogout,
+    onadjustlevel = undefined,
+    onnewday = undefined,
+    onimport = undefined,
+    onlogout = undefined,
   } = $props();
 
   let picking = $state(false);

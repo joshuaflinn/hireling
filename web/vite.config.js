@@ -2,6 +2,8 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { defineConfig } from 'vitest/config';
 
+import swPlugin from './plugins/sw-plugin.mjs';
+
 // The backend serves the built bundle (web/dist) and owns all routing —
 // no SvelteKit, no client router at this stage. The same config also drives
 // the component tests: `defineConfig` from vitest/config adds the `test`
@@ -10,7 +12,7 @@ import { defineConfig } from 'vitest/config';
 // svelteTesting flips svelte's module conditions to the browser build so
 // components mount client-side under jsdom (build output is untouched).
 export default defineConfig({
-  plugins: [svelte(), svelteTesting()],
+  plugins: [svelte(), svelteTesting(), swPlugin()],
   test: {
     environment: 'jsdom',
     setupFiles: ['./tests/setup.js'],

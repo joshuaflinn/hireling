@@ -80,6 +80,17 @@ state as it sees fit (typically: value shown, control disabled until ack).
 
 ## 6. What E10's service worker may assume (and must not do)
 
+> **E10 ruling (2026-10-08, supersedes the letter of the second "may
+> assume" bullet below):** the store snapshot is NOT cached by the service
+> worker. It lives app-side in per-account localStorage (the boot cache,
+> `hireling:boot:{sub}`), seeded through the version merge on cold boot —
+> a SW-held copy would be a second invalidation surface without adding
+> safety; version-merge, not release invalidation, is what makes a stale
+> snapshot harmless. The full ruling, with the rejected alternative, is
+> [`specs/009-party-view-gm-seat-pwa/contracts/sw-shell-cache.md`](../../009-party-view-gm-seat-pwa/contracts/sw-shell-cache.md)
+> §5. The bullets below stand as written for everything else; read "the SW
+> caches it versioned" as "the APP persists it, keyed per account".
+
 May assume:
 - This module exists in-page and owns merge/replay/queue logic; the SW
   serves the shell and the initial store snapshot so a cold offline boot

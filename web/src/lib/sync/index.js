@@ -53,7 +53,8 @@ export function partySocketUrl(partyId) {
  *
  * @typedef {Object} Sync
  * @property {() => void} connect
- * @property {() => void} disconnect
+ * @property {() => void} disconnect browser-offline — the reconnect loop keeps running
+ * @property {() => void} hangUp session over (logout) — the socket dies, no reconnect, ever
  * @property {(target: Record<string, *>, value: *) => void} write
  * @property {() => Record<string, {target: Record<string, *>, value: *, version: number}>} state
  * @property {(characterId: number) => EngineOutput | null} derived
@@ -74,6 +75,7 @@ export function partySocketUrl(partyId) {
  *   now?: () => number,
  *   timers?: { setTimeout: (fn: () => void, ms: number) => *, clearTimeout: (id: *) => void },
  *   idFactory?: () => string,
+ *   bootSnapshot?: { fields: Array<{ field: Record<string, *>, value: *, version: number }> },
  * }} options
  * @returns {Sync}
  */
@@ -92,6 +94,24 @@ export function createSync(options) {
   const queue = createQueue({ storage, accountSub });
   const store = createStore();
   const listeners = new Set();
+
+  /**
+   * One wire-shaped field set through the store's version merge — the
+   * `snapshot` frame's body and E10's `bootSnapshot` seed share this one
+   * path (no new merge semantics anywhere; the seed is just an old
+   * snapshot that lost any race it deserved to lose).
+   * @param {Array<{ field: Record<string, *>, value: *, version: number }>} fields
+   */
+  function applySnapshotFields(fields) {
+    for (const f of fields) {
+      store.applyServerField(f.field, f.value, /** @type {number} */ (f.version));
+    }
+  }
+
+  // The cold-boot seed: last-known wire state from the boot cache, merged
+  // by version exactly like a live snapshot (FR-9). Applied before any
+  // socket exists, so the first paint already carries last-known numbers.
+  applySnapshotFields(options.bootSnapshot?.fields ?? []);
 
   // E8's derived surface (design D4–D6): engine output is never versioned
   // and never stored durably — it is a pure function of already-versioned
@@ -135,10 +155,10 @@ export function createSync(options) {
   /** @param {Record<string, *>} frame */
   function handleFrame(frame) {
     if (frame.t === 'snapshot') {
-      const fields = /** @type {Array<Record<string, *>>} */ (frame.fields ?? []);
-      for (const f of fields) {
-        store.applyServerField(f.field, f.value, /** @type {number} */ (f.version));
-      }
+      const fields = /** @type {Array<{ field: Record<string, *>, value: *, version: number }>} */ (
+        frame.fields ?? []
+      );
+      applySnapshotFields(fields);
       // The catch-up snapshot carries every roster character's engine
       // output (design D6) — applied before the fields event so the
       // sheet's first paint after connect already has its numbers.
@@ -198,9 +218,17 @@ export function createSync(options) {
       connection.connect();
     },
 
-    /** Browser-offline and "hang up" share the connection's one path. */
+    /** Browser-offline — the same reconnect loop as a socket error; the
+     *  link is wanted back when the browser returns. */
     disconnect() {
       connection.notifyOffline();
+    },
+
+    /** The session is over (logout): the socket dies and no reconnect is
+     *  ever scheduled again. NOT the same path as disconnect — that one
+     *  keeps the loop alive on purpose. */
+    hangUp() {
+      connection.hangUp();
     },
 
     /**

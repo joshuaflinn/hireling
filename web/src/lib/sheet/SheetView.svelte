@@ -1,10 +1,9 @@
 <script>
   // SheetView — the composition root for one character's live sheet.
-  // Owns the sheet state layer (the only place createSync is constructed
-  // on this surface); components receive stores, never the socket.
-  //
-  // POC party: the seed guarantees exactly one party (E7 design), so the
-  // socket URL addresses party 1 — a named constant, revisited with E10.
+  // Owns the sheet state layer; components receive stores, never the
+  // socket. The sync arrives from outside when the party shell mounts
+  // this view (one socket per tab, E10 D2); standalone it builds its own
+  // against the POC party as before.
   import { createSync, partySocketUrl } from '../sync/index.js';
   import { createSheetState } from './state.js';
 
@@ -18,22 +17,26 @@
   import EffectsStrip from './components/EffectsStrip.svelte';
 
   /** @type {{ character: any, accountSub?: string, editable?: boolean,
-    onimport?: () => void, onlogout?: () => void }} */
+    sync?: any, onimport?: () => void, onlogout?: () => void }} */
   let {
-    character, // the /api/characters/me payload
+    character, // the /api/characters/me payload — or a roster element, same shape
     accountSub = '',
     editable = true,
+    sync: providedSync, // the shell's session sync (E10 D2) — one socket per tab
     onimport,
     onlogout,
   } = $props();
 
+  // Standalone/test path — the shell ALWAYS provides the session sync;
+  // this self-construction against the POC party is the fallback only.
   const POC_PARTY_ID = 1;
-
-  const sync = createSync({
-    url: partySocketUrl(POC_PARTY_ID),
-    storage: localStorage,
-    accountSub,
-  });
+  const sync =
+    providedSync ??
+    createSync({
+      url: partySocketUrl(POC_PARTY_ID),
+      storage: localStorage,
+      accountSub,
+    });
   const sheet = createSheetState({ sync, character });
 
   // Stores destructure into locals: `$view` and friends are the template's
@@ -81,7 +84,10 @@
     sync.connect();
     return () => {
       sheet.destroy();
-      sync.disconnect();
+      // A borrowed sync belongs to the shell — backing out of a drill-in
+      // must not tear down the party screen's link (one socket per tab).
+      // Only the standalone sync, which this view built, dies here.
+      if (!providedSync) sync.disconnect();
     };
   });
 
