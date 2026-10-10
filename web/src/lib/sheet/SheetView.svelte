@@ -15,14 +15,20 @@
   import StrikesPane from './components/StrikesPane.svelte';
   import FeatsPanel from './components/FeatsPanel.svelte';
   import EffectsStrip from './components/EffectsStrip.svelte';
+  import EffectsComposer from './components/EffectsComposer.svelte';
 
   /** @type {{ character: any, accountSub?: string, editable?: boolean,
-    sync?: any, onimport?: () => void, onlogout?: () => void }} */
+    sync?: any, partyId?: number | null, roster?: Array<{id: number, name: string | null}>,
+    fetchImpl?: typeof fetch,
+    onimport?: () => void, onlogout?: () => void }} */
   let {
     character, // the /api/characters/me payload — or a roster element, same shape
     accountSub = '',
     editable = true,
     sync: providedSync, // the shell's session sync (E10 D2) — one socket per tab
+    partyId = null, // the session's party (specs/010) — null hides the composer
+    roster = [], // the party roster — the composer's target picker
+    fetchImpl, // injectable REST face for tests; the real app uses global fetch
     onimport,
     onlogout,
   } = $props();
@@ -37,7 +43,7 @@
       storage: localStorage,
       accountSub,
     });
-  const sheet = createSheetState({ sync, character });
+  const sheet = createSheetState({ sync, character, fetchImpl });
 
   // Stores destructure into locals: `$view` and friends are the template's
   // auto-subscriptions; the write surface stays on `sheet`.
@@ -56,6 +62,8 @@
     syncing,
     offline,
     opErrors,
+    composerOp,
+    partyEffects,
   } = sheet;
 
   /**
@@ -93,6 +101,28 @@
 
   const identity = character.base_sheet.identity;
 
+  // The composer (specs/010): an editable sheet with a party and a delivered
+  // engine output (the vocabulary source). Absent any of the three, the
+  // entry point is absent — the GM seat and non-owner drill-ins render no
+  // edit control (PRD), and a pre-wire sheet has no vocabulary to pick from.
+  let composerOpen = $state(false);
+  const canCompose = $derived(Boolean(editable && partyId !== null && $view !== null));
+
+  function openComposer() {
+    sheet.clearComposerOp();
+    if (partyId !== null) sheet.loadPartyEffects(partyId);
+    composerOpen = true;
+  }
+
+  // An applied ack closes the dialog (spec FR-C5); a denial leaves it open
+  // with the reason inline — the state layer owns the verdict.
+  $effect(() => {
+    if ($composerOp?.phase === 'applied') {
+      composerOpen = false;
+      sheet.clearComposerOp();
+    }
+  });
+
   function subline() {
     const parts = [identity.ancestry, identity.class, identity.heritage].filter(Boolean);
     return parts.join(' · ');
@@ -114,7 +144,28 @@
     onlogout={onlogout}
   />
 
-  <EffectsStrip effects={$view?.effects ?? []} />
+  <div class="effects-head">
+    <EffectsStrip effects={$view?.effects ?? []} />
+    {#if canCompose}
+      <button class="new-effect" onclick={openComposer}>New effect</button>
+    {/if}
+  </div>
+
+  {#if composerOpen && partyId !== null}
+    <EffectsComposer
+      open={composerOpen}
+      onclose={() => (composerOpen = false)}
+      partyId={partyId}
+      characterId={character.character.id}
+      {roster}
+      view={$view}
+      effectsState={$partyEffects}
+      composerOpState={$composerOp}
+      oncreate={sheet.createEffect}
+      onretarget={sheet.retargetEffect}
+      onend={sheet.endEffect}
+    />
+  {/if}
 
   <div class="board">
     <div class="col">
@@ -196,3 +247,21 @@
     </div>
   </div>
 </div>
+
+<style>
+  .effects-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .new-effect {
+    background: none;
+    border: 1px solid var(--gold-dim, #b8963e);
+    border-radius: 999px;
+    color: var(--gold, #d4af5f);
+    font-size: 0.8rem;
+    padding: 2px 12px;
+    cursor: pointer;
+  }
+</style>

@@ -174,6 +174,11 @@
       accountSub={account?.sub ?? ''}
       editable={sheetTarget.editable}
       sync={session.sync}
+      partyId={session.roster.party_id}
+      roster={session.roster.characters.map((/** @type {any} */ c) => ({
+        id: c.character.id,
+        name: c.character.name,
+      }))}
       onlogout={logout}
     />
   </main>
