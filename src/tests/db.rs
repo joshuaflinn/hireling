@@ -13,8 +13,8 @@
 //! never a silent green. A server that ANSWERS never skips: a rejected
 //! password, a permission failure, or a missing maintenance database is a
 //! red test — and so are failed CREATE DATABASE, connect, or migration
-//! runs. A misconfigured test database must never pass for a skip
-//! (MOR-10/MOR-13). `just db` starts the throwaway; `just db-reset` wipes
+//! runs. A misconfigured test database must never pass for a skip.
+//! `just db` starts the throwaway; `just db-reset` wipes
 //! anything this suite ever leaked.
 
 use sqlx::postgres::PgPoolOptions;
@@ -1251,8 +1251,8 @@ async fn assert_modifier_vocabulary(db: &TestDb) {
 }
 
 // ---------------------------------------------------------------------------
-// Suite gating — a reachable server must never be skippable (MOR-13):
-// wrong credentials, permission failures, or a missing maintenance
+// Suite gating — a reachable server must never be skippable: wrong
+// credentials, permission failures, or a missing maintenance
 // database are RED; only transport-level unreachability skips.
 // ---------------------------------------------------------------------------
 

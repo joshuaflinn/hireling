@@ -99,7 +99,7 @@ fn ability_scores_are_the_six_fixture_values() {
 #[test]
 fn max_hp_follows_the_contract_formula() {
     let (sheet, _) = fixture_sheet();
-    // PF2e rule (contract §3.3, amended by E6's review — MOR-48 finding 3):
+    // PF2e rule (contract §3.3):
     // 8 ancestry + 0 bonus + (6 class + 2 CON + 0 per-level) × 3 = 32.
     // CON (score 14 → +2) counts at every level, the first included.
     assert_eq!(sheet.hp.max_hp, 32, "contract §3.3 worked example");

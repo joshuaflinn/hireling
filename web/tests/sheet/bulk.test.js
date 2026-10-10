@@ -50,3 +50,50 @@ test('tenths text: L, numbers, gaps, and negligible', () => {
   assert.equal(tenthsText(0), 'negligible');
   assert.equal(tenthsText(null), '—');
 });
+
+// -- carried and worn: the weapon in hand and the armor on their back
+// count toward the character total (gh#46) --
+
+const wornSheet = {
+  equipment: [{ name: 'Torch', qty: 1, container: null, invested: false }],
+  weapons: [{ name: 'Longsword', qty: 1 }],
+  armor: [
+    { name: "Explorer's Clothing", worn: true, qty: 1 },
+    { name: 'Shield (stowed)', worn: false, qty: 1 },
+  ],
+  containers: [],
+};
+const wornBulk = {
+  Torch: 1,
+  Longsword: 10,
+  "Explorer's Clothing": 1,
+  'Shield (stowed)': 5,
+};
+const qtyOne = () => 1;
+
+test('the character total folds all weapons and worn armor in', () => {
+  const { totalTenths, totalText } = inventoryView(wornSheet, wornBulk, {}, qtyOne);
+  assert.equal(
+    totalTenths,
+    12,
+    'Torch 1 + Longsword 10 + worn clothing 1; the stowed shield row is outside the fold',
+  );
+  assert.equal(totalText, '1 Bulk + 2 L');
+});
+
+test('non-worn armor is outside the gh#46 fold; corpus gaps contribute zero', () => {
+  const gaps = {
+    Torch: 1,
+    Longsword: null,
+    "Explorer's Clothing": null,
+    'Shield (stowed)': 5,
+  };
+  const { totalTenths } = inventoryView(wornSheet, gaps, {}, qtyOne);
+  assert.equal(totalTenths, 1, 'gaps degrade to 0 — never blocking, never invented');
+});
+
+test('weapon qty multiplies in the total', () => {
+  const twoSwords = { ...wornSheet, weapons: [{ name: 'Longsword', qty: 2 }] };
+  const { totalTenths } = inventoryView(twoSwords, wornBulk, {}, qtyOne);
+  assert.equal(totalTenths, 22, 'Torch 1 + 2 × 10 + worn clothing 1');
+});

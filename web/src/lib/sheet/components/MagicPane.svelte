@@ -34,7 +34,7 @@
 
   let tab = $state('spells');
 
-  // The focus section (spec §2.3 — review finding 11): the export's
+  // The focus section (spec §2.3): the export's
   // `focus[tradition][ability]` block carries focus cantrips and focus
   // spells; rendered with the caster whose tradition it belongs to.
   const focusFor = (/** @type {any} */ caster) => {

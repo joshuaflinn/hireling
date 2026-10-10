@@ -143,9 +143,9 @@ test('MagicPane carries the two tabs and the staff section', () => {
   assert.match(container.innerHTML, /Staff Nexus/);
 });
 
-// ---- MOR-48 review fixes: the production path owns the behaviour ----------
+// ---- the production path owns the behaviour ----------
 
-test('focus spells from the export render with their caster (finding 11)', () => {
+test('focus spells from the export render with their caster', () => {
   const { container } = render(MagicPane, {
     props: {
       baseSheet: fixture,
@@ -192,7 +192,7 @@ test('a rejected slot write surfaces inline at that row; a rejected daily write 
     },
   });
   // Both surfaces are role=alert (row alert in CasterPanel, staff-panel
-  // alert in StaffPanel) — query the role, not the markup (MOR-77 finding 2).
+  // alert in StaffPanel) — query the role, not the markup.
   const alerts = screen
     .getAllByRole('alert')
     .map((el) => el.textContent)

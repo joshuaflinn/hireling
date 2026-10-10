@@ -293,7 +293,7 @@ test('New Day enqueues the whole reset burst FIFO: slots, focus, daily', () => {
   assert.deepEqual(targets[0], slot(1, 0), 'the used slot goes first');
   assert.deepEqual(queued[0].value, { used: false, prepared: '500 Toads' });
   assert.deepEqual(targets.at(-2), focus(), 'focus second-to-last');
-  // Refill, not empty (review finding 2): the pool regains its points —
+  // Refill, not empty: the pool regains its points —
   // the fixture character's focus max is 1.
   assert.equal(queued.at(-2).value, 1, 'focus refills to the character max');
   assert.deepEqual(targets.at(-1), daily(), 'daily last');
@@ -368,9 +368,9 @@ test("the client never re-derives: a level_adjust write moves nothing until the 
   assert.equal(get(state.hpMax), 40);
 });
 
-// ---- MOR-48 review fixes: the production path owns the behaviour ----------
+// ---- the production path owns the behaviour ----------
 
-test('the hp readout clamps to the live max — a level-down never shows 32 / 16 (finding 11)', () => {
+test('the hp readout clamps to the live max — a level-down never shows 32 / 16', () => {
   const { mocks, state } = setup();
   state.connect();
   handshake(mocks.sockets[0], [{ target: hp(), value: 32, version: 2 }]);
