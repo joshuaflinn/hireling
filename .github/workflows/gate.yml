@@ -143,9 +143,18 @@ jobs:
               "fmt-check", "lint", "test", "deny",
               "web-check", "web-eslint", "scan-semgrep",
           }
-          # Legs the guard steps above run.
-          repo_side = {"web-test", "web-css-guard", "web-html-boundary",
-                       "json-keys", "boundary"}
+          # Legs the guard steps above run — derived from this file, not
+          # declared: a hand-kept literal certifies steps it never reads
+          # (MOR-142, MOR-130's fault class one storey up). Delete a guard
+          # step and its leg drops out of this set, turning the check red
+          # instead of printing full coverage over a hole. Matches only
+          # single-line `run: just <leg>` steps, so any other spelling reads
+          # as ungated and fails closed. `mirrored` stays a literal — the
+          # image's pass list is not readable from the repo, the justfile
+          # already names the image as the authority, and a digest bump
+          # moves both together.
+          workflow = open(".github/workflows/gate.yml").read()
+          repo_side = set(re.findall(r"^ *run: just ([\w-]+) *$", workflow, re.M))
 
           ungated = sorted(set(legs) - mirrored - repo_side)
           if ungated:
