@@ -53,8 +53,8 @@ jobs:
 
       # Repo-side guardrails, run before the image below. The gate image owns
       # 16 passes; `just ci-local` (see justfile) carries legs it has never
-      # run — today web-test, web-build, json-keys, boundary; PR #83 swaps
-      # web-build for web-css-guard and adds web-html-boundary. They ride
+      # run — today web-test, web-css-guard, web-html-boundary, json-keys,
+      # boundary. They ride
       # this job because the main-gate ruleset requires exactly one status
       # context, `gate` — a second job would publish an unrequired context
       # that could sit red while the merge button stays live. Every guard
@@ -67,29 +67,51 @@ jobs:
       # Host cargo steps read the restored gate registry ONLY with
       # CARGO_HOME pointed at it (boundary, below) — the default ~/.cargo
       # would cold-fetch the index this cache step just restored.
+      # setup-node and the npm install carry the same !cancelled() as the
+      # guards below: if the cache restore fails, these must still run, or
+      # every guard leg fails downstream on a missing web/node_modules —
+      # four cascading reds pointing at the wrong cause.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !cancelled() }}
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
 
       - name: Install node dependencies
+        if: ${{ !cancelled() }}
         run: npm --prefix web ci
 
       # just, so the guard steps run the recipes themselves. Copied commands
       # drift from the justfile bodies exactly the way the leg lists drifted
       # to create these guards.
+      # just, so the guard steps run the recipes themselves. Copied commands
+      # drift from the justfile bodies exactly the way the leg lists drifted
+      # to create these guards.
+      #
+      # Pinned per toolkit-conventions version-pinning: crates.io just
+      # max-stable 1.58.0, looked up from the crates.io API on 2026-10-10
+      # (this PR's review-fix loop). An unpinned cargo install is the one
+      # unpinned input in the required gate — an upstream release or yank
+      # would redden `gate` with no repo change. Bump deliberately.
       - name: Install just
         if: ${{ !cancelled() }}
-        run: cargo install just --locked
+        run: cargo install just --locked --version 1.58.0
 
       - name: web-test — vitest suite
         if: ${{ !cancelled() }}
         run: just web-test
 
-      - name: web-build — production bundle
+      # web-css-guard runs the production build and fails on the
+      # css_unused_selector signature (MOR-124 F10); web-html-boundary is
+      # the {@html} prose boundary (E9, contracts/inert-html.md §3).
+      - name: web-css-guard — build + no dead scoped selectors
         if: ${{ !cancelled() }}
-        run: just web-build
+        run: just web-css-guard
+
+      - name: web-html-boundary — no {@html} prose
+        if: ${{ !cancelled() }}
+        run: just web-html-boundary
 
       - name: json-keys — duplicate-key guard
         if: ${{ !cancelled() }}
@@ -105,9 +127,7 @@ jobs:
       # gated by the image passes (rust:fmt/clippy/test/deny,
       # node:svelte-check, node:eslint, scan:semgrep — the mapping lives in
       # the justfile) or by the guard steps above. Landing a ci-local leg
-      # with no CI home turns this red and names the leg. (PR #83
-      # red-checks here until its two legs replace web-build above:
-      # deliberate.)
+      # with no CI home turns this red and names the leg.
       - name: Drift check — no ci-local leg left ungated
         if: ${{ !cancelled() }}
         run: |
@@ -127,7 +147,8 @@ jobs:
               "web-check", "web-eslint", "scan-semgrep",
           }
           # Legs the guard steps above run.
-          repo_side = {"web-test", "web-build", "json-keys", "boundary"}
+          repo_side = {"web-test", "web-css-guard", "web-html-boundary",
+                       "json-keys", "boundary"}
 
           ungated = sorted(set(legs) - mirrored - repo_side)
           if ungated:
@@ -178,5 +199,3 @@ jobs:
       - name: Normalize cache ownership
         if: always()
         run: sudo chown -R "$(id -u):$(id -g)" /home/runner/.cache/grizzly-gate || true
-
-
