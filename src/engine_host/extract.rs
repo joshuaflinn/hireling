@@ -217,16 +217,18 @@ fn prof_bonus(rank: i64) -> i32 {
     i32_of(rank)
 }
 
-/// AC RE-DERIVED from the export's parts (E6 spec §4, review finding 8 —
-/// the sheet's own formula, `web/src/lib/engine/base.js`, byte for byte):
+/// AC RE-DERIVED from the export's parts (E6 spec §4 — the sheet's own
+/// AC formula):
 /// `10 + acAbilityBonus + proficiency(worn-armor rank, eff_level) +
-/// acItemBonus + shieldBonus`, with `proficiency = rank > 0 ? rank +
-/// eff_level : 0` and the armor category taken from the worn piece
-/// (`unarmored` when none). The export's frozen `acTotal` is NOT used: it
-/// pins the export level and freezes AC forever, so a `level_adjust` never
-/// moved it. At the export's own level the two agree exactly (the
-/// reference golden pins 16 both ways); above it the re-derivation tracks
-/// the class table — which is the point.
+/// acItemBonus + shieldBonus-while-raised`, with `proficiency = rank > 0 ?
+/// rank + eff_level : 0` and the armor category taken from the worn piece
+/// (`unarmored` when none). The shield's bonus counts only while the sheet
+/// state marks the shield raised (`ac.shieldRaised: true` — Raise a Shield
+/// is an action, not a constant). The export's frozen `acTotal` is NOT
+/// used: it pins the export level and freezes AC forever, so a
+/// `level_adjust` never moved it. At the export's own level the two agree
+/// exactly (the reference golden pins 16 both ways); above it the
+/// re-derivation tracks the class table — which is the point.
 fn ac_of(sheet: &BaseSheet, ranks: &std::collections::HashMap<String, i64>, eff_level: i64) -> i32 {
     let ac_section = sheet.ac.as_ref();
     let part = |key: &str| {
@@ -248,13 +250,18 @@ fn ac_of(sheet: &BaseSheet, ranks: &std::collections::HashMap<String, i64>, eff_
         .and_then(serde_json::Value::as_str);
     let armor_prof = worn_prof.unwrap_or("unarmored");
     let rank = ranks.get(armor_prof).copied().unwrap_or(0);
+    let raised = ac_section
+        .and_then(|ac| ac.get("shieldRaised"))
+        .and_then(serde_json::Value::as_bool)
+        == Some(true);
+    let shield = if raised { part("shieldBonus") } else { 0 };
     i32_of(
         10_i64
             + part("acAbilityBonus")
             + eff_level * i64::from(rank >= 1)
             + i64::from(prof_bonus(rank))
             + part("acItemBonus")
-            + part("shieldBonus"),
+            + shield,
     )
 }
 
@@ -277,8 +284,9 @@ fn speed_total(sheet: &BaseSheet) -> i32 {
 /// RE-DERIVED — ability (Finesse → best of Str/Dex) + proficiency
 /// (rank + level at rank ≥ 1) + potency — never the export's verbatim
 /// `attack` (equal at the export's own level, divergent above it).
-/// Damage flat is Str plus the mastery bonus (level ≥ 13). The unarmed
-/// Fist row the sheet renders is appended (prototype line 1419).
+/// Damage flat is Str plus Weapon Specialization (a class feature —
+/// `mastery_damage`). The unarmed Fist row the sheet renders is appended
+/// (prototype line 1419).
 fn strike_bases(
     sheet: &BaseSheet,
     ranks: &std::collections::HashMap<String, i64>,
@@ -286,11 +294,12 @@ fn strike_bases(
 ) -> Vec<StrikeBase> {
     let str_mod = i32_of(ability_mod(sheet.abilities.str));
     let dex_mod = i32_of(ability_mod(sheet.abilities.dex));
+    let class = sheet.identity.class.as_deref();
     let pb = |rank: i64| i32_of(eff_level) * i32::from(rank >= 1) + prof_bonus(rank);
     let rank_of = |key: &str| ranks.get(key).copied().unwrap_or(0);
     let Some(weapons) = sheet.weapons.as_ref().and_then(serde_json::Value::as_array) else {
         // No weapons: the sheet still renders the unarmed Fist.
-        let flat = str_mod + mastery_damage(rank_of("unarmed"), eff_level);
+        let flat = str_mod + mastery_damage(class, rank_of("unarmed"), eff_level);
         return vec![fist_row(
             "Fist",
             str_mod.max(dex_mod) + pb(rank_of("unarmed")),
@@ -332,7 +341,7 @@ fn strike_bases(
                 str_mod
             };
             let attack = ability_mod_used + pb(rank) + i32_of(pot);
-            let damage_flat = str_mod + mastery_damage(rank, eff_level);
+            let damage_flat = str_mod + mastery_damage(class, rank, eff_level);
             let die = weapon
                 .get("die")
                 .and_then(serde_json::Value::as_str)
@@ -367,7 +376,7 @@ fn strike_bases(
         format!("Fist#{fist_seen}")
     };
     let unarmed = rank_of("unarmed");
-    let unarmed_flat = str_mod + mastery_damage(unarmed, eff_level);
+    let unarmed_flat = str_mod + mastery_damage(class, unarmed, eff_level);
     strikes.push(fist_row(
         &key,
         str_mod.max(dex_mod) + pb(unarmed),
@@ -407,10 +416,70 @@ fn weapon_traits(name: &str) -> &'static [&'static str] {
     }
 }
 
-/// Extra strike damage from mastery ranks at level 13+ (the prototype's
-/// `spec`): expert +2, master +3, legendary +4; nothing below level 13.
-fn mastery_damage(rank: i64, level: i64) -> i32 {
-    if level < 13 {
+/// Weapon Specialization — a CLASS feature: each row is (class, the level
+/// its advancement table grants it). Every row read 2026-10-10 off that
+/// class's remaster page on `AoN` (`2e.aonprd.com/Classes.aspx?ID=n`); the
+/// book+page cite per row is the source line the page itself prints for
+/// the class entry. 27 classes gain it; absence from this table means
+/// the class never does — today only Exemplar and Runesmith, whose
+/// pages carry no Weapon Specialization feature section at all (War of
+/// Immortals pg. 25; Impossible Magic pg. 44 — their 13th-level rows
+/// are divine weapon mastery / weapon mastery, different features),
+/// asserted in the golden's `classes_the_table_omits_never_gain_the_feature`.
+const WEAPON_SPECIALIZATION: &[(&str, i64)] = &[
+    // Gained at 7 — the martial chassis.
+    ("Barbarian", 7),    // Player Core 2 pg. 72 (AoN ID 57)
+    ("Champion", 7),     // Player Core 2 pg. 86 (AoN ID 58)
+    ("Commander", 7),    // Battlecry! pg. 21 (AoN ID 66)
+    ("Fighter", 7),      // Player Core pg. 136 (AoN ID 35)
+    ("Gunslinger", 7),   // Guns & Gears (Remastered) pg. 105 (AoN ID 20)
+    ("Inventor", 7),     // Guns & Gears (Remastered) pg. 16 (AoN ID 19)
+    ("Investigator", 7), // Player Core 2 pg. 102 (AoN ID 59)
+    ("Magus", 7),        // Impossible Magic pg. 11 (AoN ID 74)
+    ("Monk", 7),         // Player Core 2 pg. 116 (AoN ID 60)
+    ("Ranger", 7),       // Player Core pg. 154 (AoN ID 36)
+    ("Rogue", 7),        // Player Core pg. 168 (AoN ID 37)
+    ("Swashbuckler", 7), // Player Core 2 pg. 161 (AoN ID 63)
+    ("Thaumaturge", 7),  // Dark Archive (Remastered) pg. 32 (AoN ID 69)
+    // Gained at 11 — the Guardian alone; its 13th-level row is weapon
+    // mastery, a different feature.
+    ("Guardian", 11), // Battlecry! pg. 38 (AoN ID 67)
+    // Gained at 13 — the remaster caster chassis: every remaining class
+    // whose page carries the feature. (Summoner's 7th-level row lists
+    // "eidolon weapon specialization" — the eidolon's feature; the
+    // summoner's own is the row below.)
+    ("Alchemist", 13),   // Player Core 2 pg. 59 (AoN ID 56)
+    ("Animist", 13),     // War of Immortals pg. 10 (AoN ID 64)
+    ("Bard", 13),        // Player Core pg. 94 (AoN ID 32)
+    ("Cleric", 13),      // Player Core pg. 108 (AoN ID 33)
+    ("Druid", 13),       // Player Core pg. 122 (AoN ID 34)
+    ("Kineticist", 13),  // Rage of Elements pg. 15 (AoN ID 23)
+    ("Necromancer", 13), // Impossible Magic pg. 31 (AoN ID 75)
+    ("Oracle", 13),      // Player Core 2 pg. 128 (AoN ID 61)
+    ("Psychic", 13),     // Dark Archive (Remastered) pg. 12 (AoN ID 68)
+    ("Sorcerer", 13),    // Player Core 2 pg. 144 (AoN ID 62)
+    ("Summoner", 13),    // Impossible Magic pg. 64 (AoN ID 77)
+    ("Witch", 13),       // Player Core pg. 178 (AoN ID 38)
+    ("Wizard", 13),      // Player Core pg. 197 (AoN ID 39)
+];
+
+/// Extra strike damage from Weapon Specialization (the prototype's
+/// `spec`): expert +2, master +3, legendary +4 with the weapon's rank,
+/// from the class's specialization level on — nothing for classes the
+/// table does not name (deliberate absence, asserted in the golden).
+/// The class matches case-insensitively: the export's casing is data,
+/// not law, and an exact-match miss is a silent zero.
+fn mastery_damage(class: Option<&str>, rank: i64, level: i64) -> i32 {
+    let gained_at = class.and_then(|named| {
+        WEAPON_SPECIALIZATION
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(named))
+            .map(|&(_, at)| at)
+    });
+    let Some(gained_at) = gained_at else {
+        return 0;
+    };
+    if level < gained_at {
         return 0;
     }
     match rank {

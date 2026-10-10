@@ -153,8 +153,8 @@ fn golden_skill_render_inputs_ride_the_row() {
 }
 
 /// Prototype parity: strikes re-derived (attack = ability + rank+level +
-/// pot; damage flat = Str + mastery) with the unarmed Fist appended, and
-/// caster blocks derived.
+/// pot; damage flat = Str) with the unarmed Fist appended, and caster
+/// blocks derived.
 #[test]
 fn golden_strikes_and_casters_match_the_prototype() {
     let base = extract(&reference_sheet(), 0);
@@ -170,7 +170,10 @@ fn golden_strikes_and_casters_match_the_prototype() {
         staff.damage, "d4−1",
         "the die VERBATIM + signed flat (str −1, U+2212) — the sheet's rendered string"
     );
-    assert_eq!(staff.damage_flat, -1, "str + mastery(2, 3) = −1");
+    assert_eq!(
+        staff.damage_flat, -1,
+        "str −1; a wizard gains no Weapon Specialization"
+    );
     assert_eq!(staff.map, 5, "not Agile: −5/−10");
     assert_eq!(staff.damage_type, "B");
     assert_eq!(staff.damage_type_name, "bludgeoning");
@@ -392,6 +395,189 @@ fn caster_rank_takes_the_tradition_bump_innate_keeps_hers() {
     assert_eq!(
         gnome.spell_attack, 12,
         "cha 3 + trained 2+7 — innate: her own block rank, no tradition max"
+    );
+}
+
+// -- Weapon Specialization is a class feature, not a level feature (gh#44) --
+
+/// (`class`, `gained_at`) as each class's `AoN` remaster page prints it
+/// (2e.aonprd.com/Classes.aspx?ID=n, read 2026-10-10). An INDEPENDENT
+/// restatement of the `WEAPON_SPECIALIZATION` table in `extract.rs` — the
+/// per-row book+page cites live on that table; this list exists so that
+/// changing either one fails this suite. A rules table's test asserts
+/// both sides of every threshold it encodes (AGENTS.md, Rules exactness).
+const GAINED_AT: &[(&str, i64)] = &[
+    ("Barbarian", 7),
+    ("Champion", 7),
+    ("Commander", 7),
+    ("Fighter", 7),
+    ("Gunslinger", 7),
+    ("Inventor", 7),
+    ("Investigator", 7),
+    ("Magus", 7),
+    ("Monk", 7),
+    ("Ranger", 7),
+    ("Rogue", 7),
+    ("Swashbuckler", 7),
+    ("Thaumaturge", 7),
+    ("Guardian", 11),
+    ("Alchemist", 13),
+    ("Animist", 13),
+    ("Bard", 13),
+    ("Cleric", 13),
+    ("Druid", 13),
+    ("Kineticist", 13),
+    ("Necromancer", 13),
+    ("Oracle", 13),
+    ("Psychic", 13),
+    ("Sorcerer", 13),
+    ("Summoner", 13),
+    ("Witch", 13),
+    ("Wizard", 13),
+];
+
+/// A level-`level` `class` with a martial longsword of `rank`: the
+/// strike's flat total through parse → transform → extract → compute —
+/// the production path whose wire the sheet renders, not the helper in
+/// isolation. Str 18 (+4), so the flat reads 4 without the feature.
+fn longsword_flat(class: &str, level: i64, rank: i64) -> i32 {
+    let export = format!(
+        r#"{{"success":true,"build":{{"name":"Probe","class":"{class}","level":{level},"abilities":{{"str":18,"dex":12,"con":14,"int":10,"wis":10,"cha":10}},"proficiencies":{{"martial":{rank}}},"weapons":[{{"name":"Longsword","die":"d8","prof":"martial","pot":0,"damageType":"S"}}]}}}}"#
+    );
+    let export = model::parse_and_validate(&export).expect("probe export is valid");
+    let base = extract(&transform::transform(&export).0, 0);
+    let output =
+        hireling_engine::compute::compute(7, &base, &[], &std::collections::BTreeMap::new());
+    output
+        .derived
+        .strikes
+        .first()
+        .expect("longsword strike")
+        .damage_flat
+        .total
+}
+
+/// Every row of the table, both sides of its threshold: the suite fails
+/// if any row moves a level in either direction. A single fixture on one
+/// side of a threshold passes against every wrong threshold on that side
+/// — the miss the eight-of-eight review turned on.
+#[test]
+fn weapon_specialization_holds_at_every_class_boundary() {
+    for (class, gained_at) in GAINED_AT {
+        assert_eq!(
+            longsword_flat(class, *gained_at, 4),
+            6,
+            "{class} at {gained_at}: str 4 + Weapon Specialization +2 (expert)"
+        );
+        assert_eq!(
+            longsword_flat(class, gained_at - 1, 4),
+            4,
+            "{class} at {}: the feature is not yet gained — str only",
+            gained_at - 1
+        );
+    }
+}
+
+/// The feature's rank arm survives the gate: master rank pays +3, from
+/// the class's specialization level on, and nothing below it.
+#[test]
+fn weapon_specialization_escalates_with_rank() {
+    assert_eq!(
+        longsword_flat("Fighter", 7, 6),
+        7,
+        "str 4 + master-rank Weapon Specialization +3"
+    );
+    assert_eq!(
+        longsword_flat("Fighter", 6, 6),
+        4,
+        "master rank, feature not yet gained — str only"
+    );
+}
+
+/// The class string the export names is matched case-insensitively —
+/// an exact-match miss is a silent zero (review criterion 6).
+#[test]
+fn weapon_specialization_matches_the_class_regardless_of_casing() {
+    assert_eq!(
+        longsword_flat("fighter", 7, 4),
+        6,
+        "lowercase export string"
+    );
+    assert_eq!(
+        longsword_flat("FIGHTER", 7, 4),
+        6,
+        "uppercase export string"
+    );
+}
+
+/// The reference wizard's own staff, the flip the remaster pages made:
+/// Wizard gains the feature at 13 (Player Core pg. 197) and her simple
+/// rank progresses to expert at display 11, so her staff moves −1 → +1
+/// at display 13 — while the export-level golden (level 3) stays −1.
+#[test]
+fn the_reference_wizard_gains_the_feature_at_display_13() {
+    let base = extract(&reference_sheet(), 10);
+    assert_eq!(base.level, 13);
+    let output =
+        hireling_engine::compute::compute(7, &base, &[], &std::collections::BTreeMap::new());
+    let staff = output.derived.strikes.first().expect("staff strike");
+    assert_eq!(
+        staff.damage_flat.total, 1,
+        "wizard 13: str −1 + Weapon Specialization +2"
+    );
+}
+
+/// The classes whose pages carry NO Weapon Specialization feature —
+/// absence from the table is deliberate and asserted (review criterion
+/// 3, as the page read amended it: Sorcerer, Witch, Wizard and Psychic
+/// DO gain it at 13 on their remaster pages; Exemplar and Runesmith
+/// never do — their 13th-level rows are divine weapon mastery / weapon
+/// mastery, different features).
+#[test]
+fn classes_the_table_omits_never_gain_the_feature() {
+    assert_eq!(
+        longsword_flat("Exemplar", 20, 4),
+        4,
+        "Exemplar (War of Immortals pg. 25): no feature section on the page"
+    );
+    assert_eq!(
+        longsword_flat("Runesmith", 20, 4),
+        4,
+        "Runesmith (Impossible Magic pg. 44): no feature section on the page"
+    );
+}
+
+// -- the shield bonus counts only while the shield is raised (gh#45) --
+
+/// Two exports differing ONLY in `ac.shieldRaised`; AC differs by exactly
+/// the shield bonus. Both ride `extract` + `compute` (the derive path the
+/// sheet's AC renders from).
+#[test]
+fn shield_bonus_applies_only_while_raised() {
+    let shielded = |raised: &str| {
+        format!(
+            r#"{{"success":true,"build":{{"name":"Bulwark","class":"Fighter","level":3,"abilities":{{"str":16,"dex":14,"con":14,"int":10,"wis":10,"cha":10}},"proficiencies":{{"unarmored":2}},"acTotal":{{"acAbilityBonus":1,"acItemBonus":0,"shieldBonus":2,"acTotal":18{raised}}}}}}}"#
+        )
+    };
+    let raised = model::parse_and_validate(&shielded(",\"shieldRaised\":true"))
+        .expect("raised export is valid");
+    let lowered = model::parse_and_validate(&shielded("")).expect("lowered export is valid");
+    let ac = |sheet: &transform::BaseSheet| {
+        let base = extract(sheet, 0);
+        hireling_engine::compute::compute(7, &base, &[], &std::collections::BTreeMap::new())
+            .derived
+            .ac
+            .total
+    };
+    assert_eq!(
+        ac(&transform::transform(&raised).0),
+        18,
+        "10 + dex 1 + trained 2+3 + shield 2, raised"
+    );
+    assert_eq!(
+        ac(&transform::transform(&lowered).0),
+        16,
+        "same sheet, shield not raised: the +2 is off"
     );
 }
 
