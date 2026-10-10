@@ -31,7 +31,7 @@ const FAMILY_KEYS = ['strikes', 'casters', 'skills'];
 
 /** @param {string} text */
 function prettify(text) {
-  const words = text.replaceAll('_', ' ');
+  const words = text.replace(/_/g, ' ');
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 

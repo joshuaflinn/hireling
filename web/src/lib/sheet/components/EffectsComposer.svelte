@@ -126,93 +126,91 @@
 </script>
 
 <Dialog {open} title="Effects" onclose={onclose} oncommit={apply}>
-  {#snippet children()}
-    {#if composerOpState?.phase === 'denied'}
-      <p class="denial" role="alert">{composerOpState.reason}</p>
-    {/if}
+  {#if composerOpState?.phase === 'denied'}
+    <p class="denial" role="alert">{composerOpState.reason}</p>
+  {/if}
 
-    <div class="field">
-      <input aria-label="Effect name" placeholder="Name it — “Bless”" bind:value={name} maxlength="120" />
-    </div>
+  <div class="field">
+    <input aria-label="Effect name" placeholder="Name it — “Bless”" bind:value={name} maxlength="120" />
+  </div>
 
-    <div class="modifiers">
-      {#each rows as row, index (index)}
-        <div class="mod-row">
-          <select aria-label="Stat" bind:value={row.stat}>
-            <option value="" disabled hidden>stat…</option>
-            {#each statGroups as group (group.group)}
-              <optgroup label={group.group}>
-                {#each group.options as option (option.value)}
-                  <option value={option.value}>{option.label}</option>
-                {/each}
-              </optgroup>
-            {/each}
-          </select>
-          <select aria-label="Bonus type" bind:value={row.type}>
-            {#each TYPES as type (type)}
-              <option value={type}>{type}</option>
-            {/each}
-          </select>
-          <input class="value" type="number" aria-label="Value" min="-50" max="50" step="1" bind:value={row.value} />
-          {#if rows.length > 1}
-            <button class="x" type="button" aria-label="Remove modifier {index + 1}" onclick={() => removeRow(index)}>✕</button>
-          {/if}
+  <div class="modifiers">
+    {#each rows as row, index (index)}
+      <div class="mod-row">
+        <select aria-label="Stat" bind:value={row.stat}>
+          <option value="" disabled hidden>stat…</option>
+          {#each statGroups as group (group.group)}
+            <optgroup label={group.group}>
+              {#each group.options as option (option.value)}
+                <option value={option.value}>{option.label}</option>
+              {/each}
+            </optgroup>
+          {/each}
+        </select>
+        <select aria-label="Bonus type" bind:value={row.type}>
+          {#each TYPES as type (type)}
+            <option value={type}>{type}</option>
+          {/each}
+        </select>
+        <input class="value" type="number" aria-label="Value" min="-50" max="50" step="1" bind:value={row.value} />
+        {#if rows.length > 1}
+          <button class="x" type="button" aria-label="Remove modifier {index + 1}" onclick={() => removeRow(index)}>✕</button>
+        {/if}
+      </div>
+    {/each}
+    <button class="add" type="button" onclick={addRow}>Add modifier</button>
+  </div>
+
+  <div class="field">
+    <input aria-label="Duration note" placeholder="Duration note — “10 rounds”" bind:value={durationNote} />
+  </div>
+
+  <fieldset class="targets">
+    <legend>Targets</legend>
+    {#each roster as member (member.id)}
+      <label class="target">
+        <input
+          type="checkbox"
+          aria-label={member.name ?? `#${member.id}`}
+          checked={selected.includes(member.id)}
+          onchange={(event) => {
+            const checked = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
+            selected = checked ? [...selected, member.id] : selected.filter((id) => id !== member.id);
+          }}
+        />
+        {member.name ?? `#${member.id}`}
+      </label>
+    {/each}
+  </fieldset>
+
+  {#if effectsState?.status === 'ready' && (managed.length > 0 || others.length > 0)}
+    <div class="managed">
+      <h4>Your active effects</h4>
+      {#each managed as row (row.effect_id)}
+        <div class="managed-row">
+          <b>{row.name}</b>
+          {#each row.targets as targetId (targetId)}
+            <span class="managed-target">
+              {nameOf(targetId)}
+              <button
+                class="x"
+                type="button"
+                aria-label={`Remove ${nameOf(targetId)} from ${row.name}`}
+                onclick={() => removeTarget(row.effect_id, row.targets, targetId)}>✕</button
+              >
+            </span>
+          {/each}
+          <button class="end" type="button" aria-label={`End ${row.name}`} onclick={() => endEffect(row)}>End</button>
         </div>
       {/each}
-      <button class="add" type="button" onclick={addRow}>Add modifier</button>
-    </div>
-
-    <div class="field">
-      <input aria-label="Duration note" placeholder="Duration note — “10 rounds”" bind:value={durationNote} />
-    </div>
-
-    <fieldset class="targets">
-      <legend>Targets</legend>
-      {#each roster as member (member.id)}
-        <label class="target">
-          <input
-            type="checkbox"
-            aria-label={member.name ?? `#${member.id}`}
-            checked={selected.includes(member.id)}
-            onchange={(event) => {
-              const checked = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
-              selected = checked ? [...selected, member.id] : selected.filter((id) => id !== member.id);
-            }}
-          />
-          {member.name ?? `#${member.id}`}
-        </label>
+      {#each others as row (row.effect_id)}
+        <div class="managed-row other">
+          <b>{row.name}</b>
+          <span class="from">from {nameOf(row.source_character_id)}</span>
+        </div>
       {/each}
-    </fieldset>
-
-    {#if effectsState?.status === 'ready' && (managed.length > 0 || others.length > 0)}
-      <div class="managed">
-        <h4>Your active effects</h4>
-        {#each managed as row (row.effect_id)}
-          <div class="managed-row">
-            <b>{row.name}</b>
-            {#each row.targets as targetId (targetId)}
-              <span class="managed-target">
-                {nameOf(targetId)}
-                <button
-                  class="x"
-                  type="button"
-                  aria-label={`Remove ${nameOf(targetId)} from ${row.name}`}
-                  onclick={() => removeTarget(row.effect_id, row.targets, targetId)}>✕</button
-                >
-              </span>
-            {/each}
-            <button class="end" type="button" aria-label={`End ${row.name}`} onclick={() => endEffect(row)}>End</button>
-          </div>
-        {/each}
-        {#each others as row (row.effect_id)}
-          <div class="managed-row other">
-            <b>{row.name}</b>
-            <span class="from">from {nameOf(row.source_character_id)}</span>
-          </div>
-        {/each}
-      </div>
-    {/if}
-  {/snippet}
+    </div>
+  {/if}
 
   {#snippet footer()}
     <button type="button" onclick={onclose}>Cancel</button>
