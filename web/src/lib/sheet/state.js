@@ -52,7 +52,10 @@ const invTarget = (characterId, itemName) => ({
 /** Effect CREATE (E8's frame): the row does not exist yet; the target is
  *  the party it lands in and the server mints the id (specs/010 FR-C4). */
 /** @param {number} partyId */
-const effectNewTarget = (partyId) => ({ kind: 'effect_new', party_id: partyId });
+const effectNewTarget = (partyId) => ({
+  kind: 'effect_new',
+  party_id: partyId,
+});
 
 /** Effect retarget/end: whole-row CAS on the effect's version (FR-14). */
 /** @param {number} effectId */
@@ -199,6 +202,9 @@ export function findOpError(opErrors, kind, match = {}) {
  * @property {(casterKey: string, rank: number, index: number, patch?: {used?: boolean, prepared?: string | null}) => void} writeSlot
  * @property {(itemName: string, quantity: number) => void} writeItemQty
  * @property {(casterKey: string) => void} resetPrep
+ * @property {(create: {name: string, source_character_id: number,
+ *   targets: number[], modifiers?: any[], duration_note?: string,
+ *   corpus_entry_id?: number | null, condition_value?: number | null}) => void} writeEffect
  * @property {() => void} newDay
  * @property {() => void} destroy
  */
@@ -207,11 +213,12 @@ export function findOpError(opErrors, kind, match = {}) {
  * @param {{
  *   sync: import('../sync/index.js').Sync,
  *   character: Bootstrap,
+ *   partyId?: number,
  *   fetchImpl?: typeof fetch,
  * }} setup
  * @returns {SheetState}
  */
-export function createSheetState({ sync, character, fetchImpl }) {
+export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
   const characterId = character.character.id;
   const baseSheet = character.base_sheet;
 
@@ -242,14 +249,16 @@ export function createSheetState({ sync, character, fetchImpl }) {
    * version the CAS ops address. Called when the composer opens; settled
    * ops broadcast diffs the store already merges.
    *
-   * @param {number} partyId
+   * @param {number} forPartyId — named apart from createSheetState's own
+   *   partyId: the composer asks for a specific party's rows, and a same-
+   *   named inner param shadows the closure's (gate no-shadow).
    * @param {typeof fetch} [injectFetch]
    */
-  async function loadPartyEffects(partyId, injectFetch) {
+  async function loadPartyEffects(forPartyId, injectFetch) {
     partyEffects.set({ status: 'loading', rows: [] });
     const doFetch = injectFetch ?? fetchImpl ?? globalThis.fetch;
     try {
-      const response = await doFetch(`/api/parties/${partyId}/effects`);
+      const response = await doFetch(`/api/parties/${forPartyId}/effects`);
       if (!response.ok) throw new Error(`the server answered ${response.status}`);
       const rows = await response.json();
       partyEffects.set({ status: 'ready', rows: Array.isArray(rows) ? rows : [] });
@@ -627,6 +636,34 @@ export function createSheetState({ sync, character, fetchImpl }) {
   }
 
   /**
+   * Create one effect through the wire's existing effect-create frame (E8;
+   * E9's condition picker applies through this — FR-6 keeps custom rows on
+   * the same path: corpus-sourced, zero inline modifiers, the server
+   * resolves NULL mappings to tracked-manually). No client math, ever.
+   * @param {{name: string, source_character_id: number, targets: number[],
+   *   modifiers?: any[], duration_note?: string, corpus_entry_id?: number | null,
+   *   condition_value?: number | null}} create
+   */
+  function writeEffect(create) {
+    write(
+      // The wire shape is `src/sync/protocol.rs`'s: `FieldTarget::EffectNew`
+      // carries `party_id` (snake_case on the wire) and the value must name
+      // `op: 'create'` (`write.rs` dispatches on it). Built by the shared
+      // target-builder family, not an inline literal — the literal is what
+      // let the camelCase frame ship (MOR-121).
+      effectNewTarget(partyId),
+      {
+        op: 'create',
+        modifiers: [],
+        duration_note: '',
+        corpus_entry_id: null,
+        condition_value: null,
+        ...create,
+      },
+    );
+  }
+
+  /**
    * Reset one caster's preparation to the export's list (spec §2.3): every
    * slot whose prepared spell drifted gets a whole-slot write back to the
    * bootstrap value (which is the export's seeding, FR-12). Used flags stay.
@@ -713,6 +750,7 @@ export function createSheetState({ sync, character, fetchImpl }) {
     writeDaily,
     writeSlot,
     writeItemQty,
+    writeEffect,
     resetPrep,
     newDay,
     destroy: () => unsubscribe(),

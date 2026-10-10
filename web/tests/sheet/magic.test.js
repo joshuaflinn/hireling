@@ -1,4 +1,4 @@
-import { render, cleanup, screen } from '@testing-library/svelte';
+import { render, cleanup, screen, fireEvent } from '@testing-library/svelte';
 import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 
@@ -216,4 +216,100 @@ test('a rejected slot write surfaces inline at that row; a rejected daily write 
     },
   });
   assert.equal(screen.queryByRole('alert'), null, 'no error surface without a refused write');
+});
+
+// ---- E9 T8: the custom-spell section in the caster's spellbook ----
+
+const CUSTOM_SPELL = {
+  corpus_entry_id: 91,
+  kind: 'spell',
+  name: 'Conjure Toad Swarm',
+  lane: 'custom',
+  description: 'So many toads',
+  value_or_rank: 3,
+  created_by_sub: 'dev-sub-bear',
+};
+
+test('a custom spell lists in the spellbook, badged, with a working Prepare', () => {
+  /** @type {any[]} */ const prepared = [];
+  const caster = fixture.spellcasters[0];
+  const { container, getAllByRole } = render(CasterPanel, {
+    props: {
+      caster,
+      slots: fixtureSlots().filter((slot) => slot.caster_key === caster.caster_key),
+      numbers: view.derived,
+      cantripRank: view.render_base.cantrip_rank,
+      known: caster.known,
+      editable: true,
+      oncast: noop,
+      onprepare: (/** @type {any} */ row, /** @type {string} */ spell) => prepared.push({ row, spell }),
+      onreset: noop,
+      customSpells: [CUSTOM_SPELL],
+    },
+  });
+  assert.match(container.innerHTML, /Custom spells/, 'the section exists when rows do');
+  assert.match(container.innerHTML, /Conjure Toad Swarm/, 'the custom spell lists');
+  assert.match(container.innerHTML, /custom/, 'badged custom');
+  const prepare = /** @type {HTMLButtonElement} */ (
+    getAllByRole('button', { name: 'Prepare' }).find((button) =>
+      /** @type {HTMLElement} */ (button.parentElement).textContent.includes('Conjure Toad Swarm'),
+    )
+  );
+  assert.ok(prepare, 'the custom row carries a Prepare affordance');
+  prepare.click();
+  assert.equal(prepared.length, 1);
+  assert.equal(prepared[0].spell, 'Conjure Toad Swarm', 'the existing onprepare callback, by name');
+  assert.equal(prepared[0].row.rank, 3, 'at its rank');
+});
+
+test('without custom spells the section does not render (two fixtures, different results)', () => {
+  const caster = fixture.spellcasters[0];
+  const { container } = render(CasterPanel, {
+    props: {
+      caster,
+      slots: fixtureSlots().filter((slot) => slot.caster_key === caster.caster_key),
+      numbers: view.derived,
+      cantripRank: view.render_base.cantrip_rank,
+      known: caster.known,
+      oncast: noop,
+      onprepare: noop,
+      onreset: noop,
+    },
+  });
+  assert.doesNotMatch(container.innerHTML, /Custom spells/, 'no rows — no section, no theatre');
+});
+
+test('the prepare dialog lists custom spells at their rank', async () => {
+  const caster = fixture.spellcasters[0];
+  // An unprepared rank-1 slot opens the picker; the custom spell rides at
+  // rank 1 so it joins that picker's candidates.
+  const slots = fixtureSlots().filter((slot) => slot.caster_key === caster.caster_key);
+  const rank1Index = slots.findIndex((slot) => slot.rank === 1);
+  slots[rank1Index] = { ...slots[rank1Index], prepared_spell: null };
+  const { getByRole, findByRole } = render(CasterPanel, {
+    props: {
+      caster,
+      slots,
+      numbers: view.derived,
+      cantripRank: view.render_base.cantrip_rank,
+      known: caster.known,
+      editable: true,
+      oncast: noop,
+      onprepare: noop,
+      onreset: noop,
+      customSpells: [{ ...CUSTOM_SPELL, value_or_rank: 1 }],
+    },
+  });
+  fireEvent.click(getByRole('button', { name: 'Prepare…' }));
+  const dialog = /** @type {HTMLElement} */ (await findByRole('dialog'));
+  assert.match(
+    dialog.textContent,
+    /Conjure Toad Swarm/,
+    'the custom spell is pickable where known spells are',
+  );
+  const pick = /** @type {HTMLButtonElement} */ (
+    [...dialog.querySelectorAll('button')].find((button) => button.textContent?.includes('Conjure Toad Swarm'))
+  );
+  fireEvent.click(pick);
+  assert.throws(() => getByRole('dialog'), 'the dialog closes on commit');
 });

@@ -1,4 +1,4 @@
-import { render, cleanup, screen } from '@testing-library/svelte';
+import { render, cleanup, screen, fireEvent } from '@testing-library/svelte';
 import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 
@@ -186,4 +186,53 @@ test('a rejected quantity write surfaces inline at that item; a rejected coin wr
     },
   });
   assert.equal(screen.queryByRole('alert'), null, 'no error surface without a refused write');
+});
+
+// ---- E9 T7: the add-custom affordance lives in the item context ----
+
+test('an editable inventory offers Add custom item; a view-only one does not', () => {
+  const editable = render(InventoryPanel, {
+    props: { baseSheet: fixture, itemBulk, itemTraits, qtyMap, money: { value: { pp: 0, gp: 0, sp: 0, cp: 0 }, pending: false }, editable: true, onaddcustom: () => {} },
+  });
+  assert.ok(editable.getByRole('button', { name: 'Add custom item' }), 'the owner sees the affordance');
+  editable.unmount();
+
+  const viewer = render(InventoryPanel, {
+    props: { baseSheet: fixture, itemBulk, itemTraits, qtyMap, money: { value: { pp: 0, gp: 0, sp: 0, cp: 0 }, pending: false }, editable: false, onaddcustom: () => {} },
+  });
+  assert.throws(() => viewer.getByRole('button', { name: 'Add custom item' }), 'GM/cross-member sees none');
+});
+
+test('the add-custom affordance is wired: clicking calls onaddcustom', () => {
+  let opened = 0;
+  const { getByRole } = render(InventoryPanel, {
+    props: { baseSheet: fixture, itemBulk, itemTraits, qtyMap, money: { value: { pp: 0, gp: 0, sp: 0, cp: 0 }, pending: false }, editable: true, onaddcustom: () => { opened += 1; } },
+  });
+  fireEvent.click(getByRole('button', { name: 'Add custom item' }));
+  assert.equal(opened, 1);
+});
+
+test('an optimistically inserted custom item renders badged, with a live qty control', () => {
+  let wrote = null;
+  const { container, getByLabelText } = render(InventoryPanel, {
+    props: {
+      baseSheet: fixture,
+      itemBulk,
+      itemTraits,
+      qtyMap,
+      money: { value: { pp: 0, gp: 0, sp: 0, cp: 0 }, pending: false },
+      editable: true,
+      onqty: (/** @type {string} */ name, /** @type {number} */ qty) => { wrote = { name, qty }; },
+      customItems: [
+        { corpus_entry_id: 90, name: 'Named Wagon', description: 'Looted whole', value_or_rank: null },
+      ],
+    },
+  });
+  assert.match(container.innerHTML, /Named Wagon/, 'the optimistic row renders');
+  assert.match(container.innerHTML, /custom/, 'badged custom in the item context');
+  assert.match(container.innerHTML, /Looted whole/, 'the description rides the row');
+  const input = /** @type {HTMLInputElement} */ (getByLabelText('Quantity of Named Wagon'));
+  fireEvent.input(input, { target: { value: '3' } });
+  fireEvent.change(input);
+  assert.deepEqual(wrote, { name: 'Named Wagon', qty: 3 }, 'the ordinary inv write, by exact name');
 });

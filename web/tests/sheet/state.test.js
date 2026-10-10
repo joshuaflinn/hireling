@@ -5,7 +5,7 @@ import { get } from 'svelte/store';
 
 import { createSync } from '../../src/lib/sync/index.js';
 import { fakeClock, mockSockets, fakeStorage } from '../sync/fakes.js';
-import { assertWriteTarget } from '../helpers/wire-contract.js';
+import { assertWriteTarget, assertEffectOp } from '../helpers/wire-contract.js';
 import { createSheetState } from '../../src/lib/sheet/state.js';
 
 import fixture from '../data/base_sheet_reference.json';
@@ -402,4 +402,35 @@ test('the hp readout clamps to the live max — a level-down never shows 32 / 16
   ], [derated]);
   assert.equal(get(state.hpMax), 16, 'max re-derives — on the server, by the wire');
   assert.equal(get(state.hp).value, 16, 'the readout clamps to the live max');
+});
+
+test('writeEffect issues the existing effect-create frame (E9 T9 apply path)', () => {
+  const { mocks, state } = setup();
+  state.connect();
+  handshake(mocks.sockets[0], []);
+  state.writeEffect({
+    name: 'Frightened',
+    source_character_id: CHARACTER_ID,
+    targets: [CHARACTER_ID],
+    corpus_entry_id: 76,
+    condition_value: 2,
+  });
+  const write = mocks.sockets[0].sent.map((r) => JSON.parse(r)).find((f) => f.t === 'write');
+  // The WIRE shape, certified through the shared contract fixture (MOR-122):
+  // the target's field set is pinned to `protocol.rs` FieldTarget::EffectNew
+  // (`party_id` — snake_case, deny-by-default decode) and the op to the
+  // accepted set — the owning side's types, not the client's own idea of the
+  // frame (MOR-115 findings 1–2; MOR-121 ruling).
+  assertWriteTarget(write.target);
+  assertEffectOp(write.value);
+  assert.deepEqual(write.value, {
+    op: 'create',
+    name: 'Frightened',
+    source_character_id: CHARACTER_ID,
+    targets: [CHARACTER_ID],
+    modifiers: [],
+    duration_note: '',
+    corpus_entry_id: 76,
+    condition_value: 2,
+  });
 });

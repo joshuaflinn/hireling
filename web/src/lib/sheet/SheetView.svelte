@@ -15,18 +15,23 @@
   import StrikesPane from './components/StrikesPane.svelte';
   import FeatsPanel from './components/FeatsPanel.svelte';
   import EffectsStrip from './components/EffectsStrip.svelte';
+  import ConditionPicker from './components/ConditionPicker.svelte';
+  import AddCustomForm from './components/AddCustomForm.svelte';
+  import Dialog from './components/Dialog.svelte';
+  import { createCustomStore } from '../rules/custom-store.js';
   import EffectsComposer from './components/EffectsComposer.svelte';
 
   /** @type {{ character: any, accountSub?: string, editable?: boolean,
-    sync?: any, partyId?: number | null, roster?: Array<{id: number, name: string | null}>,
+    partyId?: number | null,
+    sync?: any, roster?: Array<{id: number, name: string | null}>,
     fetchImpl?: typeof fetch,
     onimport?: () => void, onlogout?: () => void }} */
   let {
     character, // the /api/characters/me payload — or a roster element, same shape
     accountSub = '',
     editable = true,
+    partyId = null, // the session's party (specs/010) — null hides the composer; epic surfaces fall back to the POC party
     sync: providedSync, // the shell's session sync (E10 D2) — one socket per tab
-    partyId = null, // the session's party (specs/010) — null hides the composer
     roster = [], // the party roster — the composer's target picker
     fetchImpl, // injectable REST face for tests; the real app uses global fetch
     onimport,
@@ -43,7 +48,53 @@
       storage: localStorage,
       accountSub,
     });
-  const sheet = createSheetState({ sync, character, fetchImpl });
+  const sheet = createSheetState({ sync, character, partyId: partyId ?? POC_PARTY_ID, fetchImpl });
+
+  // ---- E9: the party's custom rows (store: rules/custom-store.js) --------
+  const customStore = createCustomStore({ partyId: partyId ?? POC_PARTY_ID });
+  /** Which AddCustomForm is open: null | 'item' | 'spell' | 'condition'. */
+  let customFormKind = $state(/** @type {null | 'item' | 'spell' | 'condition'} */ (null));
+  let pickerOpen = $state(false);
+  // Party-wide custom rows land on the next fetch (D3) — read at boot, and
+  // a failed read degrades to the last fetched state (the store's rule).
+  let customSpellRows = $state(/** @type {any[]} */ ([]));
+  let customConditionRows = $state(/** @type {any[]} */ ([]));
+  $effect(() => {
+    const unsubscribeSpells = customStore.spells.subscribe((rows) => (customSpellRows = rows));
+    const unsubscribeConditions = customStore.conditions.subscribe(
+      (rows) => (customConditionRows = rows),
+    );
+    customStore.refresh('spell');
+    customStore.refresh('condition');
+    return () => {
+      unsubscribeSpells();
+      unsubscribeConditions();
+    };
+  });
+  // Items bridge the store into the inventory panel with their qty-1
+  // optimistic display; qty writes ride the ordinary inv path by exact name.
+  let customItemRows = $state(/** @type {any[]} */ ([]));
+  $effect(() => {
+    const unsubscribe = customStore.items.subscribe((rows) => {
+      customItemRows = rows.map((row) => ({ ...row, qty: 1 }));
+    });
+    customStore.refresh('item');
+    return unsubscribe;
+  });
+
+  /** The AddCustomForm's submit: one store call per kind; an item create
+   * also surfaces its qty-1 inventory row immediately (US-3 AC-1). */
+  async function submitCustom(/** @type {any} */ fields) {
+    if (customFormKind === 'item') {
+      const row = await customStore.create('item', fields);
+      customItemRows = [{ ...row, qty: 1 }, ...customItemRows];
+    } else if (customFormKind === 'spell') {
+      await customStore.create('spell', fields);
+    } else if (customFormKind === 'condition') {
+      await customStore.create('condition', fields);
+    }
+    customFormKind = null;
+  }
 
   // Stores destructure into locals: `$view` and friends are the template's
   // auto-subscriptions; the write surface stays on `sheet`.
@@ -153,7 +204,7 @@
   />
 
   <div class="effects-head">
-    <EffectsStrip effects={$view?.effects ?? []} />
+    <EffectsStrip effects={$view?.effects ?? []} customConditions={customConditionRows} />
     {#if canCompose}
       <button class="new-effect" onclick={openComposer}>New effect</button>
     {/if}
@@ -173,6 +224,41 @@
       onretarget={sheet.retargetEffect}
       onend={sheet.endEffect}
     />
+  {/if}
+
+  {#if editable}
+    <div style="margin:-4px 0 8px">
+      <button class="btn" style="font-size:12px;padding:2px 9px" onclick={() => (pickerOpen = true)}>
+        Add condition
+      </button>
+    </div>
+  {/if}
+
+  {#if pickerOpen}
+    <ConditionPicker
+      partyId={partyId ?? POC_PARTY_ID}
+      targetId={character.character.id}
+      sourceId={character.character.id}
+      open={pickerOpen}
+      onclose={() => (pickerOpen = false)}
+      onapply={(/** @type {any} */ create) => sheet.writeEffect(create)}
+      onsubmitcustom={(/** @type {any} */ fields) => customStore.create('condition', fields)}
+      customRows={customConditionRows}
+    />
+  {/if}
+
+  {#if customFormKind}
+    <Dialog
+      open={customFormKind !== null}
+      title="Add custom content"
+      onclose={() => (customFormKind = null)}
+    >
+      <AddCustomForm
+        kind={/** @type {'item' | 'spell' | 'condition'} */ (customFormKind)}
+        onsubmit={submitCustom}
+        oncancel={() => (customFormKind = null)}
+      />
+    </Dialog>
   {/if}
 
   <div class="board">
@@ -229,6 +315,8 @@
           prepare(casterKey, row, spell)}
         onreset={(/** @type {string} */ casterKey) => sheet.resetPrep(casterKey)}
         ondaily={(/** @type {any} */ next) => sheet.writeDaily(next)}
+        customSpells={customSpellRows}
+        onaddcustom={() => (customFormKind = 'spell')}
       >
         {#snippet companionsSlot()}
           {#if $view}
@@ -251,6 +339,8 @@
         offline={$offline}
         onqty={(/** @type {string} */ name, /** @type {number} */ qty) => sheet.writeItemQty(name, qty)}
         onmoney={(/** @type {any} */ next) => sheet.writeMoney(next)}
+        customItems={customItemRows}
+        onaddcustom={() => (customFormKind = 'item')}
       />
     </div>
   </div>
