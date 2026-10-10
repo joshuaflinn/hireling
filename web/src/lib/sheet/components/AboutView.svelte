@@ -4,7 +4,7 @@
   // prose surface runs under (FR-3). The notice is a build-time copy
   // (`rules/notice.md`); a test pins the copy to the repo file so the two
   // cannot drift.
-  import { adoptHTML } from '../../util/inert-html.js';
+  import { adoptHTML, esc } from '../../util/inert-html.js';
   import defaultNotice from '../../rules/notice.md?raw';
 
   /** The notice text; the default is the bundled copy of NOTICE.md. */
@@ -17,12 +17,20 @@
   // structural tags the notice actually uses (headings, bullets, fenced
   // block, paragraphs). No inline markup of the source survives escaping —
   // hostile input renders as visible text, never as nodes or attributes.
-  function escapeHtml(/** @type {string} */ text) {
-    return text
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;');
+  // Inline pass below runs on the ALREADY-escaped line, so it can only add
+  // the three tags it names.
+
+  /**
+   * Inline markup on an already-escaped line: `code`, **bold**, and
+   * [text](https://…) links. Escaping happened first, so no source markup
+   * becomes a node here; an href is emitted only for an http(s) URL — a
+   * `javascript:` target stays visible text.
+   */
+  function inline(/** @type {string} */ escaped) {
+    return escaped
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>');
   }
 
   function renderNotice(/** @type {string} */ markdown) {
@@ -34,7 +42,7 @@
     let paragraph = /** @type {string[]} */ ([]);
     const flushParagraph = () => {
       if (paragraph.length > 0) {
-        out.push(`<p>${paragraph.map(escapeHtml).join('<br>') }</p>`);
+        out.push(`<p>${paragraph.map((line) => inline(esc(line))).join('<br>')}</p>`);
         paragraph = [];
       }
     };
@@ -53,14 +61,14 @@
         continue;
       }
       if (inFence) {
-        out.push(escapeHtml(line));
+        out.push(esc(line));
         continue;
       }
       const heading = line.match(/^(#{1,3})\s+(.*)$/);
       if (heading) {
         flushParagraph();
         closeList();
-        out.push(`<h2>${escapeHtml(heading[2])}</h2>`);
+        out.push(`<h2>${esc(heading[2])}</h2>`);
         continue;
       }
       const bullet = line.match(/^-\s+(.*)$/);
@@ -70,7 +78,7 @@
           out.push('<ul>');
           inList = true;
         }
-        out.push(`<li>${escapeHtml(bullet[1])}</li>`);
+        out.push(`<li>${esc(bullet[1])}</li>`);
         continue;
       }
       if (line.trim() === '') {

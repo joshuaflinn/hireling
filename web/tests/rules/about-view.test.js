@@ -81,3 +81,44 @@ test('hostile markup in the notice renders inert — no script node, no handler,
   const text = /** @type {HTMLElement} */ (body).textContent ?? '';
   assert.match(text, /window.__e9pwned = true/, 'the payload renders as text, not markup');
 });
+
+test('inline markup renders bold, code, and http(s) links — escape-first still holds', () => {
+  const notice = [
+    '# Inline',
+    '',
+    'The **license** and a `code span` plus a [link](https://example.com/policy).',
+    '',
+    'A [bad](javascript:alert(1)) link and a [sneaky](https://example.com/" onmouseover="alert(1)) one stay literal.',
+  ].join('\n');
+  const rendered = render(AboutView, {
+    props: { notice, onback: noop },
+  });
+  const body = rendered.container.querySelector('.notice');
+  assert.ok(body, 'the notice body renders');
+  const strong = /** @type {HTMLElement} */ (body).querySelector('strong');
+  assert.ok(strong, '**bold** becomes a strong node');
+  assert.equal(strong?.textContent, 'license', 'the strong carries the inner text');
+  assert.ok(
+    /** @type {HTMLElement} */ (body).querySelector('code'),
+    'a backtick span becomes a code node',
+  );
+  assert.ok(
+    /** @type {HTMLElement} */ (
+      body
+    ).querySelector('a[href="https://example.com/policy"]'),
+    'an http(s) link becomes a real anchor',
+  );
+  assert.equal(
+    /** @type {HTMLElement} */ (body).querySelectorAll('a[href^="javascript:"]').length,
+    0,
+    'a javascript: target never becomes an anchor',
+  );
+  assert.equal(
+    /** @type {HTMLElement} */ (body).querySelector('[onmouseover]'),
+    null,
+    'no handler attribute is minted from a URL injection attempt',
+  );
+  const text = /** @type {HTMLElement} */ (body).textContent ?? '';
+  assert.match(text, /javascript:alert\(1\)/, 'the bad link renders as visible text');
+  assert.match(text, /\[sneaky\]/, 'an unclosable URL leaves the markup literal');
+});

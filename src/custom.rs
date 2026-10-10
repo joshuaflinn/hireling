@@ -363,11 +363,16 @@ pub async fn create(
     };
     if kind == Kind::Item {
         // US-3 AC-1: quantity renders as base_qty + delta; a custom item has
-        // no anchor base, so the delta is the explicit 1 — the column
-        // default 0 would render qty 0 (contract §1).
+        // no anchor base, so the first create's delta is the explicit 1 —
+        // the column default 0 would render qty 0 (contract §1). The name
+        // is the inventory anchor (PRIMARY KEY (character_id, item_name)),
+        // so a second create of the same item accumulates: the character
+        // holds another one. Corpus rows stay distinct either way (§3).
         let inserted = sqlx::query(
             "INSERT INTO character_inventory_live (character_id, item_name, qty_delta) \
-             VALUES ($1, $2, 1)",
+             VALUES ($1, $2, 1) \
+             ON CONFLICT (character_id, item_name) DO UPDATE \
+             SET qty_delta = character_inventory_live.qty_delta + 1, updated_at = now()",
         )
         .bind(character_id)
         .bind(&row_name)
@@ -536,7 +541,15 @@ pub async fn edit(
     headers: HeaderMap,
     body: Json<JsonValue>,
 ) -> Response {
-    let _ = party_id; // scope segment; the matrix, not membership, decides edits
+    // The path's party segment must name a real party the actor belongs
+    // to — the edit gate below is creator-only, but the route itself is
+    // party-scoped. A foreign or nonexistent party is a resource path that
+    // does not exist: 404, decided before any body is read.
+    match character_in_party(&auth.pool, party_id, &account.sub).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(status) => return status.into_response(),
+    }
     let fields = match extract_fields(&body) {
         Ok(fields) => fields,
         Err(rejection) => return rejection.respond(),
@@ -548,19 +561,22 @@ pub async fn edit(
     }
     let request_id = request_id_from(&headers);
 
-    let loaded: Option<StoredRow> = sqlx::query_as(
+    let loaded: Option<StoredRow> = match sqlx::query_as(
         "SELECT kind AS kind_str, name, data, created_by_sub AS creator_sub \
          FROM corpus_entries WHERE id = $1 AND lane = 'custom'",
     )
     .bind(corpus_entry_id)
     .fetch_optional(&auth.pool)
     .await
-    .map_err(|error| {
-        tracing::error!(error = %error, corpus_entry_id, "custom edit load failed");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })
-    .ok()
-    .flatten();
+    {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            // Fail-closed: a database fault must not wear the 404 that a
+            // genuinely absent row wears — the row's absence is unproven.
+            tracing::error!(error = %error, corpus_entry_id, "custom edit load failed");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
     // The refusal law, one decision: a row outside the custom lane (or
     // absent entirely from that lane) is refused against the audit trail
@@ -581,7 +597,13 @@ pub async fn edit(
         role: account.role,
     };
     let creator_sub = stored.creator_sub.clone().unwrap_or_default();
-    let verdict = authz::authorize(&actor, Action::Write, &Resource::CustomRow { creator_sub });
+    let verdict = authz::authorize(
+        &actor,
+        Action::Write,
+        &Resource::CustomRow {
+            creator_sub: creator_sub.clone(),
+        },
+    );
     if verdict == authz::Verdict::Deny {
         // The creator is the sole writer (FR-5); every other hand — member
         // or GM — is refused indistinguishably, per the E3 payload rule,
@@ -630,7 +652,9 @@ pub async fn edit(
         &patched.name,
         &patched.description,
         patched.value_or_rank,
-        &account.sub,
+        // The creator, not the actor: only the creator passes the gate
+        // today, but the field's name promises the row's creator.
+        &creator_sub,
     )
 }
 
@@ -648,13 +672,21 @@ async fn missing_or_foreign_row(
     actor_sub: &str,
     request_id: Option<String>,
 ) -> Response {
-    let exists: Option<bool> = sqlx::query_scalar(
+    // Fail-closed: a failed existence check refuses with 500 — the row's
+    // absence is then unproven, and 404 would leak less but audit nothing.
+    let exists: Option<bool> = match sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM corpus_entries WHERE id = $1 AND lane <> 'custom')",
     )
     .bind(corpus_entry_id)
     .fetch_one(pool)
     .await
-    .ok();
+    {
+        Ok(exists) => exists,
+        Err(error) => {
+            tracing::error!(error = %error, corpus_entry_id, "custom lane existence check failed");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
     match exists {
         Some(true) => {
             if let Err(status) =

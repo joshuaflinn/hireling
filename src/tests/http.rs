@@ -558,11 +558,14 @@ async fn a_player_write_to_a_read_route_is_not_the_gm_rejection() {
 
     for route in API_ROUTES.iter().filter(|route| !route.writes) {
         // A same-path declared write route (E9's POST on `/custom`) is a
-        // mounted handler, not a hiding one — the probe skips it.
-        if API_ROUTES
+        // mounted handler, not a hiding one — the probe skips it, derived
+        // from the matrix exactly like the anonymous probe above.
+        let declared_writes: Vec<&str> = API_ROUTES
             .iter()
-            .any(|other| other.writes && other.method == "POST" && other.path == route.path)
-        {
+            .filter(|other| other.writes && other.path == route.path)
+            .map(|other| other.method)
+            .collect();
+        if declared_writes.contains(&"POST") {
             continue;
         }
         let response = app

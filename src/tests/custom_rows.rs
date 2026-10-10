@@ -378,6 +378,91 @@ async fn kind_read_refusals_name_every_accepted_kind() {
 }
 
 #[tokio::test]
+async fn a_second_create_of_the_same_custom_item_accumulates_the_inventory_row() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, character_id) = seed_member(&pool, "dev-sub-josh").await;
+    let session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
+    let app = router(&pool);
+    let path = format!("/api/parties/{party_id}/custom");
+    let body = json!({"kind": "item", "name": "Lucky Rock", "description": "It is a rock."});
+
+    // Contract §3: duplicate names are allowed. The second create of the
+    // same custom item must answer 201 and accumulate the inventory anchor
+    // — not 500 on the (character_id, item_name) primary key.
+    assert_created(&app, "POST", &path, &session, body.clone()).await;
+    assert_created(&app, "POST", &path, &session, body).await;
+
+    let (_, rows) = get_json(
+        &app,
+        &format!("/api/parties/{party_id}/custom?kind=item"),
+        &session,
+    )
+    .await;
+    let lucky = rows
+        .as_array()
+        .expect("a JSON array of custom rows")
+        .iter()
+        .filter(|row| row.get("name").and_then(Value::as_str) == Some("Lucky Rock"))
+        .count();
+    assert_eq!(lucky, 2, "duplicate corpus names stay distinct rows (§3)");
+
+    let qty_delta: i32 = sqlx::query_scalar(
+        "SELECT qty_delta FROM character_inventory_live \
+         WHERE character_id = $1 AND item_name = 'Lucky Rock'",
+    )
+    .bind(character_id)
+    .fetch_one(&pool)
+    .await
+    .expect("one inventory anchor row for the name");
+    assert_eq!(
+        qty_delta, 2,
+        "the second create accumulates the anchor: the character holds two"
+    );
+    testing::drop_test_db(pool, "custom_rows_item_name_collision").await;
+}
+
+#[tokio::test]
+async fn an_edit_through_a_foreign_or_nonexistent_party_is_404() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, _) = seed_member(&pool, "dev-sub-josh").await;
+    let other_party = seed_second_party(&pool).await;
+    let row_id = seed_custom_row(&pool, "dev-sub-josh", "Sunlit").await;
+    let session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
+    let app = router(&pool);
+
+    // The path's party segment must name a real party the actor belongs
+    // to: a foreign party and a nonexistent one are both resource paths
+    // that do not exist — 404, not a successful edit of the very same row.
+    for wrong in [other_party, 999_999] {
+        let (status, body) = send_json(
+            &app,
+            "PATCH",
+            &format!("/api/parties/{wrong}/custom/{row_id}"),
+            Some(&session),
+            json!({"description": "Renamed through a party that is not mine."}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "party {wrong}: {body}");
+    }
+
+    // Control: the creator's own party still edits normally.
+    let (status, _) = send_json(
+        &app,
+        "PATCH",
+        &format!("/api/parties/{party_id}/custom/{row_id}"),
+        Some(&session),
+        json!({"description": "Revised in the row's own party."}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    testing::drop_test_db(pool, "custom_rows_edit_party_segment").await;
+}
+
+#[tokio::test]
 async fn a_custom_item_writes_the_inventory_row_with_qty_delta_one() {
     let Some(pool) = testing::test_pool().await else {
         return;

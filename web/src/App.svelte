@@ -116,13 +116,10 @@
   }
 
   function backToParty() {
+    // The one way back to the hub, for both exits: the sheet drill-in and
+    // the about view. Clearing the drill-in here is what makes an about
+    // round-trip land on the hub, never on a stale sheet.
     sheetTarget = null;
-    view = session?.roster?.characters.length ? 'party' : 'party-empty';
-  }
-
-  // The about view (E9 Task 10): one footer link on the party hub opens
-  // it; back returns to that hub — never to a stale drill-in.
-  function backFromAbout() {
     view = session?.roster?.characters.length ? 'party' : 'party-empty';
   }
 
@@ -177,7 +174,7 @@
     <button class="linkish" onclick={() => (view = 'about')}>About · licenses</button>
   </footer>
 {:else if view === 'about'}
-  <AboutView onback={backFromAbout} />
+  <AboutView onback={backToParty} />
 {:else if view === 'sheet' && sheetTarget && session}
   <main>
     <button class="back" onclick={backToParty}>← The party</button>
