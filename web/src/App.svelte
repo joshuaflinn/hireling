@@ -185,6 +185,7 @@
       character={sheetTarget.payload}
       accountSub={account?.sub ?? ''}
       editable={sheetTarget.editable}
+      partyId={session.roster?.party_id ?? 1}
       sync={session.sync}
       onlogout={logout}
     />

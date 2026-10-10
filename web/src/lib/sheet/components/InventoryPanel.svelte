@@ -10,7 +10,10 @@
   /** @type {{ baseSheet: any, itemBulk: Record<string, number | null>,
     itemTraits: Record<string, string[]>, qtyMap: Record<string, {qty: number, pending: boolean}>,
     money: any, opErrors?: any[], editable?: boolean, offline?: boolean,
-    onqty?: (name: string, qty: number) => void, onmoney?: (money: any) => void }} */
+    onqty?: (name: string, qty: number) => void, onmoney?: (money: any) => void,
+    customItems?: Array<{corpus_entry_id?: number, name: string, description?: string,
+      value_or_rank?: number | null, qty?: number}>,
+    onaddcustom?: () => void }} */
   let {
     baseSheet,
     itemBulk = {},
@@ -22,6 +25,8 @@
     offline = false,
     onqty,
     onmoney,
+    customItems = [],
+    onaddcustom,
   } = $props();
 
   const items = $derived(baseSheet.equipment ?? []);
@@ -40,7 +45,12 @@
 </script>
 
 <section class="panel" aria-label="Inventory">
-  <h2>Inventory <small>{items.length} entries</small></h2>
+  <h2>
+    Inventory <small>{items.length + customItems.length} entries</small>
+    {#if editable && onaddcustom}
+      <button class="btn" style="float:right;font-size:12px;padding:2px 9px" onclick={onaddcustom}>Add custom item</button>
+    {/if}
+  </h2>
 
   {#if editable}
     <div class="coins">
@@ -112,6 +122,37 @@
       {/if}
     {/each}
   {/each}
+
+  {#if customItems.length}
+    <h3 class="chead">
+      <span class="cnm">Custom</span>
+      <span class="ccount">{customItems.length}</span>
+    </h3>
+    {#each customItems as item (item.corpus_entry_id ?? item.name)}
+      <div class="row irow">
+        <span class="nm">
+          {item.name}
+          <span class="chip">custom</span>
+          {#if item.description}<small style="color:var(--muted,#8a94a3);font-size:11px;margin-left:4px">{item.description}</small>{/if}
+        </span>
+        <span class="q">—</span>
+        {#if editable}
+          <span class="qty">
+            <input
+              type="number"
+              min="0"
+              value={item.qty ?? 1}
+              disabled={offline}
+              aria-label="Quantity of {item.name}"
+              onchange={(event) => onqty?.(item.name, Number(event.currentTarget.value))}
+            />
+          </span>
+        {:else}
+          <span class="qty">×{item.qty ?? 1}</span>
+        {/if}
+      </div>
+    {/each}
+  {/if}
 
   <div class="bulk">
     Total carried: <b>{viewOf.totalText}</b>
