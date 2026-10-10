@@ -397,7 +397,7 @@ fn caster_rank_takes_the_tradition_bump_innate_keeps_hers() {
 
 // -- degraded sections and keying rules --
 
-/// `damageType` is READ from the export, not assumed (MOR-69 finding 2):
+/// `damageType` is READ from the export, not assumed:
 /// the reference corpus carries exactly one literal ("B"), which a
 /// hardcoded constant would also pass. A second fixture carries "S" and
 /// asserts the slashing arm; the missing-key default asserts "" — no

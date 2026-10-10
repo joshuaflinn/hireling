@@ -66,8 +66,8 @@ impl ValueKind {
 /// The sign a parameterized mapping applies to the condition's value.
 /// Stored data, never derived: `status` names a stacking type, not a
 /// direction, so "frightened 2 is −2" is only knowable because the seed
-/// says so (review finding — a positive frightened value must not be able
-/// to read as a bonus).
+/// says so — a positive frightened value must not be able
+/// to read as a bonus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Polarity {
     /// The condition's value applies as a bonus (`+value`).

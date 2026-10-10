@@ -64,7 +64,7 @@
 </div>
 
 <style>
-  /* Real markup, not an interpolated string (review finding 1): Svelte
+  /* Real markup, not an interpolated string: Svelte
      escapes string interpolation, so the old inline `<span>` printed as
      literal text. A temp-HP player read tags in their HP readout. */
   .temp {

@@ -123,9 +123,9 @@ test('Total carried renders the wielded weapon and worn armor', () => {
   );
 });
 
-// ---- MOR-48 review fixes: the production path owns the behaviour ----------
+// ---- the production path owns the behaviour ----------
 
-test('a rejected quantity write surfaces inline at that item; a rejected coin write at the coins (finding 5)', () => {
+test('a rejected quantity write surfaces inline at that item; a rejected coin write at the coins', () => {
   render(InventoryPanel, {
     props: {
       baseSheet: fixture,
@@ -156,7 +156,7 @@ test('a rejected quantity write surfaces inline at that item; a rejected coin wr
     },
   });
   // Both surfaces are role=alert (coins block + item row) — query the
-  // role, not the markup (MOR-77 finding 2).
+  // role, not the markup.
   const alerts = screen
     .getAllByRole('alert')
     .map((el) => el.textContent)

@@ -31,7 +31,7 @@
         container: dialogHost,
         host: opener ?? dialogHost,
         onCancel: () => onclose?.(),
-        // Enter commits (review finding 6): the prop exists so the claim in
+        // Enter commits: the prop exists so the claim in
         // util/keyboard.js and spec §7 is wired, not just implemented.
         onCommit: oncommit,
       });

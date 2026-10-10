@@ -111,7 +111,7 @@ async fn a_player_imports_the_reference_export_over_http() {
             .get("vitals")
             .and_then(|v| v.get("focus_current")),
         Some(&serde_json::json!(1)),
-        "focus boots at the export's pool (MOR-48 finding 2)"
+        "focus boots at the export's pool"
     );
 
     testing::drop_test_db(pool, "http_import").await;

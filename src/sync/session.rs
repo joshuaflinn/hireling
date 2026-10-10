@@ -324,10 +324,9 @@ async fn handle_inbound(
 
 /// Apply one write and answer it: an applied write fans the diff out to
 /// the whole party — the writer included, via the registry — BEFORE the
-/// ack is attempted, and the ack goes to the writer's socket afterward
-/// (review finding MOR-42: the broadcast is a synchronous `try_send` that
+/// ack is attempted. The broadcast is a synchronous `try_send` that
 /// never awaits, so it must not be sequenced behind the ack, whose sink
-/// can be backpressured indefinitely by a stalled writer — spec FR-3,
+/// can be backpressured indefinitely by a stalled writer (spec FR-3,
 /// scenario 2; the wire contract permits either ack/diff order on the
 /// writer's own socket). A vanished or stalled writer must never strand
 /// the party. Per-message authz happens inside `apply_write` through E3's
@@ -373,11 +372,11 @@ async fn handle_write(
         winning_version: result.winning_version,
         reason: result.reason,
     };
-    // Fan out FIRST (review finding MOR-42): the broadcast is a
-    // synchronous `try_send` — it never awaits — so a stalled writer's
-    // outbound sink cannot hold the party's committed diff hostage (spec
-    // FR-3, scenario 2). Only then is the ack attempted; a stalled or
-    // vanished writer delays (worst case forever) only its own ack, never
+    // Fan out FIRST: the broadcast is a synchronous `try_send` — it never
+    // awaits — so a stalled writer's outbound sink cannot hold the party's
+    // committed diff hostage (spec FR-3, scenario 2). Only then is the ack
+    // attempted; a stalled or vanished writer delays (worst case forever)
+    // only its own ack, never
     // the party's view. Effect ops replace the default (target, op.value)
     // echo with the write path's RESOLVED row — a corpus-condition create
     // fans out the applied signed modifiers, and a create's address is the
