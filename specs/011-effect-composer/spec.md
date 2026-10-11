@@ -95,7 +95,9 @@ pass.
   by target kind — a create's `applied` closes the dialog; a manager op's `applied`
   refetches the rows and keeps it open (FR-C6). Supersession stays silent per the
   degraded-mode contract, but the composer's in-flight state unsticks when the queue no
-  longer holds its op (a lost race never parks the dialog on "Applying…"). The manager
+  longer holds its op (a lost race never parks the dialog on "Applying…") — the unstick
+  settles as a distinct `stale` phase and the sheet refetches the manager rows on it, so
+  the next op addresses fresh versions instead of silently losing CAS again. The manager
   refetches truth on open, and a failed fetch names itself in the dialog.
 - **FR-C6 — Manager face**: the composer dialog lists the creator's own active effects
   with current targets; per-target remove composes the whole remaining target set into

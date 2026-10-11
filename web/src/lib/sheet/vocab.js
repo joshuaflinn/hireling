@@ -1,5 +1,5 @@
 // The composer's stat vocabulary — DERIVED, never a constant (spec
-// specs/010-effect-composer FR-C3). The engine's closed vocabulary lives in
+// specs/011-effect-composer FR-C3). The engine's closed vocabulary lives in
 // `engine/src/vocab.rs`; this module does not copy it. The option set is read
 // off the character's delivered engine output (specs/008/contracts/
 // engine-output.md §3 — the `GET /api/characters/{id}/derived` body, which

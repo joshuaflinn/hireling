@@ -33,7 +33,7 @@
       {@const custom = customFor(effect.name)}
       <!-- listitem stays on the OUTER node: the tip's trigger is a button,
         and a button's contents are presentational — the list's children must
-        not live inside it (MOR-115 finding 4). -->
+        not live inside it. -->
       <span role="listitem">
         <ConditionTip
           name={effect.name}

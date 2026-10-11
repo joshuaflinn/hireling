@@ -234,7 +234,7 @@ export function createSync(options) {
     /**
      * Queue a write for a versioned field. Never throws, never refuses.
      *
-     * `baseVersion` (specs/010's effect mutations) pins the whole-row CAS
+     * `baseVersion` (specs/011's effect mutations) pins the whole-row CAS
      * version explicitly — the effect ops carry the REST face's row version
      * when the live store has no diff for that row yet. Omitted, the
      * store-derived field version is used, exactly as before.

@@ -10,7 +10,7 @@ import { targetKey } from '../../src/lib/sync/store.js';
 import baseSheet from '../data/base_sheet_reference.json';
 import engineA from '../data/engine_output_reference.json';
 
-// The E8-residual composer (specs/010-effect-composer): the write surface the
+// The E8-residual composer (specs/011-effect-composer): the write surface the
 // PRD's Step 3 names. Every test here exercises the production path — the
 // mounted sheet wiring (entry point → dialog → composer → state layer → sync
 // surface) or the mounted composer — per the house affordance rule. A green
@@ -393,6 +393,52 @@ test('a lost CAS race unsticks the composer — the queue event with the op gone
   assert.doesNotMatch(view.container.textContent, /Applying/);
   const rearmed = view.getByRole('button', { name: 'Apply effect' });
   assert.equal(rearmed.disabled, false, 'Apply re-armed — the dialog is not dead');
+
+  // The unstick also refetches the manager rows (FR-C6: the list is
+  // refetched after every op — a superseded op included), proven at the
+  // mounted sheet with a fetch count in the next test.
+});
+
+// Finding 2 — the superseded settle must not strand the manager list on
+// the beaten version: the unstick refetches the rows, and the refetched
+// truth is what renders.
+test('a superseded manager op unsticks and refetches the rows — the list never rides the stale version', async () => {
+  const sync = fakeSessionSync();
+  let fetches = 0;
+  const joshRetargeted = [{ ...EFFECT_ROWS[0], targets: [3], version: 1043 }];
+  const view = openComposerViaSheet(sync, {
+    fetchImpl: (url) => {
+      if (url === `/api/parties/${PARTY_ID}/effects`) {
+        fetches += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(fetches === 1 ? EFFECT_ROWS : joshRetargeted),
+        };
+      }
+      return Promise.reject(new Error(`unexpected fetch ${url}`));
+    },
+  });
+  await waitFor(() => assert.equal(fetches, 1, 'the open fetch'));
+  assert.ok(view.getByRole('button', { name: 'Remove Becky from Bless' }), 'the pre-race list shows both targets');
+
+  // Bear adds himself at version 1042; Josh's device retargets the same
+  // effect first and Bear's op loses CAS → `superseded` → settleAck
+  // dequeues it and emits ONLY the queue event (no applied, no op_exposed).
+  fireEvent.click(view.getByRole('button', { name: 'Add Bear to Bless' }));
+  assert.equal(sync.writes.length, 1);
+  assert.equal(sync.writes[0].base_version, 1042, 'the op addressed the pre-race version');
+  sync.emit({ type: 'queue', length: 0 });
+
+  await waitFor(() => assert.equal(fetches, 2, 'the stale unstick refetches (FR-C6: after every op)'));
+  await waitFor(() => {
+    assert.equal(
+      view.queryByRole('button', { name: 'Remove Becky from Bless' }),
+      null,
+      'the refetched rows render — Josh\u2019s retarget won, Becky is gone',
+    );
+  });
+  assert.ok(view.getByRole('button', { name: 'Apply effect' }), 'the dialog stays open, Apply re-armed');
 });
 
 // Finding 3 — an applied MANAGER op must not close the dialog (the

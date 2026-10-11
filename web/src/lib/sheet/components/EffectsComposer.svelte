@@ -1,5 +1,5 @@
 <script>
-  // The freeform effect composer (specs/010-effect-composer) — the PRD's
+  // The freeform effect composer (specs/011-effect-composer) — the PRD's
   // Step 3 write surface: name, modifier rows over the DERIVED stat
   // vocabulary (vocab.js — no client-side stat constant), duration note,
   // target picker from the party roster. Apply composes the exact
@@ -57,8 +57,8 @@
    */
   const trimmedName = $derived(name.trim());
   // No rounding: the value that lands on the wire must be the value in the
-  // field. A fraction fails the integer gate below (finding 6) — it never
-  // silently becomes the nearest whole number.
+  // field. A fraction fails the integer gate below — it never silently
+  // becomes the nearest whole number.
   const cleanRows = $derived(
     rows.map((row) => ({
       type: row.type,
@@ -198,7 +198,7 @@
   </fieldset>
 
   {#if effectsState?.status === 'error'}
-    <!-- Finding 4: “no effects” and “couldn't load” must not look the same. -->
+    <!-- “No effects” and “couldn't load” must not look the same. -->
     <p class="fetch-error" role="alert">Couldn't load active effects — reopen the dialog to retry.</p>
   {/if}
 
@@ -213,10 +213,10 @@
               <span class="managed-target">
                 {nameOf(targetId)}
                 {#if row.targets.length > 1}
-                  <!-- Finding 5: the last remaining target's ✕ would be a
-                       dead control (an empty target set is refused by the
-                       write path's bounds — at least one target, gh#85) —
-                       End is the operation there. -->
+                  <!-- The last remaining target's ✕ would be a dead control
+                       (an empty target set is refused by the write path's
+                       bounds — at least one target, gh#85) — End is the
+                       operation there. -->
                   <button
                     class="x"
                     type="button"
@@ -228,8 +228,8 @@
             {/each}
             {#each roster as member (member.id)}
               {#if !row.targets.includes(member.id)}
-                <!-- Finding 1 (P0): the creator ADDS targets too — the
-                     whole-set update op with the member included. -->
+                <!-- The creator adds targets too — the whole-set update op
+                     with the member included. -->
                 <button
                   class="add-target"
                   type="button"
@@ -243,8 +243,8 @@
         {/each}
       {/if}
       {#if others.length > 0}
-        <!-- Finding 7: someone else's effects never render under “Your
-             active effects” — their own heading. -->
+        <!-- Someone else's effects never render under “Your active
+             effects” — their own heading. -->
         <h4>Party effects</h4>
         {#each others as row (row.effect_id)}
           <div class="managed-row other">

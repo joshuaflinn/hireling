@@ -30,7 +30,7 @@
     character, // the /api/characters/me payload — or a roster element, same shape
     accountSub = '',
     editable = true,
-    partyId = null, // the session's party (specs/010) — null hides the composer; epic surfaces fall back to the POC party
+    partyId = null, // the session's party (specs/011) — null hides the composer; epic surfaces fall back to the POC party
     sync: providedSync, // the shell's session sync (E10 D2) — one socket per tab
     roster = [], // the party roster — the composer's target picker
     fetchImpl, // injectable REST face for tests; the real app uses global fetch
@@ -152,7 +152,7 @@
 
   const identity = character.base_sheet.identity;
 
-  // The composer (specs/010): an editable sheet with a party and a delivered
+  // The composer (specs/011): an editable sheet with a party and a delivered
   // engine output (the vocabulary source). Absent any of the three, the
   // entry point is absent — the GM seat and non-owner drill-ins render no
   // edit control (PRD), and a pre-wire sheet has no vocabulary to pick from.
@@ -166,12 +166,18 @@
   }
 
   // An applied CREATE ack closes the dialog (spec FR-C5); an applied
-  // MANAGER op (retarget/end, kind 'effect') must not — the phase-only
-  // settle used to discard a half-composed form with it. A manager settle
-  // refetches the rows instead (FR-C6: the list is refetched after every
-  // op) and the dialog stays open. A denial leaves it open with the reason
-  // inline — the state layer owns the verdict.
+  // MANAGER op (retarget/end, kind 'effect') must not — the dialog stays
+  // open and the rows refetch instead (FR-C6: the list is refetched after
+  // every op). A superseded op settles as `stale`: the rows refetch too,
+  // so the next op addresses fresh versions instead of silently losing
+  // CAS again. A denial leaves the dialog open with the reason inline —
+  // the state layer owns the verdict.
   $effect(() => {
+    if ($composerOp?.phase === 'stale') {
+      if (partyId !== null) sheet.loadPartyEffects(partyId);
+      sheet.clearComposerOp();
+      return;
+    }
     if ($composerOp?.phase !== 'applied') return;
     if ($composerOp.kind === 'effect_new') {
       composerOpen = false;
