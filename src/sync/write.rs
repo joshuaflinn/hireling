@@ -1636,13 +1636,19 @@ fn validate_create_keys(object: &serde_json::Map<String, JsonValue>) -> Result<(
     Ok(())
 }
 
-/// Targets: an array of distinct positive character ids, present in both
-/// create and update.
+/// Targets: an array of at least one distinct positive character id,
+/// present in both create and update. The minimum is the ghost-effect
+/// guard: an accepted empty set would leave an active effect that
+/// recomputes nothing, shows in nobody's chips, and only `end` can clear
+/// (gh#85).
 fn validate_targets(object: &serde_json::Map<String, JsonValue>) -> Result<(), String> {
     let rows = object
         .get("targets")
         .and_then(JsonValue::as_array)
         .ok_or("targets must be an array of character ids")?;
+    if rows.is_empty() {
+        return Err("an effect needs at least one target".to_owned());
+    }
     let mut seen = std::collections::HashSet::with_capacity(rows.len());
     for target in rows {
         let id = target
@@ -1850,6 +1856,11 @@ mod bounds_tests {
             effect(json!({"op": "update", "targets": [3, 3]})).is_err(),
             "duplicate targets are a client bug, named loudly"
         );
+        let empty_update = effect(json!({"op": "update", "targets": []}));
+        assert!(
+            matches!(&empty_update, Err(reason) if reason.contains("at least one target")),
+            "an empty target set is refused with its reason: {empty_update:?}"
+        );
         assert!(
             effect(json!({"op": "update", "targets": [3], "name": "x"})).is_err(),
             "update carries no create keys"
@@ -1870,7 +1881,7 @@ mod bounds_tests {
         assert!(
             create(
                 json!({"op": "create", "name": long_name, "source_character_id": 3,
-                          "targets": []})
+                          "targets": [3]})
             )
             .is_err(),
             "name ≤ 120"
@@ -1881,7 +1892,7 @@ mod bounds_tests {
         assert!(
             create(
                 json!({"op": "create", "name": "x", "source_character_id": 3,
-                          "targets": [], "modifiers": many})
+                          "targets": [3], "modifiers": many})
             )
             .is_err(),
             "≤ 16 modifiers"
@@ -1889,7 +1900,7 @@ mod bounds_tests {
         assert!(
             create(
                 json!({"op": "create", "name": "x", "source_character_id": 3,
-                          "targets": [],
+                          "targets": [3],
                           "modifiers": [{"type": "status", "stat": "initiative", "value": 1}]})
             )
             .is_err(),
@@ -1898,7 +1909,7 @@ mod bounds_tests {
         assert!(
             create(
                 json!({"op": "create", "name": "x", "source_character_id": 3,
-                          "targets": [],
+                          "targets": [3],
                           "modifiers": [{"type": "status", "stat": "attack", "value": 51}]})
             )
             .is_err(),
@@ -1907,11 +1918,22 @@ mod bounds_tests {
         assert!(
             create(
                 json!({"op": "create", "name": "x", "source_character_id": 3,
-                          "targets": [], "corpus_entry_id": 5,
+                          "targets": [3], "corpus_entry_id": 5,
                           "modifiers": [{"type": "status", "stat": "attack", "value": 1}]})
             )
             .is_err(),
             "corpus-sourced creates take no inline modifiers"
+        );
+        let empty_create = create(
+            json!({"op": "create", "name": "Bless", "source_character_id": 3,
+                          "targets": [],
+                          "modifiers": [{"type": "status", "stat": "attack", "value": 1}],
+                          "duration_note": "10 rounds", "corpus_entry_id": null,
+                          "condition_value": null}),
+        );
+        assert!(
+            matches!(&empty_create, Err(reason) if reason.contains("at least one target")),
+            "a zero-target create is refused with its reason: {empty_create:?}"
         );
     }
 

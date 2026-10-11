@@ -175,15 +175,38 @@ deny:
 # only — no axum, sqlx, tokio, or any UI/transport/DB crate may appear in
 # the portable core's normal edge set. A new dep that drags the framework
 # in fails the gate here, loudly.
+#
+# A guard that cannot fail is not a guard (MOR-130, Thrane's finding on
+# #93: dead cargo — even rustup with no default toolchain — produced
+# "boundary ok: 0 deps", exit 0, because the substitution discarded
+# cargo's status and the trailing echo owned the recipe). pipefail is the
+# fix: without it the pipeline's status is sed's, and cargo's death dies
+# in the substitution. An empty dep set is refused for the same reason —
+# it is cargo failing quietly, not a clean core.
+#
+# The ban is separator-anchored (^axum(-|_|$)) per Orsik's F4 on #93: the
+# stacks arrive as family crates — axum-core, tower-service, tokio-util —
+# and a whole-line match passes them green, which is the violation the
+# guard exists for. Bare prefix is wrong the other way: svelteish and
+# tokiotest are not the framework.
 boundary:
-    deps=$(cargo tree -p hireling-engine --edges normal --charset ascii | tail -n +2 | sed -E 's/^[|` -]+//; s/ v.*//; s/\(\*\)//' | sort -u); \
-    echo "$deps" | grep -qv . && true; \
-    for banned in axum sqlx tokio tower hyper leptos svelte; do \
-        if echo "$deps" | grep -q "^$banned"; then \
-            echo "BOUNDARY VIOLATION: hireling-engine depends on $banned"; exit 1; \
-        fi; \
-    done; \
-    echo "boundary ok: $(echo "$deps" | grep -c .) deps, serde-family only"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! deps=$(cargo tree -p hireling-engine --edges normal --charset ascii | tail -n +2 | sed -E 's/^[|` -]+//; s/ v.*//; s/\(\*\)//' | sort -u); then
+        echo "boundary: cargo tree exited non-zero — the engine dependency gate cannot run" >&2
+        exit 1
+    fi
+    if [ -z "$deps" ]; then
+        echo "boundary: cargo resolved zero dependencies — cargo is broken or hireling-engine moved; refusing to pass" >&2
+        exit 1
+    fi
+    for banned in axum sqlx tokio tower hyper leptos svelte; do
+        if grep -qE "^${banned}(-|_|$)" <<< "$deps"; then
+            echo "BOUNDARY VIOLATION: hireling-engine depends on $banned" >&2
+            exit 1
+        fi
+    done
+    echo "boundary ok: $(wc -l <<< "$deps" | tr -d ' ') deps, serde-family only"
 
 # Duplicate-key guardrail over tracked JSON (gh#49). JSON is last-wins — a
 # duplicated manifest key silently replaces the pin above it and no parser
@@ -194,13 +217,21 @@ json-keys:
     python3 scripts/check_json_dup_keys.py --self-test
     python3 scripts/check_json_dup_keys.py
 
-# The full local gate. Run this before pushing. Mirrors the grizzly-gate
-# image check-for-check: Rust fmt/clippy/tests/cargo-deny, web
-# svelte-check/unit tests/build, and — replicated, after three pushes
-# went to GitHub red while this recipe said green — the image's
-# node:eslint (web-eslint) and scan:semgrep (scan-semgrep) passes. The
-# gate image remains the authority; these replicas are calibrated
-# against its observed behavior and must move with any digest bump.
+# The full local gate. Run this before pushing. Two kinds of leg:
+#
+# Image mirrors — the pinned gate image runs the same check (rust:fmt on
+# fmt-check, rust:clippy on lint, rust:test on test, rust:deny on deny,
+# node:svelte-check on web-check, node:eslint on web-eslint, scan:semgrep
+# on scan-semgrep). Replicated bench-side, after three pushes went to
+# GitHub red while this recipe said green; calibrated against observed
+# gate behavior and must move with any digest bump. The image remains
+# the authority.
+#
+# Repo-side legs — no image pass runs these; CI gates them as guard steps
+# in the gate job of .github/workflows/gate.yml, ahead of the image run:
+# json-keys, boundary, web-test, web-css-guard, web-html-boundary. That
+# job's drift-check step fails any ci-local leg no CI job runs, so a new
+# leg lands together with its CI home.
 ci-local: json-keys fmt-check lint test deny boundary web-check web-test web-css-guard web-html-boundary web-eslint scan-semgrep
 
 # Alias — same gate, the name the spec calls it by.
