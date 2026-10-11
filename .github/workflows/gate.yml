@@ -75,8 +75,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           # The one source for the node major is .nvmrc (with package.json
-          # engines) — this field hardcoded 22 beside it until the F3
-          # residual fold (Orsik, MOR-137).
+          # engines)
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
