@@ -244,7 +244,9 @@ hooks:
 # Update local main from origin without leaving the current branch.
 sync:
     git fetch --prune origin
-    current=$(git rev-parse --abbrev-ref HEAD)
+    # One shell for the check: set shell is ["bash", "-cu"], so each recipe
+    # line is a separate invocation and an assignment never survives its line.
+    current=$(git rev-parse --abbrev-ref HEAD); \
     if [ "$current" = "main" ]; then \
         git pull --ff-only origin main; \
     else \
@@ -265,7 +267,11 @@ merge:
     fi
 
 # Stage all changes, commit with MSG, and push the current branch.
+# Refuses main: pushing main directly skips the PR gate, and the main-gate
+# ruleset's bypass class (repository owners) is exactly who runs this recipe.
 ship msg:
+    branch=$(git rev-parse --abbrev-ref HEAD); \
+    if [ "$branch" = "main" ]; then echo "ship: refusing to push main directly — open a PR" >&2; exit 1; fi
     git add -A
     git commit -m "{{ msg }}"
     git push -u origin HEAD
