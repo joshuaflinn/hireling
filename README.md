@@ -59,8 +59,8 @@ Git hooks enforce the gate on every commit — install them once per clone with
 `./.githooks/install.sh`.
 
 CI runs [grizzly-gate](https://github.com/Grizzly-Endeavors/grizzly-gate)
-(standalone mode) on every PR. The gate is the first reviewer; a human is the
-second.
+(standalone mode) on every PR. The gate is the first reviewer; an independent
+reviewer is the second.
 
 ## Database
 
