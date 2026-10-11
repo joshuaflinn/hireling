@@ -95,10 +95,11 @@ jobs:
       # verified below before the binary lands — a replaced or re-tagged
       # asset fails this step instead of executing. The fetch retries: a
       # transient CDN failure must not redden the required gate on code
-      # nobody touched. The boundary step's host-side cargo gets a warm
-      # toolchain: rustup auto-installs the rust-toolchain.toml pin on
-      # its first invocation. Bump deliberately: version and sha256 move
-      # together, both read from upstream's release assets at pin time.
+      # nobody touched. Nothing here warms a Rust toolchain: the boundary
+      # step's host-side cargo gets the rust-toolchain.toml pin from
+      # rustup's auto-install on its first invocation. Bump deliberately:
+      # version and sha256 move together, both read from upstream's
+      # release assets at pin time.
       - name: Install just
         if: ${{ !cancelled() }}
         env:
@@ -180,8 +181,8 @@ jobs:
           # an `if:` narrowed to push, stays in this derived set while no
           # longer running on PRs — no parse closes that hole. The
           # deliberate-break run is the cover: a guard proven to red on the
-          # thing it guards (run 38088014628 for web-test; per-leg proofs in
-          # this PR's body) is evidence a parse cannot be.
+          # thing it guards (run 38088014628 for web-test) is evidence a
+          # parse cannot be.
           workflow = open(".github/workflows/gate.yml").read()
           repo_side = set(re.findall(r"^ *run: just ([\w-]+) *$", workflow, re.M))
 
