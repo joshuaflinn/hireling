@@ -95,13 +95,10 @@ jobs:
       # verified below before the binary lands — a replaced or re-tagged
       # asset fails this step instead of executing. The fetch retries: a
       # transient CDN failure must not redden the required gate on code
-      # nobody touched. Replaces `cargo install just`, which compiled from
-      # source on every run (84s of the guard block's 124s, run
-      # 38093518485). That step's side effect — warming rustup for the
-      # boundary step's host-side cargo — now rides rustup's auto-install
-      # of the rust-toolchain.toml pin instead. Bump deliberately: version
-      # and sha256 move together, both read from upstream's release assets
-      # at pin time.
+      # nobody touched. The boundary step's host-side cargo gets a warm
+      # toolchain: rustup auto-installs the rust-toolchain.toml pin on
+      # its first invocation. Bump deliberately: version and sha256 move
+      # together, both read from upstream's release assets at pin time.
       - name: Install just
         if: ${{ !cancelled() }}
         env:
