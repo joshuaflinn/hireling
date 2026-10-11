@@ -89,14 +89,32 @@ jobs:
       # drift from the justfile bodies exactly the way the leg lists drifted
       # to create these guards.
       #
-      # Pinned per toolkit-conventions version-pinning: crates.io just
-      # max-stable 1.58.0, looked up from the crates.io API on 2026-10-10
-      # (this PR's review-fix loop). An unpinned cargo install is the one
-      # unpinned input in the required gate — an upstream release or yank
-      # would redden `gate` with no repo change. Bump deliberately.
+      # Upstream's prebuilt musl binary, pinned per toolkit-conventions
+      # version pinning: crates.io just max-stable 1.58.0, re-verified from
+      # the crates.io API on 2026-10-11 (MOR-143). The tarball's SHA256 was
+      # taken from that release's SHA256SUMS asset at pin time and is
+      # verified below before the binary lands — a replaced or re-tagged
+      # asset fails this step instead of executing. Replaces `cargo install
+      # just`, which compiled from source on every run (84s of the guard
+      # block's 124s, run 38093518485). That step's side effect — warming
+      # rustup for the boundary step's host-side cargo — now rides
+      # rustup's auto-install of the rust-toolchain.toml pin instead.
+      # Bump deliberately: version and sha256 move together, both read
+      # from upstream's release assets at pin time.
       - name: Install just
         if: ${{ !cancelled() }}
-        run: cargo install just --locked --version 1.58.0
+        env:
+          JUST_VERSION: 1.58.0
+          JUST_SHA256: 4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d
+        run: |
+          cd "$(mktemp -d)"
+          curl --silent --show-error --location --fail \
+            --output just.tar.gz \
+            "https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          echo "${JUST_SHA256}  just.tar.gz" | sha256sum --check --strict -
+          tar --extract --gzip --file just.tar.gz just
+          sudo install --mode 0755 just /usr/local/bin/just
+          just --version
 
       - name: web-test — vitest suite
         if: ${{ !cancelled() }}
