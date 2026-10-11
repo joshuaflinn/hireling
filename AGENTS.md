@@ -51,6 +51,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
 - **Claim before you code.** Only start an issue that is *unassigned*, and
   self-assign it on GitHub before writing any code. If a human holds it, it's
   theirs — pick another.
+- **Work in a per-issue worktree, not the shared clone.** The harness runs every agent with cwd = the one shared checkout; concurrent runs share its index and HEAD. Create `git worktree add ../hireling-<issue-or-slug> -b <branch>` before any git write, and do all branch/commit/test work there. The shared clone is read-only surface: fetch, merge-base reads, `gh` — never `commit`, `switch`, `rebase`, or `stash` there. Place worktrees as siblings of the main clone, not inside run scratch dirs (those get cleaned), and `git worktree remove` them when the issue's PR merges.
 - **Three sync points, nothing continuous.** Pickup: self-assign and comment
   the branch name. PR open: `Closes #N` plus a link back to your tracking task.
   Merge: GitHub closes the issue.
