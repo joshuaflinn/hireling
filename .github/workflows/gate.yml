@@ -91,7 +91,7 @@ jobs:
       #
       # Pinned per toolkit-conventions version-pinning: crates.io just
       # max-stable 1.58.0, looked up from the crates.io API on 2026-10-10
-      # (this PR's review-fix loop). An unpinned cargo install is the one
+      # An unpinned cargo install is the one
       # unpinned input in the required gate — an upstream release or yank
       # would redden `gate` with no repo change. Bump deliberately.
       - name: Install just
@@ -162,8 +162,8 @@ jobs:
           # an `if:` narrowed to push, stays in this derived set while no
           # longer running on PRs — no parse closes that hole. The
           # deliberate-break run is the cover: a guard proven to red on the
-          # thing it guards (run 38088014628 for web-test; per-leg proofs in
-          # this PR's body) is evidence a parse cannot be.
+          # thing it guards (run 38088014628 for web-test) is evidence a
+          # parse cannot be.
           workflow = open(".github/workflows/gate.yml").read()
           repo_side = set(re.findall(r"^ *run: just ([\w-]+) *$", workflow, re.M))
 
