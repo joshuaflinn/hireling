@@ -50,7 +50,7 @@ const invTarget = (characterId, itemName) => ({
 });
 
 /** Effect CREATE (E8's frame): the row does not exist yet; the target is
- *  the party it lands in and the server mints the id (specs/010 FR-C4). */
+ *  the party it lands in and the server mints the id (specs/011 FR-C4). */
 /** @param {number} partyId */
 const effectNewTarget = (partyId) => ({
   kind: 'effect_new',
@@ -74,7 +74,7 @@ const MODIFIER_TYPES = ['circumstance', 'status', 'item', 'untyped'];
  * @param {{name: string, sourceCharacterId: number, targets: number[], modifiers: Array<{type: string, stat: string, value: number}>, durationNote: string}} form
  * @returns {{op: string, name: string, source_character_id: number, targets: number[], modifiers: Array<{type: string, stat: string, value: number}>, duration_note: string} | null}
  */
-export function effectCreateValue(form) {
+function effectCreateValue(form) {
   const name = String(form.name ?? '').trim();
   if (name.length < 1 || name.length > 120) return null;
   const targets = [...new Set(form.targets)].filter((id) => Number.isInteger(id) && id > 0);
@@ -129,7 +129,7 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
  *   op_id: string, outcome: string, reason: string }} OpError
  */
 
-// ---- the effect composer's store shapes (specs/010) -----------------------
+// ---- the effect composer's store shapes (specs/011) -----------------------
 
 /**
  * The inline error for one control, if any (spec §6): match the op's
@@ -178,8 +178,9 @@ export function findOpError(opErrors, kind, match = {}) {
  * @property {import('svelte/store').Readable<OpError[]>} opErrors
  * @property {import('svelte/store').Readable<{phase: string, kind?: string, reason?: string} | null>} composerOp
  *   the in-flight composer op: `writing` → `applied` (kinded — 'effect_new'
- *   closes the dialog, 'effect' settles and refetches) or `denied` with the
- *   server's reason verbatim (spec FR-C5)
+ *   closes the dialog, 'effect' settles and refetches), `stale` (a
+ *   superseded op — the sheet refetches the manager rows and clears it), or
+ *   `denied` with the server's reason verbatim (spec FR-C5)
  * @property {import('svelte/store').Readable<{status: string, rows: Array<any>}>} partyEffects
  *   the manager's REST rows (GET /api/parties/{party_id}/effects — effect_id
  *   + version for CAS addressing)
@@ -229,14 +230,14 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
   /** Rejected/forbidden ops awaiting inline display, keyed by field. */
   const opErrors = writable(/** @type {OpError[]} */ ([]));
 
-  // ---- the effect composer (specs/010) ------------------------------------
+  // ---- the effect composer (specs/011) ------------------------------------
   const composerOp = writable(/** @type {{phase: string, kind?: string, reason?: string} | null} */ (null));
   /** targetKey of the op the composer is waiting on — acks and exposures
    *  settle by key, so the composer never needs the op id back. */
   let pendingEffectKey = /** @type {string | null} */ (null);
   /** The pending op's target kind — the applied settle carries it, because
-   *  a create and a manager op settle differently (finding 3): 'effect_new'
-   *  closes the dialog, 'effect' refetches rows and keeps it open. */
+   *  a create and a manager op settle differently: 'effect_new' closes the
+   *  dialog, 'effect' refetches rows and keeps it open. */
   let pendingEffectKind = /** @type {'effect_new' | 'effect' | null} */ (null);
   const partyEffects = writable(/** @type {{status: string, rows: Array<any>}} */ ({
     status: 'idle',
@@ -263,9 +264,9 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
       const rows = await response.json();
       partyEffects.set({ status: 'ready', rows: Array.isArray(rows) ? rows : [] });
     } catch (error) {
-      // Finding 4: no silent failures — “no effects” and “couldn't load”
-      // must not look identical. The !ok branch throws the status in the
-      // message; a network rejection carries its own.
+      // No silent failures — “no effects” and “couldn't load” must not
+      // look identical. The !ok branch throws the status in the message; a
+      // network rejection carries its own.
       const detail = error instanceof Error ? error.message : String(error);
       console.warn(`[sheet] loadPartyEffects failed: ${detail}`);
       partyEffects.set({ status: 'error', rows: [] });
@@ -467,14 +468,15 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
       const pending = new Set(sync.queue().map((op) => targetKey(op.target)));
       pendingKeys.set(pending);
       fields.set(sync.state());
-      // Finding 2: a lost CAS race (superseded) dequeues the op and emits
-      // ONLY this queue event — no applied, no op_exposed. If the composer
-      // is waiting on a key that no queued op targets anymore, unstick it:
-      // the visible writing state clears (Apply re-arms). The key itself
-      // stays — settleAck emits this event BEFORE the applied ack for a
-      // winning op, and the settle below must not be eaten.
+      // A lost CAS race (superseded) dequeues the op and emits ONLY this
+      // queue event — no applied, no op_exposed. If the composer is waiting
+      // on a key that no queued op targets anymore, settle it as stale:
+      // Apply re-arms and the sheet refetches the rows, so the list never
+      // rides the beaten version (FR-C6). The key itself stays — settleAck
+      // emits this event BEFORE the applied ack for a winning op, and the
+      // settle below must not be eaten.
       if (pendingEffectKey !== null && !pending.has(pendingEffectKey)) {
-        composerOp.set(null);
+        composerOp.set({ phase: 'stale' });
       }
     } else if (event.type === 'connection') {
       connectionState.set(event.state);
@@ -488,8 +490,8 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
       opErrors.update((errors) => errors.filter((error) => error.key !== event.key));
       // The composer's win: the settle carries the op's target kind — a
       // create closes the dialog (the parent owns the transition), a
-      // manager op only settles and refetches (finding 3). The store shows
-      // the settled echo (spec FR-C5).
+      // manager op only settles and refetches. The store shows the settled
+      // echo (spec FR-C5).
       if (pendingEffectKey !== null && event.key === pendingEffectKey) {
         pendingEffectKey = null;
         composerOp.set({ phase: 'applied', kind: pendingEffectKind ?? 'effect_new' });
