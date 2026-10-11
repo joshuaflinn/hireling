@@ -51,12 +51,152 @@ jobs:
             grizzly-gate-${{ runner.os }}-${{ env.GATE_IMAGE }}-
             grizzly-gate-${{ runner.os }}-
 
+      # Repo-side guardrails, run before the image below. The gate image owns
+      # 16 passes; `just ci-local` (see justfile) carries legs it has never
+      # run — today web-test, web-css-guard, web-html-boundary, json-keys,
+      # boundary. They ride
+      # this job because the main-gate ruleset requires exactly one status
+      # context, `gate` — a second job would publish an unrequired context
+      # that could sit red while the merge button stays live. Every guard
+      # step and the image run below carry if: ${{ !cancelled() }}: one red
+      # run must list every failure it has (a json-keys red must not hide a
+      # web-test red), while a real cancel still stops everything. The guards
+      # buy earlier failure DETAIL, not an earlier red — the required
+      # context publishes at job end either way.
+      #
+      # Host cargo steps read the restored gate registry ONLY with
+      # CARGO_HOME pointed at it (boundary, below) — the default ~/.cargo
+      # would cold-fetch the index this cache step just restored.
+      # setup-node and the npm install carry the same !cancelled() as the
+      # guards below: if the cache restore fails, these must still run, or
+      # every guard leg fails downstream on a missing web/node_modules —
+      # four cascading reds pointing at the wrong cause.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !cancelled() }}
+        with:
+          # The one source for the node major is .nvmrc (with package.json
+          # engines) — this field hardcoded 22 beside it until the F3
+          # residual fold (Orsik, MOR-137).
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install node dependencies
+        if: ${{ !cancelled() }}
+        run: npm --prefix web ci
+
+      # just, so the guard steps run the recipes themselves. Copied commands
+      # drift from the justfile bodies exactly the way the leg lists drifted
+      # to create these guards.
+      #
+      # Pinned per toolkit-conventions version-pinning: crates.io just
+      # max-stable 1.58.0, looked up from the crates.io API on 2026-10-10
+      # (this PR's review-fix loop). An unpinned cargo install is the one
+      # unpinned input in the required gate — an upstream release or yank
+      # would redden `gate` with no repo change. Bump deliberately.
+      - name: Install just
+        if: ${{ !cancelled() }}
+        run: cargo install just --locked --version 1.58.0
+
+      - name: web-test — vitest suite
+        if: ${{ !cancelled() }}
+        run: just web-test
+
+      # web-css-guard runs the production build and fails on the
+      # css_unused_selector signature (MOR-124 F10); web-html-boundary is
+      # the {@html} prose boundary (E9, contracts/inert-html.md §3).
+      - name: web-css-guard — build + no dead scoped selectors
+        if: ${{ !cancelled() }}
+        run: just web-css-guard
+
+      - name: web-html-boundary — no {@html} prose
+        if: ${{ !cancelled() }}
+        run: just web-html-boundary
+
+      - name: json-keys — duplicate-key guard
+        if: ${{ !cancelled() }}
+        run: just json-keys
+
+      - name: boundary — engine dependency gate
+        if: ${{ !cancelled() }}
+        run: just boundary
+        env:
+          CARGO_HOME: /home/runner/.cache/grizzly-gate/cargo
+
+      # The guardrail guarding the guardrails: every ci-local leg must be
+      # gated by the image passes (rust:fmt/clippy/test/deny,
+      # node:svelte-check, node:eslint, scan:semgrep — the mapping lives in
+      # the justfile) or by the guard steps above. Landing a ci-local leg
+      # with no CI home turns this red and names the leg.
+      - name: Drift check — no ci-local leg left ungated
+        if: ${{ !cancelled() }}
+        run: |
+          python3 - <<'EOF'
+          import re
+          import sys
+
+          justfile = open("justfile").read()
+          m = re.search(r"^ci-local: *(.+)$", justfile, re.M)
+          if not m:
+              sys.exit("drift check: no ci-local recipe found in justfile")
+          legs = m.group(1).split()
+
+          # Legs the pinned gate image runs (the docker run below).
+          mirrored = {
+              "fmt-check", "lint", "test", "deny",
+              "web-check", "web-eslint", "scan-semgrep",
+          }
+          # Legs the guard steps above run — derived from this file, not
+          # declared: a hand-kept literal certifies steps it never reads
+          # (MOR-142, MOR-130's fault class one storey up). Delete a guard
+          # step and its leg drops out of this set, turning the check red
+          # instead of printing full coverage over a hole. Matches only
+          # single-line `run: just <leg>` steps, so any other spelling reads
+          # as ungated and fails closed. `mirrored` stays a literal — the
+          # image's pass list is not readable from the repo, the justfile
+          # already names the image as the authority, and a digest bump
+          # moves both together.
+          #
+          # What the derivation still cannot see: textual presence is not
+          # execution (Thrane, MOR-130). A guard step with `if: false`, or
+          # an `if:` narrowed to push, stays in this derived set while no
+          # longer running on PRs — no parse closes that hole. The
+          # deliberate-break run is the cover: a guard proven to red on the
+          # thing it guards (run 38088014628 for web-test; per-leg proofs in
+          # this PR's body) is evidence a parse cannot be.
+          workflow = open(".github/workflows/gate.yml").read()
+          repo_side = set(re.findall(r"^ *run: just ([\w-]+) *$", workflow, re.M))
+
+          ungated = sorted(set(legs) - mirrored - repo_side)
+          if ungated:
+              sys.exit(
+                  "drift check: ci-local leg(s) gated by no CI job: "
+                  + ", ".join(ungated)
+                  + " — add them to the guard steps in this workflow"
+                  " (or to `mirrored` if the gate image runs them)"
+              )
+          print(f"drift check ok: all {len(legs)} ci-local legs are gated")
+          EOF
+
       # GIT_CONFIG_*/safe.directory: the cache restore extracts as the runner
       # user, so cached git state (cargo-deny's advisory DB, any future git
       # deps) comes back runner-owned while the container runs as root — git
       # then refuses it with "dubious ownership" and cargo-deny fails. Trust
       # every repo inside the container; the mount is CI-local by construction.
+      # The guards must leave the tree as the image expects to find it. A
+      # host-installed web/node_modules survives the image's own npm ci as
+      # .grizzly-gate.node_modules (observed on runs 38085893214 and
+      # 38085913608: with node_modules present, node:eslint lints dependency
+      # sources — that dotted name escapes eslint's node_modules ignore —
+      # and fails on third-party code; without it, the same pass is green).
+      # The image installs its own deps; web/dist is a build artifact it
+      # never sees otherwise.
+      - name: Clean guard artifacts before the image run
+        if: ${{ !cancelled() }}
+        run: rm -rf web/node_modules web/dist
+
       - name: Run grizzly-gate
+        if: ${{ !cancelled() }}
         run: >-
           docker run --rm
           -v "$PWD:/src"
