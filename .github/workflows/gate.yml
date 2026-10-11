@@ -25,11 +25,10 @@ jobs:
       # Persist the gate's cargo state across runs. The gate image already
       # points CARGO_TARGET_DIR into the mounted volume (run logs show
       # artifacts landing in /cache/cargo-target); the registry follows
-      # CARGO_HOME, which the docker run redirects into the same tree. The old
-      # `grizzly-gate-cache` named volume could never work on an ephemeral
-      # runner — docker creates it empty at job start and destroys it with the
-      # VM — so this runner-host bind mount plus actions/cache is what
-      # actually makes /cache survive between runs.
+      # CARGO_HOME, which the docker run redirects into the same tree. The
+      # runner-host bind mount plus actions/cache is what makes /cache
+      # survive between runs: a docker named volume on an ephemeral runner is
+      # created empty at job start and destroyed with the VM.
       #
       # Scope note, measured on run 37123430197: warm-cache savings land only
       # in the compile-side work (clippy's dep build ~2m, test's dep rebuild
@@ -53,9 +52,9 @@ jobs:
 
       # Repo-side guardrails, run before the image below. The gate image owns
       # 16 passes; `just ci-local` (see justfile) carries legs it has never
-      # run — today web-test, web-css-guard, web-html-boundary, json-keys,
-      # boundary. They ride
-      # this job because the main-gate ruleset requires exactly one status
+      # run — web-test, web-css-guard, web-html-boundary, json-keys,
+      # boundary. They ride this job because the main-gate ruleset requires
+      # exactly one status
       # context, `gate` — a second job would publish an unrequired context
       # that could sit red while the merge button stays live. Every guard
       # step and the image run below carry if: ${{ !cancelled() }}: one red
