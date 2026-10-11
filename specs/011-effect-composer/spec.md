@@ -102,8 +102,7 @@ pass.
 - **FR-C6 — Manager face**: the composer dialog lists the creator's own active effects
   with current targets; per-target remove composes the whole remaining target set into
   one `update` op; **Add <member>** composes the whole target set with that roster member
-  included into one `update` op (PRD FG3: the creator adds AND removes targets — an
-  earlier revision of this spec narrowed it to remove only; corrected, MOR-103); End
+  included into one `update` op (PRD FG3: the creator adds AND removes targets); End
   composes `end`. All address `{kind:"effect","effect_id":N}` with CAS `base_version`
   from the REST rows. The last remaining target offers no remove control — an empty set
   is refused by the write path's bounds (at least one target, gh#85), End is

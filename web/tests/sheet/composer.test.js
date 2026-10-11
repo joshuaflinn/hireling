@@ -265,6 +265,8 @@ test('a server denial surfaces its reason inline; an applied ack closes the dial
   fireEvent.click(view.getByRole('button', { name: 'Apply effect' }));
 
   const createKey = targetKey({ kind: 'effect_new', party_id: PARTY_ID });
+  // settleAck emits queue ahead of every settle — ride the real ordering.
+  sync.emit({ type: 'queue', length: 0 });
   sync.emit({
     type: 'op_exposed',
     op_id: 'op-1',
@@ -280,6 +282,8 @@ test('a server denial surfaces its reason inline; an applied ack closes the dial
   // fresh op arms the state layer again, and ITS applied ack closes.
   fireEvent.click(view.getByRole('button', { name: 'Apply effect' }));
   assert.equal(sync.writes.length, 2, 'the re-apply rode the same create op');
+  // settleAck emits queue ahead of every settle — ride the real ordering.
+  sync.emit({ type: 'queue', length: 0 });
   sync.emit({ type: 'applied', key: createKey });
   await tick();
   await tick();
@@ -399,7 +403,7 @@ test('a lost CAS race unsticks the composer — the queue event with the op gone
   // mounted sheet with a fetch count in the next test.
 });
 
-// Finding 2 — the superseded settle must not strand the manager list on
+// The superseded settle must not strand the manager list on
 // the beaten version: the unstick refetches the rows, and the refetched
 // truth is what renders.
 test('a superseded manager op unsticks and refetches the rows — the list never rides the stale version', async () => {
@@ -459,8 +463,13 @@ test('an applied manager op settles without closing — the rows refetch (FR-C6)
 
   fireEvent.click(view.getByRole('button', { name: 'Remove Josh from Bless' }));
   assert.equal(sync.writes.length, 1, 'the retarget op left the layer');
+  // settleAck emits queue ahead of every settle — ride the real ordering.
+  sync.emit({ type: 'queue', length: 0 });
   sync.emit({ type: 'applied', key: targetKey({ kind: 'effect', effect_id: 41 }) });
   await waitFor(() => assert.equal(fetches, 2, 'the settle refetch (FR-C6: refetch after every op)'));
+  await tick();
+  await tick();
+  assert.equal(fetches, 2, 'exactly one refetch — the queue event never surfaced the stale phase');
   assert.ok(
     view.getByRole('button', { name: 'Apply effect' }),
     'the dialog stayed open — the half-composed form survives',
