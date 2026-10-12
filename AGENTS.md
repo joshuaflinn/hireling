@@ -83,6 +83,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
      gate certifies the merged tree, the review certifies the diff, and a
      blob comparison cannot see a semantic interaction with new `main`
      code.
+
   When all three hold, the reviewer posts the re-bind on the PR as a review
   comment naming the old head, the new head, and the evidence for each
   condition. That comment is the record, same as any verdict — a carry-over
