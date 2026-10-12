@@ -30,9 +30,13 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
    and flag it — do not build it.
 2. **The modifier engine** is pure, isolated, and test-first. Base stats + active
    effects in; derived stats + provenance out. No I/O, no framework imports.
-3. **Branches and PRs.** Feature branches with conventional prefixes
+3. **Branches and PRs.** Inside a harness-provisioned workspace, the
+   provisioned branch (`MOR-<n>`) is the PR branch — it is tied to its task
+   1:1, so do not cut a prefixed branch over it. The conventional prefixes
    (`feat/`, `fix/`, `refactor/`, `docs/`, `ci/`, `chore/`), referencing the
-   issue where one exists (`feat/12-buff-engine`). Never commit to `main`.
+   issue where one exists (`feat/12-buff-engine`), govern branches cut by
+   hand outside a provisioned workspace — a human in a clone, a hotfix off
+   the shared checkout. Never commit to `main`.
    Never force-push shared branches. Open a PR; the author never merges their own
    work. Thrane holds the merge button — merge asks go to Thrane, not to Josh.
 4. **Verify before claiming done.** Run the build and the tests. Report actual
@@ -60,22 +64,22 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
 - **Claim before you code.** Only start an issue that is *unassigned*, and
   self-assign it on GitHub before writing any code. If a human holds it, it's
   theirs — pick another.
-- **Work in a per-issue worktree, not the shared clone.** The harness runs
-  every agent with cwd = the one shared checkout; concurrent runs share its
-  index and HEAD. Before any git write, create
-  `git worktree add ../hireling-<issue-or-slug> -b <branch>`
-  and do all branch/commit/test work there. The shared clone is read-only
-  surface: fetch, merge-base reads, `gh`, `worktree add`, `worktree remove`
-  — never `commit`, `switch`, `rebase`, or `stash` there. Place worktrees
-  as siblings of the main clone, not inside run scratch dirs (those get
-  cleaned). A worktree whose branch is an ancestor of `origin/main` and
-  whose tree is clean is stale — merged, nothing uncommitted, so nothing
-  in it can be lost — and any agent may remove a stale sibling on sight.
+- **Work in your provisioned workspace.** The harness provisions every run a
+  workspace: `<project>/MOR-<n>`, a sibling worktree on branch `MOR-<n>` cut
+  from `origin/main`. That branch is the PR branch; the run's own harness
+  prompt forbids switching or re-pointing it, so keep all commits on it.
+  Never cut your own worktree for your own task — verify where you are with
+  `git rev-parse --show-toplevel` and work there. The shared `hireling`
+  checkout is reference only: read from it, never run in it, and let it
+  drift behind `origin/main`. Hand-cut worktrees — a human in a clone, a
+  hotfix — go in sibling directories, never run scratch dirs (those get
+  cleaned). Removal has a hard edge: a sibling named for an *open* task
+  (`MOR-<n>`) can be clean and an ancestor of `origin/main` and still be a
+  live harness-owned workspace — never remove one unless that task is
+  closed. Hand-cut `hireling-*` siblings keep the old staleness test:
+  branch an ancestor of `origin/main` and tree clean means merged, nothing
+  in it can be lost, and any agent may remove such a sibling on sight.
   Never `worktree remove --force`; a dirty tree belongs to its owner.
-  Before creating one, reuse the worktree already sitting under that
-  issue's slug, or remove it if it is stale by the test above. Cleanup is
-  not the author's debt: an agent's run usually ends before its PR merges,
-  so no rule may bind post-merge cleanup to whoever opened the branch.
 - **Three sync points, nothing continuous.** Pickup: self-assign and comment
   the branch name. PR open: `Closes #N` plus a link back to your tracking task.
   Merge: GitHub closes the issue.
