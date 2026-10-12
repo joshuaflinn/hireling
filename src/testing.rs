@@ -120,11 +120,18 @@ async fn template_name() -> String {
 }
 
 /// Clone the template into a fresh test database owned by one test.
-/// Concurrent clones serialize on the template inside Postgres. Retries
-/// briefly if the template still has a departing backend (55006); anything
-/// else panics — the server is reachable, so this is a defect, never a skip.
-/// Panics too when the template itself cannot be built: that is where the
-/// migrator runs, and a broken fresh boot must fail red.
+/// Concurrent clones serialize on the template inside Postgres; a departing
+/// template backend (55006) retries briefly. Any other failure is a harness
+/// defect. The clone runs with `synchronous_commit = off`: the throwaway
+/// database is dropped at test end, so its crash durability is not under
+/// test — the suite proves the app's write path, replay and
+/// read-your-writes semantics, which do not depend on the WAL flush
+/// policy (MOR-213: the gate's Postgres pays a per-commit flush cost that
+/// dominated rust:test).
+/// Panics when the clone itself fails — the server is reachable, so that
+/// is a defect, never a skip. Panics too when the template cannot be
+/// built: that is where the migrator runs, and a broken fresh boot must
+/// fail red.
 pub(crate) async fn create_from_template(maintenance: &PgPool, name: &str) {
     let template = template_name().await;
     for attempt in 0..40_u32 {
@@ -134,7 +141,20 @@ pub(crate) async fn create_from_template(maintenance: &PgPool, name: &str) {
         .execute(maintenance)
         .await
         {
-            Ok(_) => return,
+            Ok(_) => {
+                if let Err(err) = sqlx::query(sqlx::AssertSqlSafe(format!(
+                    "ALTER DATABASE {name} SET synchronous_commit = off"
+                )))
+                .execute(maintenance)
+                .await
+                {
+                    panic!(
+                        "test database {name} could not be switched to \
+                         synchronous_commit = off: {err}"
+                    );
+                }
+                return;
+            }
             Err(err)
                 if err
                     .as_database_error()

@@ -116,7 +116,22 @@ async fn create_from_template(admin: &PgPool, name: &str) -> anyhow::Result<()> 
         .execute(admin)
         .await
         {
-            Ok(_) => return Ok(()),
+            Ok(_) => {
+                // synchronous_commit = off: the throwaway is dropped at test
+                // end, so its crash durability is not under test (MOR-213 —
+                // the gate's Postgres pays a per-commit flush cost that
+                // dominated the suite there).
+                if let Err(err) = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                    "ALTER DATABASE {name} SET synchronous_commit = off"
+                )))
+                .execute(admin)
+                .await
+                {
+                    return Err(anyhow::Error::new(err))
+                        .context("throwaway database switched to synchronous_commit = off");
+                }
+                return Ok(());
+            }
             Err(err)
                 if err
                     .as_database_error()
