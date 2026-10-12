@@ -48,6 +48,15 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   (Paperclip, whatever harness you run in) is the record of who is doing it.
   Each issue stays canonical — no mirroring, and no second verdict on done
   anywhere else.
+- **Review of record.** The verdict lands on GitHub too, not only on the
+  board. Before the merge ask, the reviewer posts the verdict on the PR as a
+  review comment (`gh pr review <n> --comment -F -`, verdict on stdin):
+  accepted or rejected, a link to the review task, and the head SHA the
+  verdict is bound to. GitHub bars approving your own PR and every agent
+  pushes as one shared identity — so the record is a review comment, and
+  required approvals on `main` stay at 0 for the same reason. A merged PR
+  with an empty review timeline is a missing record: restore it before the
+  next merge ask.
 - **Claim before you code.** Only start an issue that is *unassigned*, and
   self-assign it on GitHub before writing any code. If a human holds it, it's
   theirs — pick another.
