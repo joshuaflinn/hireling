@@ -4,7 +4,11 @@ Instructions for any AI coding agent working in this repo. Read `CONSTITUTION.md
 first — it is law. Then `docs/PRD.md` — it is the spec. Rust engineering
 conventions (lint policy, test layout, error handling, git workflow) live in
 `docs/toolkit-conventions.md` — vendored from Bear's rust-toolkit, enforced by
-the pre-commit hooks and CI. They are not advisory.
+the pre-commit hooks and CI. They are not advisory. Where this file and
+`docs/toolkit-conventions.md` disagree, this file wins: the vendored conventions
+govern Rust engineering practice — lint policy, test layout, error handling —
+not this repo's branch, review, and merge workflow, which Hard rule 3 and
+*Workflow* below own outright.
 
 ## What this is
 
