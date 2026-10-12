@@ -36,7 +36,10 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
    effects in; derived stats + provenance out. No I/O, no framework imports.
 3. **Branches and PRs.** Inside a harness-provisioned workspace, the
    provisioned branch (`MOR-<n>`) is the PR branch — it is tied to its task
-   1:1, so do not cut a prefixed branch over it. The conventional prefixes
+   1:1, so do not cut a prefixed branch over it. One exception: the branch
+   is not yours — it is another open PR's head, or it carries another
+   task's commits — see the collision rule in *Workflow*. The
+   conventional prefixes
    (`feat/`, `fix/`, `refactor/`, `docs/`, `ci/`, `chore/`), referencing the
    issue where one exists (`feat/12-buff-engine`), govern branches cut by
    hand outside a provisioned workspace — a human in a clone, a hotfix off
@@ -73,11 +76,24 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   from `origin/main`. That branch is the PR branch; the run's own harness
   prompt forbids switching or re-pointing it, so keep all commits on it.
   Never cut your own worktree for your own task — verify where you are with
-  `git rev-parse --show-toplevel` and work there. The shared `hireling`
+  `git rev-parse --show-toplevel` and work there — with one exception, a
+  branch collision. The keep-all-commits instruction carries a premise: the
+  provisioned branch is *this* task's PR branch, 1:1. Check the premise at
+  pickup (`git branch --show-current`, then `gh pr list --head <branch>
+  --state open`): if the branch is already another open PR's head, or it
+  carries another task's commits, the premise has failed — committing would
+  move a review head that a verdict may be bound to. Do not commit to it;
+  hand-cut a sibling worktree `hireling-<n>-<slug>` on a prefixed branch
+  (`docs/<n>-<slug>`-style, Hard rule 3) cut fresh from `origin/main` —
+  never a `MOR-<n>` name, that namespace is harness-owned and carries the
+  stricter removal rule — note the collision and its evidence in the PR
+  body, and report it on your tracking task. It is a provisioning defect,
+  not an engineer error. The shared `hireling`
   checkout is reference only: read from it, never run in it, and let it
   drift behind `origin/main`. Hand-cut worktrees — a human in a clone, a
-  hotfix — go in sibling directories, never run scratch dirs (those get
-  cleaned). Removal has a hard edge: a sibling named for an *open* task
+  hotfix, a branch collision — go in sibling directories, never run scratch
+  dirs (those get cleaned). Removal has a hard edge: a sibling named for an
+  *open* task
   (`MOR-<n>`) can be clean and an ancestor of `origin/main` and still be a
   live harness-owned workspace — never remove one unless that task is
   closed. Hand-cut `hireling-*` siblings keep the old staleness test:
