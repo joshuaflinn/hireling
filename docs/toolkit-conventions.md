@@ -113,7 +113,7 @@ The `justfile` wraps these: `just test`, `just lint`, `just deny`, `just ci-loca
 
 **Single-branch model**: all work lands on `main`.
 
-1. Create a feature branch from `main` with a prefixed name (`feat/`, `fix/`, `refactor/`, `docs/`, `ci/`, `chore/`).
+1. Create a feature branch from `main` with a prefixed name (`feat/`, `fix/`, `refactor/`, `docs/`, `ci/`, `chore/`) — except inside a harness-provisioned workspace, where the provisioned `MOR-<n>` branch is the PR branch and prefixed names govern only hand-cut branches (`AGENTS.md` "Branches and PRs"; local deviation from the vendored text).
 2. **Commit frequently** — especially during large multi-phase tasks. Pre-commit hooks enforce fmt, lint, and tests.
 3. Wrapup: check for anything unfinished, update docs, note breaking changes.
 4. Push the branch and merge into `main`.
