@@ -7,7 +7,13 @@
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-#[tokio::test]
+// Paused tokio clock: the backoff schedule inside `with_retries` is real
+// (`BACKOFF_BASE` doubling plus jitter), but what these tests assert is the
+// retry *contract* — attempt budget, retry-then-succeed, the last error —
+// not the wall time the schedule burns. With time paused, tokio advances
+// the clock the instant the runtime is idle, so the sleeps keep their
+// ordering and durations while the test finishes immediately.
+#[tokio::test(start_paused = true)]
 async fn transient_attempts_retry_then_succeed() {
     let attempts = AtomicUsize::new(0);
     let result: anyhow::Result<&'static str> = with_retries(|_| {
@@ -48,7 +54,10 @@ async fn permanent_failures_stop_retrying_immediately() {
     );
 }
 
-#[tokio::test]
+// Paused clock, same reasoning as `transient_attempts_retry_then_succeed`:
+// this test walks the full five-attempt budget, which on the real clock is
+// ~15s of pure backoff sleep.
+#[tokio::test(start_paused = true)]
 async fn exhausted_budget_returns_the_last_transient_error() {
     let attempts = AtomicUsize::new(0);
     let result: anyhow::Result<()> = with_retries(|_| {

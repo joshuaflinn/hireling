@@ -166,14 +166,11 @@ impl TestDb {
 
         // Past this line the server is reachable: every failure is a broken
         // environment or schema, and the test must go RED — never ride the
-        // skip path (a green suite must not absorb a broken migration).
-        if let Err(err) = dyn_sql!(format!("CREATE DATABASE {name}").as_str())
-            .execute(&admin)
-            .await
-        {
-            admin.close().await;
-            panic!("failed to create test database {name} (server reachable): {err}");
-        }
+        // skip path (a green suite must not absorb a broken migration). The
+        // template carries the migrator run (crate::testing, once per
+        // process, red on a broken fresh boot); the clone is a private,
+        // fully migrated database.
+        crate::testing::create_from_template(&admin, &name).await;
 
         let pool = PgPoolOptions::new()
             .max_connections(5)
@@ -182,12 +179,6 @@ impl TestDb {
             .unwrap_or_else(|err| {
                 panic!("failed to connect to fresh database {name} (server reachable): {err}")
             });
-
-        if let Err(err) = crate::db::migrator().run(&pool).await {
-            pool.close().await;
-            admin.close().await;
-            panic!("migrations failed on {name} (server reachable) — schema is broken: {err}");
-        }
 
         Ok(TestDb { name, pool, admin })
     }

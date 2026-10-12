@@ -86,6 +86,11 @@ tokio-tungstenite = "0.29"
 # then fails the way a dead peer makes it fail in production. Already in the
 # dependency graph via tokio; this only exposes it to tests.
 socket2 = "0.6"
+# Same tree as the main tokio pin — dev builds only. `test-util` enables the
+# paused clock (`#[tokio::test(start_paused = true)]`): the retry-backoff
+# tests assert the retry contract, not the wall time the backoff burns
+# (MOR-213). Production builds never see this feature.
+tokio = { version = "1.53.1", features = ["test-util"] }
 
 # Lint configuration
 #

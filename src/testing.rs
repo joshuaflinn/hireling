@@ -8,6 +8,14 @@
 //! database suite runs in any environment with a Postgres (locally: `just db`,
 //! or any Postgres 16+).
 //!
+//! The migrator runs **once per test process**, into a template database;
+//! every test then clones the template (`CREATE DATABASE … TEMPLATE`). Each
+//! test still owns a private, fully migrated database that no other test can
+//! see — only the per-test migration run is gone, which is pure setup cost
+//! paid 137 times per process on the gate's clock (MOR-213). A migration
+//! failure still panics red, at template build, under the same fresh-boot
+//! contract as before.
+//!
 //! Reachable but broken is a different case: a fresh test database that
 //! cannot be created, connected to, or migrated panics. A skipped test that
 //! reports green proves nothing about the schema — that is how a
@@ -21,6 +29,7 @@ use std::sync::atomic::Ordering;
 use axum::Router;
 use sqlx::PgPool;
 use sqlx::postgres::PgConnectOptions;
+use tokio::sync::OnceCell;
 
 use crate::auth::AuthState;
 use crate::config::AuthSettings;
@@ -38,7 +47,120 @@ fn maintenance_url() -> String {
         .unwrap_or_else(|_| "postgres://hireling:hireling@127.0.0.1:5432/postgres".to_owned())
 }
 
+async fn build_template() -> String {
+    let url = maintenance_url();
+    let options: PgConnectOptions = url.parse().unwrap_or_else(|err| {
+        panic!("template build: test database URL {url} does not parse: {err}")
+    });
+    let maintenance = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with(options.clone())
+        .await
+        .unwrap_or_else(|err| {
+            panic!("template build lost the maintenance connection to {url}: {err}")
+        });
+
+    let name = format!("hireling_tpl_{}", std::process::id());
+    // Defensive only: the name is unique to this live process, but a
+    // long-lived Postgres can still hold one from a dead pid.
+    if let Err(err) = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DROP DATABASE IF EXISTS {name} WITH (FORCE)"
+    )))
+    .execute(&maintenance)
+    .await
+    {
+        eprintln!("warning: could not drop stale template {name}: {err}");
+    }
+
+    if let Err(err) = sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}")))
+        .execute(&maintenance)
+        .await
+    {
+        panic!("template database {name} could not be created: {err}");
+    }
+
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .connect_with(options.database(&name))
+        .await
+        .unwrap_or_else(|err| {
+            panic!("template database {name} was created but could not be connected to: {err}")
+        });
+    if let Err(err) = db::migrator().run(&pool).await {
+        pool.close().await;
+        maintenance.close().await;
+        panic!(
+            "migrations failed on a FRESH template database ({name}): {err:?} — the \
+             migrator holds {} migrations; a fresh boot is broken, fix the \
+             migrations instead of skipping the test",
+            db::migrator().iter().count()
+        );
+    }
+    pool.close().await;
+
+    // pool.close() returns before the server-side backends are all gone, and
+    // a template with live connections cannot be cloned (55006). Terminate
+    // whatever lingers so the first clone never has to wait out the drain.
+    if let Err(err) = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
+         WHERE datname = '{name}' AND pid <> pg_backend_pid()"
+    )))
+    .execute(&maintenance)
+    .await
+    {
+        eprintln!("warning: could not drain template {name} backends: {err}");
+    }
+    maintenance.close().await;
+    name
+}
+
+/// The template database's name, building it once per process on first use.
+async fn template_name() -> String {
+    TEMPLATE.get_or_init(build_template).await.clone()
+}
+
+/// Clone the template into a fresh test database owned by one test.
+/// Concurrent clones serialize on the template inside Postgres. Retries
+/// briefly if the template still has a departing backend (55006); anything
+/// else panics — the server is reachable, so this is a defect, never a skip.
+/// Panics too when the template itself cannot be built: that is where the
+/// migrator runs, and a broken fresh boot must fail red.
+pub(crate) async fn create_from_template(maintenance: &PgPool, name: &str) {
+    let template = template_name().await;
+    for attempt in 0..40_u32 {
+        match sqlx::query(sqlx::AssertSqlSafe(format!(
+            "CREATE DATABASE {name} TEMPLATE {template}"
+        )))
+        .execute(maintenance)
+        .await
+        {
+            Ok(_) => return,
+            Err(err)
+                if err
+                    .as_database_error()
+                    .is_some_and(|db| db.code().is_some_and(|code| code == TEMPLATE_BUSY)) =>
+            {
+                assert!(
+                    attempt != 39,
+                    "template {template} still busy (55006) after 10s of retries: {err}"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+            Err(err) => panic!(
+                "test Postgres is reachable but the test database {name} could not \
+                 be cloned from template {template}: {err}"
+            ),
+        }
+    }
+}
+
 static DB_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+/// SQLSTATE 55006 — the template database still has a backend attached.
+const TEMPLATE_BUSY: &str = "55006";
+
+/// The per-process template database's name, built on first use.
+static TEMPLATE: OnceCell<String> = OnceCell::const_new();
 
 /// A fresh, migrated database for one test. Returns `None` (after a loud
 /// notice) when no Postgres is reachable — see the module docs.
@@ -74,16 +196,9 @@ pub async fn test_pool() -> Option<PgPool> {
     // The database name comes from our own generator, not user input — the
     // SQL-safety assertion is honest here. From here on the Postgres is
     // reachable, so every failure below is a real defect and must fail the
-    // test, never skip it.
-    if let Err(err) = sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}")))
-        .execute(&maintenance)
-        .await
-    {
-        panic!(
-            "test Postgres is reachable but the test database {name} could not \
-             be created: {err}"
-        );
-    }
+    // test, never skip it. The template carries the migrator run; the clone
+    // is a private, fully migrated database.
+    create_from_template(&maintenance, &name).await;
 
     let options = options.database(&name);
     let pool = sqlx::postgres::PgPoolOptions::new()
@@ -93,22 +208,6 @@ pub async fn test_pool() -> Option<PgPool> {
         .unwrap_or_else(|err| {
             panic!("test database {name} was created but could not be connected to: {err}")
         });
-    if let Err(err) = db::migrator().run(&pool).await {
-        if let Err(drop_err) = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "DROP DATABASE {name} WITH (FORCE)"
-        )))
-        .execute(&maintenance)
-        .await
-        {
-            eprintln!("warning: could not drop {name} after a failed run: {drop_err}");
-        }
-        panic!(
-            "migrations failed on a FRESH test database ({name}): {err:?} — the \
-             migrator holds {} migrations; a fresh boot is broken, fix the \
-             migrations instead of skipping the test",
-            db::migrator().iter().count()
-        );
-    }
     Some(pool)
 }
 
