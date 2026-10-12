@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Provision a freshly created execution worktree.
 #
-# The harness runs `bash ./scripts/provision-worktree.sh` on every worktree it
-# provisions: the file is resolved from the shared checkout and executed with
+# The harness's builtin provision step runs this file on every worktree it
+# provisions: it is resolved from the shared checkout and executed with
 # cwd = the new worktree. A non-zero exit FAILS workspace provisioning, and
 # this script runs on the critical path of every task start — so it does one
 # copy, reports every failure loudly, and always exits 0. A skipped copy costs
