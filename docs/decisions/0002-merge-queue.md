@@ -40,13 +40,14 @@ Evidence, gathered 2026-10-13 (gh#140):
   every parameter set tried — including the schema's full required set at its
   mid-range values. The refusal is invariant across HTTP verb, enforcement
   state, target ref and parameter set: it reproduces on `POST` to a fresh
-  `enforcement: "disabled"` ruleset targeting a branch that does not exist
-  (reproduced independently in review on ruleset `25020334`, gh#158).
+  `enforcement: "disabled"` ruleset targeting a branch that does not exist; the
+  refused attempts created no ruleset. Reproduced independently in review
+  (gh#158).
 - The rejection is not a payload defect. The same `parameters` object validates
   against `repository-rule-merge-queue` in GitHub's published OpenAPI
   description, and a control ruleset carrying `{"type": "deletion"}` posted and
   deleted cleanly over the same path with the same credentials
-  (ruleset `25019747`).
+  (ruleset `25019747`; `25020334` in review, same result).
 - `repository(owner: "joshuaflinn", name: "hireling") { mergeQueue(branch: "main") }`
   returns `null` with `viewerCanAdminister: true`.
 
@@ -59,9 +60,11 @@ Evidence, gathered 2026-10-13 (gh#140):
    organization.
 2. `main` does not require a merge queue, because it cannot. Strict's lap is
    paid by the *Verdict carry-over* rule in `AGENTS.md`: a head moved only by a
-   clean merge of `origin/main`, with every reviewed blob byte-identical and
-   `gate` green at the new head, re-binds the existing verdict without a new
-   review round. That removes the review round from the lap; the gate run
+   clean merge of `origin/main`, with the author's own added and removed lines
+   unchanged on every reviewed path and `gate` green at the new head, re-binds
+   the existing verdict without a new review round. Where `main` has edited a
+   reviewed file the re-bind is the reviewer's judgment; otherwise it is
+   mechanical. That removes the review round from the lap; the gate run
    remains.
 3. `strict_required_status_checks_policy` stays `true`. Citation of record:
    ruleset `24735400` version `v53013064` — a version, not a live reading.
