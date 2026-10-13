@@ -99,15 +99,21 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
 
   When all three hold, **whoever is at the press** posts the re-bind on the
   PR as a review comment naming the old head, the new head, and the evidence
-  for each condition. It does not have to be the reviewer, and it does not
-  open a review round: all three conditions are mechanical — a merge-commit
-  shape, a blob comparison, a check-runs status — so there is no judgment in
-  the re-bind for a reviewer to supply, and routing it back to them buys a
-  round-trip against a diff that did not move. The verdict itself is still
-  the reviewer's and only the reviewer's; this is bookkeeping over their
-  verdict, not a second one. That comment is the record, same as any verdict
-  — a carry-over is never silent. If any condition fails, it is a new review
-  round, full stop.
+  for each condition. The routing splits on condition 2's own branch. Where
+  `main` has not edited a reviewed file, the re-bind is wholly mechanical —
+  a merge-commit shape, the author's added and removed lines compared equal,
+  a check-runs status — so there is no judgment in it for a reviewer to
+  supply: it does not have to be the reviewer, it does not open a review
+  round, and routing it back to them buys a round-trip against a diff that
+  did not move. Where `main` has edited a reviewed file, naming the incoming
+  `main` hunks and stating they do not interact with the reviewed ones is
+  judgment, and the judgment is the reviewer's — the re-bind routes to them.
+  PR #157 is the live proof of the second branch: an accepted verdict whose
+  head had to move while `main` landed interacting prose in the same bullet.
+  The verdict itself is still the reviewer's and only the reviewer's; the
+  mechanical re-bind is bookkeeping over their verdict, not a second one.
+  That comment is the record, same as any verdict — a carry-over is never
+  silent. If any condition fails, it is a new review round, full stop.
 
   The head move itself is not waste and is not negotiable. `main` carries the
   `main-gate` ruleset (id `24735400`, version `v53013064`) requiring the head
