@@ -305,13 +305,12 @@ fn strike_bases(
     let class = sheet.identity.class.as_deref();
     let dual_class = sheet.identity.dual_class.as_deref();
     // Weapon Specialization is a CLASS feature: a dual-class character
-    // gains the full class features of both halves, gets each duplicated
-    // benefit "only once per level," and where the halves grant the same
-    // thing "they still use only the highest rank" (Dual-Class PCs,
-    // Gamemastery Guide pg. 192; AoN ID 1328) — so whichever half grants
-    // the feature, and its greater version, earlier sets the gate, and
-    // the better half's number pays. The `max` below is that rule: the
-    // halves never add (gh#84, filed in MOR-118).
+    // gains the full class features of both halves, and where the halves
+    // grant the same thing "they still use only the highest rank"
+    // (Dual-Class PCs, Gamemastery Guide pg. 192; AoN ID 1328) — so
+    // whichever half grants the feature, and its greater version, earlier
+    // sets the gate, and the better half's number pays. The `max` below
+    // is that rule: the halves never add (gh#84, filed in MOR-118).
     let spec_damage = |rank: i64, level: i64| {
         mastery_damage(class, rank, level).max(mastery_damage(dual_class, rank, level))
     };
