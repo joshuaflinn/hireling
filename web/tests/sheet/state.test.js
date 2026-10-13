@@ -1,3 +1,4 @@
+/* global structuredClone */
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
@@ -91,7 +92,89 @@ function handshake(socket, fields = [], derived = [engineOutput]) {
   );
 }
 
+test('shield_raised writes are boolean vitals writes; rejections surface at the control', () => {
+  const { mocks, state } = setup();
+  state.connect();
+  // The column is versioned from birth (migration default) but NULL until
+  // the first live write — the snapshot carries that honestly.
+  handshake(mocks.sockets[0], [{ target: shield(), value: null, version: 12 }]);
+  assert.equal(
+    get(state.shieldRaised).value,
+    false,
+    'NULL defers to the sheet flag — the reference sheet carries none, so lowered',
+  );
+  assert.equal(get(state.shieldRaised).pending, false);
+
+  state.writeShieldRaised(true);
+  assert.equal(get(state.shieldRaised).value, true, 'the echo paints');
+  assert.equal(get(state.shieldRaised).pending, true, 'tagged pending');
+  const write = mocks.sockets[0].sent.map((r) => JSON.parse(r)).find((f) => f.t === 'write');
+  assertWriteTarget(write.target);
+  assert.deepEqual(write.target, shield(), 'the toggle rides the vitals kind');
+  assert.equal(write.value, true, 'the wire value is a boolean');
+  mocks.sockets[0].message(
+    JSON.stringify({ t: 'ack', op_id: write.op_id, outcome: 'applied', version: 13 }),
+  );
+  assert.equal(get(state.shieldRaised).value, true);
+  assert.equal(get(state.shieldRaised).pending, false, 'the ack settles');
+
+  state.writeShieldRaised(false);
+  const second = [...mocks.sockets[0].sent]
+    .reverse()
+    .map((r) => JSON.parse(r))
+    .find((f) => f.t === 'write');
+  assert.equal(second.value, false, 'lowering writes a boolean too');
+  mocks.sockets[0].message(
+    JSON.stringify({
+      t: 'ack',
+      op_id: second.op_id,
+      outcome: 'rejected',
+      reason: 'shield_raised must be a boolean',
+    }),
+  );
+  assert.deepEqual(
+    get(state.opErrors).map((error) => error.reason),
+    ['shield_raised must be a boolean'],
+    'the rejection surfaces for the control',
+  );
+});
+
+test('the sheet flag governs untouched rows; a live value wins over it both ways', () => {
+  // An import that says the shield is RAISED (no live toggle yet).
+  const raisedSheet = structuredClone(fixture);
+  raisedSheet.ac.shieldRaised = true;
+  const { mocks, sync } = setup();
+  const state = createSheetState({
+    sync,
+    character: {
+      ...bootstrap(),
+      base_sheet: raisedSheet,
+      vitals: { ...bootstrap().vitals, shield_raised: null },
+    },
+  });
+  state.connect();
+  handshake(mocks.sockets[0], [{ target: shield(), value: null, version: 12 }]);
+  assert.equal(
+    get(state.shieldRaised).value,
+    true,
+    'NULL column: the sheet’s own raised flag governs (PR #73’s reader)',
+  );
+
+  // A party member lowered it: the live false wins over the sheet.
+  mocks.sockets[0].message(
+    JSON.stringify({ t: 'diff', field: shield(), value: false, version: 14, actor_sub: 'sub-b' }),
+  );
+  assert.equal(get(state.shieldRaised).value, false, 'a live false overrides the sheet');
+
+  // And a live true restores it.
+  mocks.sockets[0].message(
+    JSON.stringify({ t: 'diff', field: shield(), value: true, version: 15, actor_sub: 'sub-b' }),
+  );
+  assert.equal(get(state.shieldRaised).value, true, 'a live true overrides the sheet');
+});
+
 const hp = () => ({ kind: 'vitals', character_id: CHARACTER_ID, field: 'hp' });
+const shield = () => ({ kind: 'vitals', character_id: CHARACTER_ID, field: 'shield_raised' });
 const focus = () => ({ kind: 'vitals', character_id: CHARACTER_ID, field: 'focus_current' });
 const daily = () => ({ kind: 'vitals', character_id: CHARACTER_ID, field: 'daily' });
 const slot = (rank, index, key = 'Wizard') => ({

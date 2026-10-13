@@ -73,22 +73,59 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   checkable evidence on the PR:
   1. **Clean merge.** The head move is a merge of `origin/main` into the
      branch with an empty conflict set and no new commits of the author's
-     own (`git log --merges -1`).
-  2. **Identical blobs.** Every blob the review covered is byte-identical at
-     the new head: `git diff --stat <old-head> <new-head>` shows nothing
-     outside the merged-in `main` paths, and for each reviewed path `git
-     rev-parse <old-head>:<path>` equals `git rev-parse <new-head>:<path>`.
+     own. Evidence: `git log --merges -1` names the merge, and `git log
+     --no-merges <old-head>..<new-head> --not origin/main` returns empty.
+     The first command alone shows only the most recent merge — it cannot
+     prove the head move carried nothing else.
+  2. **Identical contribution.** The author's own text is unchanged at
+     the new head. For every reviewed path, the added and removed lines
+     of `git diff <old-base>...<old-head>` and `git diff
+     <new-base>...<new-head>` are identical; `index` lines and `@@`
+     offsets may differ, nothing else may. The bases are the merge-bases
+     with `origin/main` at review time and at the new head. Mechanical
+     form, run once per reviewed path, the two sides' outputs for that
+     path compared equal: `git diff --output-indicator-old=O --output-indicator-new=N <base>...<head> -- <path> | grep -E '^[ON]'`. Where `main` has edited a
+     reviewed file, the reviewer also names the incoming `main` hunks and
+     states they do not interact with the reviewed ones. The knife-edge
+     is the author's text: it moved, new round. A blob test is not
+     enough: it also fires when `main` arrives in a reviewed file with
+     nothing of the author's riding in — the PR #155 sequence; evidence
+     in PR comments 6151802113 and 6151849718.
   3. **Gate green at the new head.** The `gate` check is `success` at the
      new head, read off the check-runs API. The gate always re-runs — the
      gate certifies the merged tree, the review certifies the diff, and a
-     blob comparison cannot see a semantic interaction with new `main`
+     text comparison cannot see a semantic interaction with new `main`
      code.
 
-  When all three hold, the reviewer posts the re-bind on the PR as a review
-  comment naming the old head, the new head, and the evidence for each
-  condition. That comment is the record, same as any verdict — a carry-over
-  is never silent. If any condition fails, it is a new review round, full
-  stop.
+  When all three hold, **whoever is at the press** posts the re-bind on the
+  PR as a review comment naming the old head, the new head, and the evidence
+  for each condition. The routing splits on condition 2's own branch. Where
+  `main` has not edited a reviewed file, the re-bind is wholly mechanical —
+  a merge-commit shape, the author's added and removed lines compared equal,
+  a check-runs status — so there is no judgment in it for a reviewer to
+  supply: it does not have to be the reviewer, it does not open a review
+  round, and routing it back to them buys a round-trip against a diff that
+  did not move. Where `main` has edited a reviewed file, naming the incoming
+  `main` hunks and stating they do not interact with the reviewed ones is
+  judgment, and the judgment is the reviewer's — the re-bind routes to them.
+  PR #157 is the live proof of the second branch: an accepted verdict whose
+  head had to move while `main` landed interacting prose in the same bullet.
+  The verdict itself is still the reviewer's and only the reviewer's; the
+  mechanical re-bind is bookkeeping over their verdict, not a second one.
+  That comment is the record, same as any verdict — a carry-over is never
+  silent. If any condition fails, it is a new review round, full stop.
+
+  The head move itself is not waste and is not negotiable. `main` carries the
+  `main-gate` ruleset (id `24735400`), which at version `v53013064` requires
+  the head be up to date before merge, and that is what forces condition 3 to
+  mean anything: the `gate` workflow triggers on `pull_request`, `merge_group`
+  and `push: branches: [main]`, and a pull-request run checks out
+  `refs/pull/<n>/merge` — the head merged into `main` *as of when the run
+  fired* (run 38410922309: `HEAD is now at 20b990b Merge c878e65 into
+  c9df4f8`). No run re-fires when `main` moves underneath a still-open PR, so
+  without the up-to-date requirement a PR can merge on a `gate` success that
+  certifies a merge base `main` has since left behind. Dropping it would make
+  condition 3 a stale certificate.
 - **Claim before you code.** Only start an issue that is *unassigned*, and
   self-assign it on GitHub before writing any code. If a human holds it, it's
   theirs — pick another.
@@ -101,9 +138,16 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   branch collision. The keep-all-commits instruction carries a premise: the
   provisioned branch is *this* task's PR branch, 1:1. Check the premise at
   pickup (`git branch --show-current`, then `gh pr list --head <branch>
-  --state open`): if the branch is already another open PR's head, or it
-  carries another task's commits, the premise has failed — committing would
-  move a review head that a verdict may be bound to. Do not commit to it;
+  --state open`, then `git status --short`): if the branch is already
+  another open PR's head, if it carries another task's commits, or if the
+  tree holds modified or untracked paths this task will not touch, the
+  premise has failed — committing would move a review head that a verdict
+  may be bound to, or sweep a foreign path onto it. The tree check is
+  co-equal with the branch checks: a correctly-provisioned workspace can
+  still hold another seat's uncommitted work, and it passes both branch
+  checks. Foreign WIP is not yours to clean — no `git checkout --`, no
+  `git stash`, no delete (the stash stack is shared across worktrees, and
+  the paths may be another seat's live work). Leave it. Do not commit to it;
   hand-cut a sibling worktree `hireling-<n>-<slug>` on a prefixed branch
   (`docs/<n>-<slug>`-style, Hard rule 3) cut fresh from `origin/main` —
   never a `MOR-<n>` name, that namespace is harness-owned and carries the
@@ -121,6 +165,27 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   branch an ancestor of `origin/main` and tree clean means merged, nothing
   in it can be lost, and any agent may remove such a sibling on sight.
   Never `worktree remove --force`; a dirty tree belongs to its owner.
+- **Gate around contamination, not through it.** When the tree check fires,
+  the provisioned tree usually will not compile, so `just ci-local` cannot
+  run in it. Run the gate in a detached worktree at the PR head — the
+  output certifies the reviewed tree, and a detached checkout takes no
+  commits:
+
+  ```
+  git worktree add --detach ../hireling-gate-<n> "$(git rev-parse <pr-branch>)"
+  cd ../hireling-gate-<n>
+  npm --prefix web ci
+  CARGO_TARGET_DIR="$PWD/../target-gate-<n>" just ci-local
+  cd - >/dev/null
+  git worktree remove ../hireling-gate-<n>
+  rm -rf ../target-gate-<n>
+  ```
+
+  `CARGO_TARGET_DIR` points outside the worktree so the build cannot
+  collide with a concurrent build in the sibling set, and the gate's
+  build output never lands inside the tree `git worktree remove` has to
+  clean up. Paste the gate output from *that* tree in the PR body and
+  name the tree it ran in.
 - **Three sync points, nothing continuous.** Pickup: self-assign and comment
   the branch name. PR open: `Closes #N` plus a link back to your tracking task.
   Merge: GitHub closes the issue.
@@ -129,6 +194,23 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   mode, pinned image) on every PR — a red gate is a red PR, no exceptions. The
   lint/test configs are vendored from Bear's rust-toolkit; if a lint fights you,
   propose tuning it in a PR, don't `#[allow]` around it.
+- **Bring the branch up to date before you ask for review.** `main` is guarded
+  by the `main-gate` ruleset (id `24735400`), which at version `v53013064`
+  enforces a strict up-to-date status-check policy, so a branch BEHIND `main`
+  is a hard block at the merge button however green the gate is. Merge
+  `origin/main` in and push *before* the review ask, so the run that goes
+  green is also the run that can merge. This narrows the carry-over case
+  above; it does not remove it, because `main` can still move during a review
+  — that is what *Verdict carry-over* is for.
+- **Read `main`'s merge rules off the ruleset API, never branch protection.**
+  `main` is guarded by the `main-gate` ruleset (id `24735400`, enforcement
+  `active`), and `GET /repos/joshuaflinn/hireling/branches/main/protection`
+  404s on this repo — which reads as "`main` is unprotected" and is wrong.
+  What is actually required, at what strictness, is visible only via
+  `gh api repos/joshuaflinn/hireling/rulesets`. Read it there before you
+  assert anything about what blocks a merge. When a procedure doc states a
+  ruleset rule, it states the rule operatively and cites a named ruleset
+  version — `ruleset 24735400 v53013064` — never the live value.
 - **Sweep for reachability before you hand over.** Walk the spec's requirement
   list and, for each one, name the production-path test that proves it. Where
   the requirement landed in a library module, grep for a caller:
