@@ -74,6 +74,10 @@ futures-util = { version = "0.3.31", default-features = false, features = ["sink
 [dev-dependencies]
 http-body-util = "0.1.5"
 tower = { version = "0.5.3", features = ["util"] }
+# Paused-clock probes: the fail-closed contract tests drive sqlx's connect
+# backoff to its 5s deadline without paying it in wall time. Dev-only — no
+# production code may depend on a manipulable clock.
+tokio = { version = "1.53.1", features = ["test-util"] }
 # Design-gate blessed (specs/007-party-sync/design.md, plan Task 6): the
 # session tests drive a real socket against a real listener (PR #30 house
 # rule). axum's `ws` feature already pulls tungstenite into the tree — this

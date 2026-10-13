@@ -38,6 +38,15 @@ fn base_url() -> String {
         .unwrap_or_else(|_| "postgres://hireling:hireling@127.0.0.1:5432".to_owned())
 }
 
+/// Was the test database URL set explicitly (→ unreachable is a hard error,
+/// never a skip)? Same rule as `tests/import_db.rs` and `testing::test_pool`:
+/// an environment asked for a database must not quietly drop the suite's
+/// database coverage (gh#125 — the gate skipped every DB test for months
+/// because its dead port rode exactly this path).
+fn explicitly_requested() -> bool {
+    std::env::var_os("HIRELING_TEST_DATABASE_URL").is_some()
+}
+
 /// Outcome of the maintenance-pool connection attempt.
 enum MaintenanceConnect {
     /// Connected: the server is up and answered.
@@ -152,6 +161,11 @@ impl TestDb {
         let admin = match connect_maintenance(&base, test).await {
             MaintenanceConnect::Up(pool) => pool,
             MaintenanceConnect::Skip(reason) => {
+                assert!(
+                    !explicitly_requested(),
+                    "HIRELING_TEST_DATABASE_URL is set but no test Postgres answered — \
+                     fail closed, a requested database is never a skip: {reason}"
+                );
                 eprintln!("{reason}");
                 return Err(reason);
             }
@@ -1248,6 +1262,59 @@ async fn assert_modifier_vocabulary(db: &TestDb) {
         "negative modifier value must store",
     )
     .await;
+}
+
+// ---------------------------------------------------------------------------
+// testing::test_pool's fail-closed contract — two fixtures against a dead
+// port, through the production probe itself (URL + "requested" injected, so
+// the global process environment is never mutated; the suite's DB-backed
+// tests read it concurrently).
+// ---------------------------------------------------------------------------
+
+/// A port nothing in any environment this suite runs in serves. The dead
+/// fixture for the probe-contract tests below.
+const DEAD_URL: &str = "postgres://hireling:hireling@127.0.0.1:59999/postgres";
+
+/// Requested + unreachable = a hard red, inside the probe's capped budget —
+/// not sqlx's 30s default retry loop (the gate paid 152 of those per run,
+/// gh#125). Asserts both sides of the cap: long enough to prove the
+/// deadline is what fired, short enough to prove it is the 5s cap and not
+/// the 30s default.
+#[tokio::test]
+async fn probe_requested_but_dead_fails_closed_within_the_cap() {
+    let start = std::time::Instant::now();
+    let outcome = tokio::spawn(crate::testing::test_pool_from(DEAD_URL.to_owned(), true))
+        .await
+        .err();
+    let elapsed = start.elapsed();
+    let join_err = outcome.unwrap_or_else(|| {
+        panic!(
+            "probe against a dead port with the URL requested returned {:?} — must fail red",
+            "a pool", // unreachable in practice; the err() above is the contract
+        )
+    });
+    assert!(
+        join_err.is_panic(),
+        "requested-but-unreachable must panic (fail closed), got: {join_err:?}"
+    );
+    assert!(
+        elapsed >= std::time::Duration::from_secs(4),
+        "probe returned after {elapsed:?} — the acquire deadline never engaged"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(15),
+        "probe burned {elapsed:?} against a dead port — that is the 30s default's \
+         territory, the cap is 5s"
+    );
+}
+
+/// Not requested + unreachable = a loud skip: `None`, on a paused clock so
+/// the probe's backoff deadline costs milliseconds of wall time. The other
+/// side of the two-fixture pair above.
+#[tokio::test(start_paused = true)]
+async fn probe_unrequested_and_dead_skips_loud() {
+    let pool = crate::testing::test_pool_from(DEAD_URL.to_owned(), false).await;
+    assert!(pool.is_none(), "unrequested + unreachable must skip (None)");
 }
 
 // ---------------------------------------------------------------------------

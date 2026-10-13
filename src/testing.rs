@@ -3,10 +3,16 @@
 //!
 //! Database-backed tests need a Postgres reachable at
 //! `HIRELING_TEST_DATABASE_URL` (default: the local dev instance). When it is
-//! unreachable, `test_pool` returns `None` and the calling test prints a skip
-//! notice and passes — the pure-matrix suite still runs everywhere, and the
-//! database suite runs in any environment with a Postgres (locally: `just db`,
-//! or any Postgres 16+).
+//! unreachable AND the variable was not set, `test_pool` returns `None` and
+//! the calling test prints a skip notice and passes — the pure-matrix suite
+//! still runs everywhere, and the database suite runs in any environment
+//! with a Postgres (locally: `just db`, or any Postgres 16+). When the
+//! variable WAS set, an unreachable Postgres is a hard error: an operator
+//! who names a database wants a database, and a skip would silently drop
+//! every database-backed test out of the run — exactly what ate 21 of the
+//! gate's 25 minutes before the gate grew a Postgres (gh#125). The probe
+//! pool's `acquire_timeout` is capped so that error lands in seconds, not
+//! sqlx's 30s retry loop per pool.
 //!
 //! Reachable but broken is a different case: a fresh test database that
 //! cannot be created, connected to, or migrated panics. A skipped test that
@@ -38,32 +44,76 @@ fn maintenance_url() -> String {
         .unwrap_or_else(|_| "postgres://hireling:hireling@127.0.0.1:5432/postgres".to_owned())
 }
 
+/// Was the test database URL set explicitly (→ unreachable is a hard error,
+/// never a skip)? Same rule as `tests/import_db.rs`: a requested database
+/// must not quietly become an absent one.
+fn explicitly_requested() -> bool {
+    std::env::var_os("HIRELING_TEST_DATABASE_URL").is_some()
+}
+
+/// Cap on the first probe pool's connection wait. sqlx's default is 30s of
+/// connect-retry loop per pool; 152 probes against the gate's dead port
+/// were ~1260s of sleep wearing a green badge (gh#125). Five seconds is a
+/// red — or a loud skip — either way.
+const PROBE_ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 static DB_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// A fresh, migrated database for one test. Returns `None` (after a loud
-/// notice) when no Postgres is reachable — see the module docs.
+/// notice) only when no Postgres is reachable at the default URL and none
+/// was explicitly requested — see the module docs.
 ///
 /// # Panics
 ///
-/// Panics when the test Postgres **is** reachable but the fresh test
-/// database cannot be created, connected to, or migrated — a reachable-but-
-/// broken schema is a defect to fail on, never to skip.
+/// Panics when `HIRELING_TEST_DATABASE_URL` is set but no Postgres answers
+/// it (fail closed — a requested database must never become a skip), and
+/// when the test Postgres **is** reachable but the fresh test database
+/// cannot be created, connected to, or migrated — a reachable-but-broken
+/// schema is a defect to fail on, never to skip.
 pub async fn test_pool() -> Option<PgPool> {
-    let url = maintenance_url();
-    let options: PgConnectOptions = url.parse().ok()?;
+    test_pool_from(maintenance_url(), explicitly_requested()).await
+}
+
+/// The probe + provision with the URL and the "explicitly requested" flag
+/// injected, so the fail-closed contract has in-repo tests without mutating
+/// the process environment (it is global; the suite's DB-backed tests read
+/// it concurrently). `test_pool` is a thin env-read over this.
+pub(crate) async fn test_pool_from(url: String, requested: bool) -> Option<PgPool> {
+    let options: PgConnectOptions = match url.parse() {
+        Ok(options) => options,
+        Err(err) if requested => {
+            panic!(
+                "HIRELING_TEST_DATABASE_URL is set but {url} does not parse: {err} — a \
+                    misconfigured test database fails red, never skips"
+            )
+        }
+        Err(err) => {
+            eprintln!(
+                "skipping database-backed test: test database URL {url} does not parse ({err})"
+            );
+            return None;
+        }
+    };
     let maintenance = match sqlx::postgres::PgPoolOptions::new()
         .max_connections(2)
+        .acquire_timeout(PROBE_ACQUIRE_TIMEOUT)
         .connect_with(options.clone())
         .await
     {
         Ok(pool) => pool,
-        Err(err) => {
+        Err(err) if !requested => {
             eprintln!(
                 "skipping database-backed test: no test Postgres at {url} ({err}); \
                  run `just db` or set HIRELING_TEST_DATABASE_URL"
             );
             return None;
         }
+        Err(err) => panic!(
+            "HIRELING_TEST_DATABASE_URL is set but no test Postgres answered at {url} within \
+             {}s: {err} — the run asked for a database; fix the environment, never skip \
+             (gh#125)",
+            PROBE_ACQUIRE_TIMEOUT.as_secs(),
+        ),
     };
 
     let name = format!(
