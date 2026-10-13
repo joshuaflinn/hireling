@@ -4,11 +4,52 @@
 //! stat or type outside the closed vocabulary fails the load loudly — a
 //! silently skipped row would lie to every derived total downstream (SC-4).
 
+use std::collections::BTreeMap;
+
 use anyhow::Context as _;
 use sqlx::{PgPool, Row as _};
 
 use crate::engine_host::parse_modifier_row;
+use crate::pbimport::transform::BaseSheet;
 use hireling_engine::model::ActiveEffect;
+
+/// The character's weapon trait map from the items corpus (gh#62 design
+/// D1): every `base_sheet.weapons` name, lowercased, to its corpus traits
+/// in display form. One shared query — `corpus::item_rows`, the same
+/// statement the bootstrap's `item_traits`/`item_bulk` maps read — so the
+/// stored document shape cannot drift between bootstrap and strikes (the
+/// defect class this epic kills). Names the corpus does not carry are
+/// absent from the map; extraction renders them empty.
+///
+/// # Errors
+///
+/// Database failures propagate.
+pub async fn weapon_trait_map(
+    pool: &PgPool,
+    sheet: &BaseSheet,
+) -> anyhow::Result<BTreeMap<String, Vec<String>>> {
+    let names: Vec<String> = sheet
+        .weapons
+        .as_ref()
+        .and_then(serde_json::Value::as_array)
+        .map(|weapons| {
+            weapons
+                .iter()
+                .filter_map(|weapon| weapon.get("name").and_then(serde_json::Value::as_str))
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut map = BTreeMap::new();
+    if names.is_empty() {
+        return Ok(map);
+    }
+    let rows = crate::pbimport::corpus::item_rows(pool, &names)
+        .await
+        .context("load weapon trait map")?;
+    map.extend(rows.into_iter().map(|row| (row.name_lower, row.traits)));
+    Ok(map)
+}
 
 /// Every effect of `party_id` — active AND ended (`active=false` is state,
 /// not deletion; FR-15). The engine's compute filters actives; the chips

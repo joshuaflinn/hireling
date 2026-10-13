@@ -1034,12 +1034,10 @@ async fn patch_caps_and_patchable_fields_hold() {
 /// A minimal release archive: one condition document and one equipment
 /// document, each valid per the importer's declared shape
 /// (`src/import/model.rs::parse_doc`). The condition reuses the seed's
-/// frightened id so the run maps cleanly.
+/// frightened id so the run maps cleanly. The archive itself is assembled
+/// by the shared `testing::pack_zip` (gh#62 Task 2: one zip builder, not
+/// one per suite).
 fn minimal_pack_zip() -> Vec<u8> {
-    use std::io::Write as _;
-    use zip::ZipWriter;
-    use zip::write::SimpleFileOptions;
-
     let condition = json!([{
         "_id": "TBSHQspnbcqxsmjL",
         "name": "Frightened",
@@ -1061,21 +1059,10 @@ fn minimal_pack_zip() -> Vec<u8> {
             "publication": {"license": "ORC", "title": "Pathfinder Player Core", "remaster": true}
         }
     }]);
-    let mut buffer = std::io::Cursor::new(Vec::new());
-    {
-        let mut zip = ZipWriter::new(&mut buffer);
-        let options = SimpleFileOptions::default();
-        for (name, docs) in [
-            ("packs/conditions.json", &condition),
-            ("packs/equipment.json", &equipment),
-        ] {
-            zip.start_file(name, options).expect("zip entry starts");
-            zip.write_all(docs.to_string().as_bytes())
-                .expect("zip entry writes");
-        }
-        zip.finish().expect("zip finishes");
-    }
-    buffer.into_inner()
+    crate::testing::pack_zip(&[
+        ("packs/conditions.json", condition),
+        ("packs/equipment.json", equipment),
+    ])
 }
 
 /// The full row of every custom-lane corpus row, as Postgres sees it.
