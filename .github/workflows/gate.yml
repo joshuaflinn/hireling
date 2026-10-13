@@ -14,6 +14,32 @@ env:
 jobs:
   gate:
     runs-on: ubuntu-latest
+    # The database-backed suite runs for real here. gh#125: the gate image
+    # ships no Postgres, so every DB provision in every run before this
+    # service existed burned sqlx's 30s acquire_timeout against a refused
+    # 127.0.0.1:5432, took the harnesses' skip branch, and passed — 21 of
+    # the gate's 25 minutes were that sleep, and not one database-backed
+    # test had ever executed in CI.
+    #
+    # Major pinned to compose.yml's dev pin (16-alpine) so the gate answers
+    # the same question a developer's `just ci-local` does; the docs' floor
+    # is 16+. Verified against upstream at pin time (postgresql.org/versions):
+    # current stable major is 18; 16 is still supported at 16.15. PGDATA on
+    # tmpfs — CI durability is not under test.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hireling
+          POSTGRES_PASSWORD: hireling
+        ports:
+          - 5432:5432
+        options: >-
+          --tmpfs /var/lib/postgresql/data
+          --health-cmd "pg_isready -U hireling"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -217,15 +243,28 @@ jobs:
         if: ${{ !cancelled() }}
         run: >-
           docker run --rm
+          --network host
           -v "$PWD:/src"
           -v "$HOME/.cache/grizzly-gate:/cache"
           -e CARGO_HOME=/cache/cargo
+          -e HIRELING_TEST_DATABASE_URL=postgres://hireling:hireling@127.0.0.1:5432/postgres
           -e GIT_CONFIG_COUNT=1
           -e GIT_CONFIG_KEY_0=safe.directory
           -e GIT_CONFIG_VALUE_0=*
           -w /src
           "${{ env.GATE_IMAGE }}"
           --source /src
+        # --network host: the gate container's 127.0.0.1 is its own network
+        # namespace, so without this the service Postgres above is unreachable
+        # no matter what the env says (gh#125). Host networking puts the
+        # service's published port inside the container's own loopback.
+        # HIRELING_TEST_DATABASE_URL is set EXPLICITLY, not left to the
+        # harness default, on purpose: all three test harnesses fail CLOSED
+        # on a requested-but-unreachable database (testing::test_pool,
+        # src/tests/db.rs, tests/import_db.rs). If this service container
+        # ever fails to come up, the suite goes red in seconds — it does not
+        # rot back to silently skipping every DB-backed test, which is the
+        # fault gh#125 exists for.
 
       # The container writes as root into the bind mount; the cache post-step
       # tars it back up as the runner user. Normalize ownership so a

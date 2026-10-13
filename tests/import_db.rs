@@ -20,7 +20,7 @@ use hireling::import::transform::{CategoryPlan, RowWrite};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::OnceCell;
 
-use sqlx::postgres::PgConnectOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{PgPool, Row as _};
 
 /// Process-unique suffix for throwaway database names. Wall clocks on some
@@ -167,8 +167,14 @@ impl TestDb {
 
     /// Drop the throwaway database (best effort). `WITH (FORCE)` terminates
     /// any lingering connections, so the test pool need not be closed first.
+    /// The admin reconnect gets the same capped budget as every other probe:
+    /// a Postgres that died mid-run must not bill 30s of pool retry per test.
     async fn drop(self) {
-        if let Ok(admin) = PgPool::connect_with(self.admin_opts).await {
+        if let Ok(admin) = PgPoolOptions::new()
+            .acquire_timeout(ADMIN_ACQUIRE_TIMEOUT)
+            .connect_with(self.admin_opts)
+            .await
+        {
             // Generated name, no user input — audited: safe to interpolate.
             sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                 "DROP DATABASE IF EXISTS {} WITH (FORCE)",
@@ -182,10 +188,18 @@ impl TestDb {
     }
 }
 
-/// Connect to the admin database (for CREATE/DROP DATABASE).
+/// Connect to the admin database (for CREATE/DROP DATABASE). The acquire
+/// budget is capped at 5s: sqlx's 30s default per pool is what turned the
+/// gate's dead port into 120.01s of four-thread sleep here (gh#125) — a
+/// dead Postgres must cost seconds, per probe.
+const ADMIN_ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 async fn admin_pool() -> anyhow::Result<PgPool> {
     let options: PgConnectOptions = admin_url().parse()?;
-    Ok(PgPool::connect_with(options).await?)
+    Ok(PgPoolOptions::new()
+        .acquire_timeout(ADMIN_ACQUIRE_TIMEOUT)
+        .connect_with(options)
+        .await?)
 }
 
 /// Create a fresh throwaway database with the corpus schema.

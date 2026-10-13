@@ -68,6 +68,27 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   required approvals on `main` stay at 0 for the same reason. A merged PR
   with an empty review timeline is a missing record: restore it before the
   next merge ask.
+- **Verdict carry-over.** A verdict re-binds to a new head without a new
+  review round only when **all three** of these hold, each posted as
+  checkable evidence on the PR:
+  1. **Clean merge.** The head move is a merge of `origin/main` into the
+     branch with an empty conflict set and no new commits of the author's
+     own (`git log --merges -1`).
+  2. **Identical blobs.** Every blob the review covered is byte-identical at
+     the new head: `git diff --stat <old-head> <new-head>` shows nothing
+     outside the merged-in `main` paths, and for each reviewed path `git
+     rev-parse <old-head>:<path>` equals `git rev-parse <new-head>:<path>`.
+  3. **Gate green at the new head.** The `gate` check is `success` at the
+     new head, read off the check-runs API. The gate always re-runs — the
+     gate certifies the merged tree, the review certifies the diff, and a
+     blob comparison cannot see a semantic interaction with new `main`
+     code.
+
+  When all three hold, the reviewer posts the re-bind on the PR as a review
+  comment naming the old head, the new head, and the evidence for each
+  condition. That comment is the record, same as any verdict — a carry-over
+  is never silent. If any condition fails, it is a new review round, full
+  stop.
 - **Claim before you code.** Only start an issue that is *unassigned*, and
   self-assign it on GitHub before writing any code. If a human holds it, it's
   theirs — pick another.

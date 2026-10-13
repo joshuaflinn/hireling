@@ -74,6 +74,13 @@ futures-util = { version = "0.3.31", default-features = false, features = ["sink
 [dev-dependencies]
 http-body-util = "0.1.5"
 tower = { version = "0.5.3", features = ["util"] }
+# Paused clock (`#[tokio::test(start_paused = true)]`), two users: the
+# fail-closed contract tests drive sqlx's connect backoff to its 5s deadline
+# without paying it in wall time (gh#125), and the retry-backoff tests assert
+# the retry contract, not the wall time the backoff burns (MOR-213). Same
+# tree as the main tokio pin — dev builds only; production code never sees
+# this feature.
+tokio = { version = "1.53.1", features = ["test-util"] }
 # Design-gate blessed (specs/007-party-sync/design.md, plan Task 6): the
 # session tests drive a real socket against a real listener (PR #30 house
 # rule). axum's `ws` feature already pulls tungstenite into the tree — this
@@ -86,11 +93,6 @@ tokio-tungstenite = "0.29"
 # then fails the way a dead peer makes it fail in production. Already in the
 # dependency graph via tokio; this only exposes it to tests.
 socket2 = "0.6"
-# Same tree as the main tokio pin — dev builds only. `test-util` enables the
-# paused clock (`#[tokio::test(start_paused = true)]`): the retry-backoff
-# tests assert the retry contract, not the wall time the backoff burns
-# (MOR-213). Production builds never see this feature.
-tokio = { version = "1.53.1", features = ["test-util"] }
 
 # Lint configuration
 #
