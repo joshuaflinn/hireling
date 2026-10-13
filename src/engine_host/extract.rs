@@ -20,9 +20,12 @@ use crate::pbimport::transform::BaseSheet;
 
 /// Extract the engine's input for one character. `level_adjust` is the
 /// live ±level from the party state; `eff_level = identity.level +
-/// level_adjust`, clamped 1..=20.
+/// level_adjust`, clamped 1..=20. `shield_raised` is the live Raise-a-
+/// Shield toggle (`character_vitals.shield_raised`, gh#82): `Some` wins
+/// over the sheet's own flag — both directions — and `None` (the column's
+/// NULL, never toggled) defers to `ac.shieldRaised`, PR #73's reader.
 #[must_use]
-pub fn extract(sheet: &BaseSheet, level_adjust: i64) -> BaseStats {
+pub fn extract(sheet: &BaseSheet, level_adjust: i64, shield_raised: Option<bool>) -> BaseStats {
     let eff_level = (sheet.identity.level + level_adjust).clamp(1, 20);
 
     let abilities = &sheet.abilities;
@@ -38,7 +41,7 @@ pub fn extract(sheet: &BaseSheet, level_adjust: i64) -> BaseStats {
     };
     let ranks = progressed_ranks(sheet, eff_level);
     let rank_of = |key: &str| ranks.get(key).copied().unwrap_or(0);
-    let ac = ac_of(sheet, &ranks, eff_level);
+    let ac = ac_of(sheet, &ranks, eff_level, shield_raised);
     // One trained-stat formula: level and proficiency only at rank ≥ 1.
     let trained = |rank_key: &str, ability: &str| {
         let rank = rank_of(rank_key);
@@ -215,19 +218,24 @@ fn prof_bonus(rank: i64) -> i32 {
     i32_of(rank)
 }
 
-/// AC RE-DERIVED from the export's parts (E6 spec §4 — the sheet's own
-/// AC formula):
 /// `10 + acAbilityBonus + proficiency(worn-armor rank, eff_level) +
 /// acItemBonus + shieldBonus-while-raised`, with `proficiency = rank > 0 ?
 /// rank + eff_level : 0` and the armor category taken from the worn piece
-/// (`unarmored` when none). The shield's bonus counts only while the sheet
-/// state marks the shield raised (`ac.shieldRaised: true` — Raise a Shield
-/// is an action, not a constant). The export's frozen `acTotal` is NOT
+/// (`unarmored` when none). The shield's bonus counts only while the shield
+/// is raised: `shield_raised` is the live toggle (`Some` — the player's
+/// Raise-a-Shield state, gh#82) and wins over the sheet's own
+/// `ac.shieldRaised` when present; `None` defers to it (Raise a Shield is
+/// an action, not a constant). The export's frozen `acTotal` is NOT
 /// used: it pins the export level and freezes AC forever, so a
 /// `level_adjust` never moved it. At the export's own level the two agree
 /// exactly (the reference golden pins 16 both ways); above it the
 /// re-derivation tracks the class table — which is the point.
-fn ac_of(sheet: &BaseSheet, ranks: &std::collections::HashMap<String, i64>, eff_level: i64) -> i32 {
+fn ac_of(
+    sheet: &BaseSheet,
+    ranks: &std::collections::HashMap<String, i64>,
+    eff_level: i64,
+    shield_raised: Option<bool>,
+) -> i32 {
     let ac_section = sheet.ac.as_ref();
     let part = |key: &str| {
         ac_section
@@ -248,10 +256,12 @@ fn ac_of(sheet: &BaseSheet, ranks: &std::collections::HashMap<String, i64>, eff_
         .and_then(serde_json::Value::as_str);
     let armor_prof = worn_prof.unwrap_or("unarmored");
     let rank = ranks.get(armor_prof).copied().unwrap_or(0);
-    let raised = ac_section
-        .and_then(|ac| ac.get("shieldRaised"))
-        .and_then(serde_json::Value::as_bool)
-        == Some(true);
+    let raised = shield_raised.unwrap_or_else(|| {
+        ac_section
+            .and_then(|ac| ac.get("shieldRaised"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    });
     let shield = if raised { part("shieldBonus") } else { 0 };
     i32_of(
         10_i64

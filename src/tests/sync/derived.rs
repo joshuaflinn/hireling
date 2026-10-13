@@ -616,6 +616,128 @@ async fn a_level_adjust_write_diffs_then_derives() {
     testing::drop_test_db(pool, "e8_level_adjust_derives").await;
 }
 
+/// The `shield_raised` CAS version for one character (the write's anchor).
+async fn shield_raised_version(pool: &sqlx::PgPool, character_id: i64) -> i64 {
+    sqlx::query_scalar("SELECT shield_raised_version FROM character_vitals WHERE character_id = $1")
+        .bind(character_id)
+        .fetch_one(pool)
+        .await
+        .expect("shield_raised_version")
+}
+
+/// One `shield_raised` write frame on the wire (the test-literal target
+/// shape the vitals writes use).
+fn shield_frame(op_id: &str, character_id: i64, base_version: i64, value: bool) -> String {
+    json!({
+        "t": "write",
+        "op_id": op_id,
+        "target": {"kind": "vitals", "character_id": character_id, "field": "shield_raised"},
+        "base_version": base_version,
+        "value": value
+    })
+    .to_string()
+}
+
+/// A committed `shield_raised` write diffs and fans out the derived
+/// consequence with the AC moved by exactly the shield bonus — raise and
+/// lower, both sides asserted through the production path (write →
+/// session → recompute → engine, gh#82 acceptance 3). The seeded member
+/// gains a +2 shield in its sheet; PR #73's reader supplies the math.
+#[tokio::test]
+async fn a_shield_raised_write_diffs_then_derives_the_ac_delta() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, alpha) = seed_real_member(&pool, "dev-sub-josh").await;
+    // The reference export carries no shield; give it a +2 one. The
+    // extractor reads `ac.shieldBonus` only while the flag is up.
+    sqlx::query("UPDATE characters SET base_sheet = jsonb_set(base_sheet, '{ac,shieldBonus}', '2') WHERE id = $1")
+        .bind(alpha)
+        .execute(&pool)
+        .await
+        .expect("give the member a shield");
+    let lowered = recompute_character(&pool, alpha).await.expect("baseline");
+    assert_eq!(
+        ac_total(&lowered),
+        16,
+        "10 + dex 1 + trained 2+3, shield down"
+    );
+
+    let session = testing::seed_session(&pool, "dev-sub-josh", chrono::Utc::now()).await;
+    let (addr, shutdown) = spawn_server(pool.clone()).await;
+
+    let mut writer = connect(addr, party_id, &session).await;
+    read_frame(&mut writer.stream, "hello").await;
+    read_frame(&mut writer.stream, "snapshot").await;
+
+    let base = shield_raised_version(&pool, alpha).await;
+
+    send_raw(
+        &mut writer.sink,
+        &shield_frame("shield-up", alpha, base, true),
+    )
+    .await;
+
+    // Applied: ack, then the diff, then the derived consequence — TCP
+    // order, same as every field write's fan-out.
+    let ack = read_frame(&mut writer.stream, "shield_raised ack").await;
+    let ServerFrame::Ack(ack) = ack else {
+        panic!("expected the ack, got {ack:?}")
+    };
+    assert_eq!(ack.outcome, Outcome::Applied);
+    let diff = read_frame(&mut writer.stream, "shield_raised diff").await;
+    let ServerFrame::Diff {
+        field: FieldTarget::Vitals { field, .. },
+        value,
+        ..
+    } = &diff
+    else {
+        panic!("expected the shield_raised diff, got {diff:?}")
+    };
+    assert_eq!(*field, crate::sync::protocol::VitalsField::ShieldRaised);
+    assert_eq!(*value, json!(true));
+    let (_, raised) = read_derived(&mut writer.stream).await;
+    assert_eq!(
+        ac_total(&raised),
+        18,
+        "the raised write moved AC by exactly the shield bonus (+2)"
+    );
+    assert_eq!(
+        raised.character_id, alpha,
+        "the frame names the toggling character"
+    );
+
+    // Lowering moves it back — both sides of the toggle are live states.
+    let up_version = ack.version.expect("applied ack carries the version");
+    send_raw(
+        &mut writer.sink,
+        &shield_frame("shield-down", alpha, up_version, false),
+    )
+    .await;
+    let lower_ack = read_frame(&mut writer.stream, "shield_lower ack").await;
+    let ServerFrame::Ack(lower_ack) = lower_ack else {
+        panic!("expected the ack, got {lower_ack:?}")
+    };
+    assert_eq!(lower_ack.outcome, Outcome::Applied);
+    let lower_diff = read_frame(&mut writer.stream, "shield_lower diff").await;
+    let ServerFrame::Diff {
+        value: lower_value, ..
+    } = &lower_diff
+    else {
+        panic!("expected the shield_lower diff, got {lower_diff:?}")
+    };
+    assert_eq!(*lower_value, json!(false));
+    let (_, lowered_after) = read_derived(&mut writer.stream).await;
+    assert_eq!(
+        ac_total(&lowered_after),
+        ac_total(&lowered),
+        "lowering restores the baseline AC"
+    );
+
+    shutdown.send(()).expect("test server alive");
+    testing::drop_test_db(pool, "e8_shield_raised_derives").await;
+}
+
 /// A superseded `level_adjust` write commits nothing, echoes nothing, and
 /// fans out no derived frame — the next frame on the wire is the next
 /// write's ack, not a recompute. (The applied twin is
