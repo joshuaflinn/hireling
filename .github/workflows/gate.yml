@@ -167,60 +167,21 @@ jobs:
         env:
           CARGO_HOME: /home/runner/.cache/grizzly-gate/cargo
 
-      # The guardrail guarding the guardrails: every ci-local leg must be
-      # gated by the image passes (rust:fmt/clippy/test/deny,
-      # node:svelte-check, node:eslint, scan:semgrep — the mapping lives in
-      # the justfile) or by the guard steps above. Landing a ci-local leg
-      # with no CI home turns this red and names the leg.
-      - name: Drift check — no ci-local leg left ungated
+      # The guardrail guarding the guardrails (gh#151) — the same recipe
+      # bench-side `just ci-local` runs, so bench and CI cannot drift apart:
+      # every ci-local leg must have a CI home (an image mirror declared in
+      # scripts/gate_passes.tsv, or a guard step here), and every declared
+      # image pass must be mirrored by a leg ci-local actually runs or
+      # carry its written exemption. scripts/gate_passes.tsv is the single
+      # authority for the image's pass list — the buried `mirrored` literal
+      # this step used to keep is gone. repo_side stays derived from this
+      # file's own text, never a hand-kept literal (MOR-142, MOR-130 fault
+      # class). Landing a ci-local leg with no CI home — or a declaration
+      # row whose mirror names a leg ci-local doesn't run — turns this red
+      # and names it.
+      - name: Drift check — legs and declaration agree
         if: ${{ !cancelled() }}
-        run: |
-          python3 - <<'EOF'
-          import re
-          import sys
-
-          justfile = open("justfile").read()
-          m = re.search(r"^ci-local: *(.+)$", justfile, re.M)
-          if not m:
-              sys.exit("drift check: no ci-local recipe found in justfile")
-          legs = m.group(1).split()
-
-          # Legs the pinned gate image runs (the docker run below).
-          mirrored = {
-              "fmt-check", "lint", "test", "deny",
-              "web-check", "web-eslint", "scan-semgrep",
-          }
-          # Legs the guard steps above run — derived from this file, not
-          # declared: a hand-kept literal certifies steps it never reads
-          # (MOR-142, MOR-130's fault class one storey up). Delete a guard
-          # step and its leg drops out of this set, turning the check red
-          # instead of printing full coverage over a hole. Matches only
-          # single-line `run: just <leg>` steps, so any other spelling reads
-          # as ungated and fails closed. `mirrored` stays a literal — the
-          # image's pass list is not readable from the repo, the justfile
-          # already names the image as the authority, and a digest bump
-          # moves both together.
-          #
-          # What the derivation still cannot see: textual presence is not
-          # execution (Thrane, MOR-130). A guard step with `if: false`, or
-          # an `if:` narrowed to push, stays in this derived set while no
-          # longer running on PRs — no parse closes that hole. The
-          # deliberate-break run is the cover: a guard proven to red on the
-          # thing it guards (run 38088014628 for web-test) is evidence a
-          # parse cannot be.
-          workflow = open(".github/workflows/gate.yml").read()
-          repo_side = set(re.findall(r"^ *run: just ([\w-]+) *$", workflow, re.M))
-
-          ungated = sorted(set(legs) - mirrored - repo_side)
-          if ungated:
-              sys.exit(
-                  "drift check: ci-local leg(s) gated by no CI job: "
-                  + ", ".join(ungated)
-                  + " — add them to the guard steps in this workflow"
-                  " (or to `mirrored` if the gate image runs them)"
-              )
-          print(f"drift check ok: all {len(legs)} ci-local legs are gated")
-          EOF
+        run: just ci-drift
 
       # GIT_CONFIG_*/safe.directory: the cache restore extracts as the runner
       # user, so cached git state (cargo-deny's advisory DB, any future git
@@ -241,7 +202,9 @@ jobs:
 
       - name: Run grizzly-gate
         if: ${{ !cancelled() }}
-        run: >-
+        shell: bash
+        run: |
+          set -o pipefail
           docker run --rm
           --network host
           -v "$PWD:/src"
@@ -253,7 +216,7 @@ jobs:
           -e GIT_CONFIG_VALUE_0=*
           -w /src
           "${{ env.GATE_IMAGE }}"
-          --source /src
+          --source /src 2>&1 | tee "$RUNNER_TEMP/gate-image-output.log"
         # --network host: the gate container's 127.0.0.1 is its own network
         # namespace, so without this the service Postgres above is unreachable
         # no matter what the env says (gh#125). Host networking puts the
@@ -265,6 +228,28 @@ jobs:
         # ever fails to come up, the suite goes red in seconds — it does not
         # rot back to silently skipping every DB-backed test, which is the
         # fault gh#125 exists for.
+        #
+        # The tee (gh#151): the image's stdout is the only record of which
+        # passes it ran that the repo can read ([PASS] node:tsc lines), and
+        # the step below certifies the declaration against it. set -o
+        # pipefail is the boundary recipe's lesson applied: without it the
+        # pipeline's status is tee's, and a red image would die quietly in
+        # the pipe while the log got saved.
+
+      # Close the declaration against the image itself (gh#151). The image's
+      # own stdout names the passes it ran; this parse fails on any pass
+      # scripts/gate_passes.tsv does not declare — which is what makes the
+      # declaration survive a digest bump instead of certifying a list
+      # nobody re-read. The old comment here said the image's pass list was
+      # not readable; true of a repo-side parse, false of the image's own
+      # output. Fails closed: a log with no pass tokens (empty output, an
+      # unreadable run) is a failure, not a pass. The deliberate-break run
+      # is the cover, per the precedent in the drift-check step's old
+      # comment (run 38088014628 for web-test): a guard proven to red on
+      # the thing it guards is evidence a parse cannot be.
+      - name: Drift check — image output names nothing undeclared
+        if: ${{ !cancelled() }}
+        run: python3 scripts/ci_drift_check.py --image-log "$RUNNER_TEMP/gate-image-output.log"
 
       # The container writes as root into the bind mount; the cache post-step
       # tars it back up as the runner user. Normalize ownership so a
