@@ -293,11 +293,19 @@ fn strike_bases(
     let str_mod = i32_of(ability_mod(sheet.abilities.str));
     let dex_mod = i32_of(ability_mod(sheet.abilities.dex));
     let class = sheet.identity.class.as_deref();
+    let dual_class = sheet.identity.dual_class.as_deref();
+    // Weapon Specialization is a CLASS feature: a dual-class character
+    // holds both halves' features, so whichever half grants it — and its
+    // greater version — earlier sets the gate. The halves do not stack;
+    // the better half's number pays (gh#84; ruling on MOR-118).
+    let spec_damage = |rank: i64, level: i64| {
+        mastery_damage(class, rank, level).max(mastery_damage(dual_class, rank, level))
+    };
     let pb = |rank: i64| i32_of(eff_level) * i32::from(rank >= 1) + prof_bonus(rank);
     let rank_of = |key: &str| ranks.get(key).copied().unwrap_or(0);
     let Some(weapons) = sheet.weapons.as_ref().and_then(serde_json::Value::as_array) else {
         // No weapons: the sheet still renders the unarmed Fist.
-        let flat = str_mod + mastery_damage(class, rank_of("unarmed"), eff_level);
+        let flat = str_mod + spec_damage(rank_of("unarmed"), eff_level);
         return vec![fist_row(
             "Fist",
             str_mod.max(dex_mod) + pb(rank_of("unarmed")),
@@ -339,7 +347,7 @@ fn strike_bases(
                 str_mod
             };
             let attack = ability_mod_used + pb(rank) + i32_of(pot);
-            let damage_flat = str_mod + mastery_damage(class, rank, eff_level);
+            let damage_flat = str_mod + spec_damage(rank, eff_level);
             let die = weapon
                 .get("die")
                 .and_then(serde_json::Value::as_str)
@@ -374,7 +382,7 @@ fn strike_bases(
         format!("Fist#{fist_seen}")
     };
     let unarmed = rank_of("unarmed");
-    let unarmed_flat = str_mod + mastery_damage(class, unarmed, eff_level);
+    let unarmed_flat = str_mod + spec_damage(unarmed, eff_level);
     strikes.push(fist_row(
         &key,
         str_mod.max(dex_mod) + pb(unarmed),
