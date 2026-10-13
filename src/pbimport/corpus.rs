@@ -77,8 +77,9 @@ pub struct ItemCorpusRow {
 /// (`specs/010-rules-tooltips-custom-content/spec.md`) keeps engine math
 /// out of custom rows entirely, and the engine-output contract
 /// (`specs/008-buff-effect-engine/contracts/engine-output.md`) sources
-/// strike traits from the imported corpus and calls a custom-lane item a
-/// miss, so a custom twin must never blank a pack weapon's traits. The
+/// strike traits from the imported corpus — so a custom-lane item, which
+/// FR-6 keeps out of engine math, is a miss. A custom twin must never
+/// blank a pack weapon's traits. The
 /// `id` tail-break keeps the order total (a hypothetical duplicate inside
 /// one lane still resolves stably, not planner-ordered). Consumers disagree
 /// about multi-row results by construction otherwise — `weapon_trait_map`
