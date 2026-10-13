@@ -584,6 +584,11 @@ fn dual_class_spec_takes_the_better_half_never_the_sum() {
         8,
         "at 15: str 4 + the Fighter half's doubled +4 (expert)"
     );
+    assert_eq!(
+        longsword_flat_dual("Wizard", Some("Fighter"), 15, 4),
+        8,
+        "Wizard primary: the dual half's greater version doubles it too"
+    );
 }
 
 // -- Greater Weapon Specialization doubles the spec damage from its level (gh#81) --
