@@ -14,11 +14,12 @@
 
   /** @type {{ view: any, baseSheet: any, hp: any, temp: any, money?: any,
     focusCurrent?: any, focusMax?: number, heroPoints?: any, heroMax?: number,
+    shieldRaised?: {value: boolean, pending: boolean},
     opErrors?: any[], editable?: boolean, offline?: boolean,
     ondamage?: (amount: number) => void,
     onheal?: (amount: number) => void, onfull?: () => void,
     ontemp?: (value: number) => void, onfocus?: (value: number) => void,
-    onhero?: (value: number) => void }} */
+    onhero?: (value: number) => void, onshield?: (raised: boolean) => void }} */
   let {
     view, // the adapter output (engine/index.js derive())
     baseSheet, // identity/meta/base data
@@ -29,6 +30,7 @@
     focusMax,
     heroPoints,
     heroMax,
+    shieldRaised,
     opErrors = [],
     editable = true,
     offline = false,
@@ -38,6 +40,7 @@
     ontemp,
     onfocus,
     onhero,
+    onshield,
   } = $props();
 
   const identity = $derived(baseSheet.identity);
@@ -55,6 +58,14 @@
   const hpError = $derived(vitalError('hp') ?? vitalError('temp_hp'));
   const heroError = $derived(vitalError('hero_points'));
   const focusError = $derived(vitalError('focus_current'));
+  const shieldError = $derived(vitalError('shield_raised'));
+  // The Raise-a-Shield affordance (gh#82): only when the character's
+  // export carries a shield (a positive `ac.shieldBonus`); default
+  // lowered. The number shown is the bonus the engine adds while raised —
+  // the AC itself comes from the wire's derived output, so the tile below
+  // moves the moment the recompute lands.
+  const shieldBonus = $derived(baseSheet.ac?.shieldBonus ?? 0);
+  const shieldRaisedOn = $derived(shieldRaised?.value === true);
   /** Display name for a skill key: the prototype capitalizes ("Thievery"). */
   const displayName = (/** @type {string} */ key) => key.charAt(0).toUpperCase() + key.slice(1);
   /** Core skills and lores through one partition: the fold and the
@@ -73,6 +84,25 @@
 
   <div class="tiles">
     <StatTile label="AC" value={numbers.ac.total} cls="t-ac gold" note="Armor Class" provenance={numbers.ac} />
+    {#if shieldBonus > 0}
+      <div class="tile t-shield">
+        <div class="v">{shieldRaisedOn ? signed(shieldBonus) : '—'}</div>
+        <div class="k">Shield</div>
+        {#if editable}
+          <button
+            type="button"
+            class="shield-toggle"
+            aria-pressed={shieldRaisedOn}
+            disabled={shieldRaised?.pending === true}
+            onclick={() => onshield?.(!shieldRaisedOn)}
+          >
+            {shieldRaisedOn ? 'Lower shield' : 'Raise shield'}</button>
+        {:else}
+          <span class="shield-state" aria-hidden="true">{shieldRaisedOn ? 'raised' : 'lowered'}</span>
+        {/if}
+        {#if shieldError}<p class="op-error" role="alert">{shieldError.reason}</p>{/if}
+      </div>
+    {/if}
     <StatTile label="Fort" value={signed(numbers.fort.total)} cls="t-fort" note={rankName(baseSheet.proficiencies.fortitude ?? 0)} provenance={numbers.fort} />
     <StatTile label="Perception" value={signed(numbers.perception.total)} cls="t-perception" provenance={numbers.perception} />
     <StatTile label="Class DC" value={numbers.class_dc.total ?? '—'} cls="t-classdc" note={(identity.keyability ?? '').toUpperCase()} provenance={numbers.class_dc} />

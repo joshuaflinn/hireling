@@ -152,67 +152,76 @@ async fn vitals_version(pool: &sqlx::PgPool, character_id: i64, column: &str) ->
         .unwrap_or_else(|err| panic!("read {column}: {err}"))
 }
 
+/// One vitals expectation row (the snapshot's field/value/version shape).
+fn vitals_row(
+    character_id: i64,
+    field: VitalsField,
+    value: serde_json::Value,
+    version: i64,
+) -> SnapshotField {
+    SnapshotField {
+        field: FieldTarget::Vitals {
+            character_id,
+            field,
+        },
+        value,
+        version,
+    }
+}
+
 /// The expected six non-effect rows for the shaped character: literal
 /// values, versions read straight from the database — the snapshot's own
 /// SELECT is never the oracle of itself.
 async fn expected_base_rows(pool: &sqlx::PgPool, character_id: i64) -> Vec<SnapshotField> {
     vec![
-        SnapshotField {
-            field: FieldTarget::Vitals {
-                character_id,
-                field: VitalsField::Hp,
-            },
-            value: json!(14),
-            version: vitals_version(pool, character_id, "hp_version").await,
-        },
-        SnapshotField {
-            field: FieldTarget::Vitals {
-                character_id,
-                field: VitalsField::TempHp,
-            },
-            value: json!(3),
-            version: vitals_version(pool, character_id, "temp_hp_version").await,
-        },
-        SnapshotField {
-            field: FieldTarget::Vitals {
-                character_id,
-                field: VitalsField::Money,
-            },
-            value: json!({"pp": 1, "gp": 2, "sp": 3, "cp": 4}),
-            version: vitals_version(pool, character_id, "money_version").await,
-        },
-        SnapshotField {
-            field: FieldTarget::Vitals {
-                character_id,
-                field: VitalsField::LevelAdjust,
-            },
-            value: json!(1),
-            version: vitals_version(pool, character_id, "level_adjust_version").await,
-        },
-        SnapshotField {
-            field: FieldTarget::Vitals {
-                character_id,
-                field: VitalsField::FocusCurrent,
-            },
-            value: json!(0),
-            version: vitals_version(pool, character_id, "focus_version").await,
-        },
-        SnapshotField {
-            field: FieldTarget::Vitals {
-                character_id,
-                field: VitalsField::HeroPoints,
-            },
-            value: json!(0),
-            version: vitals_version(pool, character_id, "hero_points_version").await,
-        },
-        SnapshotField {
-            field: FieldTarget::Vitals {
-                character_id,
-                field: VitalsField::Daily,
-            },
-            value: json!({"staff_charge_rank": 0, "staff_spent": 0, "drain_used": false}),
-            version: vitals_version(pool, character_id, "daily_version").await,
-        },
+        vitals_row(
+            character_id,
+            VitalsField::Hp,
+            json!(14),
+            vitals_version(pool, character_id, "hp_version").await,
+        ),
+        vitals_row(
+            character_id,
+            VitalsField::TempHp,
+            json!(3),
+            vitals_version(pool, character_id, "temp_hp_version").await,
+        ),
+        vitals_row(
+            character_id,
+            VitalsField::Money,
+            json!({"pp": 1, "gp": 2, "sp": 3, "cp": 4}),
+            vitals_version(pool, character_id, "money_version").await,
+        ),
+        vitals_row(
+            character_id,
+            VitalsField::LevelAdjust,
+            json!(1),
+            vitals_version(pool, character_id, "level_adjust_version").await,
+        ),
+        vitals_row(
+            character_id,
+            VitalsField::FocusCurrent,
+            json!(0),
+            vitals_version(pool, character_id, "focus_version").await,
+        ),
+        vitals_row(
+            character_id,
+            VitalsField::HeroPoints,
+            json!(0),
+            vitals_version(pool, character_id, "hero_points_version").await,
+        ),
+        vitals_row(
+            character_id,
+            VitalsField::Daily,
+            json!({"staff_charge_rank": 0, "staff_spent": 0, "drain_used": false}),
+            vitals_version(pool, character_id, "daily_version").await,
+        ),
+        vitals_row(
+            character_id,
+            VitalsField::ShieldRaised,
+            json!(null),
+            vitals_version(pool, character_id, "shield_raised_version").await,
+        ),
         SnapshotField {
             field: FieldTarget::Slot {
                 character_id,
@@ -412,8 +421,8 @@ async fn a_snapshot_contains_only_the_party_s_own_rows() {
     let own = party_snapshot(&pool, party_id).await.expect("own snapshot");
     assert_eq!(
         own.len(),
-        7 + 1 + 1,
-        "own party: 7 vitals + 1 slot + 1 item, no effects"
+        8 + 1 + 1,
+        "own party: 8 vitals + 1 slot + 1 item, no effects"
     );
     assert!(
         own.iter()
@@ -426,8 +435,8 @@ async fn a_snapshot_contains_only_the_party_s_own_rows() {
         .expect("other snapshot");
     assert_eq!(
         other.len(),
-        7 + 1 + 1 + 1,
-        "other party: 7 vitals + 1 slot + 1 item + 1 effect"
+        8 + 1 + 1 + 1,
+        "other party: 8 vitals + 1 slot + 1 item + 1 effect"
     );
     assert!(
         other

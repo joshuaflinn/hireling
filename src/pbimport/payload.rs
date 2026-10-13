@@ -41,7 +41,7 @@ pub async fn character_payload(
     });
     let vitals = sqlx::query(
         "SELECT hp, temp_hp, money_gp, money_sp, money_cp, money_pp, level_adjust, \
-                focus_current, hero_points, daily \
+                focus_current, hero_points, daily, shield_raised \
          FROM character_vitals WHERE character_id = $1",
     )
     .bind(character_id)
@@ -59,6 +59,9 @@ pub async fn character_payload(
             "focus_current": vitals.get::<i32, _>("focus_current"),
             "hero_points": vitals.get::<i32, _>("hero_points"),
             "daily": vitals.get::<serde_json::Value, _>("daily"),
+            // NULL = never toggled live; the sheet's own ac.shieldRaised
+            // governs (the client mirrors that precedence, gh#82).
+            "shield_raised": vitals.get::<Option<bool>, _>("shield_raised"),
         })
     });
     let slots = sqlx::query(

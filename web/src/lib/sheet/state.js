@@ -111,7 +111,8 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
  * @property {{ hp: number, temp_hp: number, money_pp: number, money_gp: number,
  *   money_sp: number, money_cp: number, level_adjust: number,
  *   focus_current: number, hero_points: number,
- *   daily: { staff_charge_rank: number, staff_spent: number, drain_used: boolean } }} vitals
+ *   daily: { staff_charge_rank: number, staff_spent: number, drain_used: boolean },
+ *   shield_raised: boolean | null }} vitals
  * @property {Array<{ caster_key: string, rank: number, slot_index: number,
  *   used: boolean, prepared_spell: string | null }>} slots
  * @property {Array<{ name: string, qty_delta: number }>} inventory
@@ -171,6 +172,9 @@ export function findOpError(opErrors, kind, match = {}) {
  * @property {import('svelte/store').Readable<{value: *, pending: boolean}>} heroPoints
  * @property {import('svelte/store').Readable<number>} heroMax
  * @property {import('svelte/store').Readable<{value: *, pending: boolean}>} daily
+ * @property {import('svelte/store').Readable<{value: boolean, pending: boolean}>} shieldRaised
+ *   the Raise-a-Shield toggle (gh#82): the live vitals flag, or the
+ *   sheet's own `ac.shieldRaised` while the column is still NULL
  * @property {import('svelte/store').Readable<Array<object>>} slots
  * @property {import('svelte/store').Readable<Record<string, {qty: number, pending: boolean}>>} qtyMap
  * @property {import('svelte/store').Readable<boolean>} syncing
@@ -200,6 +204,7 @@ export function findOpError(opErrors, kind, match = {}) {
  * @property {(value: number) => void} writeFocus
  * @property {(value: number) => void} writeHeroPoints
  * @property {(value: {staff_charge_rank: number, staff_spent: number, drain_used: boolean}) => void} writeDaily
+ * @property {(raised: boolean) => void} writeShieldRaised
  * @property {(casterKey: string, rank: number, index: number, patch?: {used?: boolean, prepared?: string | null}) => void} writeSlot
  * @property {(itemName: string, quantity: number) => void} writeItemQty
  * @property {(casterKey: string) => void} resetPrep
@@ -383,6 +388,18 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
   const focusCurrent = vitalsStore('focus_current', character.vitals.focus_current);
   const heroPoints = vitalsStore('hero_points', character.vitals.hero_points);
   const daily = vitalsStore('daily', character.vitals.daily);
+
+  /** The Raise-a-Shield toggle (gh#82). The wire's NULL — never toggled
+   *  live — defers to the sheet's own `ac.shieldRaised`, the same
+   *  precedence the server's recompute applies for the derived AC. The
+   *  resolution happens here (not in vitalsStore) because a live `false`
+   *  is a real state and only null/undefined may fall through. */
+  const shieldFallback =
+    (character.vitals?.shield_raised ?? null) ?? (baseSheet.ac?.shieldRaised === true);
+  const shieldRaised = derived(vitalsStore('shield_raised', shieldFallback), ($live) => ({
+    value: $live.value ?? shieldFallback,
+    pending: $live.pending,
+  }));
 
   /** The focus pip ceiling: `render_base.focus_max` (null until the wire). */
   const focusMax = derived(view, ($view) => $view?.render_base?.focus_max ?? null);
@@ -597,6 +614,14 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
     });
   }
 
+  /** Raise/lower the shield (gh#82): a boolean vitals write; the server
+   *  bounds-checks it and the applied write fans out the character's
+   *  recompute, so the party's AC moves off the derived frame.
+   *  @param {boolean} raised */
+  function writeShieldRaised(raised) {
+    write(vitalsTarget(characterId, 'shield_raised'), Boolean(raised));
+  }
+
   /**
    * Whole-slot write (unmentioned fields reset, so `prepared` always rides).
    * @param {string} casterKey @param {number} rank @param {number} index
@@ -726,6 +751,7 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
     heroPoints,
     heroMax,
     daily,
+    shieldRaised,
     slots,
     qtyMap,
     syncing,
@@ -750,6 +776,7 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
     writeFocus,
     writeHeroPoints,
     writeDaily,
+    writeShieldRaised,
     writeSlot,
     writeItemQty,
     writeEffect,
