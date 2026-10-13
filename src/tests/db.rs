@@ -17,7 +17,7 @@
 //! `just db` starts the throwaway; `just db-reset` wipes
 //! anything this suite ever leaked.
 
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{AssertSqlSafe, PgPool, Row as _};
 
 /// Execute a dynamically-built statement.
@@ -31,8 +31,15 @@ macro_rules! dyn_sql {
     };
 }
 
-/// Base URL of the local throwaway Postgres (no database component).
-/// Overridable so the skip path can be exercised deliberately.
+/// Base URL of the local throwaway Postgres. Overridable so the skip path
+/// can be exercised deliberately. May name a database: the env var is a
+/// FULL maintenance URL in the other harnesses (`testing.rs`,
+/// `tests/import_db.rs` connect to the database it names), and every
+/// connection in this module REPLACES the database instead of appending —
+/// via the driver's parser, not string surgery. The old bare append
+/// produced `…/postgres/postgres` on the gate and failed every test in
+/// this module red (gh#125 first contact, gate run 38326952116):
+/// fail-closed caught it in minutes instead of a skip hiding it forever.
 fn base_url() -> String {
     std::env::var("HIRELING_TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://hireling:hireling@127.0.0.1:5432".to_owned())
@@ -73,14 +80,17 @@ fn is_transport_unreachable(err: &sqlx::Error) -> bool {
     matches!(err, sqlx::Error::Io(_) | sqlx::Error::PoolTimedOut)
 }
 
-/// Connect the maintenance pool at `{base}/postgres`, classifying the
-/// outcome so the suite can skip only genuine no-server environments.
+/// Connect the maintenance pool at the base URL with the database replaced
+/// by `postgres` (CREATE DATABASE works from any database; the operator
+/// URL may name any of them).
 async fn connect_maintenance(base: &str, test: &str) -> MaintenanceConnect {
-    let url = format!("{base}/postgres");
+    let options: PgConnectOptions = base
+        .parse()
+        .unwrap_or_else(|err| panic!("HIRELING_TEST_DATABASE_URL ({base}) does not parse: {err}"));
     let attempt = PgPoolOptions::new()
         .max_connections(2)
         .acquire_timeout(std::time::Duration::from_secs(2))
-        .connect(&url)
+        .connect_with(options.database("postgres"))
         .await;
     match attempt {
         Ok(pool) => MaintenanceConnect::Up(pool),
@@ -88,8 +98,8 @@ async fn connect_maintenance(base: &str, test: &str) -> MaintenanceConnect {
             "SKIPPED (no Postgres at {base} — run `just db`): {test}: {err}"
         )),
         Err(err) => MaintenanceConnect::Fatal(format!(
-            "maintenance connection to {url} failed but the server answered \
-             (auth, permission, or missing database — server reachable): {err}"
+            "maintenance connection to {base} (database postgres) failed but the server \
+             answered (auth, permission, or missing database — server reachable): {err}"
         )),
     }
 }
@@ -191,7 +201,12 @@ impl TestDb {
 
         let pool = PgPoolOptions::new()
             .max_connections(5)
-            .connect(&format!("{base}/{name}"))
+            .connect_with({
+                let options: PgConnectOptions = base.parse().unwrap_or_else(|err| {
+                    panic!("HIRELING_TEST_DATABASE_URL ({base}) does not parse: {err}")
+                });
+                options.database(&name)
+            })
             .await
             .unwrap_or_else(|err| {
                 panic!("failed to connect to fresh database {name} (server reachable): {err}")
