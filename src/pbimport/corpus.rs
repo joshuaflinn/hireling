@@ -79,12 +79,12 @@ pub struct ItemCorpusRow {
 /// (`specs/008-buff-effect-engine/contracts/engine-output.md`) sources
 /// strike traits from the imported corpus — so a custom-lane item, which
 /// FR-6 keeps out of engine math, is a miss. A custom twin must never
-/// blank a pack weapon's traits. The
-/// `id` tail-break keeps the order total (a hypothetical duplicate inside
-/// one lane still resolves stably, not planner-ordered). Consumers disagree
-/// about multi-row results by construction otherwise — `weapon_trait_map`
-/// extends (last wins) while the bootstrap `find`s (first wins) — which is
-/// exactly why the collapse happens HERE, once, in the shared statement.
+/// blank a pack weapon's traits. The `id` tail-break keeps the order
+/// total (a hypothetical duplicate inside one lane still resolves
+/// stably, not planner-ordered). Consumers disagree about multi-row
+/// results by construction otherwise — `weapon_trait_map` extends (last
+/// wins) while the bootstrap `find`s (first wins) — which is exactly why
+/// the collapse happens HERE, once, in the shared statement.
 ///
 /// # Errors
 ///

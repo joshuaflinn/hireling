@@ -139,17 +139,17 @@ async fn recompute_renders_strike_traits_from_the_corpus() {
 /// (`specs/010-rules-tooltips-custom-content/spec.md`) keeps engine math
 /// out of custom rows, and the engine-output contract
 /// (`specs/008-buff-effect-engine/contracts/engine-output.md`) sources
-/// strike traits from the IMPORTED corpus — a custom-lane item is a
-/// miss — so on a name collision the imported row is
-/// the one every consumer reads. The old reader had no lane filter and no
-/// ORDER BY: `weapon_trait_map` (map-extend, LAST row wins) and the
-/// bootstrap (`find`, FIRST row wins) could resolve one name to OPPOSITE
-/// rows — planner-order dependent, and the custom row reads back empty
-/// (custom rows carry no upstream document), so the strike silently lost
-/// its chips, its agile MAP step, and its finesse attack. Both production
-/// consumers are asserted so ANY row order fails this test on the old
-/// query: whichever way the heap lays the rows out, at least one consumer
-/// disagrees with the imported row.
+/// strike traits from the IMPORTED corpus — so a custom-lane item, which
+/// FR-6 keeps out of engine math, is a miss, and on a name collision the
+/// imported row is the one every consumer reads. The old reader had no
+/// lane filter and no ORDER BY: `weapon_trait_map` (map-extend, LAST row
+/// wins) and the bootstrap (`find`, FIRST row wins) could resolve one
+/// name to OPPOSITE rows — planner-order dependent, and the custom row
+/// reads back empty (custom rows carry no upstream document), so the
+/// strike silently lost its chips, its agile MAP step, and its finesse
+/// attack. Both production consumers are asserted so ANY row order fails
+/// this test on the old query: whichever way the heap lays the rows out,
+/// at least one consumer disagrees with the imported row.
 #[tokio::test]
 async fn custom_same_name_row_cannot_shadow_the_imported_corpus() {
     let Some(pool) = testing::test_pool().await else {
