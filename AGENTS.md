@@ -45,7 +45,12 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
    hand outside a provisioned workspace — a human in a clone, a hotfix off
    the shared checkout. Never commit to `main`.
    Never force-push shared branches. Open a PR; the author never merges their own
-   work. Thrane holds the merge button — merge asks go to Thrane, not to Josh.
+   work. Authorship is read off the board, not off GitHub: every agent pushes
+   as `joshuaflinn`, so a PR's `author.login` is the same string on every PR
+   in the repo and cannot distinguish author from presser. The authoritative
+   record of authorship is the tracking task's assignee, and the press seat
+   reads it there. Thrane holds the merge button — merge asks go to Thrane,
+   not to Josh.
    A PR authored by Thrane routes to Korrin — a third seat who authored
    neither the change nor its review. Either owner may reserve any PR for
    their own hand by saying so on it, and either owner may revoke the routing.
@@ -70,7 +75,15 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   pushes as one shared identity — so the record is a review comment, and
   required approvals on `main` stay at 0 for the same reason. A merged PR
   with an empty review timeline is a missing record: restore it before the
-  next merge ask.
+  next merge ask. Scope is part of the verdict: an accept is an accept of
+  the head only when its scope is the head itself, not one question about
+  the head. A reviewer who narrows a round's scope says so in the verdict,
+  and the press honors the stated scope rather than reading past it. If more
+  than one review task is open against a head, the press waits until every
+  one of them has reported. One review round is one review task — whoever
+  opens a round opens a single task for it, asking every question the round
+  asks; a round split across tasks produces verdicts that are each correct
+  in their own scope and jointly unreadable at the press.
 - **Verdict carry-over.** A verdict re-binds to a new head without a new
   review round only when **all three** of these hold, each posted as
   checkable evidence on the PR:
