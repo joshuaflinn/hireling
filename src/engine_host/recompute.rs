@@ -10,7 +10,7 @@ use serde_json::Value as JsonValue;
 use sqlx::PgPool;
 
 use crate::engine_host::extract::extract;
-use crate::engine_host::load::party_effects;
+use crate::engine_host::load::{party_effects, weapon_trait_map};
 use crate::pbimport::transform::BaseSheet;
 use hireling_engine::compute::compute;
 use hireling_engine::model::EngineOutput;
@@ -41,15 +41,10 @@ pub async fn recompute_character(pool: &PgPool, character_id: i64) -> anyhow::Re
         .context("recompute: stored base_sheet does not parse")?;
     // The live Raise-a-Shield toggle (gh#82) rides in as the override; the
     // extractor defers to the sheet's own flag when the column is NULL.
-    // gh#62: the corpus trait map rides the loader (design D1); the wiring
-    // lands with the recompute test — until then no weapon has corpus
-    // traits, which extraction renders honestly as empty.
-    let base = extract(
-        &sheet,
-        i64::from(level_adjust),
-        shield_raised,
-        &std::collections::BTreeMap::new(),
-    );
+    // The corpus trait map (gh#62 design D1) loads beside the effects —
+    // one shared corpus query, names the corpus lacks render empty.
+    let item_traits = weapon_trait_map(pool, &sheet).await?;
+    let base = extract(&sheet, i64::from(level_adjust), shield_raised, &item_traits);
 
     let effects = party_effects(pool, party_id).await?;
     let source_names = party_source_names(pool, party_id).await?;
