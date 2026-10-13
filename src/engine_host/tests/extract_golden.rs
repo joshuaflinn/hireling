@@ -510,6 +510,117 @@ fn weapon_specialization_matches_the_class_regardless_of_casing() {
     );
 }
 
+// -- Greater Weapon Specialization doubles the spec damage from its level (gh#81) --
+
+/// (`class`, `greater_at`) as each class's `AoN` remaster page prints it
+/// (2e.aonprd.com/Classes.aspx?ID=n, read 2026-10-13 — the
+/// Greater Weapon Specialization feature section and its matching
+/// advancement-table row). An INDEPENDENT restatement of the greater
+/// column of the `WEAPON_SPECIALIZATION` table in `extract.rs` — the
+/// per-row book+page cites live on that table. 14 of the 27 rows carry
+/// the greater version: thirteen at 15, Guardian at 17. The caster rows
+/// without one are asserted separately, below.
+const GREATER_AT: &[(&str, i64)] = &[
+    ("Barbarian", 15),
+    ("Champion", 15),
+    ("Commander", 15),
+    ("Fighter", 15),
+    ("Gunslinger", 15),
+    ("Inventor", 15),
+    ("Investigator", 15),
+    ("Magus", 15),
+    ("Monk", 15),
+    ("Ranger", 15),
+    ("Rogue", 15),
+    ("Swashbuckler", 15),
+    ("Thaumaturge", 15),
+    ("Guardian", 17),
+];
+
+/// The rows whose pages stop at Weapon Specialization — every class that
+/// gains the base feature at 13 gains no greater version. An independent
+/// restatement of the `None` half of the table's greater column.
+const NEVER_GREATER: &[&str] = &[
+    "Alchemist",
+    "Animist",
+    "Bard",
+    "Cleric",
+    "Druid",
+    "Kineticist",
+    "Necromancer",
+    "Oracle",
+    "Psychic",
+    "Sorcerer",
+    "Summoner",
+    "Witch",
+    "Wizard",
+];
+
+/// Every greater row, both sides of its threshold (AGENTS.md, Rules
+/// exactness): the single +2 at `greater_at − 1`, the doubled +4 from
+/// `greater_at` on — expert rank, Str 18 probe, flat 6 → 8.
+#[test]
+fn greater_weapon_specialization_doubles_at_every_class_boundary() {
+    for (class, greater_at) in GREATER_AT {
+        assert_eq!(
+            longsword_flat(class, *greater_at, 4),
+            8,
+            "{class} at {greater_at}: str 4 + doubled Weapon Specialization +4 (expert)"
+        );
+        assert_eq!(
+            longsword_flat(class, greater_at - 1, 4),
+            6,
+            "{class} at {}: the greater version is not yet gained — single +2",
+            greater_at - 1
+        );
+    }
+}
+
+/// The doubling covers the whole rank arm — master +3 → +6, legendary
+/// +4 → +8 — asserted both sides of each DISTINCT threshold: the
+/// thirteen classes' 15 and Guardian's 17.
+#[test]
+fn greater_weapon_specialization_doubles_the_whole_rank_arm() {
+    assert_eq!(longsword_flat("Fighter", 14, 6), 7, "master, single +3");
+    assert_eq!(
+        longsword_flat("Fighter", 15, 6),
+        10,
+        "master at 15: str 4 + doubled +6"
+    );
+    assert_eq!(longsword_flat("Fighter", 14, 8), 8, "legendary, single +4");
+    assert_eq!(
+        longsword_flat("Fighter", 15, 8),
+        12,
+        "legendary at 15: str 4 + doubled +8"
+    );
+    assert_eq!(longsword_flat("Guardian", 16, 6), 7, "master, single +3");
+    assert_eq!(
+        longsword_flat("Guardian", 17, 6),
+        10,
+        "master at 17: str 4 + doubled +6"
+    );
+    assert_eq!(longsword_flat("Guardian", 16, 8), 8, "legendary, single +4");
+    assert_eq!(
+        longsword_flat("Guardian", 17, 8),
+        12,
+        "legendary at 17: str 4 + doubled +8"
+    );
+}
+
+/// The 13 caster rows never double — their pages carry no greater
+/// feature section — asserted at 20 (legendary): the single +4, flat 8.
+/// A `Some` slipping into any of these rows fails here.
+#[test]
+fn classes_without_a_greater_version_never_double() {
+    for class in NEVER_GREATER {
+        assert_eq!(
+            longsword_flat(class, 20, 8),
+            8,
+            "{class}: str 4 + single legendary +4 — no greater version on the page"
+        );
+    }
+}
+
 /// The reference wizard's own staff, the flip the remaster pages made:
 /// Wizard gains the feature at 13 (Player Core pg. 197) and her simple
 /// rank progresses to expert at display 11, so her staff moves −1 → +1
