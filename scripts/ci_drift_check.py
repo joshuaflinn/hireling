@@ -20,9 +20,12 @@ scripts/check_json_dup_keys.py. A guardrail that skips is not a
 guardrail: missing files and malformed rows fail loudly.
 """
 
+# ruff: noqa: T201, S603 -- a CLI guardrail: printing its verdict is the
+# product, and the self-test spawns this very script (fixed argv, no shell).
+
 import argparse
 import re
-import subprocess  # noqa: S404 -- the self-test spawns this very script; fixed argv, no shell
+import subprocess
 import sys
 import tempfile
 from collections import Counter
@@ -38,6 +41,8 @@ WORKFLOW = Path(".github/workflows/gate.yml")
 # and a regex constant is no more a password than a verdict line is.)
 CHECK_NAME_RE = r"[a-z]+:[a-z0-9-]+"
 LEG_NAME_RE = r"[\w-]+"
+# A declaration row is pass, mirror-or-'-', reason — no more, no less.
+DECLARATION_FIELDS = 3
 # The image prints one verdict line per check: "[PASS] node:tsc".
 IMAGE_LINE_RE = re.compile(r"\[(PASS|FAIL|SKIP)\] (" + CHECK_NAME_RE + r")")
 
@@ -66,10 +71,11 @@ def load_declaration() -> dict[str, tuple[str, str]]:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         fields = line.split("\t")
-        if len(fields) != 3:
+        if len(fields) != DECLARATION_FIELDS:
             fail(
-                f"{DECLARATION}:{lineno}: expected 3 tab-separated fields"
-                f" (pass, mirror-or-'-', reason), got {len(fields)}"
+                f"{DECLARATION}:{lineno}: expected {DECLARATION_FIELDS}"
+                " tab-separated fields (pass, mirror-or-'-', reason),"
+                f" got {len(fields)}"
             )
         name, mirror, reason = (field.strip() for field in fields)
         if not re.fullmatch(CHECK_NAME_RE, name):
@@ -224,24 +230,28 @@ def main() -> None:
 # subprocess with cwd set, exactly how production calls it.
 
 
-def _self_test_case(script: Path, tree: Path, expect_red: bool, name: str, args: list[str]) -> None:
+def _self_test_case(
+    script: Path, tree: Path, name: str, args: list[str], *, expect_red: bool
+) -> None:
     """Run the CLI in a synthetic tree and require the expected verdict."""
-    proc = subprocess.run(  # noqa: S603 -- sys.executable + our own script path
-        # nosemgrep -- audited: dangerous-subprocess-use-audit. Fixed argv
-        # (this script + its own flags), no shell, cwd is a private tempdir
-        # the test just built. Nothing here is externally controllable.
+    proc = subprocess.run(  # nosemgrep -- audited: dangerous-subprocess-use-audit
+        # Fixed argv (this script + its own flags), no shell, cwd is a
+        # private tempdir the test just built. Nothing externally controllable.
         [sys.executable, str(script), *args],
         capture_output=True,
         text=True,
         check=False,
         cwd=tree,
     )
-    if expect_red and proc.returncode == 0:
-        raise SystemExit(f"ci-drift self-test [{name}]: expected red, was green")
-    if not expect_red and proc.returncode != 0:
-        raise SystemExit(
-            f"ci-drift self-test [{name}]: expected green, was red: {proc.stderr.strip()}"
+    was_red = proc.returncode != 0
+    if was_red != expect_red:
+        detail = proc.stderr.strip() or "no diagnostic output"
+        print(
+            f"self-test [{name}]: expected {'red' if expect_red else 'green'},"
+            f" was {'red' if was_red else 'green'}: {detail}",
+            file=sys.stderr,
         )
+        sys.exit(1)
 
 
 def self_test() -> None:
@@ -271,33 +281,37 @@ def self_test() -> None:
             "one:alpha\talpha\tmirrors alpha\ntwo:beta\t-\texempt: provisioning only\n",
             "[PASS] one:alpha\n[PASS] two:beta\n",
         )
-        _self_test_case(script, green, False, "green", [])
-        _self_test_case(script, green, False, "green-image", ["--image-log", "image.log"])
+        _self_test_case(script, green, "green", [], expect_red=False)
+        _self_test_case(
+            script, green, "green-image", ["--image-log", "image.log"], expect_red=False
+        )
 
         # A-red: a ci-local leg with no CI home.
         tree = make_tree("one:alpha\talpha\tmirrors alpha\n", None)
         (tree / "justfile").write_text(
             "ci-local: alpha charlie\n\nalpha:\n\ttrue\ncharlie:\n\ttrue\n", encoding="utf-8"
         )
-        _self_test_case(script, tree, True, "a-ungated-leg", [])
+        _self_test_case(script, tree, "a-ungated-leg", [], expect_red=True)
 
         # B-red: a mirror naming a leg ci-local does not run.
         tree = make_tree("one:alpha\tnonexistent\tmirrors nothing real\n", None)
-        _self_test_case(script, tree, True, "b-phantom-mirror", [])
+        _self_test_case(script, tree, "b-phantom-mirror", [], expect_red=True)
 
         # B-red: a declared pass with no mirror and no written reason.
         tree = make_tree("two:beta\t-\t\n", None)
-        _self_test_case(script, tree, True, "b-empty-reason", [])
+        _self_test_case(script, tree, "b-empty-reason", [], expect_red=True)
 
         # C-red: the image's output names a check the declaration does not know.
         tree = make_tree(
             "one:alpha\talpha\tmirrors alpha\n", "[PASS] one:alpha\n[PASS] node:zork\n"
         )
-        _self_test_case(script, tree, True, "c-undeclared-pass", ["--image-log", "image.log"])
+        _self_test_case(
+            script, tree, "c-undeclared-pass", ["--image-log", "image.log"], expect_red=True
+        )
 
         # C fail-closed: an empty log is a failure, not a pass.
         tree = make_tree("one:alpha\talpha\tmirrors alpha\n", "")
-        _self_test_case(script, tree, True, "c-empty-log", ["--image-log", "image.log"])
+        _self_test_case(script, tree, "c-empty-log", ["--image-log", "image.log"], expect_red=True)
 
     print("ci-drift self-test: 8 cases, all pass")
 
