@@ -145,6 +145,17 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   mode, pinned image) on every PR — a red gate is a red PR, no exceptions. The
   lint/test configs are vendored from Bear's rust-toolkit; if a lint fights you,
   propose tuning it in a PR, don't `#[allow]` around it.
+- **Bring the branch up to date before you ask for review.** `main` is guarded
+  by the `main-gate` ruleset (id `24735400`, enforcement `active`) with
+  `strict_required_status_checks_policy: true`, so a branch BEHIND `main` is a
+  hard block at the merge button however green the gate is. Merge `origin/main`
+  in and push *before* the review ask, so the run that goes green is also the
+  run that can merge. This narrows the carry-over case above; it does not
+  remove it, because `main` can still move during a review — that is what
+  *Verdict carry-over* is for. Do not go looking for this in branch
+  protection: `GET /repos/joshuaflinn/hireling/branches/main/protection` 404s
+  on this repo, which reads as "`main` is unprotected" and is wrong. Rulesets
+  are visible only via `gh api repos/joshuaflinn/hireling/rulesets`.
 - **Sweep for reachability before you hand over.** Walk the spec's requirement
   list and, for each one, name the production-path test that proves it. Where
   the requirement landed in a library module, grep for a caller:
