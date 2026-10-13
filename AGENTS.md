@@ -106,7 +106,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
      offsets may differ, nothing else may. The bases are the merge-bases
      with `origin/main` at review time and at the new head. Mechanical
      form, run once per reviewed path, the two sides' outputs for that
-     path compared equal: `git diff --output-indicator-old=O --output-indicator-new=N <base>...<head> -- <path> | grep -E '^[ON]'`. Where `main` has edited a
+     path compared equal: `git diff --output-indicator-old=O --output-indicator-new=N <base>...<head> -- <path> | grep -E '^([ON]|\\)'`. Where `main` has edited a
      reviewed file, the reviewer also names the incoming `main` hunks and
      states they do not interact with the reviewed ones. The knife-edge
      is the author's text: it moved, new round. A blob test is not
@@ -119,7 +119,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
      text comparison cannot see a semantic interaction with new `main`
      code.
 
-  When all three hold, **whoever is at the press** posts the re-bind on the
+  When all three hold, the re-bind goes on the
   PR as a review comment naming the old head, the new head, and the evidence
   for each condition. The routing splits on condition 2's own branch. Where
   `main` has not edited a reviewed file, the re-bind is wholly mechanical —
@@ -130,7 +130,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   did not move. Where `main` has edited a reviewed file, naming the incoming
   `main` hunks and stating they do not interact with the reviewed ones is
   judgment, and the judgment is the reviewer's — the re-bind routes to them.
-  PR #157 is the live proof of the second branch: an accepted verdict whose
+  PR #157 is the live proof that this case is real: an accepted verdict whose
   head had to move while `main` landed interacting prose in the same bullet.
   The verdict itself is still the reviewer's and only the reviewer's; the
   mechanical re-bind is bookkeeping over their verdict, not a second one.
