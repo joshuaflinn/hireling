@@ -395,7 +395,7 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
    *  resolution happens here (not in vitalsStore) because a live `false`
    *  is a real state and only null/undefined may fall through. */
   const shieldFallback =
-    (character.vitals?.shield_raised ?? null) ?? (baseSheet.ac?.shieldRaised === true);
+    character.vitals?.shield_raised ?? baseSheet.ac?.shieldRaised === true;
   const shieldRaised = derived(vitalsStore('shield_raised', shieldFallback), ($live) => ({
     value: $live.value ?? shieldFallback,
     pending: $live.pending,
