@@ -24,8 +24,17 @@ use crate::pbimport::transform::BaseSheet;
 /// Shield toggle (`character_vitals.shield_raised`, gh#82): `Some` wins
 /// over the sheet's own flag — both directions — and `None` (the column's
 /// NULL, never toggled) defers to `ac.shieldRaised`, PR #73's reader.
+/// `item_traits` is the character's imported-corpus weapon trait map —
+/// lowercased weapon names to display-form trait strings (gh#62 design
+/// D1: `engine_host` loads it; extraction stays pure, Hard rule 2). A
+/// name the map does not carry renders empty traits — nothing invented.
 #[must_use]
-pub fn extract(sheet: &BaseSheet, level_adjust: i64, shield_raised: Option<bool>) -> BaseStats {
+pub fn extract(
+    sheet: &BaseSheet,
+    level_adjust: i64,
+    shield_raised: Option<bool>,
+    item_traits: &std::collections::BTreeMap<String, Vec<String>>,
+) -> BaseStats {
     let eff_level = (sheet.identity.level + level_adjust).clamp(1, 20);
 
     let abilities = &sheet.abilities;
@@ -56,7 +65,7 @@ pub fn extract(sheet: &BaseSheet, level_adjust: i64, shield_raised: Option<bool>
         })
     };
 
-    let strikes = strike_bases(sheet, &ranks, eff_level);
+    let strikes = strike_bases(sheet, &ranks, eff_level, item_traits);
 
     // Render inputs with no modifier math (contract §3 render_base, design
     // D3). hp_max is the PROTOTYPE's formula — CON and the per-level bonus
@@ -299,6 +308,7 @@ fn strike_bases(
     sheet: &BaseSheet,
     ranks: &std::collections::HashMap<String, i64>,
     eff_level: i64,
+    item_traits: &std::collections::BTreeMap<String, Vec<String>>,
 ) -> Vec<StrikeBase> {
     let str_mod = i32_of(ability_mod(sheet.abilities.str));
     let dex_mod = i32_of(ability_mod(sheet.abilities.dex));
@@ -341,10 +351,10 @@ fn strike_bases(
             } else {
                 format!("{name}#{seen}")
             };
-            let traits = weapon_traits(name)
-                .iter()
-                .map(|trait_name| (*trait_name).to_owned())
-                .collect::<Vec<String>>();
+            let traits = item_traits
+                .get(&name.to_lowercase())
+                .cloned()
+                .unwrap_or_default();
             let rank = rank_of(
                 weapon
                     .get("prof")
@@ -355,7 +365,17 @@ fn strike_bases(
                 .get("pot")
                 .and_then(serde_json::Value::as_i64)
                 .unwrap_or(0);
-            let ability_mod_used = if traits.iter().any(|trait_name| trait_name == "Finesse") {
+            // Finesse — Player Core pg. 282 (AoN `Traits.aspx?ID=602`,
+            // read 2026-10-14): "You can use your Dexterity modifier
+            // instead of your Strength modifier on attack rolls using this
+            // melee weapon. You still calculate damage using Strength."
+            // Attack takes the better of the two (Dex instead of Str when
+            // Str is the lesser); damage stays Str below. Case-insensitive:
+            // the corpus's casing is upstream data, not our convention.
+            let ability_mod_used = if traits
+                .iter()
+                .any(|trait_name| trait_name.eq_ignore_ascii_case("finesse"))
+            {
                 str_mod.max(dex_mod)
             } else {
                 str_mod
@@ -408,7 +428,7 @@ fn strike_bases(
 /// The unarmed Fist row the sheet always renders (prototype line 1419):
 /// d4, best of Str/Dex, the fixed unarmed trait row, Agile MAP step.
 fn fist_row(key: &str, attack: i32, flat: i32) -> StrikeBase {
-    let traits: Vec<String> = weapon_traits("Fist")
+    let traits: Vec<String> = FIST_TRAITS
         .iter()
         .map(|trait_name| (*trait_name).to_owned())
         .collect();
@@ -425,16 +445,13 @@ fn fist_row(key: &str, attack: i32, flat: i32) -> StrikeBase {
     }
 }
 
-/// Weapon traits at POC — the prototype's WEAPONS table rows the
-/// reference sheet renders. `Finesse` attacks with the best of Str/Dex;
-/// `Agile` softens the multiple attack penalty (render-side).
-fn weapon_traits(name: &str) -> &'static [&'static str] {
-    match name {
-        "Staff" => &["Monk", "Two-Hand d8"],
-        "Fist" => &["Agile", "Finesse", "Nonlethal", "Unarmed"],
-        _ => &[],
-    }
-}
+/// The fixed unarmed trait row the sheet's appended Fist always renders
+/// (gh#62 design D5): `Fist` is not a corpus item — zero `kind='item'`
+/// rows carry the name — so its row is this const, exactly the pre-swap
+/// prototype's (`base.js` `itemTraits` fallback), pinned value-for-value
+/// by the golden. Every other weapon reads the corpus map or renders
+/// empty; there is no third fallback tier.
+const FIST_TRAITS: &[&str] = &["Agile", "Finesse", "Nonlethal", "Unarmed"];
 
 /// Weapon Specialization — a CLASS feature: each row is (class, the level
 /// its advancement table grants it, the level its page grants the greater
@@ -528,10 +545,19 @@ fn mastery_damage(class: Option<&str>, rank: i64, level: i64) -> i32 {
     }
 }
 
-/// The MAP STEP a strike row renders: Agile strikes step by 4, all others
-/// by 5 (the row shows `−step / −2·step`).
+/// The MAP STEP a strike row renders (the row shows `−step / −2·step`):
+/// Agile strikes step by 4, all others by 5. Both constants are the Agile
+/// trait's own sentence, read off the source page (Player Core pg. 282;
+/// `AoN` `Traits.aspx?ID=526`, read 2026-10-14): "The multiple attack
+/// penalty you take with this weapon on the second attack on your turn
+/// is –4 instead of –5, and –8 instead of –10 on the third and
+/// subsequent attacks in the turn." The match is case-insensitive: the
+/// corpus's casing is upstream data, not our convention.
 fn map_step(traits: &[String]) -> i32 {
-    if traits.iter().any(|trait_name| trait_name == "Agile") {
+    if traits
+        .iter()
+        .any(|trait_name| trait_name.eq_ignore_ascii_case("agile"))
+    {
         4
     } else {
         5

@@ -41,7 +41,15 @@ pub async fn recompute_character(pool: &PgPool, character_id: i64) -> anyhow::Re
         .context("recompute: stored base_sheet does not parse")?;
     // The live Raise-a-Shield toggle (gh#82) rides in as the override; the
     // extractor defers to the sheet's own flag when the column is NULL.
-    let base = extract(&sheet, i64::from(level_adjust), shield_raised);
+    // gh#62: the corpus trait map rides the loader (design D1); the wiring
+    // lands with the recompute test — until then no weapon has corpus
+    // traits, which extraction renders honestly as empty.
+    let base = extract(
+        &sheet,
+        i64::from(level_adjust),
+        shield_raised,
+        &std::collections::BTreeMap::new(),
+    );
 
     let effects = party_effects(pool, party_id).await?;
     let source_names = party_source_names(pool, party_id).await?;
