@@ -2,6 +2,15 @@ import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
 import { inventoryView, tenthsText } from '../../src/lib/sheet/bulk.js';
+// Second real Pathbuilder export (gh#80 evidence): Taraan Skyseeker, a
+// campaign-share export fetched verbatim from a public playthrough repo
+// (enmaku/strength-of-thousands, heroes/taraan-skyseeker.json; only
+// re-indented). Campaign-share exports omit the "success": true wrapper
+// the app adds on manual export — the armor-row shape is the evidence,
+// not a parse fixture. It carries TWO armor rows: a worn suit and a held
+// shield, which settles where Pathbuilder files shields and what `worn`
+// means on them.
+import taraan from '../data/pb_export_taraan_skyseeker.json';
 
 const baseSheet = {
   equipment: [
@@ -58,8 +67,8 @@ const wornSheet = {
   equipment: [{ name: 'Torch', qty: 1, container: null, invested: false }],
   weapons: [{ name: 'Longsword', qty: 1 }],
   armor: [
-    { name: "Explorer's Clothing", worn: true, qty: 1 },
-    { name: 'Shield (stowed)', worn: false, qty: 1 },
+    { name: "Explorer's Clothing", prof: 'unarmored', worn: true, qty: 1 },
+    { name: 'Steel Shield', prof: 'shield', worn: false, qty: 1 },
   ],
   containers: [],
 };
@@ -67,26 +76,26 @@ const wornBulk = {
   Torch: 1,
   Longsword: 10,
   "Explorer's Clothing": 1,
-  'Shield (stowed)': 5,
+  'Steel Shield': 10,
 };
 const qtyOne = () => 1;
 
-test('the character total folds all weapons and worn armor in', () => {
+test('the character total folds weapons, armor rows, and carried suits in', () => {
   const { totalTenths, totalText } = inventoryView(wornSheet, wornBulk, {}, qtyOne);
   assert.equal(
     totalTenths,
-    12,
-    'Torch 1 + Longsword 10 + worn clothing 1; the stowed shield row is outside the fold',
+    22,
+    'Torch 1 + Longsword 10 + worn clothing 1 + stowed shield 10 (a shield counts listed held or stowed — no carried-suit +1)',
   );
-  assert.equal(totalText, '1 Bulk + 2 L');
+  assert.equal(totalText, '2 Bulk + 2 L');
 });
 
-test('non-worn armor is outside the gh#46 fold; corpus gaps contribute zero', () => {
+test('unresolved armor names stay gaps; resolved rows count by the carried rule', () => {
   const gaps = {
     Torch: 1,
     Longsword: null,
     "Explorer's Clothing": null,
-    'Shield (stowed)': 5,
+    'Steel Shield': null,
   };
   const { totalTenths } = inventoryView(wornSheet, gaps, {}, qtyOne);
   assert.equal(totalTenths, 1, 'gaps degrade to 0 — never blocking, never invented');
@@ -95,5 +104,106 @@ test('non-worn armor is outside the gh#46 fold; corpus gaps contribute zero', ()
 test('weapon qty multiplies in the total', () => {
   const twoSwords = { ...wornSheet, weapons: [{ name: 'Longsword', qty: 2 }] };
   const { totalTenths } = inventoryView(twoSwords, wornBulk, {}, qtyOne);
-  assert.equal(totalTenths, 22, 'Torch 1 + 2 × 10 + worn clothing 1');
+  assert.equal(totalTenths, 32, 'Torch 1 + 2 × 10 + worn clothing 1 + stowed shield 10');
+});
+
+// -- gh#80: a carried suit is listed + 1 Bulk (Player Core pg. 271,
+// Armor Statistics → Bulk) --
+
+const suitSheet = (worn) => ({
+  equipment: [],
+  weapons: [],
+  armor: [{ name: 'Full Plate', prof: 'heavy', worn, qty: 1 }],
+  containers: [],
+});
+
+const suitBulk = { 'Full Plate': 20 }; // listed 2 Bulk
+
+test('the same suit worn vs carried makes two different totals (boundary)', () => {
+  const worn = inventoryView(suitSheet(true), suitBulk, {}, qtyOne);
+  assert.equal(worn.totalTenths, 20, 'worn suit: the listed value IS the worn value');
+  const carried = inventoryView(suitSheet(false), suitBulk, {}, qtyOne);
+  assert.equal(carried.totalTenths, 30, 'carried suit: listed + 1 Bulk');
+  assert.equal(carried.totalText, '3 Bulk');
+});
+
+test('carried-suit floor: listed L carries at 1 Bulk, listed 1 Bulk carries at 2', () => {
+  // Both sides of the L/1-Bulk line — one fixture on one side passes
+  // against every wrong threshold on that side.
+  const light = inventoryView(
+    {
+      equipment: [],
+      weapons: [],
+      armor: [{ name: "Explorer's Clothing", prof: 'unarmored', worn: false, qty: 1 }],
+      containers: [],
+    },
+    { "Explorer's Clothing": 1 },
+    {},
+    qtyOne,
+  );
+  assert.equal(light.totalTenths, 10, 'listed L → 1 Bulk carried, not 1 Bulk + 1 L');
+  const oneBulk = inventoryView(
+    { equipment: [], weapons: [], armor: [{ name: 'Leather', prof: 'light', worn: false, qty: 1 }], containers: [] },
+    { Leather: 10 },
+    {},
+    qtyOne,
+  );
+  assert.equal(oneBulk.totalTenths, 20, 'listed 1 Bulk → 2 Bulk carried');
+});
+
+test('carried suits multiply by qty; a carried gap stays a gap', () => {
+  const sheet = {
+    equipment: [],
+    weapons: [],
+    armor: [
+      { name: 'Full Plate', prof: 'heavy', worn: false, qty: 2 },
+      { name: 'Mystery Suit', prof: 'heavy', worn: false, qty: 1 },
+    ],
+    containers: [],
+  };
+  const bulk = { 'Full Plate': 20, 'Mystery Suit': null };
+  const { totalTenths } = inventoryView(sheet, bulk, {}, qtyOne);
+  assert.equal(totalTenths, 60, '2 × (20 + 10) + gap 0 — never invented');
+});
+
+test('shield rows count listed held or stowed — the carried-suit +1 is not for shields', () => {
+  const bulk = { 'Steel Shield': 10 };
+  const sheetFor = (worn) => ({
+    equipment: [],
+    weapons: [],
+    armor: [{ name: 'Steel Shield', prof: 'shield', worn, qty: 1 }],
+    containers: [],
+  });
+  assert.equal(inventoryView(sheetFor(true), bulk, {}, qtyOne).totalTenths, 10, 'held: listed');
+  assert.equal(
+    inventoryView(sheetFor(false), bulk, {}, qtyOne).totalTenths,
+    10,
+    'stowed: listed — no +1',
+  );
+});
+
+// -- the second real export drives the fold: its exported armor rows are
+// the production input shape (verbatim build.armor passthrough) --
+
+test('the real export pins the armor row shape: suit and shield on build.armor', () => {
+  const armor = taraan.build.armor;
+  assert.equal(armor.length, 2, 'more than one armor row — sample-of-one settled');
+  const suit = armor.find((row) => row.name === 'Kilted Breastplate');
+  assert.equal(suit.prof, 'light');
+  assert.equal(suit.worn, true);
+  const shield = armor.find((row) => row.name === "Caster's Targe");
+  assert.equal(shield.prof, 'shield', 'Pathbuilder files shields under build.armor');
+  assert.equal(shield.worn, true, 'worn on a shield row means held-in-hand');
+});
+
+test('the real export folds as exported; carrying the suit adds the +1', () => {
+  const armor = taraan.build.armor;
+  const bulk = { 'Kilted Breastplate': 20, "Caster's Targe": 10 };
+  const sheetFor = (rows) => ({ equipment: [], weapons: [], armor: rows, containers: [] });
+  const asExported = inventoryView(sheetFor(armor), bulk, {}, qtyOne);
+  assert.equal(asExported.totalTenths, 30, 'worn suit 20 + held shield 10');
+  assert.equal(asExported.totalText, '3 Bulk');
+  const suitCarried = armor.map((row) => (row.prof === 'shield' ? row : { ...row, worn: false }));
+  const carried = inventoryView(sheetFor(suitCarried), bulk, {}, qtyOne);
+  assert.equal(carried.totalTenths, 40, 'suit carried: 30 + shield held 10');
 });
