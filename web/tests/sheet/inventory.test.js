@@ -128,6 +128,40 @@ test('Total carried renders the weapons and worn armor', () => {
   );
 });
 
+// -- gh#80 boundary through the mounted panel: the same suit, worn vs
+// carried, renders two different totals --
+
+test('Total carried shows the carried-suit +1: worn vs carried renders differently', () => {
+  const props = (worn) => ({
+    props: {
+      baseSheet: {
+        equipment: [],
+        weapons: [],
+        armor: [{ name: 'Full Plate', prof: 'heavy', worn, qty: 1 }],
+        containers: [],
+      },
+      itemBulk: { 'Full Plate': 20 },
+      itemTraits: {},
+      qtyMap: {},
+      money: { value: { pp: 0, gp: 0, sp: 0, cp: 0 }, pending: false },
+      editable: false,
+    },
+  });
+  const worn = render(InventoryPanel, props(true));
+  assert.match(
+    worn.container.innerHTML,
+    /Total carried: <b>2 Bulk<\/b>/,
+    'worn suit: listed',
+  );
+  cleanup();
+  const carried = render(InventoryPanel, props(false));
+  assert.match(
+    carried.container.innerHTML,
+    /Total carried: <b>3 Bulk<\/b>/,
+    'carried suit: listed + 1 Bulk',
+  );
+});
+
 // ---- the production path owns the behaviour ----------
 
 test('a rejected quantity write surfaces inline at that item; a rejected coin write at the coins', () => {
