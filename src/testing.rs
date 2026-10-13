@@ -473,3 +473,89 @@ pub async fn audit_rows(pool: &PgPool) -> Vec<(String, Option<String>, String, S
     .await
     .expect("audit rows")
 }
+
+/// Build an in-memory release archive from named JSON packs — shared test
+/// support for running the REAL import pipeline (`import_from_bytes`)
+/// without the network. Each entry is `(archive path, documents)`; the
+/// importer reads exactly `packs/conditions.json` and `packs/equipment.json`.
+///
+/// # Panics
+///
+/// Panics if a zip entry fails to write — a broken test fixture, not a
+/// condition to recover from.
+pub(crate) fn pack_zip(packs: &[(&str, serde_json::Value)]) -> Vec<u8> {
+    use std::io::Write as _;
+    use zip::ZipWriter;
+    use zip::write::SimpleFileOptions;
+    let mut buffer = std::io::Cursor::new(Vec::new());
+    {
+        let mut zip = ZipWriter::new(&mut buffer);
+        let options = SimpleFileOptions::default();
+        for (name, docs) in packs {
+            zip.start_file(*name, options).expect("zip entry starts");
+            zip.write_all(docs.to_string().as_bytes())
+                .expect("zip entry writes");
+        }
+        zip.finish().expect("zip finishes");
+    }
+    buffer.into_inner()
+}
+
+/// The conditions pack every corpus-seeding archive must carry: the
+/// importer refuses a zero-document pack of either kind (FR-12), and this
+/// Frightened row (id verbatim from the seed JSON, `condition-tiers.json`)
+/// is the mapping target that keeps the run clean. Body identical to the
+/// doc the `custom_rows` suite has always shipped.
+fn fright_condition_pack() -> serde_json::Value {
+    serde_json::json!([{
+        "_id": "TBSHQspnbcqxsmjL",
+        "name": "Frightened",
+        "type": "condition",
+        "img": "systems/pf2e/icons/conditions/frightened.webp",
+        "system": {
+            "description": {"value": "Status penalty equal to the value."},
+            "publication": {"license": "ORC", "title": "Pathfinder Player Core", "remaster": true},
+            "value": {"isValued": true}
+        }
+    }])
+}
+
+/// An items release archive seeded through the importer's real pipeline
+/// (gh#62 FR-2): one equipment document per item, carrying
+/// `system.bulk.value` and `system.traits.value` in the pack's real key
+/// form. Seeding through `import_from_bytes` stores the importer's actual
+/// document shape — the old hand-written `{"system": …}` top-level shape
+/// the importer never produced, which let the dead bootstrap read pass
+/// green. The Frightened condition rides along because a zero-document
+/// conditions pack fails the run (FR-12).
+///
+/// # Panics
+///
+/// Panics if a zip entry fails to write — a broken test fixture.
+pub(crate) fn corpus_seed_zip(items: &[(&str, f64, &[&str])]) -> Vec<u8> {
+    let equipment: Vec<serde_json::Value> = items
+        .iter()
+        .map(|(name, bulk, traits)| {
+            serde_json::json!({
+                "_id": format!("up-item-{}", name.to_lowercase()),
+                "name": name,
+                "type": "equipment",
+                "img": "systems/pf2e/icons/equipment/test.webp",
+                "system": {
+                    "description": {"value": "Corpus seed item."},
+                    "publication": {
+                        "license": "ORC",
+                        "title": "Pathfinder Player Core",
+                        "remaster": true
+                    },
+                    "bulk": {"value": bulk},
+                    "traits": {"value": traits}
+                }
+            })
+        })
+        .collect();
+    pack_zip(&[
+        ("packs/conditions.json", fright_condition_pack()),
+        ("packs/equipment.json", serde_json::Value::Array(equipment)),
+    ])
+}

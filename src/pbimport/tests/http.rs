@@ -408,10 +408,11 @@ fn leveled_renamed_export() -> String {
 // case-insensitive; corpus gaps ride as null and the misses are logged for
 // E4 follow-up. The production path: a real import, then the real
 // bootstrap read over the router.
-/// The shared harness: account + session, the reference import, corpus
-/// rows (L bulk, a case-mismatched exact name at 0, 1 Bulk with traits),
-/// and the bootstrap payload read back over the real router.
-/// Returns `(app, pool, cookie, payload)`.
+/// The shared harness: account + session, the reference import, a corpus
+/// seeded through the REAL import pipeline (gh#62 FR-2 — the seed stores
+/// the importer's actual document shape, so the bootstrap read cannot
+/// drift from it), and the bootstrap payload read back over the real
+/// router. Returns `(app, pool, cookie, payload)`.
 async fn imported_with_corpus() -> Option<(axum::Router, sqlx::PgPool, String, Value)> {
     crate::sync::test_helpers::install_log_capture();
     let (app, pool) = test_app().await?;
@@ -429,29 +430,27 @@ async fn imported_with_corpus() -> Option<(axum::Router, sqlx::PgPool, String, V
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK, "the import succeeds");
 
-    // "Staff" is a WEAPON on the reference fixture (`build.weapons`, not
-    // equipment). Seeding it here fails the bootstrap tests if the corpus
-    // query ever drops weapon names again.
-    for (name, bulk, traits) in [
-        ("Backpack", 0.1, vec!["backpack"]),
-        ("chalk", 0.0, vec!["consumable"]),
-        ("Rations", 1.0, vec![]),
-        ("Staff", 1.0, vec!["magical", "two-hand d6"]),
-        ("Explorer's Clothing", 0.1, vec![]),
-    ] {
-        sqlx::query(
-            "INSERT INTO corpus_entries (kind, name, lane, data, source_id, pack_version, imported_at) \
-             VALUES ('item', $1, 'imported', $2, $3, 'test', now())",
-        )
-        .bind(name)
-        .bind(serde_json::json!({
-            "system": { "bulk": { "value": bulk }, "traits": { "value": traits } }
-        }))
-        .bind(format!("test-{name}"))
-        .execute(&pool)
-        .await
-        .expect("seed corpus row");
-    }
+    // Corpus via `import_from_bytes` (run_import minus the network): L
+    // bulk, a case-mismatched exact name at 0, 1 Bulk with traits in the
+    // pack's real key form. "Staff" is a WEAPON on the reference fixture
+    // (`build.weapons`, not equipment) — it must resolve anyway, and this
+    // fails the bootstrap tests if the corpus query ever drops weapon
+    // names again.
+    let report = crate::import::import_from_bytes(
+        &pool,
+        "pf2e-8.5.1",
+        &testing::corpus_seed_zip(&[
+            ("Backpack", 0.1, &["backpack"]),
+            ("chalk", 0.0, &["consumable"]),
+            ("Rations", 1.0, &[]),
+            ("Staff", 1.0, &["monk", "two-hand-d8"]),
+            ("Explorer's Clothing", 0.1, &[]),
+        ]),
+        include_str!("../../../data/seed/condition-tiers.json"),
+    )
+    .await
+    .expect("corpus seed import runs");
+    assert!(report.success, "the corpus seed import succeeds");
 
     let me = app
         .clone()
@@ -474,12 +473,12 @@ async fn bootstrap_item_traits_render_the_chips_from_corpus_traits() {
         .expect("item_traits is a map");
     assert_eq!(
         traits.get("Backpack"),
-        Some(&serde_json::json!(["backpack"])),
-        "the chips render from corpus traits"
+        Some(&serde_json::json!(["Backpack"])),
+        "the chips render from corpus traits in display form"
     );
     assert_eq!(
         traits.get("Chalk"),
-        Some(&serde_json::json!(["consumable"]))
+        Some(&serde_json::json!(["Consumable"]))
     );
     assert_eq!(
         traits.get("Rations"),
@@ -488,9 +487,10 @@ async fn bootstrap_item_traits_render_the_chips_from_corpus_traits() {
     );
     assert_eq!(
         traits.get("Staff"),
-        Some(&serde_json::json!(["magical", "two-hand d6"])),
+        Some(&serde_json::json!(["Monk", "Two-Hand d8"])),
         "weapon names resolve — Staff is on `weapons`, not equipment; this \
-         fails if the corpus query drops weapons again"
+         fails if the corpus query drops weapons again; display form, not \
+         the corpus key form"
     );
     assert_eq!(traits.get("Bedroll"), Some(&serde_json::json!([])));
     testing::drop_test_db(pool, "http_item_traits").await;
