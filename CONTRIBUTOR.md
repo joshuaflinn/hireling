@@ -26,7 +26,8 @@ is the agent side; `CONSTITUTION.md` governs both.
    first reviewer; a human is the second.
 5. **Human review, human merge.** The reviewer is never the person (or session)
    that wrote it. Who can merge what is governed by `CONSTITUTION.md` Article
-   III — this file does not restate it. Agents additionally follow `AGENTS.md`.
+   III and its *Governance* section — this file does not restate it. Agents
+   additionally follow `AGENTS.md`.
 
 ## Ground rules
 
