@@ -8,7 +8,8 @@ the tip of `main` before the merge button works. That policy has a measured cost
 under concurrent merges. As of 2026-10-13 the board held 8 open PRs, 2 `BEHIND`,
 1 `BLOCKED`: every merge invalidates every other open PR, and recovery is a
 lap — `gh pr update-branch` (which moves the head), a gate run (measured 5m19s
-to 6m58s across the eight runs of 2026-10-13 17:46–18:20 UTC), and a verdict
+to 6m58s across the eleven successful gate runs of 2026-10-13 17:46–18:20 UTC;
+thirteen runs started in that window, eleven concluded `success`), and a verdict
 carry-over round, because the head a verdict was bound to has moved. gh#131
 paid that lap on 2026-10-13 — one head move (to `f80b529`), one gate run, one
 carry-over round.
@@ -20,16 +21,27 @@ does not change that, it only charges the lap sooner.
 GitHub's merge queue is the off-the-shelf remedy: it builds each entry on the
 one before it, merges only on green, and never moves the PR head. It is not
 available here. `joshuaflinn/hireling` is owned by a personal account
-(`owner.type: "User"`), and GitHub grants the merge queue only to
-organization-owned repositories — public repositories under an organization, or
-private ones under an organization on GitHub Enterprise Cloud. A personal
-account is outside both arms of the grant, and no setting enables it.
+(`owner.type: "User"`), and the grant is organization-only: *"Pull request merge
+queues are available in any public repository owned by an organization, or in
+private repositories owned by organizations using GitHub Enterprise Cloud."* A
+personal account is outside both arms of that sentence, and no setting enables
+it.
+
+Source for the grant — GitHub Docs, *Managing a merge queue*, availability
+notice: <https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue>.
+The notice renders from a reusable, so the quote above is read from the docs
+source rather than the rendered page: `data/reusables/gated-features/merge-queue.md`
+in `github/docs` at commit `3af7960` (2025-01-29), `fpt`/`ghec` arm.
 
 Evidence, gathered 2026-10-13 (gh#140):
 
 - `PUT /repos/joshuaflinn/hireling/rulesets/24735400` carrying a `merge_queue`
   rule returns `422 Validation Failed`, `"Invalid rule 'merge_queue': "`, for
-  every parameter set tried — including GitHub's own documented defaults.
+  every parameter set tried — including the schema's full required set at its
+  mid-range values. The refusal is invariant across HTTP verb, enforcement
+  state, target ref and parameter set: it reproduces on `POST` to a fresh
+  `enforcement: "disabled"` ruleset targeting a branch that does not exist
+  (reproduced independently in review on ruleset `25020334`, gh#158).
 - The rejection is not a payload defect. The same `parameters` object validates
   against `repository-rule-merge-queue` in GitHub's published OpenAPI
   description, and a control ruleset carrying `{"type": "deletion"}` posted and
@@ -64,13 +76,13 @@ Each choice carries the alternative it beat.
 
 | Parameter | Value | Rejected alternative |
 | --- | --- | --- |
-| `merge_method` | `MERGE` | `SQUASH` — `main`'s history is merge commits (`fcef915`, `9253253`); a queue on `SQUASH` would silently split the history into two shapes at the flip. |
+| `merge_method` | `MERGE` | `SQUASH` — `main`'s history is merge commits (`fcef915`, `9253253`); a queue on `SQUASH` would silently split the history into two shapes at the flip. `REBASE` splits it the same way and additionally rewrites the reviewed commits, so the SHA a verdict is bound to never reaches `main`. |
 | `grouping_strategy` | `ALLGREEN` | `HEADGREEN` — gates only the group's head commit, so an entry whose own gate run failed can land inside a green group. That is the gate requirement with a hole in it. |
 | `max_entries_to_build` | `5` | `1` — pure serial, no speculative builds: every entry waits a full gate run after the one before, which gives back most of what the queue buys. `20`+ — speculative CI for a queue that at six users will rarely hold two entries. |
 | `min_entries_to_merge` | `1` | `2` with a wait window — batches two merges onto one gate run, but at this concurrency the queue usually holds exactly one entry, so the wait would be pure added latency on every merge for a batch that never forms. |
 | `max_entries_to_merge` | `5` | `1` — would land one PR per group even with several green entries ready, re-serializing what the speculative builds already paid for. |
-| `min_entries_to_merge_wait_minutes` | `0` | `5` (GitHub's default) — a flat five-minute tax on every merge to wait for a second entry that this repo's merge rate will not produce. |
-| `check_response_timeout_minutes` | `30` | `60` (GitHub's default) — the queue is serial, so a hung gate parks everything behind it for the full window; 30 halves that. `15` — only ~2× the measured 6m58s worst case, which a cold image cache plus runner backlog could trip, and a timeout ejects the entry for a human to re-queue. |
+| `min_entries_to_merge_wait_minutes` | `0` | `5` — a flat five-minute tax on every merge to wait for a second entry that this repo's merge rate will not produce. |
+| `check_response_timeout_minutes` | `30` | `60` — the queue is serial, so a hung gate parks everything behind it for the full window; 30 halves that. `15` — only ~2× the measured 6m58s worst case, which a cold image cache plus runner backlog could trip, and a timeout ejects the entry for a human to re-queue. |
 
 ## Alternatives rejected
 
