@@ -18,10 +18,27 @@ GIT_COMMON_DIR="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-com
 HOOK_DIR="$GIT_COMMON_DIR/hooks"
 mkdir -p "$HOOK_DIR"
 
+# Link from the MAIN worktree's .githooks, never from $SCRIPT_DIR.
+#
+# One hooks dir is shared by every worktree, so the link target has to outlive
+# any single one of them. Installing from a throwaway worktree pins every
+# agent's commit gating to that worktree: edit its .githooks and you have
+# changed the hook for the whole repo with no review, and `git worktree remove`
+# dangles the symlink — at which point git treats the hook as absent and every
+# commit silently stops being gated. A guardrail whose removal is indetectable
+# is worse than none. The main worktree is the one path that is always present,
+# so resolve it from git instead of trusting the caller's cwd.
+MAIN_WORKTREE="$(git -C "$REPO_ROOT" worktree list --porcelain | sed -n '1s/^worktree //p')"
+HOOK_SRC="$MAIN_WORKTREE/.githooks"
+[ -d "$HOOK_SRC" ] || {
+    echo "ERROR: no .githooks in the main worktree ($MAIN_WORKTREE)" >&2
+    exit 1
+}
+
 for hook in pre-commit commit-msg; do
-    chmod +x "$SCRIPT_DIR/$hook"
-    ln -sf "$SCRIPT_DIR/$hook" "$HOOK_DIR/$hook"
-    echo "installed $hook"
+    chmod +x "$HOOK_SRC/$hook"
+    ln -sfn "$HOOK_SRC/$hook" "$HOOK_DIR/$hook"
+    echo "installed $hook -> $HOOK_SRC/$hook"
 done
 
 # core.hooksPath, if set, wins over .git/hooks and would make the symlinks above

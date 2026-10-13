@@ -57,7 +57,7 @@ fn skill_total(base: &BaseStats, name: &str) -> i32 {
 /// trained(L3) = 2+3 = +5, expert(L3) = 4+3 = +7.
 #[test]
 fn golden_globals_match_the_prototype() {
-    let base = extract(&reference_sheet(), 0);
+    let base = extract(&reference_sheet(), 0, None);
     assert_eq!(base.schema, hireling_engine::model::BASE_SCHEMA);
     assert_eq!(base.level, 3);
     assert_eq!(
@@ -80,7 +80,7 @@ fn golden_globals_match_the_prototype() {
 /// order plus the sheet's lores.
 #[test]
 fn golden_skills_match_the_prototype() {
-    let base = extract(&reference_sheet(), 0);
+    let base = extract(&reference_sheet(), 0, None);
     assert_eq!(base.stats.skills.len(), 20, "18 core + 2 lores");
     assert_eq!(skill_total(&base, "acrobatics"), 1, "untrained: dex only");
     assert_eq!(skill_total(&base, "arcana"), 9, "int 4 + trained 2+3");
@@ -108,7 +108,7 @@ fn golden_skills_match_the_prototype() {
 /// display name as `label`; core rows omit the field entirely.
 #[test]
 fn golden_skill_render_inputs_ride_the_row() {
-    let base = extract(&reference_sheet(), 0);
+    let base = extract(&reference_sheet(), 0, None);
     let row_of = |name: &str| {
         base.stats
             .skills
@@ -157,7 +157,7 @@ fn golden_skill_render_inputs_ride_the_row() {
 /// blocks derived.
 #[test]
 fn golden_strikes_and_casters_match_the_prototype() {
-    let base = extract(&reference_sheet(), 0);
+    let base = extract(&reference_sheet(), 0, None);
     assert_eq!(base.stats.strikes.len(), 2, "the Staff + the unarmed Fist");
     let staff = base.stats.strikes.first().expect("staff strike");
     assert_eq!(staff.key, "Staff");
@@ -210,7 +210,7 @@ fn golden_strikes_and_casters_match_the_prototype() {
 /// base.test.js pins for the swap's byte-identical check.
 #[test]
 fn golden_render_base_matches_the_prototype() {
-    let base = extract(&reference_sheet(), 0);
+    let base = extract(&reference_sheet(), 0, None);
     assert_eq!(base.render_base.level, 3);
     assert_eq!(
         base.render_base.hp_max, 32,
@@ -228,11 +228,21 @@ fn golden_render_base_matches_the_prototype() {
     assert_eq!(attributes.cha, 3);
 
     // The hp ceiling re-derives with eff_level; the clamp holds at 20.
-    assert_eq!(extract(&reference_sheet(), 1).render_base.hp_max, 40);
-    assert_eq!(extract(&reference_sheet(), -2).render_base.hp_max, 16);
-    assert_eq!(extract(&reference_sheet(), -2).render_base.cantrip_rank, 1);
-    assert_eq!(extract(&reference_sheet(), 2).render_base.cantrip_rank, 3);
-    let at_twenty = extract(&reference_sheet(), 17);
+    assert_eq!(extract(&reference_sheet(), 1, None).render_base.hp_max, 40);
+    assert_eq!(extract(&reference_sheet(), -2, None).render_base.hp_max, 16);
+    assert_eq!(
+        extract(&reference_sheet(), -2, None)
+            .render_base
+            .cantrip_rank,
+        1
+    );
+    assert_eq!(
+        extract(&reference_sheet(), 2, None)
+            .render_base
+            .cantrip_rank,
+        3
+    );
+    let at_twenty = extract(&reference_sheet(), 17, None);
     assert_eq!(at_twenty.render_base.level, 20, "clamped");
     assert_eq!(at_twenty.render_base.hp_max, 168, "8 + 8 × 20");
 }
@@ -303,7 +313,7 @@ fn first_drift(
 /// pipeline, commit, then re-run the web suite.
 #[test]
 fn web_engine_output_fixture_tracks_the_extractor() {
-    let base = extract(&reference_sheet(), 0);
+    let base = extract(&reference_sheet(), 0, None);
     let output =
         hireling_engine::compute::compute(7, &base, &[], &std::collections::BTreeMap::new());
     let emitted = serde_json::to_value(&output).expect("EngineOutput serializes");
@@ -328,7 +338,7 @@ fn web_engine_output_fixture_tracks_the_extractor() {
 /// speed total do not move.
 #[test]
 fn level_adjust_plus_one_adds_level_to_trained_only() {
-    let base = extract(&reference_sheet(), 1);
+    let base = extract(&reference_sheet(), 1, None);
     assert_eq!(base.level, 4);
     assert_eq!(base.stats.fort, 8, "con 2 + trained 2+4");
     assert_eq!(base.stats.will, 8, "wis 0 + expert 4+4");
@@ -350,7 +360,7 @@ fn level_adjust_plus_one_adds_level_to_trained_only() {
 
 #[test]
 fn level_adjust_minus_one_subtracts_level_from_trained_only() {
-    let base = extract(&reference_sheet(), -1);
+    let base = extract(&reference_sheet(), -1, None);
     assert_eq!(base.level, 2);
     assert_eq!(base.stats.fort, 6, "con 2 + trained 2+2");
     assert_eq!(base.stats.class_dc, Some(18));
@@ -364,7 +374,7 @@ fn level_adjust_minus_one_subtracts_level_from_trained_only() {
 /// export's level bumps.
 #[test]
 fn wizard_progression_bumps_ranks_above_the_export_level() {
-    let base = extract(&reference_sheet(), 2);
+    let base = extract(&reference_sheet(), 2, None);
     assert_eq!(base.level, 5);
     assert_eq!(
         base.stats.reflex, 10,
@@ -384,7 +394,7 @@ fn wizard_progression_bumps_ranks_above_the_export_level() {
 /// own block rank (E6 pins the same numbers at feat/8 base.test.js).
 #[test]
 fn caster_rank_takes_the_tradition_bump_innate_keeps_hers() {
-    let base = extract(&reference_sheet(), 4);
+    let base = extract(&reference_sheet(), 4, None);
     assert_eq!(base.level, 7);
     let wizard = base.stats.casters.first().expect("wizard");
     assert_eq!(
@@ -441,11 +451,21 @@ const GAINED_AT: &[(&str, i64)] = &[
 /// the production path whose wire the sheet renders, not the helper in
 /// isolation. Str 18 (+4), so the flat reads 4 without the feature.
 fn longsword_flat(class: &str, level: i64, rank: i64) -> i32 {
+    longsword_flat_dual(class, None, level, rank)
+}
+
+/// The same probe for a dual-class build: `class` primary, `dual` the
+/// export's `dualClass` half (transform.rs reads the field verbatim —
+/// nothing new crosses the import boundary). `None` emits no field.
+fn longsword_flat_dual(class: &str, dual: Option<&str>, level: i64, rank: i64) -> i32 {
+    let dual_field = dual
+        .map(|name| format!(r#","dualClass":"{name}""#))
+        .unwrap_or_default();
     let export = format!(
-        r#"{{"success":true,"build":{{"name":"Probe","class":"{class}","level":{level},"abilities":{{"str":18,"dex":12,"con":14,"int":10,"wis":10,"cha":10}},"proficiencies":{{"martial":{rank}}},"weapons":[{{"name":"Longsword","die":"d8","prof":"martial","pot":0,"damageType":"S"}}]}}}}"#
+        r#"{{"success":true,"build":{{"name":"Probe","class":"{class}"{dual_field},"level":{level},"abilities":{{"str":18,"dex":12,"con":14,"int":10,"wis":10,"cha":10}},"proficiencies":{{"martial":{rank}}},"weapons":[{{"name":"Longsword","die":"d8","prof":"martial","pot":0,"damageType":"S"}}]}}}}"#
     );
     let export = model::parse_and_validate(&export).expect("probe export is valid");
-    let base = extract(&transform::transform(&export).0, 0);
+    let base = extract(&transform::transform(&export).0, 0, None);
     let output =
         hireling_engine::compute::compute(7, &base, &[], &std::collections::BTreeMap::new());
     output
@@ -507,6 +527,77 @@ fn weapon_specialization_matches_the_class_regardless_of_casing() {
         longsword_flat("FIGHTER", 7, 4),
         6,
         "uppercase export string"
+    );
+}
+
+// -- A dual-class character strikes through EITHER half's feature (gh#84) --
+// -- (Weapon Specialization is a class feature; the ruling on MOR-118)     --
+
+/// Fighter/Wizard: the Fighter half grants the feature at 7, the Wizard
+/// half at 13 — whichever half grants it EARLIER sets the gate. Both
+/// sides of that earlier threshold, and the halves in both orders: the
+/// export's primary/dual split is data, not a rule.
+#[test]
+fn dual_class_earlier_half_sets_the_specialization_gate() {
+    assert_eq!(
+        longsword_flat_dual("Fighter", Some("Wizard"), 7, 4),
+        6,
+        "Fighter/Wizard at 7: str 4 + the Fighter half's +2 (expert)"
+    );
+    assert_eq!(
+        longsword_flat_dual("Fighter", Some("Wizard"), 6, 4),
+        4,
+        "at 6: below both halves' gates — str only"
+    );
+    assert_eq!(
+        longsword_flat_dual("Wizard", Some("Fighter"), 7, 4),
+        6,
+        "Wizard primary, Fighter dual: the halves' order is not the rule"
+    );
+}
+
+/// Neither half gates early: Wizard/Druid both sit at 13, so level 12
+/// pays str only — the dual read must not widen the feature to any
+/// build that names a spec class at all.
+#[test]
+fn dual_class_waits_when_both_halves_gate_late() {
+    assert_eq!(
+        longsword_flat_dual("Wizard", Some("Druid"), 12, 4),
+        4,
+        "Wizard/Druid at 12: neither half at 13 yet — str only"
+    );
+    assert_eq!(
+        longsword_flat_dual("Wizard", Some("Druid"), 13, 4),
+        6,
+        "Wizard/Druid at 13: the shared gate opens — str 4 + 2"
+    );
+}
+
+/// The halves do not stack: Fighter/Wizard at 13 holds both halves'
+/// features but one feature's +2 — and from 15 the Fighter half's
+/// greater version doubles it, asserted both sides of that earlier
+/// greater threshold (the dual counterpart of the greater sweep below).
+#[test]
+fn dual_class_spec_takes_the_better_half_never_the_sum() {
+    assert_eq!(
+        longsword_flat_dual("Fighter", Some("Wizard"), 13, 4),
+        6,
+        "Fighter/Wizard at 13: +2 once — the halves' features do not add"
+    );
+    assert_eq!(
+        longsword_flat_dual("Fighter", Some("Wizard"), 14, 4),
+        6,
+        "at 14: the Fighter half's greater version waits for 15 — single +2"
+    );
+    assert_eq!(
+        longsword_flat_dual("Fighter", Some("Wizard"), 15, 4),
+        8,
+        "at 15: str 4 + the Fighter half's doubled +4 (expert)"
+    );
+    assert_eq!(
+        longsword_flat_dual("Wizard", Some("Fighter"), 15, 4),
+        8,
+        "Wizard primary: the dual half's greater version doubles it too"
     );
 }
 
@@ -627,7 +718,7 @@ fn classes_without_a_greater_version_never_double() {
 /// at display 13 — while the export-level golden (level 3) stays −1.
 #[test]
 fn the_reference_wizard_gains_the_feature_at_display_13() {
-    let base = extract(&reference_sheet(), 10);
+    let base = extract(&reference_sheet(), 10, None);
     assert_eq!(base.level, 13);
     let output =
         hireling_engine::compute::compute(7, &base, &[], &std::collections::BTreeMap::new());
@@ -674,7 +765,7 @@ fn shield_bonus_applies_only_while_raised() {
         .expect("raised export is valid");
     let lowered = model::parse_and_validate(&shielded("")).expect("lowered export is valid");
     let ac = |sheet: &transform::BaseSheet| {
-        let base = extract(sheet, 0);
+        let base = extract(sheet, 0, None);
         hireling_engine::compute::compute(7, &base, &[], &std::collections::BTreeMap::new())
             .derived
             .ac
@@ -692,6 +783,56 @@ fn shield_bonus_applies_only_while_raised() {
     );
 }
 
+/// The live Raise-a-Shield toggle (`character_vitals.shield_raised`,
+/// gh#82) rides `extract` as an override: `Some` wins over the sheet's own
+/// flag — both directions — and `None` defers to it (a never-toggled
+/// character renders PR #73's import-state truth). Four fixtures: the
+/// sheet flag alone is not enough to pass against a hardcoded override.
+#[test]
+fn the_live_toggle_overrides_the_sheet_flag_only_when_present() {
+    let shielded = |raised: &str| {
+        format!(
+            r#"{{"success":true,"build":{{"name":"Bulwark","class":"Fighter","level":3,"abilities":{{"str":16,"dex":14,"con":14,"int":10,"wis":10,"cha":10}},"proficiencies":{{"unarmored":2}},"acTotal":{{"acAbilityBonus":1,"acItemBonus":0,"shieldBonus":2,"acTotal":18{raised}}}}}}}"#
+        )
+    };
+    let sheet_silent = transform::transform(
+        &model::parse_and_validate(&shielded("")).expect("silent export is valid"),
+    )
+    .0;
+    let sheet_raised = transform::transform(
+        &model::parse_and_validate(&shielded(",\"shieldRaised\":true"))
+            .expect("raised export is valid"),
+    )
+    .0;
+    let ac = |sheet: &transform::BaseSheet, toggle: Option<bool>| {
+        let base = extract(sheet, 0, toggle);
+        hireling_engine::compute::compute(7, &base, &[], &std::collections::BTreeMap::new())
+            .derived
+            .ac
+            .total
+    };
+    assert_eq!(
+        ac(&sheet_silent, None),
+        16,
+        "no live toggle, no sheet flag: lowered"
+    );
+    assert_eq!(
+        ac(&sheet_silent, Some(true)),
+        18,
+        "the live toggle raises what the sheet never marked"
+    );
+    assert_eq!(
+        ac(&sheet_raised, None),
+        18,
+        "no live toggle: the sheet's own raised flag governs (PR #73)"
+    );
+    assert_eq!(
+        ac(&sheet_raised, Some(false)),
+        16,
+        "the live toggle lowers what the import marked raised — Some wins"
+    );
+}
+
 // -- degraded sections and keying rules --
 
 /// `damageType` is READ from the export, not assumed:
@@ -705,12 +846,12 @@ fn damage_type_reads_the_export_not_a_constant() {
         r#"{"success":true,"build":{"name":"Dagger Kit","level":2,"abilities":{"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10},"proficiencies":{},"weapons":[{"name":"Dagger","die":"d4","attack":2,"damageBonus":0,"damageType":"S"}]}}"#,
     )
     .expect("dagger export is valid");
-    let base = extract(&transform::transform(&export).0, 0);
+    let base = extract(&transform::transform(&export).0, 0, None);
     let dagger = base.stats.strikes.first().expect("dagger strike");
     assert_eq!(dagger.damage_type, "S", "the export's letter, verbatim");
     assert_eq!(dagger.damage_type_name, "slashing", "the S arm of the map");
 
-    let minimal = extract(&minimal_sheet(), 0);
+    let minimal = extract(&minimal_sheet(), 0, None);
     let staff = minimal.stats.strikes.first().expect("staff strike");
     assert_eq!(
         staff.damage_type, "",
@@ -723,7 +864,7 @@ fn damage_type_reads_the_export_not_a_constant() {
 /// never an invention of a plausible value.
 #[test]
 fn missing_attributes_degrade_speed_to_zero() {
-    let base = extract(&minimal_sheet(), 0);
+    let base = extract(&minimal_sheet(), 0, None);
     assert_eq!(base.stats.speed, 0);
     assert_eq!(base.stats.class_dc, None, "rank 0: null, nothing invented");
 }
@@ -733,7 +874,7 @@ fn missing_attributes_degrade_speed_to_zero() {
 /// appended unarmed Fist goes through the same counter.
 #[test]
 fn duplicate_weapon_names_get_stable_suffixes() {
-    let base = extract(&minimal_sheet(), 0);
+    let base = extract(&minimal_sheet(), 0, None);
     let keys: Vec<&str> = base
         .stats
         .strikes

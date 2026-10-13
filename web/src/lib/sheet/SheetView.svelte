@@ -108,6 +108,7 @@
     heroPoints,
     heroMax,
     daily,
+    shieldRaised,
     slots,
     qtyMap,
     syncing,
@@ -280,6 +281,7 @@
           focusMax={$focusMax ?? 0}
           heroPoints={$heroPoints}
           heroMax={$heroMax ?? 0}
+          shieldRaised={$shieldRaised}
           opErrors={$opErrors}
           {editable}
           offline={$offline}
@@ -289,6 +291,7 @@
           ontemp={(/** @type {number} */ value) => sheet.writeTempHp(value)}
           onfocus={(/** @type {number} */ value) => sheet.writeFocus(value)}
           onhero={(/** @type {number} */ value) => sheet.writeHeroPoints(value)}
+          onshield={(/** @type {boolean} */ raised) => sheet.writeShieldRaised(raised)}
         />
         <StrikesPane view={$view} />
       {:else}

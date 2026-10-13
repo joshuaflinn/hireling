@@ -41,7 +41,8 @@ pub struct WriteResult {
     pub broadcast: Option<(FieldTarget, JsonValue)>,
     /// Characters whose derived numbers changed — old ∪ new targets of an
     /// applied effect op (sorted, deduped). Empty for field writes except
-    /// `level_adjust`: its `eff_level` feeds the engine's inputs (gh#59).
+    /// `level_adjust` and `shield_raised`: both feed the engine's inputs
+    /// (gh#59, gh#82), so an applied write fans out the recompute.
     pub affected: Vec<i64>,
 }
 
@@ -179,14 +180,16 @@ pub async fn apply_write(
     if outcome == Outcome::Applied
         && let FieldTarget::Vitals {
             character_id,
-            field: VitalsField::LevelAdjust,
+            field,
         } = op.target
+        && matches!(field, VitalsField::LevelAdjust | VitalsField::ShieldRaised)
     {
         // eff_level feeds every proficiency-bearing stat, hp_max, and the
-        // cantrip rank (E8 design D3's extraction table) — a committed
-        // level_adjust changes the engine's inputs, so the commit fans out
-        // the derived consequence exactly like an effect write (D4/D6):
-        // one recompute per affected character, after the diff, TCP-ordered.
+        // cantrip rank (E8 design D3's extraction table); the shield flag
+        // gates the shield's AC bonus (gh#82) — a committed write to either
+        // changes the engine's inputs, so the commit fans out the derived
+        // consequence exactly like an effect write (D4/D6): one recompute
+        // per affected character, after the diff, TCP-ordered.
         result.affected = vec![character_id];
     }
     Ok(result)
@@ -1155,25 +1158,7 @@ async fn cas_vitals(
         .fetch_optional(&mut **tx)
         .await
         .context("CAS level_adjust")?,
-        VitalsField::Money => {
-            let money = MoneyValue::from_json(value);
-            sqlx::query_scalar(
-                "UPDATE character_vitals SET money_pp = $1, money_gp = $2, \
-                 money_sp = $3, money_cp = $4, \
-                 money_version = nextval('field_version_seq'), updated_at = now() \
-                 WHERE character_id = $5 AND money_version = $6 \
-                 RETURNING money_version",
-            )
-            .bind(money.pp)
-            .bind(money.gp)
-            .bind(money.sp)
-            .bind(money.cp)
-            .bind(character_id)
-            .bind(base_version)
-            .fetch_optional(&mut **tx)
-            .await
-            .context("CAS money")?
-        }
+        VitalsField::Money => cas_money(tx, character_id, base_version, value).await?,
         VitalsField::FocusCurrent => sqlx::query_scalar(
             "UPDATE character_vitals SET focus_current = $1, \
                  focus_version = nextval('field_version_seq'), updated_at = now() \
@@ -1210,12 +1195,56 @@ async fn cas_vitals(
         .fetch_optional(&mut **tx)
         .await
         .context("CAS daily")?,
+        // The Raise-a-Shield toggle (gh#82): bounds guaranteed a boolean.
+        // NULL is the never-toggled state — the CAS always writes true/false,
+        // so a live lower is `false`, never a reset to NULL.
+        VitalsField::ShieldRaised => sqlx::query_scalar(
+            "UPDATE character_vitals SET shield_raised = $1, \
+                 shield_raised_version = nextval('field_version_seq'), updated_at = now() \
+                 WHERE character_id = $2 AND shield_raised_version = $3 \
+                 RETURNING shield_raised_version",
+        )
+        .bind(value.as_bool())
+        .bind(character_id)
+        .bind(base_version)
+        .fetch_optional(&mut **tx)
+        .await
+        .context("CAS shield_raised")?,
     };
     let Some(version) = new_version else {
         let winning = read_vitals_version(tx, character_id, field).await?;
         return Ok((Outcome::Superseded, None, Some(winning)));
     };
     Ok((Outcome::Applied, Some(version), None))
+}
+
+/// CAS the money unit: the contract gives the four denominations ONE
+/// version unit (E2's schema), so its write is four columns under one
+/// `money_version` — its own function, unlike every single-column arm.
+async fn cas_money(
+    tx: &mut Transaction<'_, Postgres>,
+    character_id: i64,
+    base_version: i64,
+    value: &JsonValue,
+) -> anyhow::Result<Option<i64>> {
+    let money = MoneyValue::from_json(value);
+    let new_version: Option<i64> = sqlx::query_scalar(
+        "UPDATE character_vitals SET money_pp = $1, money_gp = $2, \
+         money_sp = $3, money_cp = $4, \
+         money_version = nextval('field_version_seq'), updated_at = now() \
+         WHERE character_id = $5 AND money_version = $6 \
+         RETURNING money_version",
+    )
+    .bind(money.pp)
+    .bind(money.gp)
+    .bind(money.sp)
+    .bind(money.cp)
+    .bind(character_id)
+    .bind(base_version)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("CAS money")?;
+    Ok(new_version)
 }
 
 /// CAS one spell-slot row: a whole-slot write — unmentioned fields reset
@@ -1365,6 +1394,13 @@ async fn read_vitals_version(
                 .await
                 .context("re-read daily_version")
         }
+        VitalsField::ShieldRaised => sqlx::query_scalar(
+            "SELECT shield_raised_version FROM character_vitals WHERE character_id = $1",
+        )
+        .bind(character_id)
+        .fetch_one(&mut **tx)
+        .await
+        .context("re-read shield_raised_version"),
     }
 }
 
@@ -1470,6 +1506,14 @@ fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result<(), String
             VitalsField::FocusCurrent => int_in_range(value, 0, i32::MAX, "focus_current"),
             VitalsField::HeroPoints => int_in_range(value, 0, i32::MAX, "hero_points"),
             VitalsField::Daily => validate_daily(value),
+            VitalsField::ShieldRaised => match value {
+                JsonValue::Bool(_) => Ok(()),
+                JsonValue::Null
+                | JsonValue::Number(_)
+                | JsonValue::String(_)
+                | JsonValue::Array(_)
+                | JsonValue::Object(_) => Err("shield_raised must be a boolean".to_owned()),
+            },
         },
         FieldTarget::Slot { .. } => {
             let Some(object) = value.as_object() else {
@@ -1775,6 +1819,12 @@ mod bounds_tests {
         let hero = |value| validate_bounds(&vitals(VitalsField::HeroPoints), &value);
         assert!(hero(json!(0)).is_ok());
         assert!(hero(json!(-1)).is_err(), "hero points >= 0 is a bound");
+
+        let shield = |value| validate_bounds(&vitals(VitalsField::ShieldRaised), &value);
+        assert!(shield(json!(true)).is_ok());
+        assert!(shield(json!(false)).is_ok(), "lowered is a real live state");
+        assert!(shield(json!("yes")).is_err(), "must be a boolean");
+        assert!(shield(json!(1)).is_err(), "must be a boolean");
 
         let daily = |value| validate_bounds(&vitals(VitalsField::Daily), &value);
         let zeroed = json!({"staff_charge_rank": 0, "staff_spent": 0, "drain_used": false});
