@@ -1,7 +1,13 @@
 name: gate
 
+# merge_group: the `gate` context is what a merge queue waits on, and a queue
+# entry publishes no `pull_request` event — without this trigger, requiring the
+# queue on `main` parks every entry forever on a check that never runs. Listed
+# here so enabling the queue is a ruleset flip and not a workflow change
+# (docs/decisions/0001-merge-preconditions.md).
 on:
   pull_request:
+  merge_group:
   push:
     branches: [main]
 

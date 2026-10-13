@@ -89,6 +89,19 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   condition. That comment is the record, same as any verdict — a carry-over
   is never silent. If any condition fails, it is a new review round, full
   stop.
+- **`BEHIND` is not a merge blocker.** `main` requires `gate` `success` at the
+  exact head being merged, read off the check-runs API. It does not require the
+  head to contain `main`'s tip — `strict_required_status_checks_policy` is
+  `false` on the `main-gate` ruleset, and
+  `docs/decisions/0001-merge-preconditions.md` carries the reasoning and the
+  race that justified it. A `BEHIND` PR with a green gate and a bound verdict is
+  mergeable. What stands in for the strict check is a path comparison, run
+  immediately before the press: `gh pr diff <n> --name-only` against
+  `git diff --name-only <gate-run-base>..origin/main`. Disjoint paths → press.
+  Overlapping paths → `gh pr update-branch`, re-gate, carry the verdict over
+  under the three conditions above. Do not `update-branch` a PR because GitHub
+  printed `BEHIND`: every head move spends a gate run and a carry-over round,
+  and `main` moving on `CONTRIBUTOR.md` cannot interact with an engine diff.
 - **Claim before you code.** Only start an issue that is *unassigned*, and
   self-assign it on GitHub before writing any code. If a human holds it, it's
   theirs — pick another.
