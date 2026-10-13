@@ -108,18 +108,23 @@ export function inventoryView(baseSheet, itemBulk, itemTraits, qtyOf) {
   // panes, not the inventory list, so they add to the total without
   // adding list rows.
   const weaponsTenths = (baseSheet.weapons ?? []).reduce(
+    /** @type {(acc: number, item: any) => number} */
     (acc, item) => acc + (itemBulk[item.name] ?? 0) * (item.qty ?? 1),
     0,
   );
-  const armorTenths = (baseSheet.armor ?? []).reduce((acc, item) => {
-    const listed = itemBulk[item.name];
-    if (listed === null || listed === undefined) return acc; // corpus gap → 0
-    const carriedSuit = !item.worn && item.prof !== 'shield';
-    // L (1 tenth) carries as 1 Bulk (10); a listed ≥ 1 Bulk carries as
-    // listed + 1 Bulk (Player Core pg. 271, Armor Statistics → Bulk).
-    const tenths = carriedSuit ? (listed < 10 ? 10 : listed + 10) : listed;
-    return acc + tenths * (item.qty ?? 1);
-  }, 0);
+  const armorTenths = (baseSheet.armor ?? []).reduce(
+    /** @type {(acc: number, item: any) => number} */
+    (acc, item) => {
+      const listed = itemBulk[item.name];
+      if (listed === null || listed === undefined) return acc; // corpus gap → 0
+      const carriedSuit = !item.worn && item.prof !== 'shield';
+      // L (1 tenth) carries as 1 Bulk (10); a listed ≥ 1 Bulk carries as
+      // listed + 1 Bulk (Player Core pg. 271, Armor Statistics → Bulk).
+      const tenths = carriedSuit ? (listed < 10 ? 10 : listed + 10) : listed;
+      return acc + tenths * (item.qty ?? 1);
+    },
+    0,
+  );
   total += weaponsTenths + armorTenths;
 
   return { groups, totalTenths: total, totalText: tenthsText(total) };
