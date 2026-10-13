@@ -205,18 +205,18 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          docker run --rm
-          --network host
-          -v "$PWD:/src"
-          -v "$HOME/.cache/grizzly-gate:/cache"
-          -e CARGO_HOME=/cache/cargo
-          -e HIRELING_TEST_DATABASE_URL=postgres://hireling:hireling@127.0.0.1:5432/postgres
-          -e GIT_CONFIG_COUNT=1
-          -e GIT_CONFIG_KEY_0=safe.directory
-          -e GIT_CONFIG_VALUE_0=*
-          -w /src
-          "${{ env.GATE_IMAGE }}"
-          --source /src 2>&1 | tee "$RUNNER_TEMP/gate-image-output.log"
+          docker run --rm \
+            --network host \
+            -v "$PWD:/src" \
+            -v "$HOME/.cache/grizzly-gate:/cache" \
+            -e CARGO_HOME=/cache/cargo \
+            -e HIRELING_TEST_DATABASE_URL=postgres://hireling:hireling@127.0.0.1:5432/postgres \
+            -e GIT_CONFIG_COUNT=1 \
+            -e GIT_CONFIG_KEY_0=safe.directory \
+            -e GIT_CONFIG_VALUE_0=* \
+            -w /src \
+            "${{ env.GATE_IMAGE }}" \
+            --source /src 2>&1 | tee "$RUNNER_TEMP/gate-image-output.log"
         # --network host: the gate container's 127.0.0.1 is its own network
         # namespace, so without this the service Postgres above is unreachable
         # no matter what the env says (gh#125). Host networking puts the
