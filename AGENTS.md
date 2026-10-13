@@ -77,18 +77,20 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
      --no-merges <old-head>..<new-head> --not origin/main` returns empty.
      The first command alone shows only the most recent merge — it cannot
      prove the head move carried nothing else.
-  2. **Identical contribution.** The diff the review covered is
-     byte-identical at the new head: `git diff <old-base>...<old-head>`
-     equals `git diff <new-base>...<new-head>` for every reviewed path,
-     the bases being the merge-bases with `origin/main` at review time and
-     at the new head. Where `main` has edited a reviewed file, the author's
-     hunks must be unchanged in text — offset shifts allowed — and the
-     reviewer names the incoming `main` hunks and states they do not
-     interact with the reviewed ones. The knife-edge is the author's text:
-     it moved, new round. This replaces the older *identical blobs* test,
-     which also fired when `main` arrived in a reviewed file with nothing
-     of the author's riding in — the PR #155 sequence; evidence in PR
-     comments 6151802113 and 6151849718.
+  2. **Identical contribution.** The author's own text is unchanged at
+     the new head. For every reviewed path, the added and removed lines
+     of `git diff <old-base>...<old-head>` and `git diff
+     <new-base>...<new-head>` are identical; `index` lines and `@@`
+     offsets may differ, nothing else may. The bases are the merge-bases
+     with `origin/main` at review time and at the new head. Mechanical
+     form: pipe each side through `grep -E '^[+-]' | grep -vE
+     '^(\+\+\+|---)'` and compare the outputs. Where `main` has edited a
+     reviewed file, the reviewer also names the incoming `main` hunks and
+     states they do not interact with the reviewed ones. The knife-edge
+     is the author's text: it moved, new round. A blob test is not
+     enough: it also fires when `main` arrives in a reviewed file with
+     nothing of the author's riding in — the PR #155 sequence; evidence
+     in PR comments 6151802113 and 6151849718.
   3. **Gate green at the new head.** The `gate` check is `success` at the
      new head, read off the check-runs API. The gate always re-runs — the
      gate certifies the merged tree, the review certifies the diff, and a
