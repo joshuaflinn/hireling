@@ -68,6 +68,28 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   required approvals on `main` stay at 0 for the same reason. A merged PR
   with an empty review timeline is a missing record: restore it before the
   next merge ask.
+- **A review round opens with a check-runs read at the head under review.**
+  Before the diff: name the head, then read the `gate` check at it with
+  `gh api repos/joshuaflinn/hireling/commits/<sha>/check-runs`. The check-run
+  is the certificate. A bench `just ci-local` is corroboration and never a
+  substitute, because the two can disagree with the bench wrong: on PR #139
+  the gate image carried TypeScript 7.0.2 against `web/`'s 5.9.3 pin, TS2871
+  postdates 5.9, and so a green bench run at `f29e85d` *was* the defect. No
+  bench run could have caught that; the check-run at the head did.
+
+  **Name the head from the ref, not from the PR object** — `git fetch origin
+  <branch>` then `git rev-parse FETCH_HEAD`, or `git ls-remote origin
+  <branch>`. `gh pr view --json headRefOid` can serve a head minutes stale:
+  on PR #139 it served the superseded head `f29e85d` for about two minutes
+  after the push of `9116908` landed. The check-runs read at `f29e85d`
+  returns `gate / failure` (workflow run 38417930166) — indistinguishable
+  from a current red, while the gate at `9116908` was `success`, 16/16.
+  Reading check-runs at the wrong head is the same fault as not
+  reading them, and it fails both dangerous ways: a stale red bounces an
+  engineer for work already fixed, and a stale green certifies a head nobody
+  gated. Every verdict states the SHA it is bound to, so a wrong-head read is
+  visible in the record afterwards — that is what makes this rule
+  self-checking, and it costs nothing the record does not already carry.
 - **Verdict carry-over.** A verdict re-binds to a new head without a new
   review round only when **all three** of these hold, each posted as
   checkable evidence on the PR:
