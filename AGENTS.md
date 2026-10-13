@@ -89,19 +89,6 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   condition. That comment is the record, same as any verdict — a carry-over
   is never silent. If any condition fails, it is a new review round, full
   stop.
-- **`BEHIND` is not a merge blocker.** `main` requires `gate` `success` at the
-  exact head being merged, read off the check-runs API. It does not require the
-  head to contain `main`'s tip — `strict_required_status_checks_policy` is
-  `false` on the `main-gate` ruleset, and
-  `docs/decisions/0001-merge-preconditions.md` carries the reasoning and the
-  race that justified it. A `BEHIND` PR with a green gate and a bound verdict is
-  mergeable. What stands in for the strict check is a path comparison, run
-  immediately before the press: `gh pr diff <n> --name-only` against
-  `git diff --name-only <gate-run-base>..origin/main`. Disjoint paths → press.
-  Overlapping paths → `gh pr update-branch`, re-gate, carry the verdict over
-  under the three conditions above. Do not `update-branch` a PR because GitHub
-  printed `BEHIND`: every head move spends a gate run and a carry-over round,
-  and `main` moving on `CONTRIBUTOR.md` cannot interact with an engine diff.
 - **Claim before you code.** Only start an issue that is *unassigned*, and
   self-assign it on GitHub before writing any code. If a human holds it, it's
   theirs — pick another.
@@ -114,9 +101,16 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   branch collision. The keep-all-commits instruction carries a premise: the
   provisioned branch is *this* task's PR branch, 1:1. Check the premise at
   pickup (`git branch --show-current`, then `gh pr list --head <branch>
-  --state open`): if the branch is already another open PR's head, or it
-  carries another task's commits, the premise has failed — committing would
-  move a review head that a verdict may be bound to. Do not commit to it;
+  --state open`, then `git status --short`): if the branch is already
+  another open PR's head, if it carries another task's commits, or if the
+  tree holds modified or untracked paths this task will not touch, the
+  premise has failed — committing would move a review head that a verdict
+  may be bound to, or sweep a foreign path onto it. The tree check is
+  co-equal with the branch checks: a correctly-provisioned workspace can
+  still hold another seat's uncommitted work, and it passes both branch
+  checks. Foreign WIP is not yours to clean — no `git checkout --`, no
+  `git stash`, no delete (the stash stack is shared across worktrees, and
+  the paths may be another seat's live work). Leave it. Do not commit to it;
   hand-cut a sibling worktree `hireling-<n>-<slug>` on a prefixed branch
   (`docs/<n>-<slug>`-style, Hard rule 3) cut fresh from `origin/main` —
   never a `MOR-<n>` name, that namespace is harness-owned and carries the
@@ -134,6 +128,27 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   branch an ancestor of `origin/main` and tree clean means merged, nothing
   in it can be lost, and any agent may remove such a sibling on sight.
   Never `worktree remove --force`; a dirty tree belongs to its owner.
+- **Gate around contamination, not through it.** When the tree check fires,
+  the provisioned tree usually will not compile, so `just ci-local` cannot
+  run in it. Run the gate in a detached worktree at the PR head — the
+  output certifies the reviewed tree, and a detached checkout takes no
+  commits:
+
+  ```
+  git worktree add --detach ../hireling-gate-<n> "$(git rev-parse <pr-branch>)"
+  cd ../hireling-gate-<n>
+  npm --prefix web ci
+  CARGO_TARGET_DIR="$PWD/../target-gate-<n>" just ci-local
+  cd - >/dev/null
+  git worktree remove ../hireling-gate-<n>
+  rm -rf ../target-gate-<n>
+  ```
+
+  `CARGO_TARGET_DIR` points outside the worktree so the build cannot
+  collide with a concurrent build in the sibling set, and the gate's
+  build output never lands inside the tree `git worktree remove` has to
+  clean up. Paste the gate output from *that* tree in the PR body and
+  name the tree it ran in.
 - **Three sync points, nothing continuous.** Pickup: self-assign and comment
   the branch name. PR open: `Closes #N` plus a link back to your tracking task.
   Merge: GitHub closes the issue.

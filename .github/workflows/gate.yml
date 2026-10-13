@@ -4,7 +4,7 @@ name: gate
 # entry publishes no `pull_request` event — without this trigger, requiring the
 # queue on `main` parks every entry forever on a check that never runs. Listed
 # here so enabling the queue is a ruleset flip and not a workflow change
-# (docs/decisions/0001-merge-preconditions.md).
+# (docs/decisions/0002-merge-queue.md).
 on:
   pull_request:
   merge_group:
