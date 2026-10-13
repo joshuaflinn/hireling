@@ -1,10 +1,12 @@
 name: gate
 
-# merge_group: the `gate` context is what a merge queue waits on, and a queue
-# entry publishes no `pull_request` event — without this trigger, requiring the
-# queue on `main` parks every entry forever on a check that never runs. Listed
-# here so enabling the queue is a ruleset flip and not a workflow change
-# (docs/decisions/0002-merge-queue.md).
+# merge_group: inert today and deliberately kept. GitHub grants the merge queue
+# only to organization-owned repositories and this one is owned by a personal
+# account, so no `merge_group` event is ever published here. The line stays
+# because a queue entry publishes no `pull_request` event either — requiring a
+# queue without this trigger parks every entry forever on a check that never
+# runs — so keeping it is the difference between one ruleset call and a workflow
+# change if ownership ever moves (docs/decisions/0002-merge-queue.md).
 on:
   pull_request:
   merge_group:
