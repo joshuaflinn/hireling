@@ -73,14 +73,18 @@ pub struct ItemCorpusRow {
 /// Exactly ONE row per name — the schema constrains only
 /// `(kind, source_id)`, so a custom-lane row may share a name with an
 /// imported one (PR #159 review round 1). Resolution is deterministic and
-/// lane-precedenced: the IMPORTED row wins a collision — the spec (FR-1)
-/// sources traits from the imported corpus and calls a custom-lane item a
-/// miss, so a custom twin must never blank a pack weapon's traits. The
-/// `id` tail-break keeps the order total (a hypothetical duplicate inside
-/// one lane still resolves stably, not planner-ordered). Consumers disagree
-/// about multi-row results by construction otherwise — `weapon_trait_map`
-/// extends (last wins) while the bootstrap `find`s (first wins) — which is
-/// exactly why the collapse happens HERE, once, in the shared statement.
+/// lane-precedenced: the IMPORTED row wins a collision — E10 FR-6
+/// (`specs/010-rules-tooltips-custom-content/spec.md`) keeps engine math
+/// out of custom rows entirely, and the engine-output contract
+/// (`specs/008-buff-effect-engine/contracts/engine-output.md`) sources
+/// strike traits from the imported corpus — so a custom-lane item, which
+/// FR-6 keeps out of engine math, is a miss. A custom twin must never
+/// blank a pack weapon's traits. The `id` tail-break keeps the order
+/// total (a hypothetical duplicate inside one lane still resolves
+/// stably, not planner-ordered). Consumers disagree about multi-row
+/// results by construction otherwise — `weapon_trait_map` extends (last
+/// wins) while the bootstrap `find`s (first wins) — which is exactly why
+/// the collapse happens HERE, once, in the shared statement.
 ///
 /// # Errors
 ///
