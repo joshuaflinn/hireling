@@ -46,6 +46,9 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
    the shared checkout. Never commit to `main`.
    Never force-push shared branches. Open a PR; the author never merges their own
    work. Thrane holds the merge button — merge asks go to Thrane, not to Josh.
+   A PR authored by Thrane routes to Korrin — a third seat who authored
+   neither the change nor its review. Either owner may reserve any PR for
+   their own hand by saying so on it, and either owner may revoke the routing.
 4. **Verify before claiming done.** Run the build and the tests. Report actual
    output. If you couldn't verify something, say exactly that.
 5. **Write it down.** Decisions with rejected alternatives go in the PR description.
