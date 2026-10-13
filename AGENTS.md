@@ -97,10 +97,10 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   round, full stop.
 
   The head move itself is not waste and is not negotiable. `main` carries the
-  `main-gate` ruleset (id `24735400`, version `v53013064`) requiring the head
-  be up to date before merge, and that is what forces condition 3 to mean
-  anything: the `gate` workflow triggers on `pull_request` and
-  `push: branches: [main]`, and a pull-request run checks out
+  `main-gate` ruleset (id `24735400`), which at version `v53013064` requires
+  the head be up to date before merge, and that is what forces condition 3 to
+  mean anything: the `gate` workflow triggers on `pull_request`, `merge_group`
+  and `push: branches: [main]`, and a pull-request run checks out
   `refs/pull/<n>/merge` — the head merged into `main` *as of when the run
   fired* (run 38410922309: `HEAD is now at 20b990b Merge c878e65 into
   c9df4f8`). No run re-fires when `main` moves underneath a still-open PR, so
