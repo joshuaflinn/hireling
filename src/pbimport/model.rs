@@ -201,6 +201,7 @@ fn walk_build(build: &Value) -> Vec<String> {
                     "acProfBonus",
                     "acTotal",
                     "shieldBonus",
+                    "shieldRaised",
                 ],
             )),
             "money" => {
