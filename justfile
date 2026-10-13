@@ -27,6 +27,20 @@ web-test:
 web-check:
     npm --prefix web run check
 
+# The gate image's node:tsc pass, replicated bench-side (gh#151). The
+# image typechecks web/ with its own TypeScript; the version is a rules
+# fact and is cited, not remembered: 6.0.3, read off the pinned digest
+# sha256:25c6193d… (registry config blob, ARG TYPESCRIPT_VERSION=6.0.3,
+# installed --save-exact). web/package.json pins exactly that, so this
+# leg and web-check answer the question the image's node:tsc answers.
+# The boundary is real: at f29e85d, tsc 5.9.3 (the old pin) is silent
+# where 6.0.3 reports `state.js(398,6): error TS2871` — the same red the
+# gate showed. TS2871-class strictness postdates 5.9.3; without this leg
+# a tsc-only failure was structurally invisible bench-side. Needs
+# `npm --prefix web ci` once per clone (gh#142).
+web-tsc:
+    cd web && ./node_modules/.bin/tsc --noEmit -p tsconfig.json
+
 # The gate image's node:eslint pass, replicated bench-side. The image
 # lints with --no-config-lookup and its own flat config — ES builtins
 # only, no browser/node env — so every platform global must be declared
@@ -224,22 +238,36 @@ json-keys:
     python3 scripts/check_json_dup_keys.py --self-test
     python3 scripts/check_json_dup_keys.py
 
+# The guardrail guarding the guardrails (gh#151), the same script the gate
+# workflow's drift-check step runs: every ci-local leg has a CI home; every
+# pass declared in scripts/gate_passes.tsv is mirrored by a leg this
+# justfile actually runs or carries its written exemption; and (CI-only,
+# --image-log) the image's own stdout names nothing the declaration does
+# not know. repo_side stays derived from the workflow's own text — never a
+# hand-kept literal (MOR-142, MOR-130 fault class). A guard proven to red
+# is the evidence a parse cannot be: break-tests live in the gh#151 PR.
+ci-drift:
+    python3 scripts/ci_drift_check.py --self-test
+    python3 scripts/ci_drift_check.py
+
 # The full local gate. Run this before pushing. Two kinds of leg:
 #
-# Image mirrors — the pinned gate image runs the same check (rust:fmt on
-# fmt-check, rust:clippy on lint, rust:test on test, rust:deny on deny,
-# node:svelte-check on web-check, node:eslint on web-eslint, scan:semgrep
-# on scan-semgrep). Replicated bench-side, after three pushes went to
-# GitHub red while this recipe said green; calibrated against observed
-# gate behavior and must move with any digest bump. The image remains
-# the authority.
+# Image mirrors — the pinned gate image runs the same check. The mapping
+# (image pass → leg, or the written reason a pass is exempt) is declared
+# once in scripts/gate_passes.tsv — the single repo-side authority; the
+# buried `mirrored` literal this used to keep is gone (gh#151). Mirrored
+# today: rust:fmt on fmt-check, rust:clippy on lint, rust:test on test,
+# rust:deny on deny, node:svelte-check on web-check, node:tsc on web-tsc,
+# node:eslint on web-eslint, scan:semgrep on scan-semgrep. The image
+# remains the authority over what green means.
 #
 # Repo-side legs — no image pass runs these; CI gates them as guard steps
 # in the gate job of .github/workflows/gate.yml, ahead of the image run:
-# json-keys, boundary, web-test, web-css-guard, web-html-boundary. That
-# job's drift-check step fails any ci-local leg no CI job runs, so a new
-# leg lands together with its CI home.
-ci-local: json-keys fmt-check lint test deny boundary web-check web-test web-css-guard web-html-boundary web-eslint scan-semgrep
+# json-keys, boundary, web-test, web-css-guard, web-html-boundary, and
+# ci-drift itself. That job's drift-check step runs this same ci-drift
+# recipe, so a new leg lands together with its CI home or the gate goes
+# red — bench and CI run one check, not two that can drift.
+ci-local: json-keys fmt-check lint test deny boundary web-check web-tsc web-test web-css-guard web-html-boundary web-eslint scan-semgrep ci-drift
 
 # Alias — same gate, the name the spec calls it by.
 gate: ci-local
