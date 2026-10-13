@@ -9,7 +9,8 @@ under concurrent merges. As of 2026-10-13 the board held 8 open PRs, 2 `BEHIND`,
 1 `BLOCKED`: every merge invalidates every other open PR, and recovery is a
 human lap — `gh pr update-branch` (which moves the head), a ~6-minute gate run,
 and a verdict carry-over review round, because the head a verdict was bound to
-has moved. gh#131 paid that lap twice in one afternoon.
+has moved. gh#131 paid that lap on 2026-10-13 — one head move (to
+`f80b529`), one gate run, one carry-over round.
 
 The cost is structural, not a latency problem. While more than one PR is open,
 any landing re-opens strict's requirement for every other PR; reacting faster
@@ -43,11 +44,13 @@ gh#140, after one `merge_group` run is confirmed green.
 
 - **Drop strict** (`strict_required_status_checks_policy: false`) — rejected by
   ruling (MOR-272): strict stays `true`. The evidence that argued for dropping
-  it — a `BEHIND` head merging "with strict enabled" — was produced while the
-  flag was flipped `false` (versions `v53011491` through `v53013064`): both
-  merges cited happened inside that window, when there was no check to be
-  stale. The measured lap cost above is real and survives; the remedy for it is
-  the queue, not the removal.
+  it — `BEHIND` heads merging while strict was believed on — was produced while
+  the flag was off: on ruleset `24735400`, version `v53011491` set
+  `strict_required_status_checks_policy: false` at 2026-10-13 10:30:15 EDT and
+  version `v53013064` restored `true` at 10:41:10 EDT. gh#135 (merged
+  10:30:22 EDT, `1f27e98`) and gh#131 (merged 10:30:28 EDT, `4f4d652`) both
+  landed inside that window — with no check to be stale. The measured lap cost
+  above is real and survives; the remedy for it is the queue, not the removal.
 - **Serialize merges by convention** (one merge-ready PR at a time, a human in
   the queue's seat) — rejected. A throughput ceiling bought with discipline
   nobody can verify: it has no evidence trail and can land a combination no
@@ -56,8 +59,9 @@ gh#140, after one `merge_group` run is confirmed green.
 
 ## Consequences accepted
 
-- Two gate runs per merge (`pull_request` plus `merge_group`). That buys back
-  the update-branch laps, which cost the same CI plus a review round on top.
+- One additional gate run per merge (`merge_group`, on top of `pull_request`
+  and the existing `push: branches: [main]`). That buys back the
+  update-branch laps, which cost the same CI plus a review round on top.
 - The queue's own re-test is the strict check's enforcement: an entry that goes
   stale while queued is rebuilt and re-gated by the queue automatically, not
   bounced to a human.
