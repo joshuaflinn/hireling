@@ -12,7 +12,12 @@ is the agent side; `CONSTITUTION.md` governs both.
    (PRD changes are PRs) and `CONSTITUTION.md` (both owners, always).
 1. **Pick a GitHub Issue.** Work that's not an issue doesn't exist. If you have an
    idea, file it — triage is a conversation, not a gate.
-2. **Branch.** `issue-<n>-<slug>` off `main`. One issue, one branch, one PR.
+2. **Branch.** Conventional prefixes off `main`, referencing the issue:
+   `feat/`, `fix/`, `refactor/`, `docs/`, `ci/`, `chore/` + `<n>-<slug>` —
+   e.g. `feat/12-buff-engine`, `fix/44-45-engine-number-gates`. One issue, one
+   branch, one PR. Never hand-cut a `MOR-<n>` branch: that namespace is
+   harness-owned (AI-agent provisioned workspaces), carries a stricter removal
+   rule, and picking it collides with a provisioned worktree.
 3. **Build.** However you like — by hand, by agent, by interpretive dance. The PR
    is what's judged.
 4. **PR.** Small beats clever. Description carries the *why*: what changed, what
@@ -20,7 +25,8 @@ is the agent side; `CONSTITUTION.md` governs both.
    **grizzly-gate** (Bear's quality gate, standalone mode) — the gate is the
    first reviewer; a human is the second.
 5. **Human review, human merge.** The reviewer is never the person (or session)
-   that wrote it. Either owner can merge; constitution changes need both.
+   that wrote it. Who can merge what is governed by `CONSTITUTION.md` Article
+   III — this file does not restate it. Agents additionally follow `AGENTS.md`.
 
 ## Ground rules
 
