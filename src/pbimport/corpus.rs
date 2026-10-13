@@ -2,9 +2,9 @@
 //! every consumer. The bootstrap's `item_traits`/`item_bulk` maps and the
 //! strike trait map read the SAME rows through the SAME query, so the
 //! stored document shape cannot drift between them (the defect this epic
-//! kills: the bootstrap queried `data->'system'` while the importer stores
-//! the pack document at `data->'upstream'->'system'` — NULL on every real
-//! row).
+//! kills: the bootstrap queried the pack document at the document root
+//! while the importer stores it under the `upstream` key — the read
+//! returned NULL on every real row).
 
 /// Display form for one corpus trait key (design D3): split on `-`, every
 /// segment capitalized; the LAST segment joins with a space instead of a
@@ -54,6 +54,56 @@ pub fn display_trait(corpus_key: &str) -> String {
         .collect::<Vec<String>>()
         .join("-");
     format!("{head_rendered}{joiner}{tail}")
+}
+
+/// One resolved items-corpus row (design D2): the lowercased name (the
+/// case-insensitive join key every consumer already uses), the raw bulk
+/// decimal, and the trait keys in DISPLAY form — `display_trait` applied
+/// here, at the single boundary every map reads through.
+pub struct ItemCorpusRow {
+    pub name_lower: String,
+    pub bulk_raw: Option<f64>,
+    pub traits: Vec<String>,
+}
+
+/// Every requested name's corpus row, one query (design D2). The importer
+/// stores the pack document under `data.upstream.system`, so THAT is the
+/// shape this reads; traits come back in display form.
+///
+/// # Errors
+///
+/// Propagates sqlx failures.
+pub async fn item_rows(
+    pool: &sqlx::PgPool,
+    names: &[String],
+) -> Result<Vec<ItemCorpusRow>, sqlx::Error> {
+    let rows: Vec<(String, Option<String>, Option<serde_json::Value>)> = sqlx::query_as(
+        "SELECT lower(name), data->'upstream'->'system'->'bulk'->>'value', \
+                data->'upstream'->'system'->'traits'->'value' \
+         FROM corpus_entries WHERE kind = 'item' AND lower(name) = ANY($1)",
+    )
+    .bind(
+        names
+            .iter()
+            .map(|name| name.to_lowercase())
+            .collect::<Vec<_>>(),
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(name_lower, raw_bulk, raw_traits)| ItemCorpusRow {
+            bulk_raw: raw_bulk.as_ref().and_then(|text| text.parse::<f64>().ok()),
+            traits: raw_traits
+                .and_then(|value| value.as_array().cloned())
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(display_trait)
+                .collect(),
+            name_lower,
+        })
+        .collect())
 }
 
 #[cfg(test)]
