@@ -1,0 +1,35 @@
+# The pinned gate image's pass list, declared (gh#151).
+#
+# bearflinn/grizzly-gate@sha256:25c6193d39ee9460f8e0dc2413e728723943caeb2b550249061c045cab42bc4e
+# runs 16 passes; this file is the single repo-side authority for what they
+# are and how each one is covered bench-side. One row per pass, three
+# tab-separated fields:
+#
+#   <image-pass>	<ci-local leg | ->	<written reason>
+#
+# A mirror names the ci-local leg that runs the same check. `-` marks an
+# exemption, and the reason says why in reviewable words — an exemption is
+# a decision, not a placeholder. The drift check (scripts/ci_drift_check.py,
+# run by `just ci-drift` and by the gate workflow) goes red on: a ci-local
+# leg with no CI home; a mirror naming a leg ci-local does not run; and —
+# from the image's own stdout, CI-side — any pass the image runs that this
+# file does not declare. A digest bump that adds a pass reds the gate until
+# a human re-reads and extends this file, in the bump's own PR. The image
+# remains the authority over what green means; this file is the authority
+# over what we claim to mirror.
+rust:fmt	fmt-check	mirrors just fmt-check: cargo fmt --all -- --check
+rust:clippy	lint	mirrors just lint: cargo clippy --workspace --all-targets --all-features -- -D warnings
+rust:test	test	mirrors just test: cargo test --workspace, DB-backed suites included via the CI service Postgres
+rust:deny	deny	mirrors just deny: cargo deny check
+node:svelte-check	web-check	mirrors just web-check: svelte-check --tsconfig ./tsconfig.json in web/, reading web/'s pinned TypeScript (6.0.3, matching the image digest)
+node:tsc	web-tsc	mirrors just web-tsc: tsc --noEmit -p tsconfig.json in web/; added gh#151 — the pass that bit while ci-local stayed green
+node:eslint	web-eslint	mirrors just web-eslint: gate-eslint.config.mjs, calibrated one-for-one against the image's --no-config-lookup rule set
+scan:semgrep	scan-semgrep	mirrors just scan-semgrep: the registry rules the image enforces on the web tree, calibrated by fire
+node:deps	-	provisioning pass: the image's own npm ci inside web/ for its later passes. The repo-checkable content (package.json vs package-lock.json agreement, enforced by npm ci strictness) runs in CI as the Install node dependencies step before any guard leg. Bench-side install self-sufficiency is gh#142 (PR #145), a different fault; if that lands a deps leg, this row gains its mirror there.
+python:deps	-	provisioning pass: scripts/pyproject.toml is a deliberate zero-dependency marker for the gate's python adapter ("the gate's deps check then installs nothing but pytest"); nothing repo-owned to install bench-side.
+python:mypy	-	verified clean at pin time: mypy 2.4.0 (current; the image carries 2.1.0) over scripts/ reports "Success: no issues found" (MOR-279, evidence in the PR). The image forces its own mypy config (scripts/pyproject.toml), so a bench leg without calibrating that config answers a different question. Revisit if the python surface grows past the checker and its test.
+python:pytest	-	the suite (scripts/tests/test_check_json_dup_keys.py) exists to prove detection independently inside the image — its own docstring says so, and the gate pytest.ini wires the path. Bench-side, the same fixture matrix already executes in ci-local: the json-keys leg runs check_json_dup_keys.py --self-test. A bench pytest leg would need a pip story to re-prove what self-test proves.
+python:ruff	-	bench ruff without the image's config answers a different question, measured: ruff 0.17.0 defaults flag two RUF100s on files the image's ruff passes green. The image forces its own config (scripts/pyproject.toml); calibrating a replica would mean guessing at a closed harness. Image is the authority.
+scan:gitleaks	-	no bench leg: gitleaks is a pinned binary the image owns; a faithful bench leg needs the same provisioning story (version pin + checksum) for a secret scan CI already runs on every PR. Follow-up candidate if pre-push secret catching is wanted; deliberately not folded into gh#151.
+scan:osv-scanner	-	no bench leg: OSV scanning needs the pinned binary; Rust-side advisory coverage already mirrors bench-side via cargo deny (RustSec). The npm side has no bench scanner — follow-up candidate, image is the authority.
+scan:trivy-fs	-	no bench leg, the image is the authority, accepted: trivy wants its vuln DB (downloaded at image build); bench-side means shipping a DB or network-scanning every local run for a scan the PR gate already performs. Declared and parse-guarded.
