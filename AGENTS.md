@@ -83,8 +83,8 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
      <new-base>...<new-head>` are identical; `index` lines and `@@`
      offsets may differ, nothing else may. The bases are the merge-bases
      with `origin/main` at review time and at the new head. Mechanical
-     form: pipe each side through `grep -E '^[+-]' | grep -vE
-     '^(\+\+\+|---)'` and compare the outputs. Where `main` has edited a
+     form, run once per reviewed path, the two sides' outputs for that
+     path compared equal: `git diff --output-indicator-old=O --output-indicator-new=N <base>...<head> -- <path> | grep -E '^[ON]'`. Where `main` has edited a
      reviewed file, the reviewer also names the incoming `main` hunks and
      states they do not interact with the reviewed ones. The knife-edge
      is the author's text: it moved, new round. A blob test is not
