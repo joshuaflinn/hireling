@@ -135,9 +135,12 @@ async fn recompute_renders_strike_traits_from_the_corpus() {
 }
 
 /// The lane-collision regression (PR #159 review round 1): a custom-lane
-/// row sharing a name with an imported row must not shadow it. The spec
-/// (FR-1) sources strike traits from the IMPORTED corpus and calls a
-/// custom-lane item a miss — so on a name collision the imported row is
+/// row sharing a name with an imported row must not shadow it. E10 FR-6
+/// (`specs/010-rules-tooltips-custom-content/spec.md`) keeps engine math
+/// out of custom rows, and the engine-output contract
+/// (`specs/008-buff-effect-engine/contracts/engine-output.md`) sources
+/// strike traits from the IMPORTED corpus — a custom-lane item is a
+/// miss — so on a name collision the imported row is
 /// the one every consumer reads. The old reader had no lane filter and no
 /// ORDER BY: `weapon_trait_map` (map-extend, LAST row wins) and the
 /// bootstrap (`find`, FIRST row wins) could resolve one name to OPPOSITE
