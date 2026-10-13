@@ -161,22 +161,22 @@ test('carried suits multiply by qty; a carried gap stays a gap', () => {
     ],
     containers: [],
   };
-  const bulk = { 'Full Plate': 20, 'Mystery Suit': null };
-  const { totalTenths } = inventoryView(sheet, bulk, {}, qtyOne);
+  const mixedBulk = { 'Full Plate': 20, 'Mystery Suit': null };
+  const { totalTenths } = inventoryView(sheet, mixedBulk, {}, qtyOne);
   assert.equal(totalTenths, 60, '2 × (20 + 10) + gap 0 — never invented');
 });
 
 test('shield rows count listed held or stowed — the carried-suit +1 is not for shields', () => {
-  const bulk = { 'Steel Shield': 10 };
+  const shieldBulk = { 'Steel Shield': 10 };
   const sheetFor = (worn) => ({
     equipment: [],
     weapons: [],
     armor: [{ name: 'Steel Shield', prof: 'shield', worn, qty: 1 }],
     containers: [],
   });
-  assert.equal(inventoryView(sheetFor(true), bulk, {}, qtyOne).totalTenths, 10, 'held: listed');
+  assert.equal(inventoryView(sheetFor(true), shieldBulk, {}, qtyOne).totalTenths, 10, 'held: listed');
   assert.equal(
-    inventoryView(sheetFor(false), bulk, {}, qtyOne).totalTenths,
+    inventoryView(sheetFor(false), shieldBulk, {}, qtyOne).totalTenths,
     10,
     'stowed: listed — no +1',
   );
@@ -198,12 +198,12 @@ test('the real export pins the armor row shape: suit and shield on build.armor',
 
 test('the real export folds as exported; carrying the suit adds the +1', () => {
   const armor = taraan.build.armor;
-  const bulk = { 'Kilted Breastplate': 20, "Caster's Targe": 10 };
+  const taraanBulk = { 'Kilted Breastplate': 20, "Caster's Targe": 10 };
   const sheetFor = (rows) => ({ equipment: [], weapons: [], armor: rows, containers: [] });
-  const asExported = inventoryView(sheetFor(armor), bulk, {}, qtyOne);
+  const asExported = inventoryView(sheetFor(armor), taraanBulk, {}, qtyOne);
   assert.equal(asExported.totalTenths, 30, 'worn suit 20 + held shield 10');
   assert.equal(asExported.totalText, '3 Bulk');
   const suitCarried = armor.map((row) => (row.prof === 'shield' ? row : { ...row, worn: false }));
-  const carried = inventoryView(sheetFor(suitCarried), bulk, {}, qtyOne);
+  const carried = inventoryView(sheetFor(suitCarried), taraanBulk, {}, qtyOne);
   assert.equal(carried.totalTenths, 40, 'suit carried: 30 + shield held 10');
 });
