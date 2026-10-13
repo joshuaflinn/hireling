@@ -82,22 +82,50 @@ export function inventoryView(baseSheet, itemBulk, itemTraits, qtyOf) {
     };
   });
 
-  // Carried and worn both count (PF2e Bulk): every `weapons` row joins the
-  // total at its listed Bulk — the listed value IS the held value (Player
-  // Core pg. 275, Weapons → Bulk); worn armor joins at its listed Bulk,
-  // which already is the worn value (Player Core pg. 271, Armor
-  // Statistics → Bulk). Same tenths map, same gap degrade (null → 0).
-  // Non-worn armor is OUT OF SCOPE for gh#46, not weightless: a carried
-  // suit is listed + 1 Bulk (pg. 271) — deferred to #80. These rows
-  // render in the strikes/AC panes, not the inventory list, so they add
-  // to the total without adding list rows.
-  const carriedOnBody = [...(baseSheet.weapons ?? [])]
-    .concat((baseSheet.armor ?? []).filter((/** @type {any} */ piece) => piece.worn))
-    .reduce(
-      (acc, item) => acc + (itemBulk[item.name] ?? 0) * (item.qty ?? 1),
-      0,
-    );
-  total += carriedOnBody;
+  // Carried and worn both count (PF2e Bulk), every row at `(listed) ×
+  // qty`, gaps degrading to 0 — never blocking, never invented:
+  //
+  // - `weapons` join at their listed Bulk — the listed value IS the held
+  //   value (Player Core pg. 275, Weapons → Bulk).
+  // - Armor (Player Core pg. 271, Armor Statistics → Bulk): a worn suit
+  //   joins at its listed Bulk (the listed value IS the worn value); a
+  //   carried suit usually joins at listed + 1 Bulk, and a suit of listed
+  //   L counts 1 Bulk total — the +1 is a whole Bulk, not a light item
+  //   stacked on L. A carried suit with an unresolved listed value stays
+  //   a gap: unknown + 1 is unknown, so no floor is invented for it.
+  // - Shield rows join at their listed Bulk held OR stowed: Pathbuilder
+  //   files shields under `build.armor` with `prof: "shield"`, and on a
+  //   shield row `worn` means held-in-hand (evidence: the second real
+  //   export pinned in web/tests/data/pb_export_taraan_skyseeker.json —
+  //   a held Caster's Targe rides build.armor, worn: true — matching the
+  //   Pathmuncher importer's `carryType: "held"` mapping for worn
+  //   shields). A shield's listed Bulk is its weight in hand (Player
+  //   Core pg. 275, Shields → Bulk); the carried-suit +1 is armor
+  //   statistics for suits, not shields.
+  //
+  // A row without `prof` reads as a suit (both real export samples carry
+  // `prof` on every armor row). These rows render in the strikes/AC
+  // panes, not the inventory list, so they add to the total without
+  // adding list rows.
+  const weaponsTenths = (baseSheet.weapons ?? []).reduce(
+    /** @type {(acc: number, item: any) => number} */
+    (acc, item) => acc + (itemBulk[item.name] ?? 0) * (item.qty ?? 1),
+    0,
+  );
+  const armorTenths = (baseSheet.armor ?? []).reduce(
+    /** @type {(acc: number, item: any) => number} */
+    (acc, item) => {
+      const listed = itemBulk[item.name];
+      if (listed === null || listed === undefined) return acc; // corpus gap → 0
+      const carriedSuit = !item.worn && item.prof !== 'shield';
+      // L (1 tenth) carries as 1 Bulk (10); a listed ≥ 1 Bulk carries as
+      // listed + 1 Bulk (Player Core pg. 271, Armor Statistics → Bulk).
+      const tenths = carriedSuit ? (listed < 10 ? 10 : listed + 10) : listed;
+      return acc + tenths * (item.qty ?? 1);
+    },
+    0,
+  );
+  total += weaponsTenths + armorTenths;
 
   return { groups, totalTenths: total, totalText: tenthsText(total) };
 }

@@ -130,7 +130,8 @@ async fn load_item_corpus(
 > {
     // Equipment, weapons, AND armor all reach the corpus: strike rows read
     // their trait chips through `item_traits`, and the inventory total
-    // folds weapon and worn-armor bulk through `item_bulk`. All sections
+    // folds weapon bulk and armor bulk (worn, held, or carried) through
+    // `item_bulk`. All sections
     // are arrays of objects carrying `name`.
     let mut item_names: Vec<String> = Vec::new();
     for section in ["equipment", "weapons", "armor"] {
