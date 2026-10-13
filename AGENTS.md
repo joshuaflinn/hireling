@@ -84,11 +84,27 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
      blob comparison cannot see a semantic interaction with new `main`
      code.
 
-  When all three hold, the reviewer posts the re-bind on the PR as a review
-  comment naming the old head, the new head, and the evidence for each
-  condition. That comment is the record, same as any verdict — a carry-over
-  is never silent. If any condition fails, it is a new review round, full
-  stop.
+  When all three hold, **whoever is at the press** posts the re-bind on the
+  PR as a review comment naming the old head, the new head, and the evidence
+  for each condition. It does not have to be the reviewer, and it does not
+  open a review round: all three conditions are mechanical — a merge-commit
+  shape, a blob comparison, a check-runs status — so there is no judgment in
+  the re-bind for a reviewer to supply, and routing it back to them buys a
+  round-trip against a diff that did not move. The verdict itself is still
+  the reviewer's and only the reviewer's; this is bookkeeping over their
+  verdict, not a second one. That comment is the record, same as any verdict
+  — a carry-over is never silent. If any condition fails, it is a new review
+  round, full stop.
+
+  The head move itself is not waste and is not negotiable. `main` carries a
+  ruleset requiring the head be up to date before merge, and that is what
+  forces condition 3 to mean anything: the `gate` workflow triggers on
+  `pull_request`, so it checks out `refs/pull/<n>/merge` — the head merged
+  into `main` *as of when the run fired* (run 38410922309: `HEAD is now at
+  20b990b Merge c878e65 into c9df4f8`). No run re-fires when `main` moves
+  underneath a still-open PR, so without the up-to-date requirement a PR can
+  merge on a `gate` success that certifies a merge base `main` has since left
+  behind. Dropping it would make condition 3 a stale certificate.
 - **Claim before you code.** Only start an issue that is *unassigned*, and
   self-assign it on GitHub before writing any code. If a human holds it, it's
   theirs — pick another.
