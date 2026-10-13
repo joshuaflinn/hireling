@@ -54,10 +54,12 @@ container points `CARGO_TARGET_DIR` into its own mounted volume.
 
 ## Consequences accepted
 
-- Roughly 4.5G of build output per live worktree instead of ~11G shared in
-  total. `incremental = false` is what pays for it: incremental artifacts were
-  6.0G of the old 11G tree — more than deps and build objects together — and
-  they buy nothing for a full gate run, which is what these seats mostly do.
+- Disk cost scales with live seats instead of being fixed. A worktree that has
+  run a full gate settles at 2.2G (`du -sh target`, measured across four live
+  seats on 2026-10-13, all four identical). `incremental = false` is what keeps
+  that number small: incremental artifacts are the largest single component of
+  a debug tree and they buy nothing for a full gate run from a clean tree,
+  which is what these seats mostly do.
 - A new or freshly reaped worktree pays a cold build.
 - Reaping worktrees is load-bearing, not housekeeping: merged-and-clean
   hand-cut `hireling-*` siblings on sight, `MOR-<n>` siblings once their task
