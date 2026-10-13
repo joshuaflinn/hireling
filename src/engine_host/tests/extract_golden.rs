@@ -451,8 +451,18 @@ const GAINED_AT: &[(&str, i64)] = &[
 /// the production path whose wire the sheet renders, not the helper in
 /// isolation. Str 18 (+4), so the flat reads 4 without the feature.
 fn longsword_flat(class: &str, level: i64, rank: i64) -> i32 {
+    longsword_flat_dual(class, None, level, rank)
+}
+
+/// The same probe for a dual-class build: `class` primary, `dual` the
+/// export's `dualClass` half (transform.rs reads the field verbatim —
+/// nothing new crosses the import boundary). `None` emits no field.
+fn longsword_flat_dual(class: &str, dual: Option<&str>, level: i64, rank: i64) -> i32 {
+    let dual_field = dual
+        .map(|name| format!(r#","dualClass":"{name}""#))
+        .unwrap_or_default();
     let export = format!(
-        r#"{{"success":true,"build":{{"name":"Probe","class":"{class}","level":{level},"abilities":{{"str":18,"dex":12,"con":14,"int":10,"wis":10,"cha":10}},"proficiencies":{{"martial":{rank}}},"weapons":[{{"name":"Longsword","die":"d8","prof":"martial","pot":0,"damageType":"S"}}]}}}}"#
+        r#"{{"success":true,"build":{{"name":"Probe","class":"{class}"{dual_field},"level":{level},"abilities":{{"str":18,"dex":12,"con":14,"int":10,"wis":10,"cha":10}},"proficiencies":{{"martial":{rank}}},"weapons":[{{"name":"Longsword","die":"d8","prof":"martial","pot":0,"damageType":"S"}}]}}}}"#
     );
     let export = model::parse_and_validate(&export).expect("probe export is valid");
     let base = extract(&transform::transform(&export).0, 0, None);
@@ -517,6 +527,77 @@ fn weapon_specialization_matches_the_class_regardless_of_casing() {
         longsword_flat("FIGHTER", 7, 4),
         6,
         "uppercase export string"
+    );
+}
+
+// -- A dual-class character strikes through EITHER half's feature (gh#84) --
+// -- (Weapon Specialization is a class feature; the ruling on MOR-118)     --
+
+/// Fighter/Wizard: the Fighter half grants the feature at 7, the Wizard
+/// half at 13 — whichever half grants it EARLIER sets the gate. Both
+/// sides of that earlier threshold, and the halves in both orders: the
+/// export's primary/dual split is data, not a rule.
+#[test]
+fn dual_class_earlier_half_sets_the_specialization_gate() {
+    assert_eq!(
+        longsword_flat_dual("Fighter", Some("Wizard"), 7, 4),
+        6,
+        "Fighter/Wizard at 7: str 4 + the Fighter half's +2 (expert)"
+    );
+    assert_eq!(
+        longsword_flat_dual("Fighter", Some("Wizard"), 6, 4),
+        4,
+        "at 6: below both halves' gates — str only"
+    );
+    assert_eq!(
+        longsword_flat_dual("Wizard", Some("Fighter"), 7, 4),
+        6,
+        "Wizard primary, Fighter dual: the halves' order is not the rule"
+    );
+}
+
+/// Neither half gates early: Wizard/Druid both sit at 13, so level 12
+/// pays str only — the dual read must not widen the feature to any
+/// build that names a spec class at all.
+#[test]
+fn dual_class_waits_when_both_halves_gate_late() {
+    assert_eq!(
+        longsword_flat_dual("Wizard", Some("Druid"), 12, 4),
+        4,
+        "Wizard/Druid at 12: neither half at 13 yet — str only"
+    );
+    assert_eq!(
+        longsword_flat_dual("Wizard", Some("Druid"), 13, 4),
+        6,
+        "Wizard/Druid at 13: the shared gate opens — str 4 + 2"
+    );
+}
+
+/// The halves do not stack: Fighter/Wizard at 13 holds both halves'
+/// features but one feature's +2 — and from 15 the Fighter half's
+/// greater version doubles it, asserted both sides of that earlier
+/// greater threshold (the dual counterpart of the greater sweep below).
+#[test]
+fn dual_class_spec_takes_the_better_half_never_the_sum() {
+    assert_eq!(
+        longsword_flat_dual("Fighter", Some("Wizard"), 13, 4),
+        6,
+        "Fighter/Wizard at 13: +2 once — the halves' features do not add"
+    );
+    assert_eq!(
+        longsword_flat_dual("Fighter", Some("Wizard"), 14, 4),
+        6,
+        "at 14: the Fighter half's greater version waits for 15 — single +2"
+    );
+    assert_eq!(
+        longsword_flat_dual("Fighter", Some("Wizard"), 15, 4),
+        8,
+        "at 15: str 4 + the Fighter half's doubled +4 (expert)"
+    );
+    assert_eq!(
+        longsword_flat_dual("Wizard", Some("Fighter"), 15, 4),
+        8,
+        "Wizard primary: the dual half's greater version doubles it too"
     );
 }
 
