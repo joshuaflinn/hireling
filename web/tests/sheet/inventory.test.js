@@ -1,4 +1,4 @@
-import { render, cleanup, screen } from '@testing-library/svelte';
+import { render, cleanup, screen, fireEvent } from '@testing-library/svelte';
 import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 
@@ -84,9 +84,53 @@ test('view-only inventory: no inputs, quantities as text', () => {
   assert.match(container.innerHTML, /×1/, 'quantities render as text');
 });
 
-// ---- MOR-48 review fixes: the production path owns the behaviour ----------
+// -- the total the panel renders folds the weapon rows and worn armor
+// in (gh#46): two maps differing only in the weapon/armor entries —
+// two different rendered totals --
 
-test('a rejected quantity write surfaces inline at that item; a rejected coin write at the coins (finding 5)', () => {
+test('Total carried renders the weapons and worn armor', () => {
+  const sheet = {
+    equipment: [{ name: 'Torch', qty: 1 }],
+    weapons: [{ name: 'Staff', qty: 1 }],
+    armor: [{ name: "Explorer's Clothing", worn: true, qty: 1 }],
+    containers: [],
+  };
+  const props = (bulkMap) => ({
+    props: {
+      baseSheet: sheet,
+      itemBulk: bulkMap,
+      itemTraits: {},
+      qtyMap: { Torch: { qty: 1, pending: false } },
+      money: { value: { pp: 0, gp: 0, sp: 0, cp: 0 }, pending: false },
+      editable: false,
+    },
+  });
+  const carried = render(
+    InventoryPanel,
+    props({ Torch: 1, Staff: 10, "Explorer's Clothing": 1 }),
+  );
+  assert.match(
+    carried.container.innerHTML,
+    /Total carried: <b>1 Bulk \+ 2 L<\/b>/,
+    'Torch 1 + Staff 10 + worn clothing 1',
+  );
+  assert.match(
+    carried.container.innerHTML,
+    /includes carried and worn gear; extradimensional contents excluded/,
+    'the readout discloses what the number includes',
+  );
+  cleanup();
+  const pack = render(InventoryPanel, props({ Torch: 1, Staff: null, "Explorer's Clothing": null }));
+  assert.match(
+    pack.container.innerHTML,
+    /Total carried: <b>1 L<\/b>/,
+    'weapon and armor unresolved (corpus gaps): pack only',
+  );
+});
+
+// ---- the production path owns the behaviour ----------
+
+test('a rejected quantity write surfaces inline at that item; a rejected coin write at the coins', () => {
   render(InventoryPanel, {
     props: {
       baseSheet: fixture,
@@ -117,7 +161,7 @@ test('a rejected quantity write surfaces inline at that item; a rejected coin wr
     },
   });
   // Both surfaces are role=alert (coins block + item row) — query the
-  // role, not the markup (MOR-77 finding 2).
+  // role, not the markup.
   const alerts = screen
     .getAllByRole('alert')
     .map((el) => el.textContent)
@@ -142,4 +186,53 @@ test('a rejected quantity write surfaces inline at that item; a rejected coin wr
     },
   });
   assert.equal(screen.queryByRole('alert'), null, 'no error surface without a refused write');
+});
+
+// ---- E9 T7: the add-custom affordance lives in the item context ----
+
+test('an editable inventory offers Add custom item; a view-only one does not', () => {
+  const editable = render(InventoryPanel, {
+    props: { baseSheet: fixture, itemBulk, itemTraits, qtyMap, money: { value: { pp: 0, gp: 0, sp: 0, cp: 0 }, pending: false }, editable: true, onaddcustom: () => {} },
+  });
+  assert.ok(editable.getByRole('button', { name: 'Add custom item' }), 'the owner sees the affordance');
+  editable.unmount();
+
+  const viewer = render(InventoryPanel, {
+    props: { baseSheet: fixture, itemBulk, itemTraits, qtyMap, money: { value: { pp: 0, gp: 0, sp: 0, cp: 0 }, pending: false }, editable: false, onaddcustom: () => {} },
+  });
+  assert.throws(() => viewer.getByRole('button', { name: 'Add custom item' }), 'GM/cross-member sees none');
+});
+
+test('the add-custom affordance is wired: clicking calls onaddcustom', () => {
+  let opened = 0;
+  const { getByRole } = render(InventoryPanel, {
+    props: { baseSheet: fixture, itemBulk, itemTraits, qtyMap, money: { value: { pp: 0, gp: 0, sp: 0, cp: 0 }, pending: false }, editable: true, onaddcustom: () => { opened += 1; } },
+  });
+  fireEvent.click(getByRole('button', { name: 'Add custom item' }));
+  assert.equal(opened, 1);
+});
+
+test('an optimistically inserted custom item renders badged, with a live qty control', () => {
+  let wrote = null;
+  const { container, getByLabelText } = render(InventoryPanel, {
+    props: {
+      baseSheet: fixture,
+      itemBulk,
+      itemTraits,
+      qtyMap,
+      money: { value: { pp: 0, gp: 0, sp: 0, cp: 0 }, pending: false },
+      editable: true,
+      onqty: (/** @type {string} */ name, /** @type {number} */ qty) => { wrote = { name, qty }; },
+      customItems: [
+        { corpus_entry_id: 90, name: 'Named Wagon', description: 'Looted whole', value_or_rank: null },
+      ],
+    },
+  });
+  assert.match(container.innerHTML, /Named Wagon/, 'the optimistic row renders');
+  assert.match(container.innerHTML, /custom/, 'badged custom in the item context');
+  assert.match(container.innerHTML, /Looted whole/, 'the description rides the row');
+  const input = /** @type {HTMLInputElement} */ (getByLabelText('Quantity of Named Wagon'));
+  fireEvent.input(input, { target: { value: '3' } });
+  fireEvent.change(input);
+  assert.deepEqual(wrote, { name: 'Named Wagon', qty: 3 }, 'the ordinary inv write, by exact name');
 });

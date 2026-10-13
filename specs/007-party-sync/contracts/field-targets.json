@@ -1,0 +1,27 @@
+{
+  "contract": "specs/007-party-sync/contracts/wire-protocol.md §3",
+  "source": "src/sync/protocol.rs — the FieldTarget variants' serde wire shape, pinned by src/tests/sync/contract.rs and consumed by web/tests/helpers/wire-contract.js. Do not edit without both suites green: the Rust test pins this file to the types, the vitest helper pins the client's write frames to this file.",
+  "targets": {
+    "vitals": {
+      "kind": "vitals",
+      "fields": ["character_id", "field"]
+    },
+    "slot": {
+      "kind": "slot",
+      "fields": ["character_id", "caster_key", "rank", "slot_index"]
+    },
+    "inv": {
+      "kind": "inv",
+      "fields": ["character_id", "item_name"]
+    },
+    "effect": {
+      "kind": "effect",
+      "fields": ["effect_id"]
+    },
+    "effect_new": {
+      "kind": "effect_new",
+      "fields": ["party_id"]
+    }
+  },
+  "effect_ops": ["create", "update", "end"]
+}

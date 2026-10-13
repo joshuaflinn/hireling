@@ -9,9 +9,11 @@
 
   /** @type {{ baseSheet: any, slots: any[], view: any, daily: any,
     opErrors?: any[], editable?: boolean, offline?: boolean,
+    customSpells?: any[],
     oncast?: (casterKey: string, row: any, used: boolean) => void,
     onprepare?: (casterKey: string, row: any, spell: string) => void,
     onreset?: (casterKey: string) => void,
+    onaddcustom?: () => void,
     ondaily?: (daily: any) => void, companionsSlot?: import('svelte').Snippet }} */
   let {
     baseSheet,
@@ -21,16 +23,18 @@
     opErrors = [],
     editable = true,
     offline = false,
+    customSpells = [],
     oncast,
     onprepare,
     onreset,
+    onaddcustom,
     ondaily,
     companionsSlot,
   } = $props();
 
   let tab = $state('spells');
 
-  // The focus section (spec §2.3 — review finding 11): the export's
+  // The focus section (spec §2.3): the export's
   // `focus[tradition][ability]` block carries focus cantrips and focus
   // spells; rendered with the caster whose tradition it belongs to.
   const focusFor = (/** @type {any} */ caster) => {
@@ -59,6 +63,8 @@
         {offline}
         known={caster.known}
         focusSpells={focusFor(caster)}
+        {customSpells}
+        {onaddcustom}
         opErrors={opErrors.filter(
           (/** @type {any} */ error) => error.target?.kind === 'slot' && error.target?.caster_key === caster.caster_key,
         )}

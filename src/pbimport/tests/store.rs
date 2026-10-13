@@ -95,9 +95,8 @@ async fn first_import_creates_the_character_seeded_and_ready() {
     );
 
     // Vitals seeded (FR-9): HP at the PF2e max (32 — CON counts at every
-    // level, contract §3.3 as amended by E6's review), focus at the
-    // export's full pool (1 — daily preparations refill it, MOR-48
-    // finding 2), money from the export.
+    // level, contract §3.3), focus at the export's full pool (1 — daily
+    // preparations refill it), money from the export.
     let vitals = sqlx::query(
         "SELECT hp, temp_hp, focus_current, money_gp, money_sp, money_cp, money_pp \
          FROM character_vitals WHERE character_id = $1",

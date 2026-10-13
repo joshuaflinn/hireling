@@ -374,8 +374,8 @@ async fn vitals_spell_economy_columns_round_trip() {
         .await;
     assert!(negative_focus.is_err(), "focus_current >= 0 is a CHECK");
 
-    // MOR-48 finding 11: `daily`'s invariant is structural, so the shape
-    // CHECK holds at the database too — object, three keys, right types.
+    // `daily`'s invariant is structural, so the shape CHECK holds at the
+    // database too — object, three keys, right types.
     for (bad, why) in [
         (serde_json::json!("nope"), "not an object"),
         (

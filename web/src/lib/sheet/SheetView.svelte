@@ -15,14 +15,25 @@
   import StrikesPane from './components/StrikesPane.svelte';
   import FeatsPanel from './components/FeatsPanel.svelte';
   import EffectsStrip from './components/EffectsStrip.svelte';
+  import ConditionPicker from './components/ConditionPicker.svelte';
+  import AddCustomForm from './components/AddCustomForm.svelte';
+  import Dialog from './components/Dialog.svelte';
+  import { createCustomStore } from '../rules/custom-store.js';
+  import EffectsComposer from './components/EffectsComposer.svelte';
 
   /** @type {{ character: any, accountSub?: string, editable?: boolean,
-    sync?: any, onimport?: () => void, onlogout?: () => void }} */
+    partyId?: number | null,
+    sync?: any, roster?: Array<{id: number, name: string | null}>,
+    fetchImpl?: typeof fetch,
+    onimport?: () => void, onlogout?: () => void }} */
   let {
     character, // the /api/characters/me payload — or a roster element, same shape
     accountSub = '',
     editable = true,
+    partyId = null, // the session's party (specs/011) — null hides the composer; epic surfaces fall back to the POC party
     sync: providedSync, // the shell's session sync (E10 D2) — one socket per tab
+    roster = [], // the party roster — the composer's target picker
+    fetchImpl, // injectable REST face for tests; the real app uses global fetch
     onimport,
     onlogout,
   } = $props();
@@ -37,7 +48,53 @@
       storage: localStorage,
       accountSub,
     });
-  const sheet = createSheetState({ sync, character });
+  const sheet = createSheetState({ sync, character, partyId: partyId ?? POC_PARTY_ID, fetchImpl });
+
+  // ---- E9: the party's custom rows (store: rules/custom-store.js) --------
+  const customStore = createCustomStore({ partyId: partyId ?? POC_PARTY_ID });
+  /** Which AddCustomForm is open: null | 'item' | 'spell' | 'condition'. */
+  let customFormKind = $state(/** @type {null | 'item' | 'spell' | 'condition'} */ (null));
+  let pickerOpen = $state(false);
+  // Party-wide custom rows land on the next fetch (D3) — read at boot, and
+  // a failed read degrades to the last fetched state (the store's rule).
+  let customSpellRows = $state(/** @type {any[]} */ ([]));
+  let customConditionRows = $state(/** @type {any[]} */ ([]));
+  $effect(() => {
+    const unsubscribeSpells = customStore.spells.subscribe((rows) => (customSpellRows = rows));
+    const unsubscribeConditions = customStore.conditions.subscribe(
+      (rows) => (customConditionRows = rows),
+    );
+    customStore.refresh('spell');
+    customStore.refresh('condition');
+    return () => {
+      unsubscribeSpells();
+      unsubscribeConditions();
+    };
+  });
+  // Items bridge the store into the inventory panel with their qty-1
+  // optimistic display; qty writes ride the ordinary inv path by exact name.
+  let customItemRows = $state(/** @type {any[]} */ ([]));
+  $effect(() => {
+    const unsubscribe = customStore.items.subscribe((rows) => {
+      customItemRows = rows.map((row) => ({ ...row, qty: 1 }));
+    });
+    customStore.refresh('item');
+    return unsubscribe;
+  });
+
+  /** The AddCustomForm's submit: one store call per kind; an item create
+   * also surfaces its qty-1 inventory row immediately (US-3 AC-1). */
+  async function submitCustom(/** @type {any} */ fields) {
+    if (customFormKind === 'item') {
+      const row = await customStore.create('item', fields);
+      customItemRows = [{ ...row, qty: 1 }, ...customItemRows];
+    } else if (customFormKind === 'spell') {
+      await customStore.create('spell', fields);
+    } else if (customFormKind === 'condition') {
+      await customStore.create('condition', fields);
+    }
+    customFormKind = null;
+  }
 
   // Stores destructure into locals: `$view` and friends are the template's
   // auto-subscriptions; the write surface stays on `sheet`.
@@ -56,6 +113,8 @@
     syncing,
     offline,
     opErrors,
+    composerOp,
+    partyEffects,
   } = sheet;
 
   /**
@@ -93,6 +152,42 @@
 
   const identity = character.base_sheet.identity;
 
+  // The composer (specs/011): an editable sheet with a party and a delivered
+  // engine output (the vocabulary source). Absent any of the three, the
+  // entry point is absent — the GM seat and non-owner drill-ins render no
+  // edit control (PRD), and a pre-wire sheet has no vocabulary to pick from.
+  let composerOpen = $state(false);
+  const canCompose = $derived(Boolean(editable && partyId !== null && $view !== null));
+
+  function openComposer() {
+    sheet.clearComposerOp();
+    if (partyId !== null) sheet.loadPartyEffects(partyId);
+    composerOpen = true;
+  }
+
+  // An applied CREATE ack closes the dialog (spec FR-C5); an applied
+  // MANAGER op (retarget/end, kind 'effect') must not — the dialog stays
+  // open and the rows refetch instead (FR-C6: the list is refetched after
+  // every op). A superseded op settles as `stale`: the rows refetch too,
+  // so the next op addresses fresh versions instead of silently losing
+  // CAS again. A denial leaves the dialog open with the reason inline —
+  // the state layer owns the verdict.
+  $effect(() => {
+    if ($composerOp?.phase === 'stale') {
+      if (partyId !== null) sheet.loadPartyEffects(partyId);
+      sheet.clearComposerOp();
+      return;
+    }
+    if ($composerOp?.phase !== 'applied') return;
+    if ($composerOp.kind === 'effect_new') {
+      composerOpen = false;
+      sheet.clearComposerOp();
+    } else {
+      if (partyId !== null) sheet.loadPartyEffects(partyId);
+      sheet.clearComposerOp();
+    }
+  });
+
   function subline() {
     const parts = [identity.ancestry, identity.class, identity.heritage].filter(Boolean);
     return parts.join(' · ');
@@ -114,7 +209,63 @@
     onlogout={onlogout}
   />
 
-  <EffectsStrip effects={$view?.effects ?? []} />
+  <div class="effects-head">
+    <EffectsStrip effects={$view?.effects ?? []} customConditions={customConditionRows} />
+    {#if canCompose}
+      <button class="new-effect" onclick={openComposer}>New effect</button>
+    {/if}
+  </div>
+
+  {#if composerOpen && partyId !== null}
+    <EffectsComposer
+      open={composerOpen}
+      onclose={() => (composerOpen = false)}
+      partyId={partyId}
+      characterId={character.character.id}
+      {roster}
+      view={$view}
+      effectsState={$partyEffects}
+      composerOpState={$composerOp}
+      oncreate={sheet.createEffect}
+      onretarget={sheet.retargetEffect}
+      onend={sheet.endEffect}
+    />
+  {/if}
+
+  {#if editable}
+    <div style="margin:-4px 0 8px">
+      <button class="btn" style="font-size:12px;padding:2px 9px" onclick={() => (pickerOpen = true)}>
+        Add condition
+      </button>
+    </div>
+  {/if}
+
+  {#if pickerOpen}
+    <ConditionPicker
+      partyId={partyId ?? POC_PARTY_ID}
+      targetId={character.character.id}
+      sourceId={character.character.id}
+      open={pickerOpen}
+      onclose={() => (pickerOpen = false)}
+      onapply={(/** @type {any} */ create) => sheet.writeEffect(create)}
+      onsubmitcustom={(/** @type {any} */ fields) => customStore.create('condition', fields)}
+      customRows={customConditionRows}
+    />
+  {/if}
+
+  {#if customFormKind}
+    <Dialog
+      open={customFormKind !== null}
+      title="Add custom content"
+      onclose={() => (customFormKind = null)}
+    >
+      <AddCustomForm
+        kind={/** @type {'item' | 'spell' | 'condition'} */ (customFormKind)}
+        onsubmit={submitCustom}
+        oncancel={() => (customFormKind = null)}
+      />
+    </Dialog>
+  {/if}
 
   <div class="board">
     <div class="col">
@@ -170,6 +321,8 @@
           prepare(casterKey, row, spell)}
         onreset={(/** @type {string} */ casterKey) => sheet.resetPrep(casterKey)}
         ondaily={(/** @type {any} */ next) => sheet.writeDaily(next)}
+        customSpells={customSpellRows}
+        onaddcustom={() => (customFormKind = 'spell')}
       >
         {#snippet companionsSlot()}
           {#if $view}
@@ -192,7 +345,27 @@
         offline={$offline}
         onqty={(/** @type {string} */ name, /** @type {number} */ qty) => sheet.writeItemQty(name, qty)}
         onmoney={(/** @type {any} */ next) => sheet.writeMoney(next)}
+        customItems={customItemRows}
+        onaddcustom={() => (customFormKind = 'item')}
       />
     </div>
   </div>
 </div>
+
+<style>
+  .effects-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .new-effect {
+    background: none;
+    border: 1px solid var(--gold-dim, #b8963e);
+    border-radius: 999px;
+    color: var(--gold, #d4af5f);
+    font-size: 0.8rem;
+    padding: 2px 12px;
+    cursor: pointer;
+  }
+</style>

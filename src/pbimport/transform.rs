@@ -376,9 +376,8 @@ fn abilities(build: &Value) -> Abilities {
 
 /// Max HP per contract §3.3, the `PF2e` rule: ancestryhp + bonushp +
 /// (classhp + conMod + bonushpPerLevel) × level, floored at zero. CON
-/// counts at every level, the first included. E6's review (MOR-48
-/// finding 3) amended the formula so the first-import seed, the stored
-/// anchor and the sheet's adapter all compute one number.
+/// counts at every level, the first included — the first-import seed, the
+/// stored anchor and the sheet's adapter all compute one number.
 fn hp(build: &Value, level: i64, con_mod: i64) -> Hp {
     let attributes = build.get("attributes");
     let input = |key: &str| {

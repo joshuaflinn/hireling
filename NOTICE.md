@@ -18,6 +18,14 @@ which license covers what, for every source lane the rules corpus can contain.
   custom entry paraphrases Paizo text, it ships under the Paizo Community
   Use Policy, consistent with the ORC notice above. Custom rows are never
   touched by the import.
+- **Curated condition prose** (the in-app tooltip seed,
+  `web/src/lib/rules/condition-prose.json`): paraphrased condition text for
+  the Player Core conditions as of the reference prototype freeze (merge
+  `cb0f397`), with a Player Core page citation and an Archives of Nethys
+  link per entry. It ships under the **Paizo Community Use Policy**,
+  consistent with the ORC notice above. The prose is human-reviewed,
+  PR-reviewed curation data — changed by PR, never edited in-app (E15 is
+  the future curation editor).
 
 The Foundry/Paizo partnership permission visible in the upstream README is
 the upstream project's, not ours — this product relies on ORC / OGL 1.0a /
@@ -36,4 +44,5 @@ license-coverage:
 imported: ORC, OGL 1.0a
 core: reserved
 custom: CUP, party-owned
+prose: CUP
 ```

@@ -483,7 +483,7 @@ async fn the_drain_signal_sends_bye_then_close_1001() {
 /// way a peer that died mid-request fails in production. The write is
 /// already committed: the party must still hear about it (spec FR-3) — a
 /// fan-out suppressed by the ack failure strands every other client until
-/// reconnect (review finding, PR #34).
+/// reconnect.
 #[tokio::test]
 async fn a_committed_write_fans_out_even_when_the_writer_vanishes_before_the_ack() {
     let Some(pool) = testing::test_pool().await else {
@@ -592,8 +592,7 @@ async fn a_committed_write_fans_out_even_when_the_writer_vanishes_before_the_ack
 
 /// Party A's socket, party B's character: the one-party-per-socket
 /// invariant (contract §1) denies the write before ownership is even
-/// asked, no diff reaches either party, and the target row is untouched
-/// (review finding, PR #34).
+/// asked, no diff reaches either party, and the target row is untouched.
 #[tokio::test]
 async fn a_write_targeting_another_party_s_character_is_denied_and_fans_out_nothing() {
     let Some(pool) = testing::test_pool().await else {

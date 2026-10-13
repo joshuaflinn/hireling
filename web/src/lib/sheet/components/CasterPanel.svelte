@@ -12,10 +12,10 @@
 
   /** @type {{ caster: any, slots: any[], numbers: any, cantripRank: number | null,
     editable?: boolean, offline?: boolean, known?: any[], focusSpells?: string[],
-    opErrors?: any[],
+    opErrors?: any[], customSpells?: any[],
     oncast?: (row: any, used: boolean) => void,
     onprepare?: (row: any, spell: string) => void,
-    onreset?: () => void }} */
+    onreset?: () => void, onaddcustom?: () => void }} */
   let {
     caster,
     slots,
@@ -26,9 +26,11 @@
     known = [],
     focusSpells = [],
     opErrors = [],
+    customSpells = [],
     oncast,
     onprepare,
     onreset,
+    onaddcustom,
   } = $props();
 
   /** @type {{ rank: number, index: number } | null} */
@@ -48,6 +50,18 @@
   // wire says about this caster block, never the export's local copy.
   const innate = $derived(attack ? attack.innate : null);
   const preparedNames = $derived(new Set(slots.map((slot) => slot.prepared_spell).filter(Boolean)));
+  // Custom spells at one rank, names only — the prepare picker's candidates
+  // join the known lists there (the write is the existing slot write).
+  const customAt = $derived((/** @type {number} */ rank) =>
+    customSpells
+      .filter((/** @type {any} */ spell) => spell.value_or_rank === rank)
+      .map((/** @type {any} */ spell) => spell.name),
+  );
+  const customNotPrepared = $derived(
+    customSpells.filter(
+      (/** @type {any} */ spell) => !preparedNames.has(spell.name),
+    ),
+  );
   const bookAt = $derived((/** @type {number} */ rank) =>
     (known.find((list) => list.rank === rank)?.spells ?? []).filter(
       (/** @type {string} */ spell) => !preparedNames.has(spell),
@@ -126,9 +140,39 @@
     <p class="meta" style="margin-top:4px">Innate spells are always prepared — nothing to track but the cast.</p>
   {/if}
 
-  {#if known.length}
+  {#if known.length || customSpells.length}
     <details class="book" bind:open={bookOpen}>
-      <summary>Spellbook — known, not prepared</summary>
+      <summary>
+        Spellbook — known, not prepared
+        {#if editable && onaddcustom}
+          <button
+            class="btn"
+            style="font-size:12px;padding:2px 9px"
+            onclick={(event) => { event.preventDefault(); event.stopPropagation(); onaddcustom?.(); }}
+          >Add custom spell</button>
+        {/if}
+      </summary>
+      {#if customNotPrepared.length}
+        <div class="rank-h">
+          <span class="t">Custom spells</span>
+        </div>
+        {#each customNotPrepared as spell (spell.corpus_entry_id)}
+          <div class="row">
+            <span></span>
+            <span class="nm">
+              {spell.name}
+              <em class="chip">custom</em>
+              {#if spell.description}<small style="color:var(--muted,#8a94a3);font-size:11px">{spell.description}</small>{/if}
+            </span>
+            {#if editable && !offline}
+              <button
+                class="chip book"
+                onclick={() => onprepare?.({ rank: spell.value_or_rank, slot_index: -1 }, spell.name)}
+              >Prepare</button>
+            {/if}
+          </div>
+        {/each}
+      {/if}
       {#each known.filter((/** @type {any} */ list) => bookAt(list.rank).length) as list (list.rank)}
         <div class="rank-h">
           <span class="t">{list.rank === 0 ? 'Cantrips' : `${ordinal(list.rank)} rank`}</span>
@@ -153,7 +197,7 @@
 <Dialog open={picking !== null} title={`Prepare — ${ordinal(picking?.rank ?? 0)} rank`} onclose={() => (picking = null)}>
   <p style="color:var(--muted);font-size:13px">Pick a known spell; Tab moves, Enter or click commits.</p>
   <div style="display:flex;flex-direction:column;gap:2px;max-height:50vh;overflow:auto">
-    {#each (known.find((/** @type {any} */ list) => list.rank === picking?.rank)?.spells ?? []) as spell (spell)}
+    {#each [...(known.find((/** @type {any} */ list) => list.rank === picking?.rank)?.spells ?? []), ...customAt(picking?.rank ?? -1)] as spell (spell)}
       <button class="btn" style="text-align:left" onclick={() => commitPick(spell)}>{spell}</button>
     {/each}
   </div>

@@ -125,12 +125,12 @@ async fn load_item_corpus(
     ),
     sqlx::Error,
 > {
-    // Equipment AND weapons both reach the corpus: strike rows read their
-    // trait chips through `item_traits`. Both sections are arrays of
-    // objects carrying `name`. Armor has no chip consumer yet and stays
-    // out until one exists.
+    // Equipment, weapons, AND armor all reach the corpus: strike rows read
+    // their trait chips through `item_traits`, and the inventory total
+    // folds weapon and worn-armor bulk through `item_bulk`. All sections
+    // are arrays of objects carrying `name`.
     let mut item_names: Vec<String> = Vec::new();
-    for section in ["equipment", "weapons"] {
+    for section in ["equipment", "weapons", "armor"] {
         if let Some(items) = base_sheet
             .get(section)
             .and_then(serde_json::Value::as_array)

@@ -102,6 +102,27 @@ pub(crate) const API_ROUTES: &[ApiRoute] = &[
         path: "/api/parties/{party_id}/effects",
         writes: false,
     },
+    // E9's custom-content rows (contracts/custom-rows-rest.md): the list
+    // read is party-readable; the create and the creator-only edit are the
+    // module's two write surfaces, each carrying its own authorization rule
+    // in `src/custom.rs`. The GET and POST share one path by contract, so
+    // the matrix's read-only 405 probe exempts methods declared as write
+    // routes on the same path (nothing hides — every method is declared).
+    ApiRoute {
+        method: "GET",
+        path: "/api/parties/{party_id}/custom",
+        writes: false,
+    },
+    ApiRoute {
+        method: "POST",
+        path: "/api/parties/{party_id}/custom",
+        writes: true,
+    },
+    ApiRoute {
+        method: "PATCH",
+        path: "/api/parties/{party_id}/custom/{corpus_entry_id}",
+        writes: true,
+    },
     ApiRoute {
         method: "GET",
         path: "/api/characters/{character_id}/derived",
@@ -148,6 +169,14 @@ pub fn router(auth: Arc<AuthState>, static_dir: &Path, sync: crate::sync::SyncSt
         .route(
             "/parties/{party_id}/effects",
             get(crate::engine_host::rest::effects),
+        )
+        .route(
+            "/parties/{party_id}/custom",
+            get(crate::custom::list).post(crate::custom::create),
+        )
+        .route(
+            "/parties/{party_id}/custom/{corpus_entry_id}",
+            axum::routing::patch(crate::custom::edit),
         )
         .route(
             "/characters/{character_id}/derived",

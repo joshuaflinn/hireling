@@ -1,3 +1,4 @@
+/* global console */
 // Sheet state layer (E6 design §2) — the ONLY module that talks to
 // `createSync`. Components get stores; they never see the socket, the
 // queue, or a wire target.
@@ -48,6 +49,57 @@ const invTarget = (characterId, itemName) => ({
   item_name: itemName,
 });
 
+/** Effect CREATE (E8's frame): the row does not exist yet; the target is
+ *  the party it lands in and the server mints the id (specs/011 FR-C4). */
+/** @param {number} partyId */
+const effectNewTarget = (partyId) => ({
+  kind: 'effect_new',
+  party_id: partyId,
+});
+
+/** Effect retarget/end: whole-row CAS on the effect's version (FR-14). */
+/** @param {number} effectId */
+const effectTarget = (effectId) => ({ kind: 'effect', effect_id: effectId });
+
+/** The closed modifier types — `engine/src/vocab.rs` MODIFIER_TYPES; the
+ *  server re-validates and its rejection surfaces (spec FR-C3). */
+const MODIFIER_TYPES = ['circumstance', 'status', 'item', 'untyped'];
+
+/**
+ * Client-side bounds for a freeform create — the server's table
+ * (`src/sync/write.rs` `validate_effect_value(.., "create")`) mirrored so
+ * invalid input never leaves the layer. Returns the wire-shaped value, or
+ * null (bounds are the caller's no-op).
+ *
+ * @param {{name: string, sourceCharacterId: number, targets: number[], modifiers: Array<{type: string, stat: string, value: number}>, durationNote: string}} form
+ * @returns {{op: string, name: string, source_character_id: number, targets: number[], modifiers: Array<{type: string, stat: string, value: number}>, duration_note: string} | null}
+ */
+function effectCreateValue(form) {
+  const name = String(form.name ?? '').trim();
+  if (name.length < 1 || name.length > 120) return null;
+  const targets = [...new Set(form.targets)].filter((id) => Number.isInteger(id) && id > 0);
+  if (targets.length < 1) return null;
+  if (!Array.isArray(form.modifiers) || form.modifiers.length < 1 || form.modifiers.length > 16) {
+    return null;
+  }
+  const modifiers = [];
+  for (const row of form.modifiers) {
+    if (!MODIFIER_TYPES.includes(row.type)) return null;
+    if (typeof row.stat !== 'string' || row.stat === '') return null;
+    const value = Number(row.value);
+    if (!Number.isInteger(value) || value < -50 || value > 50) return null;
+    modifiers.push({ type: row.type, stat: row.stat, value });
+  }
+  return {
+    op: 'create',
+    name,
+    source_character_id: form.sourceCharacterId,
+    targets,
+    modifiers,
+    duration_note: String(form.durationNote ?? ''),
+  };
+}
+
 /** @param {number} value @param {number} min @param {number} max */
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -76,6 +128,8 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
  * @typedef {{ key: string | null, target: Record<string, *> | null,
  *   op_id: string, outcome: string, reason: string }} OpError
  */
+
+// ---- the effect composer's store shapes (specs/011) -----------------------
 
 /**
  * The inline error for one control, if any (spec §6): match the op's
@@ -122,6 +176,19 @@ export function findOpError(opErrors, kind, match = {}) {
  * @property {import('svelte/store').Readable<boolean>} syncing
  * @property {import('svelte/store').Readable<boolean>} offline
  * @property {import('svelte/store').Readable<OpError[]>} opErrors
+ * @property {import('svelte/store').Readable<{phase: string, kind?: string, reason?: string} | null>} composerOp
+ *   the in-flight composer op: `writing` → `applied` (kinded — 'effect_new'
+ *   closes the dialog, 'effect' settles and refetches), `stale` (a
+ *   superseded op — the sheet refetches the manager rows and clears it), or
+ *   `denied` with the server's reason verbatim (spec FR-C5)
+ * @property {import('svelte/store').Readable<{status: string, rows: Array<any>}>} partyEffects
+ *   the manager's REST rows (GET /api/parties/{party_id}/effects — effect_id
+ *   + version for CAS addressing)
+ * @property {(partyId: number, fetchImpl?: typeof fetch) => Promise<void>} loadPartyEffects
+ * @property {(payload: any) => void} createEffect
+ * @property {(effectId: number, targets: number[], baseVersion: number) => void} retargetEffect
+ * @property {(effectId: number, baseVersion: number) => void} endEffect
+ * @property {() => void} clearComposerOp
  * @property {(itemName: string) => import('svelte/store').Readable<{qty: number, pending: boolean}>} itemQty
  * @property {() => void} connect
  * @property {() => void} disconnect
@@ -136,6 +203,9 @@ export function findOpError(opErrors, kind, match = {}) {
  * @property {(casterKey: string, rank: number, index: number, patch?: {used?: boolean, prepared?: string | null}) => void} writeSlot
  * @property {(itemName: string, quantity: number) => void} writeItemQty
  * @property {(casterKey: string) => void} resetPrep
+ * @property {(create: {name: string, source_character_id: number,
+ *   targets: number[], modifiers?: any[], duration_note?: string,
+ *   corpus_entry_id?: number | null, condition_value?: number | null}) => void} writeEffect
  * @property {() => void} newDay
  * @property {() => void} destroy
  */
@@ -144,10 +214,12 @@ export function findOpError(opErrors, kind, match = {}) {
  * @param {{
  *   sync: import('../sync/index.js').Sync,
  *   character: Bootstrap,
+ *   partyId?: number,
+ *   fetchImpl?: typeof fetch,
  * }} setup
  * @returns {SheetState}
  */
-export function createSheetState({ sync, character }) {
+export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
   const characterId = character.character.id;
   const baseSheet = character.base_sheet;
 
@@ -157,6 +229,102 @@ export function createSheetState({ sync, character }) {
   const offline = derived(connectionState, ($state) => $state === 'offline');
   /** Rejected/forbidden ops awaiting inline display, keyed by field. */
   const opErrors = writable(/** @type {OpError[]} */ ([]));
+
+  // ---- the effect composer (specs/011) ------------------------------------
+  const composerOp = writable(/** @type {{phase: string, kind?: string, reason?: string} | null} */ (null));
+  /** targetKey of the op the composer is waiting on — acks and exposures
+   *  settle by key, so the composer never needs the op id back. */
+  let pendingEffectKey = /** @type {string | null} */ (null);
+  /** The pending op's target kind — the applied settle carries it, because
+   *  a create and a manager op settle differently: 'effect_new' closes the
+   *  dialog, 'effect' refetches rows and keeps it open. */
+  let pendingEffectKind = /** @type {'effect_new' | 'effect' | null} */ (null);
+  const partyEffects = writable(/** @type {{status: string, rows: Array<any>}} */ ({
+    status: 'idle',
+    rows: [],
+  }));
+
+  /**
+   * The manager's rows: GET /api/parties/{party_id}/effects — the merged
+   * read face (engine_host::rest::effects), rows carrying effect_id + the
+   * version the CAS ops address. Called when the composer opens; settled
+   * ops broadcast diffs the store already merges.
+   *
+   * @param {number} forPartyId — named apart from createSheetState's own
+   *   partyId: the composer asks for a specific party's rows, and a same-
+   *   named inner param shadows the closure's (gate no-shadow).
+   * @param {typeof fetch} [injectFetch]
+   */
+  async function loadPartyEffects(forPartyId, injectFetch) {
+    partyEffects.set({ status: 'loading', rows: [] });
+    const doFetch = injectFetch ?? fetchImpl ?? globalThis.fetch;
+    try {
+      const response = await doFetch(`/api/parties/${forPartyId}/effects`);
+      if (!response.ok) throw new Error(`the server answered ${response.status}`);
+      const rows = await response.json();
+      partyEffects.set({ status: 'ready', rows: Array.isArray(rows) ? rows : [] });
+    } catch (error) {
+      // No silent failures — “no effects” and “couldn't load” must not
+      // look identical. The !ok branch throws the status in the message; a
+      // network rejection carries its own.
+      const detail = error instanceof Error ? error.message : String(error);
+      console.warn(`[sheet] loadPartyEffects failed: ${detail}`);
+      partyEffects.set({ status: 'error', rows: [] });
+    }
+  }
+
+  /**
+   * The CAS version for an effect mutation: the live store's field when a
+   * diff has landed (newest truth, TCP-ordered), the REST face's row
+   * otherwise (a cold client has no diff yet). The server owns the verdict
+   * either way — a lost race comes back `superseded` (FR-14).
+   *
+   * @param {Record<string, *>} target @param {number} restVersion
+   */
+  function effectCasVersion(target, restVersion) {
+    const stored = sync.state()[targetKey(target)];
+    const storeVersion = stored ? stored.version : 0;
+    return storeVersion > 0 ? storeVersion : restVersion;
+  }
+
+  /** @param {any} payload the composer's form: {partyId, sourceCharacterId,
+   *   name, targets, modifiers, durationNote} */
+  function createEffect(payload) {
+    const value = effectCreateValue(payload);
+    if (value === null) return; // bounds refuse; the form's own state shows why
+    const target = effectNewTarget(payload.partyId);
+    pendingEffectKey = targetKey(target);
+    pendingEffectKind = 'effect_new';
+    composerOp.set({ phase: 'writing' });
+    write(target, value);
+  }
+
+  /** Whole-target-set retarget (FR-14 CAS on the row version).
+   *  @param {number} effectId @param {number[]} targets @param {number} restVersion */
+  function retargetEffect(effectId, targets, restVersion) {
+    const distinct = [...new Set(targets)].filter((id) => Number.isInteger(id) && id > 0);
+    if (distinct.length < 1) return;
+    const target = effectTarget(effectId);
+    pendingEffectKey = targetKey(target);
+    pendingEffectKind = 'effect';
+    composerOp.set({ phase: 'writing' });
+    write(target, { op: 'update', targets: distinct }, effectCasVersion(target, restVersion));
+  }
+
+  /** @param {number} effectId @param {number} restVersion */
+  function endEffect(effectId, restVersion) {
+    const target = effectTarget(effectId);
+    pendingEffectKey = targetKey(target);
+    pendingEffectKind = 'effect';
+    composerOp.set({ phase: 'writing' });
+    write(target, { op: 'end' }, effectCasVersion(target, restVersion));
+  }
+
+  function clearComposerOp() {
+    pendingEffectKey = null;
+    pendingEffectKind = null;
+    composerOp.set(null);
+  }
 
   // ---- the live field map + engine view ----------------------------------
   const fields = writable(/** @type {Record<string, FieldEntry>} */ (sync.state()));
@@ -199,8 +367,8 @@ export function createSheetState({ sync, character }) {
   // wire delivers — the coupled writes no-op and their controls render
   // disabled until then (design §7's loading state, no invented numbers).
   const hpMax = derived(view, ($view) => $view?.render_base?.hp_max ?? null);
-  // The readout clamps to max too (review finding 11): a level-down must
-  // never display "32 / 16" — the write clamp alone leaves stale values.
+  // The readout clamps to max too: a level-down must never display
+  // "32 / 16" — the write clamp alone leaves stale values.
   const hp = derived([vitalsStore('hp', character.vitals.hp), hpMax], ([$hp, $max]) => ({
     value: $max === null ? $hp.value : clamp($hp.value, 0, $max),
     pending: $hp.pending,
@@ -300,6 +468,16 @@ export function createSheetState({ sync, character }) {
       const pending = new Set(sync.queue().map((op) => targetKey(op.target)));
       pendingKeys.set(pending);
       fields.set(sync.state());
+      // A lost CAS race (superseded) dequeues the op and emits ONLY this
+      // queue event — no applied, no op_exposed. If the composer is waiting
+      // on a key that no queued op targets anymore, settle it as stale:
+      // Apply re-arms and the sheet refetches the rows, so the list never
+      // rides the beaten version (FR-C6). The key itself stays — settleAck
+      // emits this event BEFORE the applied ack for a winning op, and the
+      // settle below must not be eaten.
+      if (pendingEffectKey !== null && !pending.has(pendingEffectKey)) {
+        composerOp.set({ phase: 'stale' });
+      }
     } else if (event.type === 'connection') {
       connectionState.set(event.state);
     } else if (event.type === 'fields') {
@@ -310,6 +488,15 @@ export function createSheetState({ sync, character }) {
     } else if (event.type === 'applied' && event.key) {
       // A win on a field clears its inline error (auto-clear on next ack).
       opErrors.update((errors) => errors.filter((error) => error.key !== event.key));
+      // The composer's win: the settle carries the op's target kind — a
+      // create closes the dialog (the parent owns the transition), a
+      // manager op only settles and refetches. The store shows the settled
+      // echo (spec FR-C5).
+      if (pendingEffectKey !== null && event.key === pendingEffectKey) {
+        pendingEffectKey = null;
+        composerOp.set({ phase: 'applied', kind: pendingEffectKind ?? 'effect_new' });
+        pendingEffectKind = null;
+      }
     } else if (event.type === 'op_exposed') {
       const key = event.op ? targetKey(event.op.target) : null;
       opErrors.update((errors) => [
@@ -322,17 +509,28 @@ export function createSheetState({ sync, character }) {
           reason: event.reason ?? '',
         },
       ]);
+      // The composer's denial: the server's reason, verbatim, inline (the
+      // dialog stays open — spec FR-C5). Never swallowed.
+      if (pendingEffectKey !== null && key === pendingEffectKey) {
+        pendingEffectKey = null;
+        composerOp.set({
+          phase: 'denied',
+          reason: event.reason || 'The server rejected the change.',
+        });
+      }
     }
   }
   const unsubscribe = sync.subscribe(handleSyncEvent);
 
   // ---- write surface (client-side bounds live here) ------------------------
-  /** @param {Record<string, *>} target @param {*} value */
-  function write(target, value) {
+  /** @param {Record<string, *>} target @param {*} value @param {number} [baseVersion]
+   *  an explicit CAS version (the effect mutations' whole-row version); the
+   *  field writes keep the store-derived default. */
+  function write(target, value, baseVersion) {
     // A retry on a field clears its error immediately — the user acted.
     const key = targetKey(target);
     opErrors.update((errors) => errors.filter((error) => error.key !== key));
-    sync.write(target, value);
+    sync.write(target, value, baseVersion);
   }
 
   /** @param {number} value */
@@ -440,6 +638,34 @@ export function createSheetState({ sync, character }) {
   }
 
   /**
+   * Create one effect through the wire's existing effect-create frame (E8;
+   * E9's condition picker applies through this — FR-6 keeps custom rows on
+   * the same path: corpus-sourced, zero inline modifiers, the server
+   * resolves NULL mappings to tracked-manually). No client math, ever.
+   * @param {{name: string, source_character_id: number, targets: number[],
+   *   modifiers?: any[], duration_note?: string, corpus_entry_id?: number | null,
+   *   condition_value?: number | null}} create
+   */
+  function writeEffect(create) {
+    write(
+      // The wire shape is `src/sync/protocol.rs`'s: `FieldTarget::EffectNew`
+      // carries `party_id` (snake_case on the wire) and the value must name
+      // `op: 'create'` (`write.rs` dispatches on it). Built by the shared
+      // target-builder family, not an inline literal — the literal is what
+      // let the camelCase frame ship (MOR-121).
+      effectNewTarget(partyId),
+      {
+        op: 'create',
+        modifiers: [],
+        duration_note: '',
+        corpus_entry_id: null,
+        condition_value: null,
+        ...create,
+      },
+    );
+  }
+
+  /**
    * Reset one caster's preparation to the export's list (spec §2.3): every
    * slot whose prepared spell drifted gets a whole-slot write back to the
    * bootstrap value (which is the export's seeding, FR-12). Used flags stay.
@@ -463,14 +689,14 @@ export function createSheetState({ sync, character }) {
 
   /** The New Day burst (spec §3: clear cast slots, refill focus, reset
    * drain): every slot's used flag, focus back to the character's pool
-   * (review finding 2 — the pool regains its points, it is not emptied),
-   * then the daily whole-row.
+   * (the pool regains its points, it is not emptied), then the daily
+   * whole-row.
    *
-   * No-op before the wire speaks (review finding F3): the focus refill
-   * has no source until `render_base` arrives, and firing the slot/daily
-   * halves alone would reset two of the three things spec §3 promises in
-   * one silent stroke. The header's New Day button is dark in the same
-   * window — this guard is the state-layer backstop. */
+   * No-op before the wire speaks: the focus refill has no source until
+   * `render_base` arrives, and firing the slot/daily halves alone would
+   * reset two of the three things spec §3 promises in one silent stroke.
+   * The header's New Day button is dark in the same window — this guard
+   * is the state-layer backstop. */
   function newDay() {
     if (get(view) === null) return;
     for (const row of get(slots)) {
@@ -505,7 +731,14 @@ export function createSheetState({ sync, character }) {
     syncing,
     offline,
     opErrors,
+    composerOp,
+    partyEffects,
 
+    loadPartyEffects,
+    createEffect,
+    retargetEffect,
+    endEffect,
+    clearComposerOp,
     itemQty,
     connect: () => sync.connect(),
     disconnect: () => sync.disconnect(),
@@ -519,6 +752,7 @@ export function createSheetState({ sync, character }) {
     writeDaily,
     writeSlot,
     writeItemQty,
+    writeEffect,
     resetPrep,
     newDay,
     destroy: () => unsubscribe(),

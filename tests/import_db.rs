@@ -1,5 +1,7 @@
 //! Importer integration tests against a real Postgres (the compose-throwaway
-//! pattern; a throwaway database per test).
+//! pattern; a throwaway database per test, cloned from a per-process
+//! template that carries the fixture schema — the schema application is
+//! setup cost paid once per process, not once per test).
 //!
 //! Fixture discipline: upstream documents are captured verbatim from release
 //! `pf2e-8.5.1` (`tests/fixtures/packs/`); deliberately-broken variants are
@@ -16,8 +18,9 @@ use hireling::import::model::Kind;
 use hireling::import::store;
 use hireling::import::transform::{CategoryPlan, RowWrite};
 use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::sync::OnceCell;
 
-use sqlx::postgres::PgConnectOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{PgPool, Row as _};
 
 /// Process-unique suffix for throwaway database names. Wall clocks on some
@@ -39,6 +42,117 @@ fn explicitly_requested() -> bool {
 
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
+/// SQLSTATE 55006 — the template database still has a backend attached.
+const TEMPLATE_BUSY: &str = "55006";
+
+/// The per-process schema template's name, built on first use.
+static TEMPLATE: OnceCell<String> = OnceCell::const_new();
+
+/// Build the once-per-process template: a throwaway database with the
+/// fixture schema applied, left with zero attached backends so
+/// `CREATE DATABASE … TEMPLATE` can clone it. Called only after a test
+/// proved the Postgres reachable, so every failure here is a harness
+/// defect and fails the calling test red.
+async fn build_schema_template() -> anyhow::Result<String> {
+    let admin = admin_pool()
+        .await
+        .context("template build connects the admin database")?;
+    let name = format!("hireling_tpl_e4_{}", std::process::id());
+    // Defensive only: the name is unique to this live process.
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "DROP DATABASE IF EXISTS {name} WITH (FORCE)"
+    )))
+    .execute(&admin)
+    .await
+    .ok();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}")))
+        .execute(&admin)
+        .await
+        .context("template database created")?;
+
+    let db_url = admin_url()
+        .rsplit_once('/')
+        .map_or_else(|| name.clone(), |(prefix, _)| format!("{prefix}/{name}"));
+    let options: PgConnectOptions = db_url.parse().context("template URL parses")?;
+    let pool = PgPool::connect_with(options)
+        .await
+        .context("template pool connects")?;
+    sqlx::raw_sql(SCHEMA_SQL)
+        .execute(&pool)
+        .await
+        .context("fixture schema applies to the template")?;
+    pool.close().await;
+
+    // pool.close() returns before server-side backends are all gone, and a
+    // template with live connections cannot be cloned (55006).
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
+         WHERE datname = '{name}' AND pid <> pg_backend_pid()"
+    )))
+    .execute(&admin)
+    .await
+    .ok();
+    admin.close().await;
+    Ok(name)
+}
+
+/// The schema template's name, building it once per process on first use.
+async fn schema_template() -> anyhow::Result<String> {
+    TEMPLATE
+        .get_or_try_init(build_schema_template)
+        .await
+        .cloned()
+}
+
+/// Clone the schema template into a fresh throwaway database. Concurrent
+/// clones serialize on the template inside Postgres; a departing template
+/// backend (55006) retries briefly. Any other failure is a harness defect.
+async fn create_from_template(admin: &PgPool, name: &str) -> anyhow::Result<()> {
+    let template = schema_template().await?;
+    for attempt in 0..40_u32 {
+        match sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "CREATE DATABASE {name} TEMPLATE {template}"
+        )))
+        .execute(admin)
+        .await
+        {
+            Ok(_) => {
+                // synchronous_commit = off: the throwaway is dropped at test
+                // end, so its crash durability is not under test (MOR-213 —
+                // the gate's Postgres pays a per-commit flush cost that
+                // dominated the suite there).
+                if let Err(err) = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                    "ALTER DATABASE {name} SET synchronous_commit = off"
+                )))
+                .execute(admin)
+                .await
+                {
+                    return Err(anyhow::Error::new(err))
+                        .context("throwaway database switched to synchronous_commit = off");
+                }
+                return Ok(());
+            }
+            Err(err)
+                if err
+                    .as_database_error()
+                    .is_some_and(|db| db.code().is_some_and(|code| code == TEMPLATE_BUSY)) =>
+            {
+                if attempt == 39 {
+                    return Err(anyhow::anyhow!(
+                        "template {template} still busy (55006) after 10s of retries: {err}"
+                    ));
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+            Err(err) => {
+                return Err(anyhow::Error::new(err))
+                    .context("throwaway database cloned from template");
+            }
+        }
+    }
+    unreachable!("the retry loop returns or errors on its last attempt")
+}
+
 /// A throwaway database for one test; drop it when done.
 struct TestDb {
     pool: PgPool,
@@ -53,8 +167,14 @@ impl TestDb {
 
     /// Drop the throwaway database (best effort). `WITH (FORCE)` terminates
     /// any lingering connections, so the test pool need not be closed first.
+    /// The admin reconnect gets the same capped budget as every other probe:
+    /// a Postgres that died mid-run must not bill 30s of pool retry per test.
     async fn drop(self) {
-        if let Ok(admin) = PgPool::connect_with(self.admin_opts).await {
+        if let Ok(admin) = PgPoolOptions::new()
+            .acquire_timeout(ADMIN_ACQUIRE_TIMEOUT)
+            .connect_with(self.admin_opts)
+            .await
+        {
             // Generated name, no user input — audited: safe to interpolate.
             sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                 "DROP DATABASE IF EXISTS {} WITH (FORCE)",
@@ -68,10 +188,18 @@ impl TestDb {
     }
 }
 
-/// Connect to the admin database (for CREATE/DROP DATABASE).
+/// Connect to the admin database (for CREATE/DROP DATABASE). The acquire
+/// budget is capped at 5s: sqlx's 30s default per pool is what turned the
+/// gate's dead port into 120.01s of four-thread sleep here (gh#125) — a
+/// dead Postgres must cost seconds, per probe.
+const ADMIN_ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 async fn admin_pool() -> anyhow::Result<PgPool> {
     let options: PgConnectOptions = admin_url().parse()?;
-    Ok(PgPool::connect_with(options).await?)
+    Ok(PgPoolOptions::new()
+        .acquire_timeout(ADMIN_ACQUIRE_TIMEOUT)
+        .connect_with(options)
+        .await?)
 }
 
 /// Create a fresh throwaway database with the corpus schema.
@@ -99,11 +227,9 @@ async fn test_db() -> anyhow::Result<Option<TestDb>> {
         .map_or(0, |since| since.as_nanos());
     let seq = DB_SEQ.fetch_add(1, Ordering::Relaxed);
     let name = format!("hireling_e4_{nanos}_{seq:04}");
-    // Generated name, no user input — audited: safe to interpolate.
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}")))
-        .execute(&admin)
-        .await
-        .context("throwaway database created")?;
+    // Generated name, no user input — audited: safe to interpolate. The
+    // template carries the fixture schema; the clone needs no setup SQL.
+    create_from_template(&admin, &name).await?;
     admin.close().await;
 
     let db_url = admin_url()
@@ -113,10 +239,6 @@ async fn test_db() -> anyhow::Result<Option<TestDb>> {
     let pool = PgPool::connect_with(options)
         .await
         .context("throwaway pool connects")?;
-    sqlx::raw_sql(SCHEMA_SQL)
-        .execute(&pool)
-        .await
-        .context("fixture schema applies")?;
     Ok(Some(TestDb {
         pool,
         name,

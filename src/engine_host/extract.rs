@@ -91,9 +91,8 @@ pub fn extract(sheet: &BaseSheet, level_adjust: i64) -> BaseStats {
     // `rank` rides verbatim (contract §3: render input for the rank letter
     // and untrained dimming); lores carry the export's display name as
     // `label` — the canonical `lore:` key lowercases and underscores, so
-    // the display case cannot be recovered from it (MOR-50's
-    // derive-the-label-from-the-key ruling meets the realized charset and
-    // loses; the display input rides the row instead, same as strikes).
+    // the display case cannot be recovered from it; the display input
+    // rides the row instead, same as strikes.
     let mut skills: Vec<SkillBase> = CORE_SKILLS
         .iter()
         .zip(CORE_SKILL_ABILITY.iter().map(|(_, ability)| *ability))
@@ -210,9 +209,8 @@ const WIZARD_PROGRESSION: &[(i64, &[(&str, i64)])] = &[
 /// The export's RAW Pathbuilder rank IS the bonus (untrained 0, trained 2,
 /// expert 4, master 6, legendary 8); level rides in the callers'
 /// `eff_level·(rank≥1)` term — `pb = rank > 0 ? rank + level : 0`
-/// (prototype line 1377). The earlier step encoding (1→+2, 2→+4, …) fed
-/// raw ranks into step slots and doubled every proficiency-bearing stat
-/// (review finding, MOR-51).
+/// (prototype line 1377). Raw ranks, not a step encoding: a 1→+2, 2→+4
+/// mapping would double every proficiency-bearing stat.
 fn prof_bonus(rank: i64) -> i32 {
     i32_of(rank)
 }
