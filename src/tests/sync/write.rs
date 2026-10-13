@@ -952,6 +952,151 @@ async fn daily_write_applies_the_whole_row() {
     testing::drop_test_db(pool, "write_daily").await;
 }
 
+/// Raise a Shield's live toggle (gh#82): a boolean vitals field with the
+/// full field-write contract. The column starts NULL (never toggled — the
+/// sheet's own `ac.shieldRaised` governs, PR #73's reader); `false` is a
+/// real live state, not a reset to NULL; and an applied write fans out the
+/// recompute (`affected`) because the flag feeds the engine's AC, exactly
+/// like `level_adjust`.
+#[tokio::test]
+async fn a_shield_raised_write_applies_both_ways() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let character_id = seed_character(&pool, "sub-shield").await;
+    let writer = player("sub-shield");
+
+    let stored: Option<bool> =
+        sqlx::query_scalar("SELECT shield_raised FROM character_vitals WHERE character_id = $1")
+            .bind(character_id)
+            .fetch_one(&pool)
+            .await
+            .expect("vitals row");
+    assert_eq!(stored, None, "no live toggle before the first write");
+
+    let base = vitals_version(&pool, character_id, "shield_raised_version").await;
+    let raised = applied(
+        &pool,
+        &writer,
+        field_op(
+            "op-shield-up",
+            character_id,
+            VitalsField::ShieldRaised,
+            base,
+            json!(true),
+        ),
+    )
+    .await;
+    assert_eq!(
+        raised.affected,
+        vec![character_id],
+        "the flag feeds the engine's AC — the applied write fans out the recompute"
+    );
+    let raised_state: Option<bool> =
+        sqlx::query_scalar("SELECT shield_raised FROM character_vitals WHERE character_id = $1")
+            .bind(character_id)
+            .fetch_one(&pool)
+            .await
+            .expect("vitals row");
+    assert_eq!(raised_state, Some(true), "raised committed");
+    let up_version = vitals_version(&pool, character_id, "shield_raised_version").await;
+    assert!(up_version > base, "the CAS version bumped");
+
+    // Lowered is a real live state — false, not NULL (NULL would hand the
+    // truth back to the sheet's import flag).
+    let lowered = applied(
+        &pool,
+        &writer,
+        field_op(
+            "op-shield-down",
+            character_id,
+            VitalsField::ShieldRaised,
+            up_version,
+            json!(false),
+        ),
+    )
+    .await;
+    assert_eq!(
+        lowered.affected,
+        vec![character_id],
+        "lowering fans out too"
+    );
+    let lowered_state: Option<bool> =
+        sqlx::query_scalar("SELECT shield_raised FROM character_vitals WHERE character_id = $1")
+            .bind(character_id)
+            .fetch_one(&pool)
+            .await
+            .expect("vitals row");
+    assert_eq!(
+        lowered_state,
+        Some(false),
+        "lowered committed as false, not NULL"
+    );
+    assert!(
+        vitals_version(&pool, character_id, "shield_raised_version").await > up_version,
+        "the second CAS bump"
+    );
+    testing::drop_test_db(pool, "write_shield_raised").await;
+}
+
+/// Non-booleans are a client bug: rejected at bounds, nothing touched, the
+/// denial recorded and naming the field (the store's `opErrors` text).
+#[tokio::test]
+async fn shield_raised_rejects_non_booleans() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let character_id = seed_character(&pool, "sub-shield-bad").await;
+    let party = poc_party(&pool).await;
+    let writer = player("sub-shield-bad");
+    let settled_version = vitals_version(&pool, character_id, "shield_raised_version").await;
+
+    for (op_id, bad) in [
+        ("op-shield-str", json!("yes")),
+        ("op-shield-int", json!(1)),
+        ("op-shield-null", json!(null)),
+    ] {
+        let result = apply_write(
+            &pool,
+            &writer,
+            party,
+            field_op(
+                op_id,
+                character_id,
+                VitalsField::ShieldRaised,
+                settled_version,
+                bad,
+            ),
+        )
+        .await
+        .expect("bounds check runs before anything touches the database");
+        assert_eq!(result.outcome, Outcome::Rejected, "{op_id} must reject");
+        assert!(
+            result
+                .reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("shield_raised")),
+            "{op_id} denial names the field, got {:?}",
+            result.reason
+        );
+        let (outcome, _) = ledger_row(&pool, op_id).await;
+        assert_eq!(outcome, "rejected", "{op_id} denial is recorded");
+    }
+    let settled: Option<bool> =
+        sqlx::query_scalar("SELECT shield_raised FROM character_vitals WHERE character_id = $1")
+            .bind(character_id)
+            .fetch_one(&pool)
+            .await
+            .expect("vitals row");
+    assert_eq!(settled, None, "rejections committed nothing");
+    assert_eq!(
+        vitals_version(&pool, character_id, "shield_raised_version").await,
+        settled_version,
+        "rejections bumped no version"
+    );
+    testing::drop_test_db(pool, "write_shield_rejects").await;
+}
+
 #[tokio::test]
 async fn spell_economy_bounds_are_rejected_without_touching_a_row() {
     let Some(pool) = testing::test_pool().await else {

@@ -20,9 +20,21 @@ use crate::pbimport::transform::BaseSheet;
 
 /// Extract the engine's input for one character. `level_adjust` is the
 /// live ±level from the party state; `eff_level = identity.level +
-/// level_adjust`, clamped 1..=20.
+/// level_adjust`, clamped 1..=20. `shield_raised` is the live Raise-a-
+/// Shield toggle (`character_vitals.shield_raised`, gh#82): `Some` wins
+/// over the sheet's own flag — both directions — and `None` (the column's
+/// NULL, never toggled) defers to `ac.shieldRaised`, PR #73's reader.
+/// `item_traits` is the character's imported-corpus weapon trait map —
+/// lowercased weapon names to display-form trait strings (gh#62 design
+/// D1: `engine_host` loads it; extraction stays pure, Hard rule 2). A
+/// name the map does not carry renders empty traits — nothing invented.
 #[must_use]
-pub fn extract(sheet: &BaseSheet, level_adjust: i64) -> BaseStats {
+pub fn extract(
+    sheet: &BaseSheet,
+    level_adjust: i64,
+    shield_raised: Option<bool>,
+    item_traits: &std::collections::BTreeMap<String, Vec<String>>,
+) -> BaseStats {
     let eff_level = (sheet.identity.level + level_adjust).clamp(1, 20);
 
     let abilities = &sheet.abilities;
@@ -38,7 +50,7 @@ pub fn extract(sheet: &BaseSheet, level_adjust: i64) -> BaseStats {
     };
     let ranks = progressed_ranks(sheet, eff_level);
     let rank_of = |key: &str| ranks.get(key).copied().unwrap_or(0);
-    let ac = ac_of(sheet, &ranks, eff_level);
+    let ac = ac_of(sheet, &ranks, eff_level, shield_raised);
     // One trained-stat formula: level and proficiency only at rank ≥ 1.
     let trained = |rank_key: &str, ability: &str| {
         let rank = rank_of(rank_key);
@@ -53,7 +65,7 @@ pub fn extract(sheet: &BaseSheet, level_adjust: i64) -> BaseStats {
         })
     };
 
-    let strikes = strike_bases(sheet, &ranks, eff_level);
+    let strikes = strike_bases(sheet, &ranks, eff_level, item_traits);
 
     // Render inputs with no modifier math (contract §3 render_base, design
     // D3). hp_max is the PROTOTYPE's formula — CON and the per-level bonus
@@ -215,19 +227,24 @@ fn prof_bonus(rank: i64) -> i32 {
     i32_of(rank)
 }
 
-/// AC RE-DERIVED from the export's parts (E6 spec §4 — the sheet's own
-/// AC formula):
 /// `10 + acAbilityBonus + proficiency(worn-armor rank, eff_level) +
 /// acItemBonus + shieldBonus-while-raised`, with `proficiency = rank > 0 ?
 /// rank + eff_level : 0` and the armor category taken from the worn piece
-/// (`unarmored` when none). The shield's bonus counts only while the sheet
-/// state marks the shield raised (`ac.shieldRaised: true` — Raise a Shield
-/// is an action, not a constant). The export's frozen `acTotal` is NOT
+/// (`unarmored` when none). The shield's bonus counts only while the shield
+/// is raised: `shield_raised` is the live toggle (`Some` — the player's
+/// Raise-a-Shield state, gh#82) and wins over the sheet's own
+/// `ac.shieldRaised` when present; `None` defers to it (Raise a Shield is
+/// an action, not a constant). The export's frozen `acTotal` is NOT
 /// used: it pins the export level and freezes AC forever, so a
 /// `level_adjust` never moved it. At the export's own level the two agree
 /// exactly (the reference golden pins 16 both ways); above it the
 /// re-derivation tracks the class table — which is the point.
-fn ac_of(sheet: &BaseSheet, ranks: &std::collections::HashMap<String, i64>, eff_level: i64) -> i32 {
+fn ac_of(
+    sheet: &BaseSheet,
+    ranks: &std::collections::HashMap<String, i64>,
+    eff_level: i64,
+    shield_raised: Option<bool>,
+) -> i32 {
     let ac_section = sheet.ac.as_ref();
     let part = |key: &str| {
         ac_section
@@ -248,10 +265,12 @@ fn ac_of(sheet: &BaseSheet, ranks: &std::collections::HashMap<String, i64>, eff_
         .and_then(serde_json::Value::as_str);
     let armor_prof = worn_prof.unwrap_or("unarmored");
     let rank = ranks.get(armor_prof).copied().unwrap_or(0);
-    let raised = ac_section
-        .and_then(|ac| ac.get("shieldRaised"))
-        .and_then(serde_json::Value::as_bool)
-        == Some(true);
+    let raised = shield_raised.unwrap_or_else(|| {
+        ac_section
+            .and_then(|ac| ac.get("shieldRaised"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    });
     let shield = if raised { part("shieldBonus") } else { 0 };
     i32_of(
         10_i64
@@ -289,15 +308,27 @@ fn strike_bases(
     sheet: &BaseSheet,
     ranks: &std::collections::HashMap<String, i64>,
     eff_level: i64,
+    item_traits: &std::collections::BTreeMap<String, Vec<String>>,
 ) -> Vec<StrikeBase> {
     let str_mod = i32_of(ability_mod(sheet.abilities.str));
     let dex_mod = i32_of(ability_mod(sheet.abilities.dex));
     let class = sheet.identity.class.as_deref();
+    let dual_class = sheet.identity.dual_class.as_deref();
+    // Weapon Specialization is a CLASS feature: a dual-class character
+    // gains the full class features of both halves, and where the halves
+    // grant the same thing "they still use only the highest rank"
+    // (Dual-Class PCs, Gamemastery Guide pg. 192; AoN ID 1328) — so
+    // whichever half grants the feature, and its greater version, earlier
+    // sets the gate, and the better half's number pays. The `max` below
+    // is that rule: the halves never add (gh#84, filed in MOR-118).
+    let spec_damage = |rank: i64, level: i64| {
+        mastery_damage(class, rank, level).max(mastery_damage(dual_class, rank, level))
+    };
     let pb = |rank: i64| i32_of(eff_level) * i32::from(rank >= 1) + prof_bonus(rank);
     let rank_of = |key: &str| ranks.get(key).copied().unwrap_or(0);
     let Some(weapons) = sheet.weapons.as_ref().and_then(serde_json::Value::as_array) else {
         // No weapons: the sheet still renders the unarmed Fist.
-        let flat = str_mod + mastery_damage(class, rank_of("unarmed"), eff_level);
+        let flat = str_mod + spec_damage(rank_of("unarmed"), eff_level);
         return vec![fist_row(
             "Fist",
             str_mod.max(dex_mod) + pb(rank_of("unarmed")),
@@ -319,10 +350,10 @@ fn strike_bases(
             } else {
                 format!("{name}#{seen}")
             };
-            let traits = weapon_traits(name)
-                .iter()
-                .map(|trait_name| (*trait_name).to_owned())
-                .collect::<Vec<String>>();
+            let traits = item_traits
+                .get(&name.to_lowercase())
+                .cloned()
+                .unwrap_or_default();
             let rank = rank_of(
                 weapon
                     .get("prof")
@@ -333,13 +364,23 @@ fn strike_bases(
                 .get("pot")
                 .and_then(serde_json::Value::as_i64)
                 .unwrap_or(0);
-            let ability_mod_used = if traits.iter().any(|trait_name| trait_name == "Finesse") {
+            // Finesse — Player Core pg. 282 (AoN `Traits.aspx?ID=602`,
+            // read 2026-10-14): "You can use your Dexterity modifier
+            // instead of your Strength modifier on attack rolls using this
+            // melee weapon. You still calculate damage using Strength."
+            // Attack takes the better of the two (Dex instead of Str when
+            // Str is the lesser); damage stays Str below. Case-insensitive:
+            // the corpus's casing is upstream data, not our convention.
+            let ability_mod_used = if traits
+                .iter()
+                .any(|trait_name| trait_name.eq_ignore_ascii_case("finesse"))
+            {
                 str_mod.max(dex_mod)
             } else {
                 str_mod
             };
             let attack = ability_mod_used + pb(rank) + i32_of(pot);
-            let damage_flat = str_mod + mastery_damage(class, rank, eff_level);
+            let damage_flat = str_mod + spec_damage(rank, eff_level);
             let die = weapon
                 .get("die")
                 .and_then(serde_json::Value::as_str)
@@ -374,7 +415,7 @@ fn strike_bases(
         format!("Fist#{fist_seen}")
     };
     let unarmed = rank_of("unarmed");
-    let unarmed_flat = str_mod + mastery_damage(class, unarmed, eff_level);
+    let unarmed_flat = str_mod + spec_damage(unarmed, eff_level);
     strikes.push(fist_row(
         &key,
         str_mod.max(dex_mod) + pb(unarmed),
@@ -386,7 +427,7 @@ fn strike_bases(
 /// The unarmed Fist row the sheet always renders (prototype line 1419):
 /// d4, best of Str/Dex, the fixed unarmed trait row, Agile MAP step.
 fn fist_row(key: &str, attack: i32, flat: i32) -> StrikeBase {
-    let traits: Vec<String> = weapon_traits("Fist")
+    let traits: Vec<String> = FIST_TRAITS
         .iter()
         .map(|trait_name| (*trait_name).to_owned())
         .collect();
@@ -403,16 +444,13 @@ fn fist_row(key: &str, attack: i32, flat: i32) -> StrikeBase {
     }
 }
 
-/// Weapon traits at POC — the prototype's WEAPONS table rows the
-/// reference sheet renders. `Finesse` attacks with the best of Str/Dex;
-/// `Agile` softens the multiple attack penalty (render-side).
-fn weapon_traits(name: &str) -> &'static [&'static str] {
-    match name {
-        "Staff" => &["Monk", "Two-Hand d8"],
-        "Fist" => &["Agile", "Finesse", "Nonlethal", "Unarmed"],
-        _ => &[],
-    }
-}
+/// The fixed unarmed trait row the sheet's appended Fist always renders
+/// (gh#62 design D5): `Fist` is not a corpus item — zero `kind='item'`
+/// rows carry the name — so its row is this const, exactly the pre-swap
+/// prototype's (`base.js` `itemTraits` fallback), pinned value-for-value
+/// by the golden. Every other weapon reads the corpus map or renders
+/// empty; there is no third fallback tier.
+const FIST_TRAITS: &[&str] = &["Agile", "Finesse", "Nonlethal", "Unarmed"];
 
 /// Weapon Specialization — a CLASS feature: each row is (class, the level
 /// its advancement table grants it, the level its page grants the greater
@@ -506,10 +544,19 @@ fn mastery_damage(class: Option<&str>, rank: i64, level: i64) -> i32 {
     }
 }
 
-/// The MAP STEP a strike row renders: Agile strikes step by 4, all others
-/// by 5 (the row shows `−step / −2·step`).
+/// The MAP STEP a strike row renders (the row shows `−step / −2·step`):
+/// Agile strikes step by 4, all others by 5. Both constants are the Agile
+/// trait's own sentence, read off the source page (Player Core pg. 282;
+/// `AoN` `Traits.aspx?ID=526`, read 2026-10-14): "The multiple attack
+/// penalty you take with this weapon on the second attack on your turn
+/// is –4 instead of –5, and –8 instead of –10 on the third and
+/// subsequent attacks in the turn." The match is case-insensitive: the
+/// corpus's casing is upstream data, not our convention.
 fn map_step(traits: &[String]) -> i32 {
-    if traits.iter().any(|trait_name| trait_name == "Agile") {
+    if traits
+        .iter()
+        .any(|trait_name| trait_name.eq_ignore_ascii_case("agile"))
+    {
         4
     } else {
         5

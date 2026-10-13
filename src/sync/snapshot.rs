@@ -30,9 +30,11 @@ pub async fn party_snapshot(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<
     Ok(fields)
 }
 
-/// The seven vitals fields per character: `hp`, `temp_hp`, `money` (one versioned
-/// unit of four denominations — E2's schema), `level_adjust`, and E6's
-/// spell-economy trio `focus_current` / `hero_points` / `daily`.
+/// The eight vitals fields per character: `hp`, `temp_hp`, `money` (one versioned
+/// unit of four denominations — E2's schema), `level_adjust`, E6's
+/// spell-economy trio `focus_current` / `hero_points` / `daily`, and the
+/// Raise-a-Shield toggle `shield_raised` (gh#82; NULL = never toggled —
+/// the sheet's own flag governs).
 async fn vitals_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<SnapshotField>> {
     let rows = sqlx::query(
         "SELECT c.id, v.hp, v.hp_version, v.temp_hp, v.temp_hp_version, \
@@ -40,7 +42,8 @@ async fn vitals_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<Snaps
                 v.level_adjust, v.level_adjust_version, \
                 v.focus_current, v.focus_version, \
                 v.hero_points, v.hero_points_version, \
-                v.daily, v.daily_version \
+                v.daily, v.daily_version, \
+                v.shield_raised, v.shield_raised_version \
          FROM characters c JOIN character_vitals v ON v.character_id = c.id \
          WHERE c.party_id = $1 ORDER BY c.id",
     )
@@ -81,6 +84,11 @@ async fn vitals_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<Snaps
                 "hero_points_version",
             ),
             (VitalsField::Daily, daily, "daily_version"),
+            (
+                VitalsField::ShieldRaised,
+                json!(row.get::<Option<bool>, _>("shield_raised")),
+                "shield_raised_version",
+            ),
         ] {
             fields.push(SnapshotField {
                 field: FieldTarget::Vitals {

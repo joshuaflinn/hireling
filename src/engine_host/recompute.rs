@@ -10,7 +10,7 @@ use serde_json::Value as JsonValue;
 use sqlx::PgPool;
 
 use crate::engine_host::extract::extract;
-use crate::engine_host::load::party_effects;
+use crate::engine_host::load::{party_effects, weapon_trait_map};
 use crate::pbimport::transform::BaseSheet;
 use hireling_engine::compute::compute;
 use hireling_engine::model::EngineOutput;
@@ -25,8 +25,8 @@ use hireling_engine::model::EngineOutput;
 /// A missing character, an unparseable stored `base_sheet`, or any database
 /// failure — corrupt state fails loudly, it never degrades a derived total.
 pub async fn recompute_character(pool: &PgPool, character_id: i64) -> anyhow::Result<EngineOutput> {
-    let row: Option<(i64, JsonValue, i32)> = sqlx::query_as(
-        "SELECT c.party_id, c.base_sheet, v.level_adjust \
+    let row: Option<(i64, JsonValue, i32, Option<bool>)> = sqlx::query_as(
+        "SELECT c.party_id, c.base_sheet, v.level_adjust, v.shield_raised \
          FROM characters c JOIN character_vitals v ON v.character_id = c.id \
          WHERE c.id = $1",
     )
@@ -34,12 +34,17 @@ pub async fn recompute_character(pool: &PgPool, character_id: i64) -> anyhow::Re
     .fetch_optional(pool)
     .await
     .context("recompute: character lookup")?;
-    let Some((party_id, sheet_json, level_adjust)) = row else {
+    let Some((party_id, sheet_json, level_adjust, shield_raised)) = row else {
         anyhow::bail!("recompute: character {character_id} does not exist");
     };
     let sheet: BaseSheet = serde_json::from_value(sheet_json)
         .context("recompute: stored base_sheet does not parse")?;
-    let base = extract(&sheet, i64::from(level_adjust));
+    // The live Raise-a-Shield toggle (gh#82) rides in as the override; the
+    // extractor defers to the sheet's own flag when the column is NULL.
+    // The corpus trait map (gh#62 design D1) loads beside the effects —
+    // one shared corpus query, names the corpus lacks render empty.
+    let item_traits = weapon_trait_map(pool, &sheet).await?;
+    let base = extract(&sheet, i64::from(level_adjust), shield_raised, &item_traits);
 
     let effects = party_effects(pool, party_id).await?;
     let source_names = party_source_names(pool, party_id).await?;

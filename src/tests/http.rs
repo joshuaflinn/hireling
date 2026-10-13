@@ -61,6 +61,9 @@ mod engine_rest;
 #[path = "custom_rows.rs"]
 mod custom_rows;
 
+#[path = "strike_traits.rs"]
+mod strike_traits;
+
 #[path = "party.rs"]
 mod party;
 

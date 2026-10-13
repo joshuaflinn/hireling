@@ -41,7 +41,7 @@ pub async fn character_payload(
     });
     let vitals = sqlx::query(
         "SELECT hp, temp_hp, money_gp, money_sp, money_cp, money_pp, level_adjust, \
-                focus_current, hero_points, daily \
+                focus_current, hero_points, daily, shield_raised \
          FROM character_vitals WHERE character_id = $1",
     )
     .bind(character_id)
@@ -59,6 +59,9 @@ pub async fn character_payload(
             "focus_current": vitals.get::<i32, _>("focus_current"),
             "hero_points": vitals.get::<i32, _>("hero_points"),
             "daily": vitals.get::<serde_json::Value, _>("daily"),
+            // NULL = never toggled live; the sheet's own ac.shieldRaised
+            // governs (the client mirrors that precedence, gh#82).
+            "shield_raised": vitals.get::<Option<bool>, _>("shield_raised"),
         })
     });
     let slots = sqlx::query(
@@ -145,46 +148,14 @@ async fn load_item_corpus(
     }
     item_names.sort();
     item_names.dedup();
-    let rows: Vec<(String, Option<String>, Option<serde_json::Value>)> = sqlx::query_as(
-        "SELECT lower(name), data->'system'->'bulk'->>'value', \
-                data->'system'->'traits'->'value' \
-         FROM corpus_entries WHERE kind = 'item' AND lower(name) = ANY($1)",
-    )
-    .bind(
-        item_names
-            .iter()
-            .map(|name| name.to_lowercase())
-            .collect::<Vec<_>>(),
-    )
-    .fetch_all(pool)
-    .await?;
+    let rows = crate::pbimport::corpus::item_rows(pool, &item_names).await?;
     let corpus_rows: Vec<(String, Option<f64>)> = rows
         .iter()
-        .map(|(name, raw, _)| {
-            (
-                name.clone(),
-                raw.as_ref().and_then(|raw| raw.parse::<f64>().ok()),
-            )
-        })
+        .map(|row| (row.name_lower.clone(), row.bulk_raw))
         .collect();
     let trait_rows: Vec<bulk::TraitRow> = rows
         .iter()
-        .map(|(name, _, traits)| {
-            (
-                name.clone(),
-                traits
-                    .as_ref()
-                    .and_then(serde_json::Value::as_array)
-                    .map(|values| {
-                        values
-                            .iter()
-                            .filter_map(serde_json::Value::as_str)
-                            .map(str::to_owned)
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-            )
-        })
+        .map(|row| (row.name_lower.clone(), row.traits.clone()))
         .collect();
     let item_bulk = bulk::item_bulk_map(&item_names, &corpus_rows);
     let item_traits = bulk::item_trait_map(&item_names, &trait_rows);
