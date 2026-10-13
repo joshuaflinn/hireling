@@ -6,6 +6,7 @@
 //! bootstrap-only fix or an unwired parameter fails here, not in a unit.
 
 use crate::engine_host::recompute::recompute_character;
+use crate::pbimport::payload::character_payload;
 use crate::pbimport::{model, transform};
 use crate::testing;
 
@@ -129,6 +130,92 @@ async fn recompute_renders_strike_traits_from_the_corpus() {
         "a corpus miss degrades honestly — nothing invented"
     );
     assert_eq!(longspear.map, 5, "a miss is not agile: −5/−10");
+
+    testing::drop_test_db(pool, "strike_traits").await;
+}
+
+/// The lane-collision regression (PR #159 review round 1): a custom-lane
+/// row sharing a name with an imported row must not shadow it. The spec
+/// (FR-1) sources strike traits from the IMPORTED corpus and calls a
+/// custom-lane item a miss — so on a name collision the imported row is
+/// the one every consumer reads. The old reader had no lane filter and no
+/// ORDER BY: `weapon_trait_map` (map-extend, LAST row wins) and the
+/// bootstrap (`find`, FIRST row wins) could resolve one name to OPPOSITE
+/// rows — planner-order dependent, and the custom row reads back empty
+/// (custom rows carry no upstream document), so the strike silently lost
+/// its chips, its agile MAP step, and its finesse attack. Both production
+/// consumers are asserted so ANY row order fails this test on the old
+/// query: whichever way the heap lays the rows out, at least one consumer
+/// disagrees with the imported row.
+#[tokio::test]
+async fn custom_same_name_row_cannot_shadow_the_imported_corpus() {
+    let Some(pool) = testing::test_pool().await else {
+        eprintln!("skipping: no test database");
+        return;
+    };
+    let sub = "strike-lane-player";
+    let character_id = seed_member_with_injected_weapons(&pool, sub).await;
+
+    // The imported Shortsword, through the REAL import pipeline.
+    let report = crate::import::import_from_bytes(
+        &pool,
+        "pf2e-8.5.1",
+        &testing::corpus_seed_zip(&[("Shortsword", 0.1, &["agile", "finesse", "versatile-s"])]),
+        include_str!("../../data/seed/condition-tiers.json"),
+    )
+    .await
+    .expect("corpus seed import runs");
+    assert!(report.success, "the corpus seed import succeeds");
+
+    // A custom-lane row of the SAME name — the exact shape the shipped
+    // custom create path writes (`custom.rs::custom_block`: no upstream
+    // document, `created_by_sub` set, `source_id` null).
+    sqlx::query(
+        "INSERT INTO corpus_entries (kind, name, lane, data, created_by_sub) \
+         VALUES ('item', 'Shortsword', 'custom', $1, $2)",
+    )
+    .bind(serde_json::json!({"custom": {"description": "a homemade blade"}}))
+    .bind(sub)
+    .execute(&pool)
+    .await
+    .expect("seed the custom-lane twin");
+
+    // The strike side: recompute — the production path the sheet renders
+    // from — must still read the IMPORTED row: chips, agile MAP, finesse.
+    let output = recompute_character(&pool, character_id)
+        .await
+        .expect("recompute succeeds");
+    let shortsword = wire_strike(&output, "Shortsword");
+    assert_eq!(
+        shortsword.traits,
+        vec!["Agile", "Finesse", "Versatile S"],
+        "the custom twin must not blank the imported traits"
+    );
+    assert_eq!(shortsword.map, 4, "the imported Agile row keeps −4/−8");
+    assert_eq!(
+        shortsword.attack.total, 1,
+        "the imported Finesse row keeps the Dex attack"
+    );
+
+    // The bootstrap side: the party payload's chip and bulk maps must
+    // agree with the strike side — one row per name, the imported one.
+    let payload = character_payload(&pool, character_id)
+        .await
+        .expect("bootstrap payload resolves");
+    assert_eq!(
+        payload
+            .get("item_traits")
+            .and_then(|traits| traits.get("Shortsword")),
+        Some(&serde_json::json!(["Agile", "Finesse", "Versatile S"])),
+        "bootstrap chips read the same imported row the strike reads"
+    );
+    assert_eq!(
+        payload
+            .get("item_bulk")
+            .and_then(|bulk| bulk.get("Shortsword")),
+        Some(&serde_json::json!(1)),
+        "bootstrap bulk reads the imported 0.1 → one tenth"
+    );
 
     testing::drop_test_db(pool, "strike_traits").await;
 }

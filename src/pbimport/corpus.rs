@@ -70,6 +70,18 @@ pub struct ItemCorpusRow {
 /// stores the pack document under `data.upstream.system`, so THAT is the
 /// shape this reads; traits come back in display form.
 ///
+/// Exactly ONE row per name — the schema constrains only
+/// `(kind, source_id)`, so a custom-lane row may share a name with an
+/// imported one (PR #159 review round 1). Resolution is deterministic and
+/// lane-precedenced: the IMPORTED row wins a collision — the spec (FR-1)
+/// sources traits from the imported corpus and calls a custom-lane item a
+/// miss, so a custom twin must never blank a pack weapon's traits. The
+/// `id` tail-break keeps the order total (a hypothetical duplicate inside
+/// one lane still resolves stably, not planner-ordered). Consumers disagree
+/// about multi-row results by construction otherwise — `weapon_trait_map`
+/// extends (last wins) while the bootstrap `find`s (first wins) — which is
+/// exactly why the collapse happens HERE, once, in the shared statement.
+///
 /// # Errors
 ///
 /// Propagates sqlx failures.
@@ -78,9 +90,12 @@ pub async fn item_rows(
     names: &[String],
 ) -> Result<Vec<ItemCorpusRow>, sqlx::Error> {
     let rows: Vec<(String, Option<String>, Option<serde_json::Value>)> = sqlx::query_as(
-        "SELECT lower(name), data->'upstream'->'system'->'bulk'->>'value', \
+        "SELECT DISTINCT ON (lower(name)) lower(name), \
+                data->'upstream'->'system'->'bulk'->>'value', \
                 data->'upstream'->'system'->'traits'->'value' \
-         FROM corpus_entries WHERE kind = 'item' AND lower(name) = ANY($1)",
+         FROM corpus_entries \
+         WHERE kind = 'item' AND lower(name) = ANY($1) \
+         ORDER BY lower(name), (lane = 'imported') DESC, id",
     )
     .bind(
         names
