@@ -73,15 +73,26 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   checkable evidence on the PR:
   1. **Clean merge.** The head move is a merge of `origin/main` into the
      branch with an empty conflict set and no new commits of the author's
-     own (`git log --merges -1`).
-  2. **Identical blobs.** Every blob the review covered is byte-identical at
-     the new head: `git diff --stat <old-head> <new-head>` shows nothing
-     outside the merged-in `main` paths, and for each reviewed path `git
-     rev-parse <old-head>:<path>` equals `git rev-parse <new-head>:<path>`.
+     own. Evidence: `git log --merges -1` names the merge, and `git log
+     --no-merges <old-head>..<new-head> --not origin/main` returns empty.
+     The first command alone shows only the most recent merge — it cannot
+     prove the head move carried nothing else.
+  2. **Identical contribution.** The diff the review covered is
+     byte-identical at the new head: `git diff <old-base>...<old-head>`
+     equals `git diff <new-base>...<new-head>` for every reviewed path,
+     the bases being the merge-bases with `origin/main` at review time and
+     at the new head. Where `main` has edited a reviewed file, the author's
+     hunks must be unchanged in text — offset shifts allowed — and the
+     reviewer names the incoming `main` hunks and states they do not
+     interact with the reviewed ones. The knife-edge is the author's text:
+     it moved, new round. This replaces the older *identical blobs* test,
+     which also fired when `main` arrived in a reviewed file with nothing
+     of the author's riding in — the PR #155 sequence; evidence in PR
+     comments 6151802113 and 6151849718.
   3. **Gate green at the new head.** The `gate` check is `success` at the
      new head, read off the check-runs API. The gate always re-runs — the
      gate certifies the merged tree, the review certifies the diff, and a
-     blob comparison cannot see a semantic interaction with new `main`
+     text comparison cannot see a semantic interaction with new `main`
      code.
 
   When all three hold, the reviewer posts the re-bind on the PR as a review
