@@ -616,11 +616,6 @@ async fn a_level_adjust_write_diffs_then_derives() {
     testing::drop_test_db(pool, "e8_level_adjust_derives").await;
 }
 
-/// A committed `shield_raised` write diffs and fans out the derived
-/// consequence with the AC moved by exactly the shield bonus — raise and
-/// lower, both sides asserted through the production path (write →
-/// session → recompute → engine, gh#82 acceptance 3). The seeded member
-/// gains a +2 shield in its sheet; PR #73's reader supplies the math.
 /// The `shield_raised` CAS version for one character (the write's anchor).
 async fn shield_raised_version(pool: &sqlx::PgPool, character_id: i64) -> i64 {
     sqlx::query_scalar("SELECT shield_raised_version FROM character_vitals WHERE character_id = $1")
@@ -643,6 +638,11 @@ fn shield_frame(op_id: &str, character_id: i64, base_version: i64, value: bool) 
     .to_string()
 }
 
+/// A committed `shield_raised` write diffs and fans out the derived
+/// consequence with the AC moved by exactly the shield bonus — raise and
+/// lower, both sides asserted through the production path (write →
+/// session → recompute → engine, gh#82 acceptance 3). The seeded member
+/// gains a +2 shield in its sheet; PR #73's reader supplies the math.
 #[tokio::test]
 async fn a_shield_raised_write_diffs_then_derives_the_ac_delta() {
     let Some(pool) = testing::test_pool().await else {

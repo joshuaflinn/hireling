@@ -60,8 +60,9 @@ function character(sheet) {
 
 /** A sync double that APPLIES every write: the optimistic echo, the
  * settled field, and the derived consequence — the same event sequence
- * the real composed sync emits for an applied write. */
-function scriptedSync() {
+ * the real composed sync emits for an applied write. Pass a connection
+ * state to simulate degraded mode (`'live'` by default). */
+function scriptedSync(connection = 'live') {
   const listeners = new Set();
   const settled = new Map();
   const pending = new Map();
@@ -100,7 +101,7 @@ function scriptedSync() {
     isSyncing: () => pending.size > 0,
     snapshotForBoot: () => '{"fields":[]}',
     queue: () => [...pending.values()],
-    connectionState: () => 'live',
+    connectionState: () => connection,
     subscribe(cb) {
       listeners.add(cb);
       return () => listeners.delete(cb);
@@ -136,6 +137,54 @@ test('raise, then lower, through the mounted sheet: the AC moves by exactly the 
   fireEvent.click(getByRole('button', { name: 'Lower shield' }));
   await tick();
   assert.match(acTile(container), /16/, 'lowered: back to baseline — both sides live');
+  unmount();
+  cleanup();
+});
+
+test('offline, the toggle disables like every other control in the pane', async () => {
+  const { getByRole, unmount } = render(SheetView, {
+    props: {
+      character: character(shieldedSheet),
+      accountSub: 'dev-sub-josh',
+      sync: scriptedSync('offline'),
+      editable: true,
+    },
+  });
+  await tick();
+  assert.equal(
+    getByRole('button', { name: 'Raise shield' }).disabled,
+    true,
+    'degraded-mode.md:32 — edit affordances disable offline; a control that'
+      + ' lies once and then locks (the enqueued write keeps pending true) is'
+      + ' worse than one never offered',
+  );
+  unmount();
+  cleanup();
+});
+
+test('a view-only (GM) sheet sees the shield state without the control', async () => {
+  const { container, unmount } = render(SheetView, {
+    props: {
+      character: character(shieldedSheet),
+      accountSub: 'dev-sub-josh',
+      sync: scriptedSync(),
+      editable: false,
+    },
+  });
+  await tick();
+  assert.equal(
+    container.querySelector('.shield-toggle'),
+    null,
+    'no control on a view-only sheet',
+  );
+  const state = container.querySelector('.shield-state');
+  assert.ok(state, 'the raised/lowered text is present');
+  assert.match(state.textContent, /lowered/, 'the reference sheet carries none — lowered');
+  assert.equal(
+    state.getAttribute('aria-hidden'),
+    null,
+    'on a view-only sheet this span is the only state signal — screen readers get it',
+  );
   unmount();
   cleanup();
 });

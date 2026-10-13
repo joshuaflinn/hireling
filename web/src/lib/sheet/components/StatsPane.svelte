@@ -66,6 +66,10 @@
   // moves the moment the recompute lands.
   const shieldBonus = $derived(baseSheet.ac?.shieldBonus ?? 0);
   const shieldRaisedOn = $derived(shieldRaised?.value === true);
+  // the house idiom (degraded-mode.md:32): edit affordances disable offline.
+  // pending alone would let the first offline tap enqueue a write and then
+  // lock the button until reconnect — offline must gate the control itself.
+  const shieldBusy = $derived(offline || shieldRaised?.pending === true);
   /** Display name for a skill key: the prototype capitalizes ("Thievery"). */
   const displayName = (/** @type {string} */ key) => key.charAt(0).toUpperCase() + key.slice(1);
   /** Core skills and lores through one partition: the fold and the
@@ -93,12 +97,12 @@
             type="button"
             class="shield-toggle"
             aria-pressed={shieldRaisedOn}
-            disabled={shieldRaised?.pending === true}
+            disabled={shieldBusy}
             onclick={() => onshield?.(!shieldRaisedOn)}
           >
             {shieldRaisedOn ? 'Lower shield' : 'Raise shield'}</button>
         {:else}
-          <span class="shield-state" aria-hidden="true">{shieldRaisedOn ? 'raised' : 'lowered'}</span>
+          <span class="shield-state">{shieldRaisedOn ? 'raised' : 'lowered'}</span>
         {/if}
         {#if shieldError}<p class="op-error" role="alert">{shieldError.reason}</p>{/if}
       </div>

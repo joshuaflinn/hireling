@@ -169,7 +169,7 @@ fn vitals_row(
     }
 }
 
-/// The expected six non-effect rows for the shaped character: literal
+/// The expected eight non-effect rows for the shaped character: literal
 /// values, versions read straight from the database — the snapshot's own
 /// SELECT is never the oracle of itself.
 async fn expected_base_rows(pool: &sqlx::PgPool, character_id: i64) -> Vec<SnapshotField> {
