@@ -4,7 +4,7 @@
 
 The bench runs many worktrees of this repo side by side, and several seats
 compile at once. One shared `CARGO_TARGET_DIR` across all of them is cheaper on
-disk and makes `just ci-local` non-deterministic.
+disk but makes `just ci-local` non-deterministic.
 
 Cargo's exclusive lock on the build directory covers one invocation, not a gate
 run: it is released between legs and again while test binaries execute. So a
@@ -25,9 +25,8 @@ tree went green with a private target directory.
 
 `just ci-local` green is the handover standard (AGENTS.md, *Gate yourself
 before the PR*), and the evidence standard is to paste the output. A gate whose
-output depends on who else is compiling certifies nothing, and it fails in both
-directions: a seat can paste a red gate it did not cause, or the same
-contention can let one seat's artifacts satisfy another seat's build.
+output depends on who else is compiling certifies nothing — a seat can paste a
+red gate it did not cause.
 
 ## Decision
 
@@ -57,9 +56,8 @@ container points `CARGO_TARGET_DIR` into its own mounted volume.
 - Disk cost scales with live seats instead of being fixed. A worktree that has
   run a full gate settles at 2.2G (`du -sh target`, measured across four live
   seats on 2026-10-13, all four identical). `incremental = false` is what keeps
-  that number small: incremental artifacts are the largest single component of
-  a debug tree and they buy nothing for a full gate run from a clean tree,
-  which is what these seats mostly do.
+  that number small: incremental artifacts buy nothing for a full gate run
+  from a clean tree, which is what these seats mostly do.
 - A new or freshly reaped worktree pays a cold build.
 - Reaping worktrees is load-bearing, not housekeeping: merged-and-clean
   hand-cut `hireling-*` siblings on sight, `MOR-<n>` siblings once their task
