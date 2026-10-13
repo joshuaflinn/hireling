@@ -73,34 +73,53 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   checkable evidence on the PR:
   1. **Clean merge.** The head move is a merge of `origin/main` into the
      branch with an empty conflict set and no new commits of the author's
-     own (`git log --merges -1`).
-  2. **Identical blobs.** Every blob the review covered is byte-identical at
-     the new head: `git diff --stat <old-head> <new-head>` shows nothing
-     outside the merged-in `main` paths, and for each reviewed path `git
-     rev-parse <old-head>:<path>` equals `git rev-parse <new-head>:<path>`.
+     own. Evidence: `git log --merges -1` names the merge, and `git log
+     --no-merges <old-head>..<new-head> --not origin/main` returns empty.
+     The first command alone shows only the most recent merge — it cannot
+     prove the head move carried nothing else.
+  2. **Identical contribution.** The author's own text is unchanged at
+     the new head. For every reviewed path, the added and removed lines
+     of `git diff <old-base>...<old-head>` and `git diff
+     <new-base>...<new-head>` are identical; `index` lines and `@@`
+     offsets may differ, nothing else may. The bases are the merge-bases
+     with `origin/main` at review time and at the new head. Mechanical
+     form, run once per reviewed path, the two sides' outputs for that
+     path compared equal: `git diff --output-indicator-old=O --output-indicator-new=N <base>...<head> -- <path> | grep -E '^[ON]'`. Where `main` has edited a
+     reviewed file, the reviewer also names the incoming `main` hunks and
+     states they do not interact with the reviewed ones. The knife-edge
+     is the author's text: it moved, new round. A blob test is not
+     enough: it also fires when `main` arrives in a reviewed file with
+     nothing of the author's riding in — the PR #155 sequence; evidence
+     in PR comments 6151802113 and 6151849718.
   3. **Gate green at the new head.** The `gate` check is `success` at the
      new head, read off the check-runs API. The gate always re-runs — the
      gate certifies the merged tree, the review certifies the diff, and a
-     blob comparison cannot see a semantic interaction with new `main`
+     text comparison cannot see a semantic interaction with new `main`
      code.
 
   When all three hold, **whoever is at the press** posts the re-bind on the
   PR as a review comment naming the old head, the new head, and the evidence
-  for each condition. It does not have to be the reviewer, and it does not
-  open a review round: all three conditions are mechanical — a merge-commit
-  shape, a blob comparison, a check-runs status — so there is no judgment in
-  the re-bind for a reviewer to supply, and routing it back to them buys a
-  round-trip against a diff that did not move. The verdict itself is still
-  the reviewer's and only the reviewer's; this is bookkeeping over their
-  verdict, not a second one. That comment is the record, same as any verdict
-  — a carry-over is never silent. If any condition fails, it is a new review
-  round, full stop.
+  for each condition. The routing splits on condition 2's own branch. Where
+  `main` has not edited a reviewed file, the re-bind is wholly mechanical —
+  a merge-commit shape, the author's added and removed lines compared equal,
+  a check-runs status — so there is no judgment in it for a reviewer to
+  supply: it does not have to be the reviewer, it does not open a review
+  round, and routing it back to them buys a round-trip against a diff that
+  did not move. Where `main` has edited a reviewed file, naming the incoming
+  `main` hunks and stating they do not interact with the reviewed ones is
+  judgment, and the judgment is the reviewer's — the re-bind routes to them.
+  PR #157 is the live proof of the second branch: an accepted verdict whose
+  head had to move while `main` landed interacting prose in the same bullet.
+  The verdict itself is still the reviewer's and only the reviewer's; the
+  mechanical re-bind is bookkeeping over their verdict, not a second one.
+  That comment is the record, same as any verdict — a carry-over is never
+  silent. If any condition fails, it is a new review round, full stop.
 
   The head move itself is not waste and is not negotiable. `main` carries the
-  `main-gate` ruleset (id `24735400`, version `v53013064`) requiring the head
-  be up to date before merge, and that is what forces condition 3 to mean
-  anything: the `gate` workflow triggers on `pull_request` and
-  `push: branches: [main]`, and a pull-request run checks out
+  `main-gate` ruleset (id `24735400`), which at version `v53013064` requires
+  the head be up to date before merge, and that is what forces condition 3 to
+  mean anything: the `gate` workflow triggers on `pull_request`, `merge_group`
+  and `push: branches: [main]`, and a pull-request run checks out
   `refs/pull/<n>/merge` — the head merged into `main` *as of when the run
   fired* (run 38410922309: `HEAD is now at 20b990b Merge c878e65 into
   c9df4f8`). No run re-fires when `main` moves underneath a still-open PR, so

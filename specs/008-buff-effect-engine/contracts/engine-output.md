@@ -147,11 +147,15 @@ Rules that make this a contract:
   (its display name), and `traits` (the chip names). They are passthrough
   render inputs alongside the modifier-bearing `attack`/`damage_flat`; there
   is deliberately **no** parallel `render_base.strikes[]` keyed by `key` —
-  two arrays describing one strike row drift. The unarmed `Fist` row carries
-  the same fields (traits from the POC weapon-trait map — the two-entry
-  table the reference sheet renders; the post-POC successor is the corpus
-  `item_traits` path the prototype's `base.js` sourced, tracked in
-  joshuaflinn/hireling#62 so the narrowing cannot happen silently).
+  two arrays describing one strike row drift. Strike `traits` resolve from
+  the character's imported item corpus at recompute (the shared
+  `pbimport::corpus` reader — one query also feeding the bootstrap's
+  `item_traits`/`item_bulk` maps; display-form values, lowercased-name
+  keys; gh#62). A corpus miss renders empty — nothing invented. The
+  unarmed `Fist` is not a corpus item: its fixed trait row
+  (`Agile`/`Finesse`/`Nonlethal`/`Unarmed`) is a constant, exactly the
+  prototype's. No schema change: `traits` remains a string array; values
+  are additive.
 - **`casters[].innate`** flags innate caster blocks. A consumer picking
   "the" caster for its stat tiles takes the first entry with `innate: false`.
 - **`skills[].rank`** is the row's raw proficiency rank (untrained 0,
