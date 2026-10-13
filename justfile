@@ -14,17 +14,36 @@ dev: web-build
 run *args:
     cargo run -- {{ args }}
 
+# Install the frontend dependencies when they are absent. Every recipe below
+# that shells a local binary depends on this: `web/node_modules` is untracked,
+# so every new worktree starts without it, and the leg dies at exit 127
+# (`svelte-check: not found`) with every later leg unrun — a gate that stops
+# six legs in and reports one failure (gh#142).
+#
+# Silent no-op when the tree is already installed. CI installs deps in its own
+# workflow step before running the guard recipes, so a reinstall there would
+# be wasted minutes; `npm ci` also deletes and refetches node_modules
+# wholesale, which is not something a check leg should do to a working tree.
+web-deps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -d web/node_modules ]; then
+        exit 0
+    fi
+    echo "web-deps: web/node_modules absent — installing (npm --prefix web ci)"
+    npm --prefix web ci
+
 # Build the frontend bundle into web/dist.
-web-build:
+web-build: web-deps
     npm --prefix web run build
 
 # Frontend unit tests (vitest + @testing-library/svelte, jsdom — see gh#41).
-web-test:
+web-test: web-deps
     npm --prefix web test
 
 # Svelte diagnostics over the frontend — the same check the CI gate runs
-# as node:svelte-check. Needs `npm --prefix web ci` once per clone.
-web-check:
+# as node:svelte-check.
+web-check: web-deps
     npm --prefix web run check
 
 # The gate image's node:eslint pass, replicated bench-side. The image
@@ -34,9 +53,8 @@ web-check:
 # The replica config is web/gate-eslint.config.mjs, calibrated
 # one-for-one against gate run 37850972131 (44 findings before the
 # header fixes, clean after, nothing extra). A gate-image digest bump
-# that moves the rule set updates that config in the same PR. Needs
-# `npm --prefix web ci` once per clone (eslint is a devDependency).
-web-eslint:
+# that moves the rule set updates that config in the same PR.
+web-eslint: web-deps
     cd web && ./node_modules/.bin/eslint --no-config-lookup --config gate-eslint.config.mjs src tests scripts plugins vite.config.js
 
 # The prose boundary (E9, contracts/inert-html.md §3): `{@html}` is banned
@@ -53,7 +71,7 @@ web-html-boundary:
 # shipped markup, unstyled, every test still green (MOR-124 F10, the
 # css_unused_selector trap). Runs the build and fails if that signature
 # fires; green means zero unused-selector warnings, not exit 0.
-web-css-guard:
+web-css-guard: web-deps
     #!/usr/bin/env bash
     log=$(mktemp)
     trap 'rm -f "$log"' EXIT
@@ -93,7 +111,7 @@ scan-semgrep:
 
 # Vite dev server for frontend-only iteration (proxies nothing; use `just dev`
 # for the real full-stack path).
-web-dev:
+web-dev: web-deps
     npm --prefix web run dev
 
 # Start the throwaway dev Postgres on :5432 (destroyed by `just db-down`).
@@ -239,7 +257,16 @@ json-keys:
 # json-keys, boundary, web-test, web-css-guard, web-html-boundary. That
 # job's drift-check step fails any ci-local leg no CI job runs, so a new
 # leg lands together with its CI home.
+#
+# The closing line exists because `just` stops at the first failed
+# dependency and this recipe had no body: a run that died six legs in
+# printed one leg's failure and nothing about the six that never ran, and
+# `just ci-local | tail` reports tail's exit 0 over it (gh#142). The line
+# prints only when every leg passed, so a piped run reads green only when
+# it is green. Note what it is not: the exit status is still the thing to
+# check, and a reader who ignores both is still reading one leg's output.
 ci-local: json-keys fmt-check lint test deny boundary web-check web-test web-css-guard web-html-boundary web-eslint scan-semgrep
+    @echo "ci-local: every leg above passed"
 
 # Alias — same gate, the name the spec calls it by.
 gate: ci-local
