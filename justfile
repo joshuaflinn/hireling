@@ -157,7 +157,14 @@ test:
             echo "WARNING: no Postgres on :5432 and no docker — schema tests will SKIP loudly"
         fi
     fi
-    cargo test --quiet --workspace
+    # --report-time (MOR-213): the run log is the only place per-test timing
+    # has ever existed — `--quiet` collapses the whole suite into one block
+    # and a slow test is invisible in it. libtest's report-time is an
+    # unstable flag; RUSTC_BOOTSTRAP unlocks the flag parse on the pinned
+    # stable toolchain without changing codegen (no unstable feature is
+    # compiled). A toolchain bump that breaks the flag parses fails this leg
+    # loudly — never silently drops the timing.
+    RUSTC_BOOTSTRAP=1 cargo test --workspace -- --report-time -Z unstable-options
 
 fmt:
     cargo fmt --all
