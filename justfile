@@ -14,24 +14,45 @@ dev: web-build
 run *args:
     cargo run -- {{ args }}
 
-# Install the frontend dependencies when they are absent. Every recipe below
-# that shells a local binary depends on this: `web/node_modules` is untracked,
-# so every new worktree starts without it, and the leg dies at exit 127
-# (`svelte-check: not found`) with every later leg unrun — a gate that stops
-# six legs in and reports one failure (gh#142).
+# Install the frontend dependencies when they are absent or stale. Every
+# recipe below that shells a local binary depends on this: `web/node_modules`
+# is untracked, so every new worktree starts without it, and the leg dies at
+# exit 127 (`svelte-check: not found`) with every later leg unrun — a gate
+# that stops six legs in and reports one failure (gh#142).
 #
-# Silent no-op when the tree is already installed. CI installs deps in its own
-# workflow step before running the guard recipes, so a reinstall there would
-# be wasted minutes; `npm ci` also deletes and refetches node_modules
-# wholesale, which is not something a check leg should do to a working tree.
+# Absence is not the only rot. A `web/package-lock.json` bump landing in an
+# already-installed tree used to sail through: `[ -d web/node_modules ]`
+# tests existence, not freshness, so the new dependency was never installed
+# and the failure surfaced downstream as a missing module (gh#174). The
+# recipe therefore stamps the lockfile's sha256 into
+# web/node_modules/.lockfile-sha256 after a successful install and
+# reinstalls when the recorded hash no longer matches — a changed lockfile
+# reinstalls, a matching tree is a silent no-op. The stamp lives INSIDE
+# node_modules so removing the directory always forces a fresh install;
+# `rm -rf web/node_modules` stays the manual escape hatch. Needs GNU
+# coreutils sha256sum (Linux bench and the gate image both have it).
+#
+# CI installs deps in its own workflow step before the guard recipes; that
+# bare `npm ci` writes no stamp, so the first web-* guard leg there
+# reinstalls once to lay it — the price of not teaching gate.yml the stamp
+# format (one more thing that could drift), and `npm ci` deletes and
+# refetches node_modules wholesale, which is not something a check leg
+# should do more than once.
 web-deps:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ -d web/node_modules ]; then
+    lock_sha=$(sha256sum web/package-lock.json | cut -d' ' -f1)
+    stamp=web/node_modules/.lockfile-sha256
+    if [ -d web/node_modules ] && [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$lock_sha" ]; then
         exit 0
     fi
-    echo "web-deps: web/node_modules absent — installing (npm --prefix web ci)"
+    if [ -d web/node_modules ]; then
+        echo "web-deps: web/package-lock.json changed since the last install — reinstalling (npm --prefix web ci)"
+    else
+        echo "web-deps: web/node_modules absent — installing (npm --prefix web ci)"
+    fi
     npm --prefix web ci
+    printf '%s\n' "$lock_sha" > "$stamp"
 
 # Build the frontend bundle into web/dist.
 web-build: web-deps

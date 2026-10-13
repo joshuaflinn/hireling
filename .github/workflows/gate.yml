@@ -204,6 +204,12 @@ jobs:
       # and fails on third-party code; without it, the same pass is green).
       # The image installs its own deps; web/dist is a build artifact it
       # never sees otherwise.
+      #
+      # ORDERING HAZARD: this must stay the LAST tree-touching step — a web-*
+      # recipe leg (or any npm install) added AFTER it silently reinstalls
+      # web/node_modules and reds node:eslint via the
+      # .grizzly-gate.node_modules escape described above. New legs go
+      # before this step.
       - name: Clean guard artifacts before the image run
         if: ${{ !cancelled() }}
         run: rm -rf web/node_modules web/dist
