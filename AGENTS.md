@@ -95,16 +95,6 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   verdict, not a second one. That comment is the record, same as any verdict
   — a carry-over is never silent. If any condition fails, it is a new review
   round, full stop.
-
-  The head move itself is not waste and is not negotiable. `main` carries a
-  ruleset requiring the head be up to date before merge, and that is what
-  forces condition 3 to mean anything: the `gate` workflow triggers on
-  `pull_request`, so it checks out `refs/pull/<n>/merge` — the head merged
-  into `main` *as of when the run fired* (run 38410922309: `HEAD is now at
-  20b990b Merge c878e65 into c9df4f8`). No run re-fires when `main` moves
-  underneath a still-open PR, so without the up-to-date requirement a PR can
-  merge on a `gate` success that certifies a merge base `main` has since left
-  behind. Dropping it would make condition 3 a stale certificate.
 - **Claim before you code.** Only start an issue that is *unassigned*, and
   self-assign it on GitHub before writing any code. If a human holds it, it's
   theirs — pick another.
@@ -145,17 +135,13 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   mode, pinned image) on every PR — a red gate is a red PR, no exceptions. The
   lint/test configs are vendored from Bear's rust-toolkit; if a lint fights you,
   propose tuning it in a PR, don't `#[allow]` around it.
-- **Bring the branch up to date before you ask for review.** `main` is guarded
-  by the `main-gate` ruleset (id `24735400`, enforcement `active`) with
-  `strict_required_status_checks_policy: true`, so a branch BEHIND `main` is a
-  hard block at the merge button however green the gate is. Merge `origin/main`
-  in and push *before* the review ask, so the run that goes green is also the
-  run that can merge. This narrows the carry-over case above; it does not
-  remove it, because `main` can still move during a review — that is what
-  *Verdict carry-over* is for. Do not go looking for this in branch
-  protection: `GET /repos/joshuaflinn/hireling/branches/main/protection` 404s
-  on this repo, which reads as "`main` is unprotected" and is wrong. Rulesets
-  are visible only via `gh api repos/joshuaflinn/hireling/rulesets`.
+- **Read `main`'s merge rules off the ruleset API, never branch protection.**
+  `main` is guarded by the `main-gate` ruleset (id `24735400`, enforcement
+  `active`), and `GET /repos/joshuaflinn/hireling/branches/main/protection`
+  404s on this repo — which reads as "`main` is unprotected" and is wrong.
+  What is actually required, at what strictness, is visible only via
+  `gh api repos/joshuaflinn/hireling/rulesets`. Read it there before you
+  assert anything about what blocks a merge.
 - **Sweep for reachability before you hand over.** Walk the spec's requirement
   list and, for each one, name the production-path test that proves it. Where
   the requirement landed in a library module, grep for a caller:
