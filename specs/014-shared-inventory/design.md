@@ -39,7 +39,7 @@ reversible per house convention; date-stamped at implementation).
    `quantity` as the movement size. A money row's `item_name` carries a
    deterministic label — the sold item's name for a sale, the fixed text
    `bank adjustment` for a manual adjustment — documented in the same
-   comment; **no note column exists or is added** (spec Clarify Log #6:
+   comment; **no note column exists or is added** (spec Clarify Log #5:
    the PRD asks for actor logging, not notes).
 4. **`audit_events` event values** — drop/re-add the CHECK with
    `forbidden_stash_write`, `forbidden_bank_write`,
@@ -167,10 +167,19 @@ becomes a per-variant match:
   designated owner holds no exclusive lock on the toggle)
   (`forbidden_party_write`).
 
-`sole_writer()` is **retained unchanged** for the three shipped
-sole-owner variants (`Character`, `Effect`, `CustomRow`) and is **not**
-extended to the new ones — a party-membership rule has no sole writer,
-and the per-variant write branch is where the new rules live. Reads need
+`sole_writer()` is **deleted** and its three sole-owner arms
+(`Character`, `Effect`, `CustomRow`) move inline into the per-variant
+write match — the per-variant write branch is where the new rules live,
+and once it absorbs those arms the function has no callers (a dead `pub
+fn` in a single-binary crate is a `dead_code` warning, and the gate's
+warning census is zero). It cannot simply stay unchanged: an exhaustive
+`&str`-returning match has nothing to return for a party-membership
+variant, and the `_ =>` catch-all that would paper over that is
+unavailable — `wildcard_enum_match_arm` is denied project-wide
+(`docs/toolkit-conventions.md`, Lint Configuration). The other exit,
+retyping it `Option<&str>` with `None` for the party variants, was
+rejected: it keeps a table with no caller and forces an
+unwrap-and-compare ceremony into every sole-owner arm. Reads need
 no matrix row: E3's matrix allows every authenticated read, and read
 scoping is the shell's party gate — `party_readable()` at the REST layer
 (`src/engine_host/rest.rs`), the D5 precedent, which E12's surfaces

@@ -2,9 +2,11 @@
 
 **Epic**: E12 — Phase 3, P1 (cuttable table-convenience) · depends on E10 (closed), E4 (closed) · GitHub issue #14
 **Created**: 2026-10-14
-**Status**: Specify gate run 2026-10-14 (Korrin, front half of the SDD pipeline — docs only, no code in this pass); clarify answers folded in the same day; design signed by Korrin same day. All seven clarify decisions settled in
-place (Clarify Log below — five at specify, two more at round-1 review,
-MOR-464) — none moves the P0/P1/P2 line.
+**Status**: Specify gate run 2026-10-14 (Korrin, front half of the SDD pipeline — docs only, no code in this pass); clarify answers folded in the same day; design signed by Korrin same day. All six clarify decisions settled in
+place (Clarify Log below — four at specify, two more at round-1 review,
+MOR-464) — none moves the P0/P1/P2 line, and none blocks the spec: the
+one owner-visible reading (the flip rule, Clarify Log #6) is flagged,
+recorded with its rejected alternative, and overturnable by an owner.
 **Input**: `docs/EPICS.md` Epic E12 (specify prompt + AI Guardrails); PRD v3.6 FG4 (Shared Inventory), US-5, Party Screens ("Stash (P1)"), Non-Goals; E7 `specs/007-party-sync/spec.md` (FR-6 version granularity, FR-13 extensibility) + `contracts/wire-protocol.md` (§3 field table, §8 E12 extension point) + `contracts/degraded-mode.md` (§4 outcomes); E2 `specs/002-database-schema/data-model.md` §6 and merged migrations (`20260924000005_shared_inventory.sql` — `party_stash`, `claim_history`, `party_bank` shipped unused; `20260924000001` — `parties.quartermaster_character_id`); E4 `specs/004-rules-corpus-importer/contracts/foundry-packs.md` (the `system.price.value` path, its emptiness cases, and the standing note that E12 is the price consumer); merged tree: `src/sync/write.rs` (`cas_inv` — the absolute-set ledger ruling), `src/auth/authz.rs` (the ownership matrix), `web/src/lib/sheet/bulk.js` (Bulk formatting), `web/src/lib/party/` (the party surface this epic extends).
 
 ---
@@ -186,7 +188,7 @@ claim rows exist.
    (a signed amount), **Then** the balance changes by exactly that amount,
    one claim row records the movement's coins with the actor and time, and
    every seat sees it live. (Adjustments carry no free-text note — the PRD
-   asks for actor logging, not notes; Clarify Log #6.)
+   asks for actor logging, not notes; Clarify Log #5.)
 2. **Given** an adjustment that would drive any denomination negative,
    **When** it is submitted, **Then** the server rejects it with a reason
    before any state change, and nothing partial applies (the shipped
@@ -399,7 +401,7 @@ application would produce.
   (shipped), visible to all party members and the GM in the stash header,
   fed additively by sales and by quartermaster-only manual adjustments.
   Adjustments carry a signed amount; the claim row records the coins, the
-  actor, and the time (FR-4's shape — no note field; Clarify Log #6).
+  actor, and the time (FR-4's shape — no note field; Clarify Log #5).
   Balances MUST never go negative (the shipped constraints);
   an adjustment that would MUST be refused whole, with a reason.
   Transferring coins between a character's sheet money and the bank is
@@ -576,10 +578,10 @@ application would produce.
   character to un-freeze the bank. The strict alternative — only the
   designated owner may flip — was considered and rejected: it makes one
   absent seat a hard freeze on sell and every bank adjustment, with
-  character deletion as the only remedy (Clarify Log #7).
+  character deletion as the only remedy (Clarify Log #6).
 - **The quartermaster character is deleted** — the shipped FK clears the
-  designation (SET NULL); the stash reverts to bootstrap (any character
-  owner may set a new quartermaster); money history stays intact.
+  designation (SET NULL); any character owner may set a new one
+  (FR-5); money history stays intact.
 - **A character renames after a movement** — claim rows keep the name as
   it was (frozen history); new movements use the new name.
 - **Claim log growth** — snapshot carries the full log at POC scale
@@ -619,9 +621,12 @@ application would produce.
 
 ## Clarify Log
 
-No `[NEEDS CLARIFICATION]` markers remain. Seven decisions the prompt or
-PRD left open are settled in place — five at specify, two more at round-1
-review (MOR-464) — each with its reasoning recorded above:
+No `[NEEDS CLARIFICATION]` markers remain. Six decisions the prompt or
+PRD left open are settled in place — four at specify, two more at round-1
+review (MOR-464) — each with its reasoning recorded above. A strict
+first-pass reading of the flip rule (the log's original third entry) was
+superseded at round-1 review and is recorded as the rejected alternative
+inside #6:
 
 1. **Stash/bank reconciliation granularity** (deferred to this spec by
    the prompt) — settled FR-2, with the lost-gp trap as the recorded
@@ -631,32 +636,51 @@ review (MOR-464) — each with its reasoning recorded above:
    (one ledger, the shipped table's own premise), via the coins
    extension; audit-events-only and a second ledger table both rejected
    (design D1).
-3. **Quartermaster flip rule — strict reading** (first pass, superseded
-   by #7): designated ⇒ only the designated owner may change or clear;
-   taken from the prompt's own sentence.
-4. **Book-value ambiguity** — empty, absent, or disagreeing match sets
+3. **Book-value ambiguity** — empty, absent, or disagreeing match sets
    are "no book value", deterministically (FR-6). The pp→gp conversion
    (rather than flagging pp-priced items "no book value") is kept as a
    convenience default, consciously buying the rules-exactness
    obligation — cited rate at the conversion site plus a two-fixture
    boundary test (design D5 records the rejected alternative).
-5. **Claim label vocabulary** (deferred to this spec by the schema's own
+4. **Claim label vocabulary** (deferred to this spec by the schema's own
    comment) — `stash` / `bank` / `outside` / `character:<name at event
    time>` (FR-4).
-6. **The bank-adjustment note — dropped** (round 1, finding 3): the PRD
+5. **The bank-adjustment note — dropped** (round 1, finding 3): the PRD
    requires adjustments to log the actor (FG4) and asks for no note; the
    shipped `claim_history` has no note column; and D1's enumeration
    adds none. Rejected alternative: a `note text` column on
    `claim_history` — real value, but it buys schema for a field the PRD
    never asked to exist; money rows carry the deterministic
    `bank adjustment` label instead (FR-4).
-7. **The absent-quartermaster escape — reassignable by any character
-   owner** (round 1, finding 5): FR-5's flip rule softened from the
-   strict first-pass reading (#3). The PRD's own "party settings are
-   writable by any character owner" is the hook; the strict rule's only
-   remedy for an absent quartermaster was deleting the character, and
-   nothing about accountability weakens — the gate keys on the current
-   holder and every change is actor-logged and live-synced.
+6. **The quartermaster flip rule — reassignable by any character owner**
+   (round 1, finding 5): FR-5's flip rule. The PRD sentence
+   (`docs/PRD.md`, FG4: "The quartermaster character's owner flips the
+   toggle in party settings; party settings are writable by any
+   character owner") admits two readings — its first clause as a
+   specific rule for the toggle, its second as the general rule
+   governing it. **The permissive reading is chosen**: any character
+   owner may set, change, or clear the designation, designated or not,
+   for a named reason — the strict rule makes one absent seat a hard
+   freeze on sell and every bank adjustment, with character deletion as
+   the only remedy, while accountability is preserved under the
+   permissive rule (the sell/adjust gate keys on whoever currently holds
+   the designation, every change is actor-logged and fans out live, and
+   the money movements land in the claim history). **Rejected
+   alternative — the strict reading** (this log's original third entry,
+   superseded by this decision and folded in here rather than kept as a
+   live numbered entry): designated ⇒ only the designated character's
+   owner may change or clear the designation, taken from the prompt's
+   own first clause. **Owner visibility and reversal**: the choice
+   reverses a PRD sentence naming the quartermaster's owner
+   specifically, so it is flagged to the owners as the one
+   product-intent reading in this spec they may want to see; an owner
+   may overturn it, and the spec is written to be reversible if they do
+   — the strict rule is recorded above as the rejected alternative, and
+   reinstating it is a one-clause edit to FR-5 plus this entry; no other
+   decision in the log depends on the permissive reading.
 
-Nothing in this spec needs Josh. The epic stays inside its P1 scope; no
-P0/P1/P2 line moves.
+No decision in this spec blocks the build. One product-intent reading is
+owner-visible rather than owner-settled — the flip rule's permissive
+reading (Clarify Log #6), flagged to the owners and overturnable, with
+the strict alternative recorded — and nothing else needs Josh. The epic
+stays inside its P1 scope; no P0/P1/P2 line moves.
