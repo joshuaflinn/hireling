@@ -10,6 +10,8 @@ Every step below names: the command, the expected observable, and the asset that
 
 ## §1 Prerequisites
 
+**Host prerequisite (Mimir):** a `psql` client for §1.1 and §5 — those calls run from Mimir against Asgard over the `asgard-net` bridge. If Mimir has no client installed, §4 item 2's dockerized idiom is the substitution pattern (`docker run --rm --network asgard-net postgres:16 psql …`).
+
 ### 1.1 The hall is provisioned — verify, don't assume
 
 **Asset**: Asgard (house Postgres instance, postgres 16, reachable only over the `asgard-net` bridge, no published ports — `db/provision.sql`).
@@ -43,9 +45,13 @@ Expected: `asgard-net bridge`. **If this fails, stop the line (H3)** — a cross
 
 ```sh
 # hireling.env — store OUTSIDE any git checkout; mode 600.
+# Full-line '#' comments only: `docker run --env-file` takes everything
+# after the first '=' as the value, verbatim — no trailing annotations.
 # Required, always — the app refuses to boot without them (debug *and* release).
-HIRELING_ALLOWLIST=<sub1>,<sub2>=Becky,...      # comma-separated provider subs; per-entry seat names optional
-HIRELING_GM_SUB=<one of the allowlist subs>     # must be a member; unset never is
+# Comma-separated provider subs; per-entry seat names optional.
+HIRELING_ALLOWLIST=<sub1>,<sub2>=Becky,...
+# Must be a member of the allowlist; unset never is.
+HIRELING_GM_SUB=<one of the allowlist subs>
 
 # Required in release — a release binary missing any of these refuses to boot
 # (AuthSettings::validate_release, fail-closed, src/lib.rs).
@@ -62,9 +68,11 @@ HIRELING_DATABASE_URL=postgres://hireling:<password>@asgard:5432/hireling
 # Optional, defaults shown (src/config.rs, src/auth/session.rs).
 RUST_LOG=info
 HIRELING_PORT=3000
-HIRELING_STATIC_DIR=web/dist        # resolves to /app/web/dist in the image — leave default
+# Resolves to /app/web/dist in the image — leave default.
+HIRELING_STATIC_DIR=web/dist
 HIRELING_SESSION_IDLE_SECS=86400
-HIRELING_SESSION_ABSOLUTE_SECS=604800   # must be >= idle
+# Must be >= idle.
+HIRELING_SESSION_ABSOLUTE_SECS=604800
 # HIRELING_DEV_SESSIONS: do not set — the dev-session route is compiled out of
 # release builds; it has no effect here.
 ```
@@ -162,7 +170,7 @@ The parser requires exactly `--release <pf2e-N.N.N>` (`src/import/args.rs`); `pf
 
 Observable: `docker logs hireling` shows the import's summary lines; §4's corpus check returns a non-zero `corpus_entries` count.
 
-**License posture:** this is a private deployment — E4's license gate stays yellow-green and that is correct; the gate restricts *public* features only, and this epic changes nothing about it. (`license-verdict` exists for the day public exposure is on the table; running it now is informative, not required.)
+**License posture:** this is a private deployment — E4's license gate stays yellow-green and that is correct; the gate restricts *public* features only, and this epic changes nothing about it. (`license-verdict` exists for the day public exposure is on the table; running it now is informative, not required — and when it runs, it runs **from a checkout, not in the container**: it reads `NOTICE.md` and `licenses/` off disk, which `.dockerignore` keeps out of the image.)
 
 ### 2.5 Point Heimdall at the public probe
 

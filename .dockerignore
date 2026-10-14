@@ -1,8 +1,10 @@
-# Build-context hygiene (E11 FR-1, design D2): the three build stages COPY
-# exactly web/, engine/, migrations/, src/, data/, and the Cargo + npm
-# manifests. Everything else stays out of the context so `docker build`
-# uploads source and manifests only — no VCS history, no build outputs, no
-# workspace scratch.
+# Build-context hygiene (E11 FR-1, design D2). This file is a DENYLIST of
+# patterns anchored at the context root. The three build stages COPY exactly
+# web/, engine/, migrations/, src/, data/, and the Cargo + npm manifests;
+# the patterns below keep VCS history, build outputs, and repo-only
+# docs/specs/tooling out of what `docker build` uploads. A root path not
+# named here DOES enter the context — it is simply never COPYed, so it
+# never reaches a layer.
 
 # VCS — the image builds from a git checkout; git history never enters it.
 .git
