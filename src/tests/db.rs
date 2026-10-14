@@ -1293,6 +1293,378 @@ async fn assert_modifier_vocabulary(db: &TestDb) {
 }
 
 // ---------------------------------------------------------------------------
+// E12 activation (specs/014-shared-inventory design D1) — one migration,
+// five changes, all reversible: the two version columns, the claim_history
+// coins extension, the audit-values swap, and the stash row-identity UNIQUE.
+// ---------------------------------------------------------------------------
+
+/// The newest migration version E12's activation sits on top of (the file
+/// `20261003000001_shield_raised`). The reversal test undoes down to exactly
+/// here and re-applies over it.
+const E12_ACTIVATION_PREDECESSOR: i64 = 20_261_003_000_001;
+
+/// Has `table` a column named `column`? (`information_schema` lookup for the
+/// reversal test's after-down assertions.)
+async fn column_present(db: &TestDb, table: &str, column: &str) -> bool {
+    count(
+        db,
+        &format!(
+            "SELECT count(*) FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = '{table}'
+             AND column_name = '{column}'"
+        ),
+    )
+    .await
+        == 1
+}
+
+#[tokio::test]
+async fn e12_activation_lands_the_version_and_coins_columns() {
+    let db = provision_or_skip!("e12_schema");
+    let (party, _) = seed_character(&db, "sub-a", "E12 Schema").await;
+
+    // D1.1 + D1.2 — both version columns exist, draw from the global field
+    // sequence without being named on insert, and are distinct per row.
+    exec(
+        &db,
+        &format!(
+            "INSERT INTO party_stash (party_id, item_name, quantity)
+             VALUES ({party}, 'Rope', 1), ({party}, 'Torch', 2)"
+        ),
+        "stash rows insert without naming version",
+    )
+    .await;
+    let rope_version = one_string(
+        &db,
+        "SELECT version::text FROM party_stash WHERE item_name = 'Rope'",
+    )
+    .await
+    .parse::<i64>()
+    .expect("stash version parses");
+    let torch_version = one_string(
+        &db,
+        "SELECT version::text FROM party_stash WHERE item_name = 'Torch'",
+    )
+    .await
+    .parse::<i64>()
+    .expect("stash version parses");
+    assert!(
+        rope_version > 0,
+        "party_stash.version must come from field_version_seq, got {rope_version}"
+    );
+    assert_ne!(
+        rope_version, torch_version,
+        "each stash row mints its own version"
+    );
+    let quartermaster_version = one_string(
+        &db,
+        &format!("SELECT quartermaster_version::text FROM parties WHERE id = {party}"),
+    )
+    .await
+    .parse::<i64>()
+    .expect("quartermaster version parses");
+    assert!(
+        quartermaster_version > 0,
+        "parties.quartermaster_version must come from field_version_seq, got {quartermaster_version}"
+    );
+
+    // D1.3 — the coins columns: NULL on an item movement, signed amounts on
+    // a money movement (quantity carries a meaningless 1 per the migration
+    // comment). Negative coins store: the signed truth is in the coins.
+    exec(
+        &db,
+        &format!(
+            "INSERT INTO claim_history (party_id, item_name, quantity, origin, destination, actor_sub)
+             VALUES ({party}, 'Rope', 1, 'outside', 'stash', 'sub-a')"
+        ),
+        "item-movement claim row (coins untouched, read NULL)",
+    )
+    .await;
+    let item_row_coins_null = one_string(
+        &db,
+        "SELECT (coins_gp IS NULL AND coins_sp IS NULL AND coins_cp IS NULL)::text
+         FROM claim_history WHERE item_name = 'Rope'",
+    )
+    .await;
+    assert_eq!(
+        item_row_coins_null, "true",
+        "an item movement carries no coins"
+    );
+    exec(
+        &db,
+        &format!(
+            "INSERT INTO claim_history (party_id, item_name, quantity, origin, destination, actor_sub, coins_gp, coins_sp, coins_cp)
+             VALUES ({party}, 'sale: Longsword', 1, 'stash', 'bank', 'sub-a', 5, 4, 3)"
+        ),
+        "money-movement claim row with coins",
+    )
+    .await;
+    exec(
+        &db,
+        &format!(
+            "INSERT INTO claim_history (party_id, item_name, quantity, origin, destination, actor_sub, coins_gp, coins_sp, coins_cp)
+             VALUES ({party}, 'bank adjustment', 1, 'bank', 'outside', 'sub-a', -3, 0, 0)"
+        ),
+        "signed coins store (a withdrawal is negative)",
+    )
+    .await;
+
+    db.drop_self().await;
+}
+
+#[tokio::test]
+async fn e12_activation_swaps_audit_values_and_backs_stash_identity() {
+    let db = provision_or_skip!("e12_activation_values");
+
+    // D1.4 — the audit-values swap: the three party write kinds are
+    // admitted, unknown values stay closed.
+    for event in [
+        "forbidden_stash_write",
+        "forbidden_bank_write",
+        "forbidden_party_write",
+    ] {
+        exec(
+            &db,
+            &format!(
+                "INSERT INTO audit_events (occurred_at, event, target, outcome)
+                 VALUES (now(), '{event}', 'party:1', 'denied')"
+            ),
+            &format!("{event} is an admissible audit value"),
+        )
+        .await;
+    }
+    db.assert_fails_with(
+        "INSERT INTO audit_events (occurred_at, event, target, outcome)
+         VALUES (now(), 'forbidden_party_roster_write', 'party:1', 'denied')",
+        CHECK_VIOLATION,
+        "an unknown audit value stays rejected",
+    )
+    .await;
+
+    // D1.5 — the identity constraint replaced the non-unique party index:
+    // the old index is gone, the unique constraint is present.
+    assert_eq!(
+        count(
+            &db,
+            "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public'
+             AND indexname = 'party_stash_party_id_idx'"
+        )
+        .await,
+        0,
+        "the redundant non-unique party index must be dropped with the UNIQUE in place"
+    );
+    assert_eq!(
+        count(
+            &db,
+            "SELECT count(*) FROM pg_constraint WHERE conname =
+             'party_stash_party_id_item_name_key' AND contype = 'u'"
+        )
+        .await,
+        1,
+        "the (party_id, item_name) UNIQUE constraint must exist"
+    );
+
+    db.drop_self().await;
+}
+
+#[tokio::test]
+async fn e12_stash_row_identity_is_one_name_per_party() {
+    let db = provision_or_skip!("e12_identity");
+    let (party_a, _) = seed_character(&db, "sub-a", "First Party").await;
+    let (party_b, _) = seed_character(&db, "sub-b", "Second Party").await;
+
+    exec(
+        &db,
+        &format!(
+            "INSERT INTO party_stash (party_id, item_name, quantity)
+             VALUES ({party_a}, 'Rope', 1)"
+        ),
+        "first party's Rope",
+    )
+    .await;
+    db.assert_fails_with(
+        &format!(
+            "INSERT INTO party_stash (party_id, item_name, quantity)
+             VALUES ({party_a}, 'Rope', 2)"
+        ),
+        UNIQUE_VIOLATION,
+        "a second row for the same (party_id, item_name) must raise — FR-1's
+         declared identity has structural backing, so a check-then-insert
+         race cannot mint two rows for one name",
+    )
+    .await;
+    exec(
+        &db,
+        &format!(
+            "INSERT INTO party_stash (party_id, item_name, quantity)
+             VALUES ({party_b}, 'Rope', 1)"
+        ),
+        "the identity is party-scoped: another party's Rope is a distinct row",
+    )
+    .await;
+    exec(
+        &db,
+        &format!(
+            "INSERT INTO party_stash (party_id, item_name, quantity)
+             VALUES ({party_a}, 'Rope (10 ft)', 1)"
+        ),
+        "distinct names coexist within one party",
+    )
+    .await;
+
+    db.drop_self().await;
+}
+
+#[tokio::test]
+async fn e12_claim_history_stays_append_only_after_the_coins_alter() {
+    let db = provision_or_skip!("e12_trigger");
+    let (party, _) = seed_character(&db, "sub-a", "E12 Trigger").await;
+
+    // The regression: an ALTER TABLE on claim_history must not drop the
+    // append-only trigger. Insert WITH coins (the altered table takes rows),
+    // then prove UPDATE and DELETE still raise.
+    exec(
+        &db,
+        &format!(
+            "INSERT INTO claim_history (party_id, item_name, quantity, origin, destination, actor_sub, coins_gp)
+             VALUES ({party}, 'bank adjustment', 1, 'outside', 'bank', 'sub-a', 7)"
+        ),
+        "claim insert with coins must succeed",
+    )
+    .await;
+    db.assert_fails_with(
+        &format!("UPDATE claim_history SET coins_gp = 9 WHERE party_id = {party}"),
+        TRIGGER_EXCEPTION,
+        "claim UPDATE must still be rejected after the coins columns landed",
+    )
+    .await;
+    db.assert_fails_with(
+        &format!("DELETE FROM claim_history WHERE party_id = {party}"),
+        TRIGGER_EXCEPTION,
+        "claim DELETE must still be rejected after the coins columns landed",
+    )
+    .await;
+    assert_eq!(
+        count(&db, "SELECT count(*) FROM claim_history").await,
+        1,
+        "the appended claim row must still be there untouched"
+    );
+
+    db.drop_self().await;
+}
+
+#[tokio::test]
+async fn e12_activation_reverses_and_reapplies_cleanly() {
+    let db = provision_or_skip!("e12_reverse");
+    let (party, _) = seed_character(&db, "sub-a", "E12 Reversal").await;
+    exec(
+        &db,
+        &format!(
+            "INSERT INTO party_stash (party_id, item_name, quantity)
+             VALUES ({party}, 'Rope', 1)"
+        ),
+        "seed one stash row",
+    )
+    .await;
+
+    // Down to exactly below the activation migration.
+    let down = crate::db::migrator()
+        .undo(&db.pool, E12_ACTIVATION_PREDECESSOR)
+        .await;
+    assert!(
+        down.is_ok(),
+        "migrate down to the predecessor failed: {:?}",
+        down.err()
+    );
+
+    for (table, column) in [
+        ("party_stash", "version"),
+        ("parties", "quartermaster_version"),
+        ("claim_history", "coins_gp"),
+        ("claim_history", "coins_sp"),
+        ("claim_history", "coins_cp"),
+    ] {
+        assert!(
+            !column_present(&db, table, column).await,
+            "after migrate-down: {table}.{column} must be gone"
+        );
+    }
+    db.assert_fails_with(
+        "INSERT INTO audit_events (occurred_at, event, target, outcome)
+         VALUES (now(), 'forbidden_stash_write', 'party:1', 'denied')",
+        CHECK_VIOLATION,
+        "after migrate-down: the party audit values are closed again",
+    )
+    .await;
+    exec(
+        &db,
+        "INSERT INTO audit_events (occurred_at, event, target, outcome)
+         VALUES (now(), 'character_import', 'character:1', 'allowed')",
+        "after migrate-down: the pre-E12 kinds still audit",
+    )
+    .await;
+    assert_eq!(
+        count(
+            &db,
+            "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public'
+             AND indexname = 'party_stash_party_id_idx'"
+        )
+        .await,
+        1,
+        "after migrate-down: the original non-unique party index is restored"
+    );
+    exec(
+        &db,
+        &format!(
+            "INSERT INTO party_stash (party_id, item_name, quantity)
+             VALUES ({party}, 'Rope', 2)"
+        ),
+        "after migrate-down: the UNIQUE constraint is gone (dup name stores)",
+    )
+    .await;
+
+    // Clean the dup rows before re-applying: the UNIQUE constraint's
+    // ADD would rightly refuse to build over duplicates.
+    exec(
+        &db,
+        "DELETE FROM party_stash",
+        "clear stash before re-apply",
+    )
+    .await;
+
+    let up = crate::db::migrator().run(&db.pool).await;
+    assert!(up.is_ok(), "migrate re-apply failed: {:?}", up.err());
+
+    exec(
+        &db,
+        &format!(
+            "INSERT INTO party_stash (party_id, item_name, quantity)
+             VALUES ({party}, 'Nail', 1)"
+        ),
+        "after re-apply: stash rows mint versions again",
+    )
+    .await;
+    db.assert_fails_with(
+        &format!(
+            "INSERT INTO party_stash (party_id, item_name, quantity)
+             VALUES ({party}, 'Nail', 2)"
+        ),
+        UNIQUE_VIOLATION,
+        "after re-apply: the identity constraint is back",
+    )
+    .await;
+    exec(
+        &db,
+        "INSERT INTO audit_events (occurred_at, event, target, outcome)
+         VALUES (now(), 'forbidden_stash_write', 'party:1', 'denied')",
+        "after re-apply: the party audit values are admitted again",
+    )
+    .await;
+
+    db.drop_self().await;
+}
+
+// ---------------------------------------------------------------------------
 // testing::test_pool's fail-closed contract — two fixtures against a dead
 // port, through the production probe itself (URL + "requested" injected, so
 // the global process environment is never mutated; the suite's DB-backed
