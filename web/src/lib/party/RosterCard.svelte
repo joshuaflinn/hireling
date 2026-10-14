@@ -2,8 +2,10 @@
   // RosterCard (E10 design D3): E6's units composed into one party-screen
   // card — view-only CharacterHeader line, the effects strip fed from the
   // engine seam ($view.effects, the SAME source the sheet's chips render
-  // from), the HP bar, plus card chrome (portrait initial, down/full
-  // state) that no existing unit renders.
+  // from), the HP bar, the E14 stat block (the engine output's combat
+  // numbers, rendered verbatim — the same $view the bar's max reads), plus
+  // card chrome (portrait initial, down/full state) that no existing unit
+  // renders.
   //
   // The whole card is a button: the tap is NAVIGATION (the drill-in), not
   // an edit. Every inner unit renders editable={false} — the GM seat gets
@@ -13,6 +15,7 @@
   import HpBar from '../sheet/components/HpBar.svelte';
   import EffectsStrip from '../sheet/components/EffectsStrip.svelte';
   import SyncIndicator from '../sheet/components/SyncIndicator.svelte';
+  import StatBlock from './StatBlock.svelte';
 
   /** @type {{ card: any, editable?: boolean, onopen?: () => void }} */
   let { card, editable = false, onopen } = $props();
@@ -23,6 +26,7 @@
   const tempHp = $derived(card.tempHp);
   const hpMax = $derived(card.hpMax);
   const effects = $derived(card.effects);
+  const view = $derived(card.view);
   const syncing = $derived(card.syncing);
 
   // down/full are renders of store state, not tracked anywhere (data-model §5)
@@ -51,6 +55,9 @@
   {:else}
     <HpBar hp={$hp} temp={$tempHp} max={$hpMax} editable={false} offline={false} />
   {/if}
+  <!-- E14: the stat block sits between the bar and the effects strip (design
+       D2); it renders its own skeleton while $view is null. -->
+  <StatBlock view={$view} />
   <EffectsStrip effects={$effects ?? []} />
 </button>
 

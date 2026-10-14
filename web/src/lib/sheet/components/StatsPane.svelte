@@ -9,6 +9,7 @@
   import SkillRow from './SkillRow.svelte';
   import StatTile from './StatTile.svelte';
   import { findOpError } from '../state.js';
+  import { primaryCaster } from '../../engine/caster.js';
   import { rankLetter, rankName, signed } from '../../engine/format.js';
   import { partitionSkills } from '../../engine/partition.js';
 
@@ -47,9 +48,9 @@
   const numbers = $derived(view.derived);
   const attrs = $derived(['str', 'dex', 'con', 'int', 'wis', 'cha']);
   const langList = $derived((identity.languages ?? []).filter((/** @type {string} */ lang) => lang && lang !== 'None selected'));
-  const spellDc = $derived(
-    numbers.casters.find((/** @type {any} */ caster) => !caster.innate) ?? numbers.casters[0] ?? null,
-  );
+  // The selection rule lives in the engine lib (E14 design D5) — the same
+  // helper the party-card stat block calls, so the two surfaces can't drift.
+  const spellDc = $derived(primaryCaster(numbers.casters));
   // Inline rejections (spec §6): the matching opError renders at its
   // control, calm and auto-clearing (the state layer clears on the next
   // applied ack).
@@ -109,7 +110,14 @@
     {/if}
     <StatTile label="Fort" value={signed(numbers.fort.total)} cls="t-fort" note={rankName(baseSheet.proficiencies.fortitude ?? 0)} provenance={numbers.fort} />
     <StatTile label="Perception" value={signed(numbers.perception.total)} cls="t-perception" provenance={numbers.perception} />
-    <StatTile label="Class DC" value={numbers.class_dc.total ?? '—'} cls="t-classdc" note={(identity.keyability ?? '').toUpperCase()} provenance={numbers.class_dc} />
+    <!-- E14 task 1b (design D6, spec FR-1): contract §1's null rule — a
+    null `class_dc.base` renders no tile on the sheet, same as the card.
+    The old unconditional `—` placeholder had no provenance hover and no
+    information; absence is absence (the dash tile was the merged-tree
+    defect FR-1 names). -->
+    {#if numbers.class_dc.base !== null && numbers.class_dc.base !== undefined}
+      <StatTile label="Class DC" value={numbers.class_dc.total} cls="t-classdc" note={(identity.keyability ?? '').toUpperCase()} provenance={numbers.class_dc} />
+    {/if}
     <StatTile label="Reflex" value={signed(numbers.ref.total)} cls="t-reflex" provenance={numbers.ref} />
     <StatTile label="Speed" value={numbers.speed.total} cls="t-speed" note="feet" provenance={numbers.speed} />
     {#if spellDc}

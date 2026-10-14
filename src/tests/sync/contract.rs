@@ -10,6 +10,7 @@
 //! undecodable frame at the socket while the web suite stays green.
 
 use serde_json::Value;
+use strum::IntoEnumIterator;
 
 use crate::sync::protocol::{FieldTarget, VitalsField};
 use crate::sync::write::validate_bounds;
@@ -129,6 +130,48 @@ fn every_field_target_variant_is_pinned_to_the_contract_fixture() {
     assert_eq!(
         fixture_kinds, pinned_kinds,
         "the fixture's targets map must name exactly the FieldTarget variants"
+    );
+}
+
+#[test]
+fn the_pinned_vitals_fields_are_the_serde_wire_names_of_the_enum() {
+    let fixture = fixture();
+    let mut pinned: Vec<String> = fixture
+        .get("vitals_fields")
+        .and_then(Value::as_array)
+        .expect("the fixture pins the vitals field-value set")
+        .iter()
+        .map(|name| {
+            name.as_str()
+                .expect("vitals field names are strings")
+                .to_owned()
+        })
+        .collect();
+    pinned.sort_unstable();
+
+    // Derive, never trust — twice over. The set of variants comes off
+    // `EnumIter`, generated from the enum definition itself (gh#91 F1): a
+    // new variant is in this set the moment it exists, with nothing in this
+    // file to edit and no hand-written list that could silently omit it.
+    // Each name then comes off the serde wire shape, so a
+    // `rename`/`rename_all` drift turns this red even when the fixture was
+    // hand-updated to match `as_str`'s ledger names — serde's name is what
+    // the socket decodes, and that is what this file pins.
+    let mut wire_names: Vec<String> = VitalsField::iter()
+        .map(|field| {
+            serde_json::to_value(field)
+                .expect("a VitalsField encodes")
+                .as_str()
+                .expect("a unit variant encodes as its wire name")
+                .to_owned()
+        })
+        .collect();
+    wire_names.sort_unstable();
+
+    assert_eq!(
+        pinned, wire_names,
+        "the fixture's vitals_fields must be exactly the serde wire names of \
+         VitalsField — a renamed or added variant is a client-facing contract change"
     );
 }
 
