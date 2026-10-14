@@ -39,3 +39,4 @@
 ## Notes
 
 - Validation run 2026-10-14 (Korrin): all items pass; spec carried into `design.md` (D1–D7) and `plan.md` (Tasks 1–5) same day.
+- Re-validated 2026-10-14 after PR #187 round-1 reject (review 5512531846): F1 fixed — FR-5 now carries the complete env table incl. `HIRELING_ALLOWLIST`/`HIRELING_GM_SUB`, sourced from `Settings::from_env` + `AuthSettings::from_env` together ("testable and unambiguous", "dependencies and assumptions" re-ticked on it); F3 — out-of-scope list now names the probe binary as the one new code artifact ("scope is clearly bounded" re-ticked); F4 — bench/deploy split corrected (bench at implementation PR: SC-7, SC-8; deploy: SC-1–SC-6; spec PR: none), SC-4/SC-5 annotated *(handoff)* ("success criteria are measurable" re-ticked). All items still pass.

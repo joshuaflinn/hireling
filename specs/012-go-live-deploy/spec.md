@@ -2,7 +2,7 @@
 
 **Epic**: E11 — Phase 2, P0 · depends on E6–E10 (all closed) · GitHub issue #13
 **Created**: 2026-10-14
-**Status**: Specify gate run 2026-10-14 (Korrin, front half of the SDD pipeline — spec, design, plan; no code, no infrastructure touched in this pass); design signed by Korrin 2026-10-08-style same-day (epic-internal P0 scope, grounds recorded in `design.md` §0)
+**Status**: Specify gate run 2026-10-14 (Korrin, front half of the SDD pipeline — spec, design, plan; no code, no infrastructure touched in this pass); design signed by Korrin 2026-10-14, same day (epic-internal P0 scope, grounds recorded in `design.md` §0); round-1 rework same day (PR #187, review 5512531846 — F1–F4 + folded follow-ups)
 **Input**: `docs/EPICS.md` Epic E11 (specify prompt + Constraints + AI Guardrails); PRD v3.6 — Hosting & Ops, Technical Metrics, Entry Point, Zero-new-infrastructure (§Non-Goals side constraints); `CONSTITUTION.md` Articles I/II/V; gh#13 carry-over comment (SC-5 browser half + E10 SC-1 live two-client observation); gh#179 (the deferred PWA browser checklist); repo facts verified on `main` at `c4ae46d` (cited per requirement)
 
 ---
@@ -107,10 +107,14 @@ Before the first session, and before any session night: the readiness checklist 
 Everything below cites the repo fact it builds on, all verified on `main` at `c4ae46d`.
 
 - **FR-1 — Container image.** A multi-stage `Dockerfile` (new, repo root) builds from a git checkout: stage one builds `web/dist` (npm) and the release binary (cargo); stage two carries binary + bundle + CA certificates on a minimal base, listening on `HIRELING_PORT` (default 3000), running as a non-root user, stateless (no volumes, no writable application paths). The `compose.yml` dev twin is untouched.
-- **FR-2 — Healthcheck.** The image declares `HEALTHCHECK` wired to `GET /healthz` locally (endpoint: `src/health.rs`, `src/http.rs` — dependency-free by design), with interval/timeout/retries/start-period stated in the runbook and observable via `docker inspect`.
+- **FR-2 — Healthcheck.** The image declares `HEALTHCHECK` wired to `GET /healthz` locally via a new std-only probe binary, `src/bin/healthcheck.rs` (design D1 — the one new code artifact in E11; endpoint `src/health.rs`, routed in `src/http.rs` — dependency-free by design), with interval/timeout/retries/start-period fixed in design D1 and stated in the runbook, observable via `docker inspect`.
 - **FR-3 — Signal path.** The binary is PID 1 (exec-form `ENTRYPOINT`, no shell wrapper) so Docker's SIGTERM reaches the existing drain path (WS `bye` + Close 1001, HTTP drain, 10s window — `src/http.rs::serve`); the runbook sets `stop_grace_period` above the drain window (≥ 15s) so `docker stop` never SIGKILLs mid-drain.
 - **FR-4 — Logs.** The app logs to stdout (tracing, request IDs on every request via `x-request-id`, `RUST_LOG` filterable — existing). No log files in the image; the runbook names where Mimir shows container logs today (Unraid Docker log view / `docker logs`) and what a healthy boot looks like in them (the `starting`/`serving` lines from `lib.rs`/`http.rs`).
-- **FR-5 — Secrets and environment.** The runbook carries the complete environment table — `RUST_LOG`, `HIRELING_PORT`, `HIRELING_DATABASE_URL`, `HIRELING_STATIC_DIR`, `HIRELING_OIDC_ISSUER`, `HIRELING_OIDC_CLIENT_ID`, `HIRELING_OIDC_CLIENT_SECRET`, `HIRELING_BASE_URL`, `HIRELING_COOKIE_KEY` (names + shape from `src/config.rs`) — with values sourced from the house secret store, never in git, never baked into the image (the image must build without secrets; `HIRELING_BASE_URL=https://hireling.flinntech.com`).
+- **FR-5 — Secrets and environment.** The runbook carries the complete environment table. Source of truth: `Settings::from_env` **and** `AuthSettings::from_env` together (`src/config.rs`) — both sit on the boot path, and this table is the only operator-facing record of the env surface there will be.
+  - **Required, always — the app refuses to boot without them (release *and* debug):** `HIRELING_ALLOWLIST` — comma-separated provider subs; entries may pair a seat name (`sub=Becky,...`); empty refuses to boot, an app that can name no accounts is a misconfiguration, not a mode. Carries the six party accounts. `HIRELING_GM_SUB` — must be an allowlist member (unset never is; the parse loop skips empty entries); holds the GM seat.
+  - **Required in release (fail-closed, `AuthSettings::validate_release`):** `HIRELING_OIDC_ISSUER`, `HIRELING_OIDC_CLIENT_ID`, `HIRELING_OIDC_CLIENT_SECRET`, `HIRELING_BASE_URL` (`https://hireling.flinntech.com`), `HIRELING_COOKIE_KEY` (64 hex chars), and `HIRELING_DATABASE_URL` for production — its default points at localhost dev (`postgres://hireling:...@127.0.0.1:5432/hireling`), so the runbook must set it to the hall over `asgard-net`.
+  - **Optional with defaults:** `RUST_LOG` (`info`), `HIRELING_PORT` (3000), `HIRELING_STATIC_DIR` (`web/dist`), `HIRELING_SESSION_IDLE_SECS` (86 400 — `DEFAULT_IDLE_SECS`, `src/auth/session.rs`), `HIRELING_SESSION_ABSOLUTE_SECS` (604 800 — `DEFAULT_ABSOLUTE_SECS`, `src/auth/session.rs`; must be ≥ idle), `HIRELING_DEV_SESSIONS` (off; no effect in release — the dev-session route is compiled out).
+  - Values sourced from the house secret store, never in git, never baked into the image (the image must build without secrets).
 - **FR-6 — Deploy runbook.** `docs/deploy.md` (new) is the single operating document: prerequisites (hall provisioned per `db/provision.sql`, reachable over `asgard-net`); build-from-git on Mimir; container placement (network attach, env, restart policy, stop grace); Authentik app registration with the exact redirect URI `https://hireling.flinntech.com/api/auth/callback`; cloudflared hostname route per the existing pattern (dwarfcampaign precedent); Heimdall probe (`https://hireling.flinntech.com/healthz`); one-time corpus import (`import` subcommand against the hall) and the license posture (private deployment, gate stays yellow-green); update (rebuild from newer commit) and rollback (previous tag) paths. Every step names its observable.
 - **FR-7 — Backup-restore rehearsal.** A procedure in the runbook: restore the hall's latest backup from Asgard's rotation into a scratch hall, boot the app against it, verify (row counts on the core tables, one login, one roster read), tear the scratch hall down. Executed once before the first session, recorded on gh#13. Execution requires Asgard access (H-side; procedure and verification queries are ours).
 - **FR-8 — Session-night readiness checklist.** A section of the runbook: Mimir up, Asgard up, tunnel up, Heimdall probe green, corpus present, latest deploy known — each with a command and expected observable. Executed by Josh (H2).
@@ -135,16 +139,16 @@ Everything below cites the repo fact it builds on, all verified on `main` at `c4
 
 ### Success Criteria
 
-Checkable against a running container, not intent. Ours to tick unless marked *(handoff)*:
+Checkable against a running container, not intent. Ours to tick unless marked *(handoff)*. **Where each verifies:** bench-verifiable at the implementation PR — SC-7, SC-8; deploy-time on Mimir/the deployed origin — SC-1–SC-6; verified by the spec PR itself — none.
 
 - **SC-1**: From a clean git clone, the runbook's build step produces the image; the container boots against the hall and `GET /healthz` answers `200 {"status":"ok",…}` — verified locally (`docker exec` / curl :3000) and through the tunnel (`https://hireling.flinntech.com/healthz`).
 - **SC-2**: `docker stop` shows the drain in the container logs (WS `bye` + close, `in-flight requests drained`) and exit code 0 within the grace window — the epic's graceful-shutdown guardrail observed in the deployed shape.
 - **SC-3**: `docker inspect` reports `(healthy)` with the HEALTHCHECK wired to `/healthz` while serving; Heimdall's probe against the public URL reports up. *(Heimdall wiring: handoff-side step, runbook-exact.)*
-- **SC-4**: End-to-end login on the deployed origin (Authentik → party screen), and the two-client live sync observation recorded — the PRD Entry Point and E10 SC-1's manual half.
-- **SC-5**: gh#179's four browser items pass on the deployed origin; results recorded on gh#179, which then closes on its own terms.
+- **SC-4**: End-to-end login on the deployed origin (Authentik → party screen), and the two-client live sync observation recorded — the PRD Entry Point and E10 SC-1's manual half. *(execution: handoff-side — runbook-exact, on the deployed origin; the runbook content itself is bench-side)*
+- **SC-5**: gh#179's four browser items pass on the deployed origin; results recorded on gh#179, which then closes on its own terms. *(execution: handoff-side — browser pass on the deployed origin)*
 - **SC-6**: The backup-restore rehearsal executed once and recorded on gh#13 before the first session. *(execution: handoff-side; procedure + verification queries ours)*
 - **SC-7**: `docs/deploy.md` exists and is complete per FR-6/FR-7/FR-8/FR-9; the README links it.
-- **SC-8**: `just ci-local` green on the branch that adds the Dockerfile and docs (the repo gate; the image itself cannot be built bench-side — see the split below — so the gate certifies the repo, the first deploy certifies the image).
+- **SC-8**: `just ci-local` green on the branch that adds the Dockerfile and docs — the implementation PR, not the spec PR (the repo gate; the image itself cannot be built bench-side — see the split above — so the gate certifies the repo, the first deploy certifies the image).
 
 ### Assumptions
 
@@ -161,15 +165,18 @@ Checkable against a running container, not intent. Ours to tick unless marked *(
 - Any registry, image scanner, or new monitoring/logging/aggregation asset — Heimdall and Unraid's container logs are the existing assets and are sufficient.
 - Public launch work: license-green push, public exposure, marketing surfaces (P2-lane concerns gated by E4's verdict).
 - Load testing beyond the six-user session reality; HA, multi-replica, blue/green (PRD: success gets a redesign conversation, not this epic).
-- Any application-code change. E11 adds a Dockerfile, a `.dockerignore`, and documents. If a gap found during deploy seems to need code, that is a new issue against the owning epic, not a rider on this one.
+- No change to existing application behaviour — the std-only healthcheck probe (`src/bin/healthcheck.rs`, design D1) is the one new code artifact. A gap found during deploy that seems to need behaviour change is a new issue against the owning epic, not a rider on this one.
 - Phone/tablet layout, dice roller, and every other Constitution Article I non-goal.
 
 ## What seats can build and verify without touching Josh's hosts (explicit, per the task ask)
 
-**Buildable and verifiable bench-side (start immediately):**
+**Buildable and verifiable bench-side at the implementation PR (start after `plan.md` is accepted):**
 - `Dockerfile` + `.dockerignore` (FR-1/2/3) — reviewed against the checklist; the bench has no Docker daemon (verified: no `docker`, no `podman` on the seats), so the image's *build and boot* verify at first deploy, not bench-side. Everything the image must contain and do is specified so that the first deploy is a verification, not an exploration.
+- `src/bin/healthcheck.rs` (FR-2, design D1) — std-only, unit-tested at the bench, compiled by the workspace gate.
 - `docs/deploy.md` — deploy/update/rollback, env + secrets table, readiness checklist, rehearsal procedure, go-live checklist (FR-4–FR-9).
-- README pointer (FR-10). `just ci-local` green (SC-8).
+- README pointer (FR-10), and the bench halves of SC-7 (file present, six sections, link resolves) and SC-8 (`just ci-local` green).
+
+**Split, stated once:** bench-verifiable at the implementation PR — SC-7, SC-8. Deploy-time — SC-1–SC-6. Verified by the spec PR — none.
 
 **Requires Josh's hosts or assets (handoff-side, runbook-exact, each with an observable):** image build + first boot on Mimir; Authentik app registration; cloudflared hostname; Heimdall probe target; corpus import against the production hall; restore-rehearsal execution; the gh#179 browser pass; session-night readiness execution; and the go-live call itself (H1).
 
