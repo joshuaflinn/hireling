@@ -32,8 +32,9 @@ BEGIN
 END
 $$;
 
--- Operator step after provisioning (interactive, not scripted):
---     ALTER ROLE hireling PASSWORD '<secret from the house secret store>';
+-- Operator step after provisioning — at an interactive psql prompt, so the
+-- plaintext stays out of argv, psql history, and the server log:
+--     \password hireling
 
 -- Idempotent database creation, owned by the role (the app applies its own
 -- migrations at boot, so the role must own its hall).
