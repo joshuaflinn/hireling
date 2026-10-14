@@ -77,6 +77,20 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   required approvals on `main` stay at 0 for the same reason. A merged PR
   with an empty review timeline is a missing record: restore it before the
   next merge ask.
+
+  **Scope is part of the verdict.** An accept is an accept of the head
+  only when its scope is the head itself, not one question about the
+  head. A reviewer who narrows a round's scope says so in the verdict,
+  and the press honors the stated scope instead of reading past it.
+
+  **One review round is one review task.** Whoever opens a round opens a
+  single task for it, asking every question the round asks in it — a
+  round split across tasks produces verdicts that are each correct in
+  their own scope and jointly unreadable at the press. While a round is
+  open, the press waits, and it reads that state off the PR — the round
+  is open when it is announced on the PR and closed when the verdict is
+  posted to it — never off tracker task state, which the press seat
+  cannot see at the PR.
 - **A review round opens with a check-runs read at the head under review.**
   Before the diff: name the head, then read the `gate` check at it with
   `gh api repos/joshuaflinn/hireling/commits/<sha>/check-runs`. The check-run
