@@ -20,10 +20,11 @@
 
 ## Requirement Completeness
 
-- [x] No [NEEDS CLARIFICATION] markers remain (Clarify Log: seven
-      decisions settled in place with reasoning — five at specify, two
-      more at round-1 review; none needs Josh; none moves the P0/P1/P2
-      line).
+- [x] No [NEEDS CLARIFICATION] markers remain (Clarify Log: six
+      decisions settled in place with reasoning — four at specify, two
+      more at round-1 review; none blocks the spec — the flip-rule
+      reading is owner-visible and overturnable (Clarify Log #6); none
+      moves the P0/P1/P2 line).
 - [x] Requirements are testable and unambiguous — FR-2 names the version
       unit and apply semantics per surface; FR-8's six replay cases each
       carry a numeric criterion; FR-6's match outcomes enumerate to found/
@@ -64,8 +65,8 @@
 - Round-1 revision (MOR-464 verdict, 2026-10-14): findings 1–8 folded —
   authz variant payloads as deciding facts (D4), the stash identity
   unique constraint (D1.5), the bank-adjustment note dropped (Clarify
-  #6), R1's fourth asserted surface (counterparty inventory), the
-  absent-quartermaster escape (Clarify #7), the real file map
+  #5), R1's fourth asserted surface (counterparty inventory), the
+  absent-quartermaster escape (Clarify #6), the real file map
   (`src/book_value.rs` via the tree's `#[path]` pattern), no quoted pp
   rate, the corrected corpus citation. Re-validated against this list;
   all items still pass.

@@ -30,7 +30,7 @@ when a seat frees — check the lane board).
   the real apply arms; components via `@testing-library/svelte` with real
   events; every data-sourced assertion gets both sides of its boundary
   (the sell dialog's found/flagged states, the flip rule's designated/
-  bootstrap states, underflow's refuse/allow sides).
+  undesignated states, underflow's refuse/allow sides).
 - Verify per task: scoped suites first, `just ci-local` full before the
   PR; paste real output; a handover that calls the gate clean states the
   warning count. `Co-Authored-By: Paperclip <noreply@paperclip.ing>` on
@@ -53,8 +53,12 @@ non-unique index dropped). Then the authz extension:
 deciding facts in the payload — `Stash { actor_is_party_member: bool }`,
 `Bank { quartermaster_owner_sub: Option<String> }`, `PartySettings {
 actor_is_party_member: bool }` (D4) — the lookups happen at the call
-site, the function stays a table, `sole_writer()` is not extended, and
-`authorize()`'s write branch becomes a per-variant match.
+site, and `authorize()`'s write branch becomes a per-variant match that
+absorbs `sole_writer()`'s three sole-owner arms (`Character`, `Effect`,
+`CustomRow`); **delete `sole_writer()`** (gh#219): an exhaustive
+`&str`-returning match has nothing to return for a party variant and
+`wildcard_enum_match_arm` is denied, so it cannot stay unchanged, and
+once the write branch is per-variant it has no callers.
 
 **Acceptance** (test-first, each before its impl):
 - `authz.rs` suite: the full allow/deny table over the variant facts —
