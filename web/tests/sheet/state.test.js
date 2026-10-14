@@ -429,7 +429,7 @@ test('money writes are four-denomination vitals writes riding the pinned field n
   // Each denomination clamps at zero and rounds to whole coins at the
   // client (web/src/lib/sheet/state.js writeMoney) — the wire never sees a
   // negative or fractional coin.
-  state.writeMoney({ pp: -1, gp: 1.4, sp: NaN, cp: '2' });
+  state.writeMoney({ pp: -1, gp: 1.6, sp: NaN, cp: '2' });
   write = [...mocks.sockets[0].sent]
     .reverse()
     .map((r) => JSON.parse(r))
@@ -437,7 +437,7 @@ test('money writes are four-denomination vitals writes riding the pinned field n
   assertWriteTarget(write.target);
   assert.deepEqual(
     write.value,
-    { pp: 0, gp: 1, sp: 0, cp: 2 },
+    { pp: 0, gp: 2, sp: 0, cp: 2 },
     'denominations clamp at zero and round at the client',
   );
 });
