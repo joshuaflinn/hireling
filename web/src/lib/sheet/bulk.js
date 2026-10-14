@@ -104,9 +104,14 @@ export function inventoryView(baseSheet, itemBulk, itemTraits, qtyOf) {
   //   statistics for suits, not shields.
   //
   // A row without `prof` reads as a suit (both real export samples carry
-  // `prof` on every armor row). These rows render in the strikes/AC
-  // panes, not the inventory list, so they add to the total without
-  // adding list rows.
+  // `prof` on every armor row), and a row without `worn` reads as carried
+  // (`!item.worn` is true for `undefined`; both real export samples carry
+  // the field, so this is a defensive default, not a live path). Carried
+  // is the safe direction: it charges listed + 1, so a dropped flag can
+  // only overcount Bulk, never undercount — an overcount surfaces as
+  // visible encumbrance, an undercount silently hides it. These rows
+  // render in the strikes/AC panes, not the inventory list, so they add
+  // to the total without adding list rows.
   const weaponsTenths = (baseSheet.weapons ?? []).reduce(
     /** @type {(acc: number, item: any) => number} */
     (acc, item) => acc + (itemBulk[item.name] ?? 0) * (item.qty ?? 1),
