@@ -97,8 +97,9 @@ rotation). Provisioning is a checked-in artifact — run once by the operator,
 no click-ops:
 
 ```sh
-psql -h asgard -f db/provision.sql   # then set the role password interactively
-ALTER ROLE hireling PASSWORD '<from the house secret store>';  # never in git
+psql -h asgard -f db/provision.sql   # then set the role password, at the psql prompt:
+#   \password hireling   # so the plaintext stays out of argv, psql history,
+#                        # and the server log; value from the house secret store — never in git
 ```
 
 Schema migrations are not run by hand in production: the deployed binary
