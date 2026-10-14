@@ -17,7 +17,15 @@
 # bench-side verification is line-by-line review against FR-1/FR-2/FR-3;
 # the first deploy on Mimir is the build gate.
 
-FROM node:22-bookworm-slim AS web
+# Base images are pinned tag@sha256 (grizzly-gate's semgrep leg fail-closes
+# on unpinned FROMs; digests resolved off the Docker Hub registry API on
+# 2026-10-14 — multi-arch index digests, platform resolved at pull time on
+# the amd64 host). Official images rebuild tags periodically, so a digest
+# moves under security updates: bump deliberately, in its own PR, re-resolve
+# the digest the same way — same policy as the rust-toolchain.toml pin and
+# the gate image digest.
+
+FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS web
 WORKDIR /src/web
 # Manifests first: the npm ci layer caches independently of app source.
 COPY web/package.json web/package-lock.json ./
@@ -26,7 +34,7 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY web/ ./
 RUN npm run build
 
-FROM rust:1.99.0-bookworm AS build
+FROM rust:1.99.0-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS build
 WORKDIR /src
 # Manifests and workspace layout first: the dependency compile is the long
 # pole, and its cache mounts survive source edits (D2). `data/` rides along
@@ -47,12 +55,13 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && mkdir /out \
     && cp target/release/hireling target/release/healthcheck /out/
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 # CA certificates: OIDC (Authentik) and the corpus import (GitHub releases)
 # make TLS calls from inside the container. Nothing else is installed (D1:
 # no curl/wget in the runtime — the shipped probe binary is the healthcheck).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --user-group hireling
 COPY --from=build /out/hireling /usr/local/bin/hireling
