@@ -280,10 +280,14 @@ json-keys:
 # workflow's drift-check step runs: every ci-local leg has a CI home; every
 # pass declared in scripts/gate_passes.tsv is mirrored by a leg this
 # justfile actually runs or carries its written exemption; and (CI-only,
-# --image-log) the image's own stdout names nothing the declaration does
-# not know. repo_side stays derived from the workflow's own text — never a
-# hand-kept literal (MOR-142, MOR-130 fault class). A guard proven to red
-# is the evidence a parse cannot be: break-tests live in the gh#151 PR.
+# --image-log) the image's own stdout agrees with the declaration in both
+# directions — nothing undeclared runs, and every mirrored pass is named
+# (gh#163: exempt rows may be skipped without red). repo_side stays
+# derived from the workflow's own text — never a hand-kept literal
+# (MOR-142, MOR-130 fault class), and the workflow must still carry the
+# --image-log step or the bench-side check itself reds (gh#163 F3). A
+# guard proven to red is the evidence a parse cannot be: break-tests
+# live in the gh#151 PR and the gh#163 self-test.
 ci-drift:
     python3 scripts/ci_drift_check.py --self-test
     python3 scripts/ci_drift_check.py

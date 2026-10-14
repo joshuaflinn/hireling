@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ci-drift: the guardrail guarding the guardrails (gh#151).
 
-Three directions, all failing closed:
+Four directions, all failing closed:
 
 A. every ci-local leg has a CI home — an image mirror declared in
    scripts/gate_passes.tsv, or a guard step in the gate workflow
@@ -10,10 +10,21 @@ A. every ci-local leg has a CI home — an image mirror declared in
 B. every declared image pass is mirrored by a leg ci-local actually
    runs, or carries its written exemption (an empty reason does not
    even parse);
-C. (--image-log, CI-side) the image's own stdout names nothing the
-   declaration does not know — this is what makes the declaration
-   survive a digest bump. A log with no pass tokens is a failure,
-   not a pass.
+C. (--image-log, CI-side) the image's own stdout and the declaration
+   agree in both directions (gh#163 F1): the image names nothing the
+   declaration does not know, and it names every mirrored pass the
+   declaration does know — a digest bump cannot silently drop a pass
+   any more than silently add one. Exempt rows are not required in the
+   image's output (a skipped provisioning or scan pass is not drift).
+   A log with no pass tokens is a failure, not a pass.
+D. the gate workflow's own text still invokes this script with
+   --image-log (gh#163 F3) — the image-side step invokes the script
+   directly, so repo_side cannot see its deletion; this closes it the
+   same text-derived way.
+
+A verdict line whose pass name is off-shape is a failure naming the
+line (gh#163 F2): a filter that silently drops what it cannot parse
+is not fail-closed.
 
 Zero dependencies, stdlib only — same discipline as
 scripts/check_json_dup_keys.py. A guardrail that skips is not a
@@ -44,10 +55,22 @@ LEG_NAME_RE = r"[\w-]+"
 # A declaration row is pass, mirror-or-'-', reason — no more, no less.
 DECLARATION_FIELDS = 3
 # The image prints one verdict line per check: "[PASS] node:tsc".
-IMAGE_LINE_RE = re.compile(r"\[(PASS|FAIL|SKIP)\] (" + CHECK_NAME_RE + r")")
+# Match the verdict BROADLY (gh#163 F2): CHECK_NAME_RE stays out of the
+# match and is enforced with re.fullmatch on each captured name, so an
+# off-shape name reds with a diagnostic instead of being dropped from
+# the found set and invisible to direction C.
+IMAGE_LINE_RE = re.compile(r"\[(PASS|FAIL|SKIP)\] +(\S+)")
+# The gate workflow's image-side drift step (gh#163 F3): this script
+# invoked with --image-log. Text-derived, same discipline as repo_side.
+IMAGE_STEP_RE = re.compile(r"^ *run: .*\bci_drift_check\.py +--image-log\b", re.MULTILINE)
 
 SELF_TEST_TREE_JUSTFILE = "ci-local: alpha\n\nalpha:\n\ttrue\n"
 SELF_TEST_TREE_WORKFLOW = (
+    "jobs:\n  gate:\n    steps:\n      - name: guard\n        run: just alpha\n"
+    "      - name: drift image side\n"
+    "        run: python3 scripts/ci_drift_check.py --image-log image.log\n"
+)
+SELF_TEST_TREE_WORKFLOW_NO_IMAGE_STEP = (
     "jobs:\n  gate:\n    steps:\n      - name: guard\n        run: just alpha\n"
 )
 
@@ -129,8 +152,109 @@ def derive_repo_side() -> set[str]:
     return set(re.findall(r"^ *run: just ([\w-]+) *$", text, re.MULTILINE))
 
 
+def require_image_side_step() -> None:
+    """Direction C must be wired: the workflow's text invokes --image-log.
+
+    gh#163 F3. The bench-side step protects itself — repo_side matches
+    `run: just ci-drift` from this same text, so neutering that step
+    reds direction A. The image-side step invokes this script directly,
+    so no leg list notices its deletion: remove it and bench and CI both
+    stay green with direction C gone. Close it the same text-derived way
+    repo_side closes the bench side — the invocation must appear in the
+    workflow's own text. Like repo_side, matches only a single-line
+    `run: … ci_drift_check.py --image-log …` step, so any other spelling
+    reads as unwired and fails closed. Same caveat as repo_side: textual
+    presence is not execution; the deliberate-break run is the cover.
+    """
+    if not WORKFLOW.is_file():
+        fail(f"{WORKFLOW} not found — run from the repo root")
+    if not IMAGE_STEP_RE.search(WORKFLOW.read_text(encoding="utf-8")):
+        fail(
+            f"no ci_drift_check.py --image-log invocation in {WORKFLOW} —"
+            " direction C (the image-side drift check) is not wired;"
+            " restore the step in the gate workflow"
+        )
+
+
+def check_image_log(
+    image_log: Path, passes: dict[str, tuple[str, str]], mirrors: set[str]
+) -> None:
+    """Direction C: the image's stdout and the declaration agree, two-way.
+
+    Forward (gh#151): a pass the image runs must be declared. Reverse
+    (gh#163 F1): a MIRRORED pass the image's output stops naming reds —
+    direction A would otherwise keep certifying its bench leg through a
+    mirror row nothing backs. Exempt rows are excluded from the reverse
+    comparison: they describe provisioning/scan passes the image may
+    legitimately skip, and requiring them would false-red. Fail-closed
+    on shape (gh#163 F2): a verdict line whose name does not fit
+    CHECK_NAME_RE reds naming the line — a filter that silently drops
+    what it cannot parse is not fail-closed — and a log with no pass
+    tokens is a failure, not a pass.
+    """
+    if not image_log.is_file():
+        fail(
+            f"image log {image_log} not found — cannot certify the"
+            " declaration against the image"
+        )
+    names: list[str] = []
+    for lineno, line in enumerate(
+        image_log.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+    ):
+        for _verdict, name in IMAGE_LINE_RE.findall(line):
+            # gh#163 F2: a name that does not fit the check-name shape
+            # is a pass the declaration cannot be compared against —
+            # red naming the line, never silently dropped.
+            if not re.fullmatch(CHECK_NAME_RE, name):
+                fail(
+                    f"{image_log}:{lineno}: verdict names '{name}',"
+                    f" which is not an image check name ({CHECK_NAME_RE})"
+                    f" — an unparsable pass is an undeclared pass, not a"
+                    f" skippable line: {line.strip()!r}"
+                )
+            names.append(name)
+    if not names:
+        fail(
+            f"no [PASS]/[FAIL] pass tokens found in {image_log} — the"
+            " image's output is empty or unreadable; failing closed rather"
+            " than certifying an unseen run"
+        )
+    names_set = set(names)
+    undeclared = [name for name in sorted(names_set) if name not in passes]
+    if undeclared:
+        fail(
+            "the image ran pass(es) the declaration does not know: "
+            + ", ".join(undeclared)
+            + f" — a digest bump moved the pass list; re-read and extend"
+              f" {DECLARATION} in the bump's own PR"
+        )
+    # gh#163 F1: the reverse direction. A mirrored pass the image's
+    # output stops naming means direction A has been certifying its
+    # bench leg through a mirror row nothing backs. Mirrored rows
+    # only — the exempt rows describe provisioning/scan passes the
+    # image may legitimately skip, and requiring them would false-red.
+    dropped = sorted(
+        name
+        for name, (mirror, _) in passes.items()
+        if mirror != "-" and name not in names_set
+    )
+    if dropped:
+        fail(
+            "the image's output omits mirrored pass(es) the declaration"
+            " expects: "
+            + ", ".join(dropped)
+            + " — a digest bump dropped or renamed them; the mirror rows"
+              " no longer back their bench legs. Re-read and fix"
+            + f" {DECLARATION} in the bump's own PR"
+        )
+    print(
+        f"drift check ok: image output names {len(names_set)} passes,"
+        f" all declared; all {len(mirrors)} mirrored passes present"
+    )
+
+
 def main() -> None:
-    """Check A and B against the repo; C additionally when given an image log."""
+    """Check A, B and D against the repo; C additionally with --image-log."""
     parser = argparse.ArgumentParser(
         description="ci drift check: legs, declaration, and the image's own output agree"
     )
@@ -153,6 +277,7 @@ def main() -> None:
     passes = load_declaration()
     legs = load_ci_local_legs()
     repo_side = derive_repo_side()
+    require_image_side_step()
 
     mirrors = {mirror for mirror, _ in passes.values() if mirror != "-"}
 
@@ -197,30 +322,9 @@ def main() -> None:
         f" ({mirrored_count} mirrored, {len(passes) - mirrored_count} exempt)"
     )
 
-    # C. The image's own stdout names nothing the declaration does not know.
+    # C. The image's own stdout and the declaration agree in both directions.
     if args.image_log is not None:
-        if not args.image_log.is_file():
-            fail(
-                f"image log {args.image_log} not found — cannot certify the"
-                " declaration against the image"
-            )
-        found = IMAGE_LINE_RE.findall(args.image_log.read_text(encoding="utf-8", errors="replace"))
-        names = sorted({name for _, name in found})
-        if not names:
-            fail(
-                f"no [PASS]/[FAIL] pass tokens found in {args.image_log} — the"
-                " image's output is empty or unreadable; failing closed rather"
-                " than certifying an unseen run"
-            )
-        undeclared = [name for name in names if name not in passes]
-        if undeclared:
-            fail(
-                "the image ran pass(es) the declaration does not know: "
-                + ", ".join(undeclared)
-                + f" — a digest bump moved the pass list; re-read and extend"
-                  f" {DECLARATION} in the bump's own PR"
-            )
-        print(f"drift check ok: image output names {len(names)} passes, all declared")
+        check_image_log(args.image_log, passes, mirrors)
 
 
 # A guard that has never been seen to fail is not evidence (the
@@ -255,8 +359,14 @@ def _self_test_case(
 
 
 def self_test() -> None:
-    """Re-prove all three red directions plus fail-closed on synthetic trees."""
+    """Re-prove all four red directions plus fail-closed on synthetic trees."""
     script = Path(__file__).resolve()
+    ran: list[str] = []
+
+    def run_case(tree: Path, name: str, args: list[str], *, expect_red: bool) -> None:
+        ran.append(name)
+        _self_test_case(script, tree, name, args, expect_red=expect_red)
+
     with tempfile.TemporaryDirectory(prefix="ci-drift-selftest-") as tmp:
         root = Path(tmp)
         case_counter = [0]
@@ -281,39 +391,76 @@ def self_test() -> None:
             "one:alpha\talpha\tmirrors alpha\ntwo:beta\t-\texempt: provisioning only\n",
             "[PASS] one:alpha\n[PASS] two:beta\n",
         )
-        _self_test_case(script, green, "green", [], expect_red=False)
-        _self_test_case(
-            script, green, "green-image", ["--image-log", "image.log"], expect_red=False
-        )
+        run_case(green, "green", [], expect_red=False)
+        run_case(green, "green-image", ["--image-log", "image.log"], expect_red=False)
 
         # A-red: a ci-local leg with no CI home.
         tree = make_tree("one:alpha\talpha\tmirrors alpha\n", None)
         (tree / "justfile").write_text(
             "ci-local: alpha charlie\n\nalpha:\n\ttrue\ncharlie:\n\ttrue\n", encoding="utf-8"
         )
-        _self_test_case(script, tree, "a-ungated-leg", [], expect_red=True)
+        run_case(tree, "a-ungated-leg", [], expect_red=True)
 
         # B-red: a mirror naming a leg ci-local does not run.
         tree = make_tree("one:alpha\tnonexistent\tmirrors nothing real\n", None)
-        _self_test_case(script, tree, "b-phantom-mirror", [], expect_red=True)
+        run_case(tree, "b-phantom-mirror", [], expect_red=True)
 
         # B-red: a declared pass with no mirror and no written reason.
         tree = make_tree("two:beta\t-\t\n", None)
-        _self_test_case(script, tree, "b-empty-reason", [], expect_red=True)
+        run_case(tree, "b-empty-reason", [], expect_red=True)
 
         # C-red: the image's output names a check the declaration does not know.
         tree = make_tree(
             "one:alpha\talpha\tmirrors alpha\n", "[PASS] one:alpha\n[PASS] node:zork\n"
         )
-        _self_test_case(
-            script, tree, "c-undeclared-pass", ["--image-log", "image.log"], expect_red=True
-        )
+        run_case(tree, "c-undeclared-pass", ["--image-log", "image.log"], expect_red=True)
 
         # C fail-closed: an empty log is a failure, not a pass.
         tree = make_tree("one:alpha\talpha\tmirrors alpha\n", "")
-        _self_test_case(script, tree, "c-empty-log", ["--image-log", "image.log"], expect_red=True)
+        run_case(tree, "c-empty-log", ["--image-log", "image.log"], expect_red=True)
 
-    print("ci-drift self-test: 8 cases, all pass")
+        # C-red (gh#163 F1): the image's output omits a MIRRORED declared
+        # pass — the reverse of c-undeclared-pass. one:alpha is mirrored;
+        # its absence must red even though two:beta (exempt) is named.
+        tree = make_tree(
+            "one:alpha\talpha\tmirrors alpha\ntwo:beta\t-\texempt: provisioning only\n",
+            "[PASS] two:beta\n",
+        )
+        run_case(
+            tree, "c-mirrored-pass-dropped", ["--image-log", "image.log"], expect_red=True
+        )
+
+        # C-green (gh#163 F1, the false-red guard): an EXEMPT pass absent
+        # from the image's output is not drift — only mirrored rows are
+        # required to appear.
+        tree = make_tree(
+            "one:alpha\talpha\tmirrors alpha\ntwo:beta\t-\texempt: provisioning only\n",
+            "[PASS] one:alpha\n",
+        )
+        run_case(
+            tree, "c-exempt-pass-skipped", ["--image-log", "image.log"], expect_red=False
+        )
+
+        # C-red (gh#163 F2): a verdict line whose name is off-shape reds
+        # naming the line, instead of being dropped from the found set.
+        tree = make_tree(
+            "one:alpha\talpha\tmirrors alpha\n",
+            "[PASS] one:alpha\n[PASS] node:ts_check\n",
+        )
+        run_case(
+            tree, "c-offshape-pass-name", ["--image-log", "image.log"], expect_red=True
+        )
+
+        # D-red (gh#163 F3): the workflow no longer invokes this script
+        # with --image-log. Direction A and B still hold; the missing
+        # step alone must red, bench-side, without --image-log.
+        tree = make_tree("one:alpha\talpha\tmirrors alpha\n", None)
+        (tree / ".github" / "workflows" / "gate.yml").write_text(
+            SELF_TEST_TREE_WORKFLOW_NO_IMAGE_STEP, encoding="utf-8"
+        )
+        run_case(tree, "d-image-step-deleted", [], expect_red=True)
+
+    print(f"ci-drift self-test: {len(ran)} cases, all pass")
 
 
 if __name__ == "__main__":
