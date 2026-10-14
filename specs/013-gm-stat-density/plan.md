@@ -22,7 +22,7 @@ merge ask waits for the hold to lift.
   `@testing-library/svelte` (`web/vite.config.js` jsdom setup); pure helpers
   test as plain units (`vitest run`). Two-fixture / both-sides-of-the-
   boundary style for every data-sourced assertion (AGENTS.md Style).
-- Verify per task: `npm --prefix web run test -- run <file>` scoped, then
+- Verify per task: `npm --prefix web test -- <file relative to web/>` scoped, then
   `just ci-local` full before the PR. Paste real output; count warnings.
 - Commit messages imperative; `Co-Authored-By: Paperclip <noreply@paperclip.ing>`
   on every commit.
@@ -49,9 +49,9 @@ that ordering the two rules agree, so a degraded extraction passes silently
 fallback, empty list → `null`, null/undefined input → `null`. **Plus one
 StatsPane-level test with the same innate-first fixture asserting the
 rendered spell DC is the non-innate block's** — the sheet-side regression
-guard the extraction previously lacked. `npm --prefix web run test -- run
-web/tests/engine/caster.test.js` plus the sheet suites green: `… run
-web/tests/sheet`.
+guard the extraction previously lacked. `npm --prefix web test --
+tests/engine/caster.test.js` plus the sheet suites green:
+`npm --prefix web test -- tests/sheet`.
 
 ## Task 1b — Align StatsPane's class-DC tile with contract §1 (D6, spec FR-1)
 
@@ -97,7 +97,7 @@ two-line fallback, do not re-abstract it; core rows: capitalized key).
   fallback), both sides asserted (round-1 finding M3: the mirrored
   fallback is drift-prone; the parity test is the guard);
 - input not an array → empty result, no throw.
-`npm --prefix web run test -- run web/tests/engine/key-skills.test.js`.
+`npm --prefix web test -- tests/engine/key-skills.test.js`.
 
 ## Task 3 — `StatBlock.svelte` (D2, D3, D6, D7; spec FR-1, FR-4, FR-6)
 
@@ -151,7 +151,7 @@ elements are the `StatTile` provenance hovers (SC-5).
   fixture (SC-8's), every focusable/interactive element `within(group)` is
   a provenance affordance (`role="note"` span or the ConditionTip nested
   in one) — no `<button>`, no form control, nothing else.
-`npm --prefix web run test -- run web/tests/party/stat-block.test.js`.
+`npm --prefix web test -- tests/party/stat-block.test.js`.
 
 ## Task 4 — Mount in `RosterCard`, card-level acceptance (D2)
 
@@ -174,7 +174,7 @@ provenance
 affordance, no `<button>` or form control beyond them**; the drill-in
 remains the card's navigation control;
 down/full/effect-chip regressions untouched (existing tests stay green).
-`npm --prefix web run test -- run web/tests/party`.
+`npm --prefix web test -- tests/party`.
 
 ## Task 5 — Sweep, gate, PR
 
