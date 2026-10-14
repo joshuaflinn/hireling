@@ -41,6 +41,12 @@
   // Standalone/test path — the shell ALWAYS provides the session sync;
   // this self-construction against the POC party is the fallback only.
   const POC_PARTY_ID = 1;
+  // Wiring is mount-time by design (composition root): the shell's sync —
+  // or this standalone fallback — is fixed for the instance's lifetime.
+  // App only swaps session/account while no sheet is mounted; a different
+  // drill-in is a fresh mount, not a prop update. Init-only is intended
+  // here (gh#182).
+  // svelte-ignore state_referenced_locally
   const sync =
     providedSync ??
     createSync({
@@ -48,9 +54,15 @@
       storage: localStorage,
       accountSub,
     });
+  // `character`, `partyId`, `fetchImpl` seed the state layer once per
+  // mount for the same reason — no path replaces them under a mounted
+  // sheet; tests pass fresh props to a fresh instance.
+  // svelte-ignore state_referenced_locally
   const sheet = createSheetState({ sync, character, partyId: partyId ?? POC_PARTY_ID, fetchImpl });
 
   // ---- E9: the party's custom rows (store: rules/custom-store.js) --------
+  // Mount-time party binding, same lifecycle as the state layer (gh#182).
+  // svelte-ignore state_referenced_locally
   const customStore = createCustomStore({ partyId: partyId ?? POC_PARTY_ID });
   /** Which AddCustomForm is open: null | 'item' | 'spell' | 'condition'. */
   let customFormKind = $state(/** @type {null | 'item' | 'spell' | 'condition'} */ (null));
@@ -151,6 +163,11 @@
     };
   });
 
+  // `character` is never replaced under a mounted sheet — App only touches
+  // sheetTarget from the party view, and nothing rewrites the payload's
+  // base data in place — so the captured identity cannot go stale (gh#182,
+  // init-only is intended).
+  // svelte-ignore state_referenced_locally
   const identity = character.base_sheet.identity;
 
   // The composer (specs/011): an editable sheet with a party and a delivered

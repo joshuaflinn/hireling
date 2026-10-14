@@ -18,12 +18,16 @@
   // `kind` freezes at mount by design, here and in `valueLabel` below:
   // SheetView gates this form behind `{#if customFormKind}` and Dialog opens
   // it with showModal(), so the instance unmounts before `kind` could change
-  // (svelte-check state_referenced_locally — ruled not-a-defect, MOR-129).
+  // (svelte-check state_referenced_locally — ruled not-a-defect, MOR-129;
+  // re-verified under gh#182 — non-null kinds only leave through null,
+  // which unmounts the form).
+  // svelte-ignore state_referenced_locally
   let valueOrRank = $state(kind === 'spell' ? '1' : '');
   /** @type {Record<string, string>} */
   let errors = $state({});
   let submitting = $state(false);
 
+  // svelte-ignore state_referenced_locally
   const valueLabel = kind === 'spell' ? 'Rank' : 'Value (optional)';
 
   /** Wire the field's value by kind (spell rank is required, condition value optional). */

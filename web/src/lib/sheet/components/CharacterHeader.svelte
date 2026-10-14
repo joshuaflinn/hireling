@@ -26,6 +26,12 @@
 
   let picking = $state(false);
   let confirmingDown = $state(false);
+  // `level` starts null and lands when the wire speaks, so this seed is
+  // stale by construction — and unreachable: draftLevel is only rendered
+  // in the picker, whose only entry is openPicker(), which re-seeds it
+  // from the live prop first (the button is dark until wireReady besides).
+  // Init-only seed by design (gh#182).
+  // svelte-ignore state_referenced_locally
   let draftLevel = $state(level);
 
   function openPicker() {
