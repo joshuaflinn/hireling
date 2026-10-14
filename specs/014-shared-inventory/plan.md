@@ -21,7 +21,9 @@ when a seat frees — check the lane board).
 - **Rules facts carry citations** (AGENTS.md rules-exactness): the pp→gp
   exchange rate's page-level citation lands in the sell apply's doc
   comment, written off the source page — never from memory, never from a
-  review comment. The `L = 0.1` Bulk convention is already cited where it
+  review comment. The spec quotes no rate value; any value quoted
+  upstream of the source page is not a source, and a mismatch is a
+  stop-and-flag. The `L = 0.1` Bulk convention is already cited where it
   ships (schema comment); the UI reuses the sheet's helpers and adds no
   Bulk math.
 - Tests run the production path (AGENTS.md Style): WS integration through
@@ -42,19 +44,27 @@ when a seat frees — check the lane board).
 the migration list is registered somewhere (it isn't — sqlx migrate picks
 the dir up; leave alone).
 
-**Do**: the migration's four changes exactly as D1 (stash `version`,
+**Do**: the migration's five changes exactly as D1 (stash `version`,
 `parties.quartermaster_version`, `claim_history` coins columns with the
-quantity-is-1-for-coin-rows comment, audit CHECK swap). Then the authz
-extension: `Resource::Stash/Bank/PartySettings` as pure variants keyed on
-facts passed in (party membership, QM owner sub, designation) — the
-lookup happens at the call site, the function stays a table.
+quantity-is-1 and money-row-label comments, audit CHECK swap, the
+`UNIQUE (party_id, item_name)` identity constraint with the redundant
+non-unique index dropped). Then the authz extension:
+`Resource::Stash/Bank/PartySettings` as pure variants carrying the
+deciding facts in the payload — `Stash { actor_is_party_member: bool }`,
+`Bank { quartermaster_owner_sub: Option<String> }`, `PartySettings {
+actor_is_party_member: bool }` (D4) — the lookups happen at the call
+site, the function stays a table, `sole_writer()` is not extended, and
+`authorize()`'s write branch becomes a per-variant match.
 
 **Acceptance** (test-first, each before its impl):
-- `authz.rs` suite: the full allow/deny table — stash×{member owner, GM,
-  non-member}, bank×{QM owner, other member, GM, undesignated}, settings×
-  {QM owner, other member, GM}×{designated, bootstrap}. Every cell named.
+- `authz.rs` suite: the full allow/deny table over the variant facts —
+  stash×{member, non-member, GM}, bank×{QM owner, other member,
+  non-member, GM, undesignated}, settings×{member, non-member, GM}.
+  Every cell named.
 - Migration: up/down idempotent (`sqlx migrate run` + revert + re-run);
-  db test asserts the new columns and the trigger still firing on
+  db test asserts the new columns, the unique constraint (a second
+  insert of the same `(party_id, item_name)` raises post-migration), and
+  the trigger still firing on
   `claim_history` UPDATE **after** the coins columns landed (regression:
   an ALTER must not drop the trigger).
 - Audit values: an insert of each new event value passes the CHECK; an
@@ -68,13 +78,15 @@ lookup happens at the call site, the function stays a table.
 (the pinned-contract rule: both suites green over the edited files).
 
 **Do**: the four `FieldTarget` kinds and their value shapes (D2 table);
-`stash_new` mint + duplicate refusal; `stash` `qty` additive apply with
-underflow/unknown-row rejection; `stash` `meta` CAS; `bank` additive
+`stash_new` mint + duplicate refusal mapped from the D1.5 unique
+violation to `rejected` with FR-1's reason; `stash` `qty` additive apply
+with underflow/unknown-row rejection; `stash` `meta` CAS; `bank` additive
 apply with per-denomination non-negative enforcement (the shipped CHECKs
 surface as `rejected` with reason, pre-formatted); `party`
-quartermaster absolute CAS. Snapshot sections for all four. The §8 E12
-contract rows + `field-targets.json` entries land in the same commit as
-the kinds (contract and code move together).
+quartermaster absolute CAS. Snapshot sections for all four. The §3 E12
+contract rows, **§4's additive-class semantics bullet**, and the
+`field-targets.json` entries land in the same commit as the kinds
+(contract and code move together).
 
 **Acceptance**:
 - Additive test pair: two `qty` ops at the same stale `base_version` both
@@ -97,9 +109,10 @@ the kinds (contract and code move together).
 minting `character_inventory_live` when absent; claim row with the FR-4
 labels), `sell` (quantity off the row, row deleted at zero, pp→gp credit
 with the cited rate in the doc comment, claim row `stash → bank` with
-coins), `bank` adjust (note-carrying claim row `outside → bank` /
-`bank → outside` by sign). Transaction order per D3; fan-out = one diff
-per touched field + the claim append.
+coins), `bank` adjust (claim row `outside → bank` / `bank → outside` by
+sign; coins carry the amounts; `item_name` carries the fixed
+`bank adjustment` label per D1.3 — no note field). Transaction order per
+D3; fan-out = one diff per touched field + the claim append.
 
 **Acceptance** (each a test that fails first):
 - Transfer: both sides move together; forced failure between (a poisoned
@@ -117,13 +130,14 @@ per touched field + the claim append.
 reused as-is.
 
 **Do**: the six named replay cases as D8's table reads them — R1 ack-lost
-(identical frame resend → `already_applied`; stash qty, bank balance,
-claim-row count each asserted as the single-application values), R2 the
-same across a server restart, R3 double-submit, R4 id reuse with a
-different body (refused, original stands), R5 changed world (row deleted
-/ drawn down first → refused with reason, **no partial bank credit, no
-claim row**), R6 concurrent sells (exactly one applies, one credit, one
-claim row for the winner only).
+(identical frame resend → `already_applied`; stash qty, the counterparty
+character's inventory qty, bank balance, and claim-row count each
+asserted as the single-application values), R2 the same across a server
+restart, R3 double-submit, R4 id reuse with a different body (refused,
+original stands), R5 changed world (row deleted / drawn down first →
+refused with reason, **no partial bank credit, no claim row**), R6
+concurrent sells (exactly one applies, one credit, one claim row for the
+winner only).
 
 **Acceptance**: the FR-8 table's criteria verbatim, each asserted
 numerically. This suite is the guardrail's proof — a green run here is
@@ -131,8 +145,10 @@ what "idempotent-safe" means (SC-5).
 
 ## Task 5 — Book-value read (D5)
 
-**Files**: `src/http/` route module, `src/tests/http/book_value.rs`,
-corpus fixtures for the match outcomes.
+**Files**: `src/book_value.rs` (new module + its `src/tests/book_value.rs`
+via the tree's `#[path]` pattern), `src/lib.rs` (the one-line `pub mod
+book_value;`), `src/http.rs` (route registration in the `protected`
+router), corpus fixtures for the match outcomes.
 
 **Do**: `GET /api/parties/{id}/items/book-value?name=` — session-gated,
 member-or-GM; the D5 resolution query; `{found, price}` shape. Fixtures:
@@ -160,9 +176,10 @@ rule denies), the App route.
 **Acceptance** (production-path, real events):
 - The sell dialog's two prompt states (prefilled / "no book value") both
   driven — one fixture asserts each (two-fixture rule).
-- The settings toggle's three states: QM owner enabled, other member
-  disabled+title, GM absent; flip posts the `party` write and the
-  affordance moves on the fan-out without reload (fixture-mutated store).
+- The settings toggle's states: character owner enabled (any owner may
+  flip per FR-5 — including while designated), GM absent; flip posts the
+  `party` write and the affordance moves on the fan-out without reload
+  (fixture-mutated store).
 - A refused op (injected `rejected` ack) renders its record
   non-blockingly; the queue indicator behaves per degraded-mode.
 - GM seat: zero write affordances — scoped query in the screen's region,

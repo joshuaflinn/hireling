@@ -19,7 +19,7 @@ party surface E10 shipped.
 
 ---
 
-## D1 — The schema delta: one migration, four changes, all reversible
+## D1 — The schema delta: one migration, five changes, all reversible
 
 `migrations/<date>e12_shared_inventory_activation.sql` (+ `.down.sql`,
 reversible per house convention; date-stamped at implementation).
@@ -36,11 +36,28 @@ reversible per house convention; date-stamped at implementation).
    movement carrying the signed amounts (spec FR-4). `quantity` stays
    `CHECK (> 0)` — for coin rows it carries a meaningless 1, documented in
    the migration comment; the signed truth is in the coins. Item rows keep
-   `quantity` as the movement size.
+   `quantity` as the movement size. A money row's `item_name` carries a
+   deterministic label — the sold item's name for a sale, the fixed text
+   `bank adjustment` for a manual adjustment — documented in the same
+   comment; **no note column exists or is added** (spec Clarify Log #6:
+   the PRD asks for actor logging, not notes).
 4. **`audit_events` event values** — drop/re-add the CHECK with
    `forbidden_stash_write`, `forbidden_bank_write`,
    `forbidden_party_write` added to the list. Nothing else about the table
    changes.
+5. **`party_stash` row identity — `UNIQUE (party_id, item_name)`**. The
+   shipped table's only key is the surrogate `id` plus a non-unique party
+   index, so FR-1's declared identity ("the item name within the party")
+   had no structural backing: a check-then-insert race on `stash_new`
+   could mint two rows for one name — after which every
+   `(party_id, item_name)` op is ambiguous against a wire contract that
+   addresses one row with one version. The constraint mirrors
+   `character_inventory_live`'s composite PK
+   (`migrations/20260924000002_live_state.sql`), makes the race
+   impossible rather than unlikely, and its backing index serves the old
+   non-unique index's prefix queries, so `party_stash_party_id_idx` is
+   dropped in the same migration. `stash_new`'s friendly duplicate refusal
+   maps the unique violation to `rejected` carrying FR-1's reason (D2).
 
 **Rejected — a second money-ledger table**: the shipped `party_bank`
 comment is the ruling ("the movements are already in `claim_history`; a
@@ -60,15 +77,22 @@ multiplies kinds for no acceptance criterion.
 ## D2 — The wire extension: four field kinds, two apply semantics
 
 `src/sync/protocol.rs` grows `FieldTarget` variants; the contract rows
-below land in `specs/007-party-sync/contracts/wire-protocol.md` §3 + §8's
-E12 section, and `field-targets.json` gains the kinds — the two suites
-that pin those files stay green (the pinned-contract rule).
+below land in `specs/007-party-sync/contracts/wire-protocol.md` **§3's
+field table, §4's semantics, and §8's E12 section**, and
+`field-targets.json` gains the kinds — the two suites that pin those
+files stay green over the edited files (the pinned-contract rule). §4 is
+an edit site because its "Write = CAS on `base_version`" bullet is
+written as a universal; E12 introduces a third class — a field kind that
+*has* a version unit and still does not CAS (additive applies ignore
+`base_version`; `superseded` is unreachable for them) — and §4 gains that
+additive class beside the CAS rule so the contract of record does not
+state a rule E12's shipped code breaks.
 
 | `kind` | key fields | value shape | version unit | apply |
 |---|---|---|---|---|
-| `stash_new` | `party_id` | `{item_name, quantity>0, bulk?, notes?}` | mint (identity) | refuses duplicate name; creates row + claim row (`outside → stash`) |
+| `stash_new` | `party_id` | `{item_name, quantity>0, bulk?, notes?}` | mint (identity) | refuses duplicate name — the D1.5 unique constraint is the backstop: a racing second insert raises, the violation maps to `rejected` with FR-1's reason; creates row + claim row (`outside → stash`) |
 | `stash` | `party_id`, `item_name` | `{op:"qty", qty_delta}` \| `{op:"meta", bulk?, notes?, base_version}` \| `{op:"transfer", direction:"in"\|"out", qty, character_id}` \| `{op:"sell", qty, price:{gp?,sp?,cp?}}` | the row's `version` | `qty`: additive, never `superseded`; `meta`: CAS; `transfer`/`sell`: compound (D3) |
-| `bank` | `party_id` | `{gp_delta, sp_delta, cp_delta, note}` | the balance row's `version` | additive, never `superseded`; QM-only |
+| `bank` | `party_id` | `{gp_delta, sp_delta, cp_delta}` | the balance row's `version` | additive, never `superseded`; QM-only |
 | `party` | `party_id`, `field:"quartermaster"` | `{character_id \| null}` | `quartermaster_version` | absolute, CAS |
 
 Snapshot/diff shapes: stash rows as `{item_name, quantity, bulk, notes,
@@ -123,23 +147,40 @@ reading (spec FR-9).
 ## D4 — Authorization: party-scoped resources join the matrix
 
 `src/auth/authz.rs` grows resources that key on party membership rather
-than sole ownership:
+than sole ownership. The deciding facts ride **in the variant payload**;
+the matrix stays a pure function — facts are inputs, loaded fresh per
+message at the call site (E3's existing "ownership loaded fresh" rule;
+the matrix performs no lookups) — and `authorize()`'s write branch
+becomes a per-variant match:
 
-- **`Stash { party_id }`** (add/qty/transfer/meta): allow for any player
-  who owns a character in the party; GM denied (`forbidden_gm_write`,
-  existing value).
-- **`Bank { party_id }`** (sell/bank adjust): allow only for the owner of
-  the character named by `parties.quartermaster_character_id`, when set;
-  otherwise denied (`forbidden_bank_write`).
-- **`PartySettings { party_id }`** (quartermaster field): per FR-5's flip
-  rule — designated ⇒ that character's owner; null ⇒ any character owner
+- **`Stash { actor_is_party_member: bool }`** (add/qty/transfer/meta):
+  allow iff `true` — any player who owns a character in the party. GM
+  denied first by the role check (`forbidden_gm_write`, existing value);
+  non-members deny.
+- **`Bank { quartermaster_owner_sub: Option<String> }`** (sell/bank
+  adjust): allow only when `Some(sub) && actor.sub == sub` — the owner of
+  the character named by `parties.quartermaster_character_id`;
+  `None` (undesignated) denies (`forbidden_bank_write`).
+- **`PartySettings { actor_is_party_member: bool }`** (the quartermaster
+  field): allow iff `true` — any character owner, per FR-5's settled flip
+  rule (party settings are writable by any character owner; the
+  designated owner holds no exclusive lock on the toggle)
   (`forbidden_party_write`).
 
-Membership and designation are loaded fresh per message (E3's existing
-"ownership loaded fresh" rule); deny-by-default per message stands. The
-GM's blanket write-denial is unchanged and first. Audit values per D1.4.
-The matrix stays a pure function — party facts are inputs, not lookups
-inside it.
+`sole_writer()` is **retained unchanged** for the three shipped
+sole-owner variants (`Character`, `Effect`, `CustomRow`) and is **not**
+extended to the new ones — a party-membership rule has no sole writer,
+and the per-variant write branch is where the new rules live. Reads need
+no matrix row: E3's matrix allows every authenticated read, and read
+scoping is the shell's party gate — `party_readable()` at the REST layer
+(`src/engine_host/rest.rs`), the D5 precedent, which E12's surfaces
+join. Deny-by-default per message stands. Audit values per D1.4.
+
+**Rejected — variants keyed on `party_id` alone**: a lookup key is not a
+deciding fact. With only `party_id` in the value the matrix must either
+look up membership/designation itself (breaking "facts are inputs, not
+lookups") or decide nothing — and Task 1's allow/deny table cannot name
+its non-member cell. The payloads carry the facts the rules read.
 
 **Rejected — a `quartermaster` role on accounts**: the designation is a
 character fact (the PRD's own model — "one character is designated"), not
@@ -165,6 +206,14 @@ Offline: no lookup (the read needs the link) — the prompt opens flagged
 "no book value", manual entry (spec's edge case). The lookup is a
 prompt-time convenience only; **the confirmed value is what the QM
 entered** — the claim row records it, never the looked-up one.
+
+**Rejected — flagging pp-priced items "no book value" instead of
+converting**: would push gp arithmetic onto the quartermaster for every
+pp price to avoid one cited constant. The conversion is kept as the
+convenience default, and the cost is recorded: a rules-exactness
+obligation — the rate cited off the source page at the conversion site
+plus a two-fixture boundary test — with no rate value quoted anywhere
+upstream of that page (spec FR-6).
 
 **Rejected — resolving book value into the stash row at add time**: a
 corpus re-import's price changes would strand stale copies on rows; FR-4's
@@ -221,10 +270,10 @@ paging at POC.
 |---|---|
 | SC-1 live two-seat render | `src/tests/sync/` two-client integration (the E7 harness): stash add + transfer fan-out to both seats |
 | SC-2 same-transaction log + append-only | `src/tests/sync/stash.rs`: movement commits carry exactly one claim row; forced mid-transaction failure leaves neither; UPDATE/DELETE on `claim_history` still raises (trigger regression) |
-| SC-3 book value outcomes | `src/tests/http/book_value.rs`: corpus fixtures for unique-match/absent/empty/disagreeing/duplicate-agreeing + pp conversion at credit |
+| SC-3 book value outcomes | `src/tests/book_value.rs`: corpus fixtures for unique-match/absent/empty/disagreeing/duplicate-agreeing + pp conversion at credit |
 | SC-4 additive money | `src/tests/sync/stash.rs`: two racing credits sum; underflow refused whole; no additive ack is ever `superseded` |
 | SC-5 R1–R6 replay | `src/tests/sync/stash.rs` idempotence block: ack-lost, post-restart (the E7 restart harness), double-submit, id-reuse, changed-world, concurrent-sells — each asserting the FR-8 table's numeric criterion |
-| SC-6 QM designation | `src/tests/sync/stash.rs` + `src/tests/http/`: flip-rule matrix (all owner/role combinations), live fan-out, non-QM refusal + audit row |
+| SC-6 QM designation | `src/tests/sync/stash.rs` + `src/tests/book_value.rs`: flip-rule matrix (all owner/role combinations), live fan-out, non-QM refusal + audit row |
 | SC-7 offline queue | `web/tests/` + the E7 offline harness: read-only render, queue, replay, refused-op surfacing |
 | SC-8 GM read-only | `web/tests/` component: GM stash screen's zero write affordances; `src/tests/`: GM write refusal + audit |
 | authz table | `src/auth/tests/authz.rs`: the new resources' full allow/deny table |
@@ -243,11 +292,17 @@ Backend: `migrations/<date>e12_shared_inventory_activation{,.down}.sql`;
 `src/sync/protocol.rs` (targets + wire shapes); `src/sync/write.rs`
 (apply arms, compound ops); `src/sync/snapshot.rs` (sections);
 `src/sync/registry.rs` (fan-out kinds); `src/auth/authz.rs`;
-`src/http/` (the book-value route); `src/tests/sync/stash.rs`,
-`src/tests/http/book_value.rs`, `src/auth/tests/authz.rs`,
-`src/tests/sync/contract.rs`. Contract docs:
-`specs/007-party-sync/contracts/wire-protocol.md` + `field-targets.json`
-(E12 rows, per that file's own change rule). Frontend:
+`src/book_value.rs` (new top-level module — the book-value route
+handler; declared `pub mod book_value;` in `src/lib.rs`, one line;
+test-loaded per the tree's standing pattern — `#[cfg(test)]
+#[path = "tests/book_value.rs"] mod tests;` at the module's bottom, the
+`src/http.rs` ↔ `src/tests/http.rs` precedent); `src/lib.rs` (that
+declaration); `src/http.rs` (the route registration in the `protected`
+router — the `conditions` precedent at `src/http.rs:149-186`);
+`src/tests/sync/stash.rs`, `src/tests/book_value.rs`,
+`src/auth/tests/authz.rs`, `src/tests/sync/contract.rs`. Contract docs:
+`specs/007-party-sync/contracts/wire-protocol.md` (§3 + §4 + §8's E12
+rows, per that file's own change rule) + `field-targets.json`. Frontend:
 `web/src/lib/party/stash.js`, `web/src/lib/party/StashScreen.svelte`,
 `web/src/App.svelte` (route), `web/tests/party/` suites,
 `web/tests/helpers/wire-contract.js` (new kinds).

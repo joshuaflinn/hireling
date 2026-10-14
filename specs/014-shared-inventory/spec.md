@@ -2,7 +2,9 @@
 
 **Epic**: E12 — Phase 3, P1 (cuttable table-convenience) · depends on E10 (closed), E4 (closed) · GitHub issue #14
 **Created**: 2026-10-14
-**Status**: Specify gate run 2026-10-14 (Korrin, front half of the SDD pipeline — docs only, no code in this pass); clarify answers folded in the same day; design signed by Korrin same day. All five clarify decisions settled in place (Clarify Log below) — none moves the P0/P1/P2 line.
+**Status**: Specify gate run 2026-10-14 (Korrin, front half of the SDD pipeline — docs only, no code in this pass); clarify answers folded in the same day; design signed by Korrin same day. All seven clarify decisions settled in
+place (Clarify Log below — five at specify, two more at round-1 review,
+MOR-464) — none moves the P0/P1/P2 line.
 **Input**: `docs/EPICS.md` Epic E12 (specify prompt + AI Guardrails); PRD v3.6 FG4 (Shared Inventory), US-5, Party Screens ("Stash (P1)"), Non-Goals; E7 `specs/007-party-sync/spec.md` (FR-6 version granularity, FR-13 extensibility) + `contracts/wire-protocol.md` (§3 field table, §8 E12 extension point) + `contracts/degraded-mode.md` (§4 outcomes); E2 `specs/002-database-schema/data-model.md` §6 and merged migrations (`20260924000005_shared_inventory.sql` — `party_stash`, `claim_history`, `party_bank` shipped unused; `20260924000001` — `parties.quartermaster_character_id`); E4 `specs/004-rules-corpus-importer/contracts/foundry-packs.md` (the `system.price.value` path, its emptiness cases, and the standing note that E12 is the price consumer); merged tree: `src/sync/write.rs` (`cas_inv` — the absolute-set ledger ruling), `src/auth/authz.rs` (the ownership matrix), `web/src/lib/sheet/bulk.js` (Bulk formatting), `web/src/lib/party/` (the party surface this epic extends).
 
 ---
@@ -26,7 +28,7 @@ The PRD's own priority note governs the epic's weight: this is
 taxes. Cuttable without touching the validation hypothesis.* Nothing here
 touches the engine, the wire mechanism, or the schema's existing tables
 except by this epic's own migration (version columns, one coins extension,
-one audit-values constraint swap).
+the stash row-identity constraint, one audit-values constraint swap).
 
 The two decisions the specify prompt explicitly deferred here —
 **reconciliation granularity for stash/bank fields against E7's per-field
@@ -109,10 +111,12 @@ proceeds, and one claim row records `to: bank`.
    **Then** the sale value pre-fills with that book value, editable before
    confirming.
 2. **Given** a stash item with no corpus match, or a corpus match whose
-   price is absent or empty (the importer's captured cases: two kits with
-   no `level`, one legacy item with empty `price.value`), **When** the
-   prompt opens, **Then** it is flagged "no book value" and confirmation
-   requires a manually entered value.
+   price is absent or empty (the importer's captured case: one legacy item
+   with an empty `price.value` — `foundry-packs.md`; the plan's
+   missing-price-path fixture is a defensive branch with no captured
+   real-data instance behind it), **When** the prompt opens, **Then** it is
+   flagged "no book value" and confirmation requires a manually entered
+   value.
 3. **Given** the quartermaster, **When** they confirm a sell, **Then** the
    quantity leaves the stash (row deleted at zero), the proceeds land in
    the party bank in the same committed change, one claim row records the
@@ -148,8 +152,8 @@ against the history table and assert both fail (the shipped trigger).
 
 1. **Given** any stash or bank movement, **When** it commits, **Then**
    exactly one claim row exists for it, written in the same transaction as
-   the state change, carrying item (or note), quantity, origin,
-   destination, actor identity, and timestamp.
+   the state change, carrying item (a money row carries its fixed label),
+   quantity, origin, destination, actor identity, and timestamp.
 2. **Given** any account or code path, **When** an update or delete is
    attempted against a claim row, **Then** the database refuses it (the
    shipped append-only trigger) — the refusal needs no new code, and this
@@ -161,10 +165,11 @@ against the history table and assert both fail (the shipped trigger).
 ### User Story 4 — The party bank, accounted (Priority: P1)
 
 The stash header shows the party bank: gp, sp, cp. It feeds from sales
-automatically; the quartermaster can also post a manual adjustment — "paid
-25 gp for the healing potions" — and the adjustment is actor-logged in the
-same claim history, visible to everyone. Nobody's gold quietly disappears:
-concurrent money movements *add*, they never overwrite each other.
+automatically; the quartermaster can also post a manual adjustment —
+paying 25 gp for the healing potions, say — and the movement is
+actor-logged in the same claim history, visible to everyone. Nobody's gold
+quietly disappears: concurrent money movements *add*, they never overwrite
+each other.
 
 **Why this priority**: The bank is the sell flow's landing pad and the
 party's shared wallet; its integrity rule (additive, never overwritten) is
@@ -178,9 +183,10 @@ claim rows exist.
 **Acceptance Scenarios**:
 
 1. **Given** the quartermaster, **When** they post a manual adjustment
-   (a signed amount and a note), **Then** the balance changes by exactly
-   that amount, one claim row records the movement with the note and
-   actor, and every seat sees it live.
+   (a signed amount), **Then** the balance changes by exactly that amount,
+   one claim row records the movement's coins with the actor and time, and
+   every seat sees it live. (Adjustments carry no free-text note — the PRD
+   asks for actor logging, not notes; Clarify Log #6.)
 2. **Given** an adjustment that would drive any denomination negative,
    **When** it is submitted, **Then** the server rejects it with a reason
    before any state change, and nothing partial applies (the shipped
@@ -210,8 +216,9 @@ operations idempotent-safe against replayed offline writes.
 **Independent Test**: With the server stopped, queue a transfer, a sell
 and an adjustment; restart and let the queue drain; replay the same three
 frames again by hand; assert the ack for each replay is `already_applied`,
-and that stash quantities, bank balance, and claim-row counts are exactly
-what a single application would produce.
+and that stash quantities, the transferred-to character's inventory
+quantity, bank balance, and claim-row counts are exactly what a single
+application would produce.
 
 **Acceptance Scenarios**:
 
@@ -247,7 +254,11 @@ what a single application would produce.
   identity rule character inventory already uses (exact name, E5's
   semantics); adding an item whose name matches an existing row MUST be
   refused with a reason telling the actor to adjust the existing row's
-  quantity instead.
+  quantity instead. Identity is **structural, not application-level**: the
+  epic's migration enforces `UNIQUE (party_id, item_name)` on `party_stash`
+  (design D1.5), mirroring the shipped `character_inventory_live` primary
+  key — two racing adds for one name cannot mint two rows; the friendly
+  refusal is the mapped unique violation, not a check-then-insert race.
 
 - **FR-2 — Reconciliation granularity (settled here, as the prompt
   deferred)**: Stash and bank fields join E7's per-field versioning at
@@ -282,16 +293,29 @@ what a single application would produce.
      only `applied / already_applied / rejected / forbidden` — never
      `superseded`. The `base_version` field rides the wire frame as ever
      (uniform shape), and the server ignores it for additive applies.
+     That ignore is safe **only because** the client queue is verbatim:
+     the shipped client freezes `base_version` at enqueue and replays it
+     unchanged (`web/src/lib/sync/index.js` — `write()` freezes,
+     `replayQueue()` resends as-is), and the server's replay dedupe is
+     exact equality of the stored request JSON. A client that refreshed
+     `base_version` before replaying would draw `rejected` for id reuse
+     instead of `already_applied` — R1 would fail. The verbatim-replay
+     property is therefore a recorded dependency of this spec: no client
+     change may alter it without breaking E12's replay contract.
 
   **Rejected alternative (recorded per Constitution Article II)**:
   *absolute-CAS money and quantities* — read-modify-write on the balance
   or a quantity, with the loser silently superseded per E7's field rule.
   Rejected because silent supersession is the correct semantics for a
   single owner's absolute fields (HP, a slot) and the wrong semantics for
-  a six-writer ledger: it loses gp and loot without a trace, and the
-  argument-settling log would record the winner's move while the loser's
-  vanishes. Additive-apply keeps every movement; the only losers are
-  genuinely impossible operations, which are refused loudly (FR-8).
+  a six-writer ledger. The proof is `degraded-mode.md` §4's own
+  `superseded` row: the module **silently** reverts the field to the
+  server value, the UI rule is "**nothing — ever**", and no diff exists
+  for a superseded write — so no claim row can record the loser's
+  movement either. The balance keeps the winner's absolute value and the
+  argument-settling log has no trace of the loss. That is exactly how a
+  ledger loses gp. Additive-apply keeps every movement; the only losers
+  are genuinely impossible operations, which are refused loudly (FR-8).
 
 - **FR-3 — Transfers**: Any character owner MUST be able to move an item
   between a character's inventory and the stash (either direction),
@@ -311,11 +335,16 @@ what a single application would produce.
 
 - **FR-4 — Claim history**: Every stash and bank movement MUST append
   exactly one claim row in the same transaction as the state change:
-  `{item or note, quantity, from, to, actor, timestamp}` plus, for money
-  movements, the signed coin amounts (design D1's coins extension — the
-  shipped table's premise is "the movements are already in
-  `claim_history`; a second ledger would be complexity, not audit", and
-  this spec keeps that premise true). The label vocabulary for `from`/`to`
+  `{item, quantity, from, to, actor, timestamp}` (the epic's own shape in
+  `docs/EPICS.md` — no note field) plus, for money movements, the signed
+  coin amounts (design D1's coins extension — the shipped table's premise
+  is "the movements are already in `claim_history`; a second ledger would
+  be complexity, not audit", and this spec keeps that premise true). On a
+  money row the `item_name` column carries a deterministic label — the
+  sold item's name for a sale, the fixed text `bank adjustment` for a
+  manual adjustment — documented in the migration beside the
+  quantity-is-1 rule (D1.3); the signed truth lives in the coins columns.
+  The label vocabulary for `from`/`to`
   (the shipped schema deliberately left the format here): **`stash`**,
   **`bank`**, **`outside`** (loot entering the ledger; money deposited or
   withdrawn), and **`character:<display name at event time>`** — a frozen
@@ -327,11 +356,20 @@ what a single application would produce.
 - **FR-5 — Quartermaster designation**: One character at a time is the
   quartermaster (the shipped nullable `parties.quartermaster_character_id`,
   same-party constrained, cleared on the character's deletion). The
-  toggle lives in party settings on the stash screen. **Flip rule**: when
-  a quartermaster is designated, only that character's owner may change
-  or clear the designation; when none is, any character owner may set it
-  (bootstrap). Party settings otherwise remain writable by any character
-  owner per the PRD. The designation is a versioned, live-synced party
+  toggle lives in party settings on the stash screen. **Flip rule**: the
+  toggle is a party-settings write, and party settings are writable by
+  any character owner per the PRD — the quartermaster control is no
+  exception. Any character owner (the designated character's owner
+  included) may set, change, or clear the designation, whether or not one
+  is currently designated; no separate bootstrap rule is needed. This
+  does not weaken accountability: the sell/adjust gate keys on whoever
+  currently holds the designation, every change is actor-logged and fans
+  out live, and the money movements live in the claim history — a
+  re-seated designation is a visible fact on every seat, not a silent
+  one. What the rule buys: an absent quartermaster freezes nothing — any
+  owner re-seats the designation instead of the strict rule's only
+  remedy (deleting the character to clear the FK). The designation is a
+  versioned, live-synced party
   field: a change MUST fan out so every seat's sell/adjust affordances
   appear or disappear without reload. Only the quartermaster character's
   owner may sell or post bank adjustments; the GM never holds the
@@ -349,17 +387,20 @@ what a single application would produce.
   on price across duplicate names yields **"no book value"** — flagged in
   the prompt, manual entry required. The platinum case: corpus prices may
   carry pp; the bank holds gp/sp/cp only, so a sale value containing pp
-  credits its gp equivalent at the PF2e exchange rate (1 pp = 10 gp); the
-  page-level citation for the rate lands in the implementation PR's doc
-  comment, written off the source page per AGENTS.md rules-exactness §1 —
-  this spec cites only what it can read. Selling a quantity smaller than
-  the row's MUST reduce the row, not delete it.
+  credits its gp equivalent at the PF2e exchange rate. **This spec quotes
+  no rate value.** The rate is resolved and cited at the one conversion
+  site — the sell apply's doc comment, written off the source page per
+  AGENTS.md rules-exactness §1 — and a mismatch between the resolved rate
+  and any value quoted upstream of that page (in this spec, in a review,
+  anywhere) is a stop-and-flag, not an edit-to-match. Selling a quantity
+  smaller than the row's MUST reduce the row, not delete it.
 
 - **FR-7 — Party bank**: A shared gp/sp/cp balance, one row per party
   (shipped), visible to all party members and the GM in the stash header,
   fed additively by sales and by quartermaster-only manual adjustments.
-  Adjustments carry a signed amount and a human note; the note rides the
-  claim row. Balances MUST never go negative (the shipped constraints);
+  Adjustments carry a signed amount; the claim row records the coins, the
+  actor, and the time (FR-4's shape — no note field; Clarify Log #6).
+  Balances MUST never go negative (the shipped constraints);
   an adjustment that would MUST be refused whole, with a reason.
   Transferring coins between a character's sheet money and the bank is
   **not** this epic's (the PRD lists no such move; see Out of scope).
@@ -373,7 +414,7 @@ what a single application would produce.
 
   | # | case | criterion |
   |---|---|---|
-  | R1 | **Ack-lost replay** — the server applied the op; the response never arrived; the client resends the identical frame | Second ack is `already_applied`; stash quantity, bank balance, and claim-row count are each exactly the single-application values (asserted numerically) |
+  | R1 | **Ack-lost replay** — the server applied the op; the response never arrived; the client resends the identical frame | Second ack is `already_applied`; stash quantity, the counterparty character's inventory quantity, bank balance, and claim-row count are each exactly the single-application values (asserted numerically — a double-applied transfer shows first in the character-side delta, so the criterion watches that surface too) |
   | R2 | **Post-restart replay** — R1's scenario across a server restart | Same assertion; the ledger is durable, so exactly-once survives |
   | R3 | **Double-queue / double-tap** — the same op submitted twice by client defect or double-tap | Same as R1 (one op id ⇒ one application) |
   | R4 | **Id reuse** — same op id, different request body | Refused (`rejected`); nothing committed; the original application stands |
@@ -397,9 +438,14 @@ what a single application would produce.
   party-scoped resources (design D4): stash writes (add, transfer,
   quantity adjust, metadata edit) — any character owner of the party;
   bank mutations (sell, manual adjustment) — the quartermaster
-  character's owner only; quartermaster designation — FR-5's flip rule;
-  reads — every party member and the GM. The GM writes nothing, ever
-  (unchanged). Every refusal MUST be denied before any state change and
+  character's owner only; quartermaster designation — FR-5's flip rule
+  (any character owner). Reads are **not a matrix row**: E3's matrix
+  allows every authenticated read, and read scoping is the shell's
+  party-membership gate — the `party_readable()` precedent the
+  party-scoped REST routes already enforce (`src/engine_host/rest.rs`);
+  E12's stash/bank/log surfaces join that gate (design D4 attributes the
+  rule where it lives). The GM writes nothing, ever (unchanged). Every
+  refusal MUST be denied before any state change and
   audited in the existing audit trail under new stash/bank/party event
   values (design D1's constraint swap) with the actor's identity. Write
   authorization is enforced per WS message, deny-by-default, exactly as
@@ -413,8 +459,9 @@ what a single application would produce.
   (transfer to/from a roster character — open to all; sell — rendered
   only where the server would allow it, i.e. for the quartermaster's
   owner); an add-item form; the claim-history log view; and party
-  settings carrying the quartermaster toggle (flip rule per FR-5, control
-  disabled for seats that may not flip it). Offline, the screen serves
+  settings carrying the quartermaster toggle (flip rule per FR-5 —
+  enabled for every character owner; the GM seat renders no write
+  affordances at all). Offline, the screen serves
   last-known state read-only with writes queueing per E7's degraded-mode
   contract — one path, "syncing…" indicator only. Refused operations
   (R4/R5 outcomes) surface through the op record in the stash screen —
@@ -427,8 +474,9 @@ what a single application would produce.
 - **Stash row** — one per (party, item name): quantity, optional Bulk,
   note, version. Deleted at zero.
 - **Party bank** — one row per party: gp/sp/cp, one version. Additive.
-- **Claim row** — the append-only movement record: item-or-note,
-  quantity, from, to, actor, timestamp, coins (money movements only).
+- **Claim row** — the append-only movement record: item (a money row
+  carries its fixed label), quantity, from, to, actor, timestamp, coins
+  (money movements only). No note field.
 - **Quartermaster designation** — the versioned party field naming one
   character (or none).
 - **Compound operation** — a client write (one operation id) committing
@@ -443,8 +491,9 @@ what a single application would produce.
   catch-up, and the durable op ledger — no second sync engine, no
   protocol rewrite (E7 FR-13's own words).
 - E2's shipped tables are activated, not rebuilt: this epic's migration
-  adds version columns, the claim-row coins columns, and swaps the audit
-  event-values constraint — nothing else. All reversible.
+  adds version columns, the claim-row coins columns, the stash
+  row-identity unique constraint, and swaps the audit event-values
+  constraint — nothing else. All reversible.
 - Client clocks are untrusted; server-receipt order is the only ordering
   authority (inherited).
 - The offline queue is E7's: durable per account, unbounded, replayed
@@ -517,8 +566,17 @@ what a single application would produce.
   (deterministic; manual entry). Collisions with agreeing prices resolve
   to that price.
 - **A pp-priced book value** — credited as its gp equivalent at the
-  PF2e exchange rate (FR-6); the rate's citation lands in the
-  implementation.
+  PF2e exchange rate, resolved and cited at the conversion site (FR-6
+  quotes no value; a mismatch with any upstream-quoted value is a
+  stop-and-flag).
+- **The quartermaster is on holiday** — the designation is reassignable
+  by any character owner (FR-5's flip rule; party settings are writable
+  by all character owners per the PRD): the sell/adjust gate moves with
+  the designation, money history stays intact, and nobody deletes a
+  character to un-freeze the bank. The strict alternative — only the
+  designated owner may flip — was considered and rejected: it makes one
+  absent seat a hard freeze on sell and every bank adjustment, with
+  character deletion as the only remedy (Clarify Log #7).
 - **The quartermaster character is deleted** — the shipped FK clears the
   designation (SET NULL); the stash reverts to bootstrap (any character
   owner may set a new quartermaster); money history stays intact.
@@ -561,25 +619,44 @@ what a single application would produce.
 
 ## Clarify Log
 
-No `[NEEDS CLARIFICATION]` markers remain. Five decisions the prompt or
-PRD left open are settled in place, each with its reasoning recorded
-above:
+No `[NEEDS CLARIFICATION]` markers remain. Seven decisions the prompt or
+PRD left open are settled in place — five at specify, two more at round-1
+review (MOR-464) — each with its reasoning recorded above:
 
 1. **Stash/bank reconciliation granularity** (deferred to this spec by
    the prompt) — settled FR-2, with the lost-gp trap as the recorded
-   rejected alternative.
+   rejected alternative, proven by `degraded-mode.md` §4's `superseded`
+   row.
 2. **Where manual bank adjustments log their actor** — the claim history
    (one ledger, the shipped table's own premise), via the coins
    extension; audit-events-only and a second ledger table both rejected
    (design D1).
-3. **Quartermaster bootstrap and delegation** — null ⇒ any character
-   owner may set; set ⇒ only the designated character's owner may change
-   or clear (FR-5, from the PRD's own sentences).
+3. **Quartermaster flip rule — strict reading** (first pass, superseded
+   by #7): designated ⇒ only the designated owner may change or clear;
+   taken from the prompt's own sentence.
 4. **Book-value ambiguity** — empty, absent, or disagreeing match sets
-   are "no book value", deterministically (FR-6).
+   are "no book value", deterministically (FR-6). The pp→gp conversion
+   (rather than flagging pp-priced items "no book value") is kept as a
+   convenience default, consciously buying the rules-exactness
+   obligation — cited rate at the conversion site plus a two-fixture
+   boundary test (design D5 records the rejected alternative).
 5. **Claim label vocabulary** (deferred to this spec by the schema's own
    comment) — `stash` / `bank` / `outside` / `character:<name at event
    time>` (FR-4).
+6. **The bank-adjustment note — dropped** (round 1, finding 3): the PRD
+   requires adjustments to log the actor (FG4) and asks for no note; the
+   shipped `claim_history` has no note column; and D1's enumeration
+   adds none. Rejected alternative: a `note text` column on
+   `claim_history` — real value, but it buys schema for a field the PRD
+   never asked to exist; money rows carry the deterministic
+   `bank adjustment` label instead (FR-4).
+7. **The absent-quartermaster escape — reassignable by any character
+   owner** (round 1, finding 5): FR-5's flip rule softened from the
+   strict first-pass reading (#3). The PRD's own "party settings are
+   writable by any character owner" is the hook; the strict rule's only
+   remedy for an absent quartermaster was deleting the character, and
+   nothing about accountability weakens — the gate keys on the current
+   holder and every change is actor-logged and live-synced.
 
 Nothing in this spec needs Josh. The epic stays inside its P1 scope; no
 P0/P1/P2 line moves.
