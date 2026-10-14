@@ -1,7 +1,7 @@
 # Design: GM Stat Density — Party-Card Stat Blocks (E14)
 
 **Epic**: E14 — Phase 3, P1 · GitHub issue #16
-**Created**: 2026-10-14 · **Revised**: 2026-10-14 (review rounds 1–3 on PR #197) · **Signed**: Korrin, 2026-10-14 — design internal to
+**Created**: 2026-10-14 · **Revised**: 2026-10-14 (review rounds 1–4 on PR #197) · **Signed**: Korrin, 2026-10-14 — design internal to
 one epic's P0/P1 scope, signed per the SDD pipeline's gate rules. Moves no
 P0/P1/P2 line; the one cross-line fact (implementation merge hold until
 gh#13 closes) is Thrane's standing constraint, carried in the plan.
@@ -143,11 +143,16 @@ block's own region is: its root renders as a labelled group
 those provenance affordances, and it adds no control of its own — nothing
 that mutates state. SC-5's test asserts exactly that region, on SC-8's
 non-empty-`applied` fixture, so the affordances are present to be
-counted. `StatTile` carries no `aria-label` of its own — its label is a
-plain `<div class="k">` (verified: `grep aria-label StatTile.svelte` is
-empty, round 3 M2) — so `StatBlock` supplies the accessible name in its
-own markup (`aria-label` on each tile — the label text SC-1's by-label
-queries read); the key-skills rows
+counted. **Tile labels are visible text, not ARIA names** (round 4 B1):
+`StatTile` renders `label` as a plain `<div class="k">` and forwards no
+attributes — its props are destructured with no rest element
+(`StatTile.svelte:9`) and nothing spreads onto the root div (`:12`), so
+an `aria-label` on a `<StatTile>` invocation would be dropped, never
+reaching the DOM. This design renders tiles through `StatTile` **as-is**:
+SC-1's queries are text queries on the visible `<div class="k">`, the
+group root alone carries `aria-label="Stats"` in `StatBlock`'s own
+markup, and `StatTile.svelte` stays out of this epic's file map — no
+template change, no code file enters the diff. The key-skills rows
 render as a definition-style list with `<dt>/<dd>` (name / modifier) —
 readable by text, assertable by role.
 
@@ -164,7 +169,8 @@ readable by text, assertable by role.
   non-innate-first; innate-only fallback; empty → null (sheet parity:
   StatsPane's existing tests keep passing after the extraction).
 - `web/tests/party/stat-block.test.js` — SC-1, SC-2, SC-3, SC-7, SC-8:
-  mount with fixture; assert by label; **mutate every FR-1 entry's backing
+  mount with fixture; assert by visible label text (D7: text queries on
+  `StatTile`'s `<div class="k">`); **mutate every FR-1 entry's backing
   field one at a time** (spec FR-3 stmt 3's table — `ac.total`, saves,
   perception, `casters[0].spell_dc.total`, `casters[0].spell_attack.total`,
   `class_dc.total`, `class_dc.base` → null, `casters` → `[]` (entry and

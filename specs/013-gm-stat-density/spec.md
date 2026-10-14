@@ -1,7 +1,7 @@
 # Feature Specification: GM Stat Density — Party-Card Stat Blocks (E14)
 
 **Epic**: E14 — Phase 3, P1 · depends on E10 (closed) · GitHub issue #16
-**Created**: 2026-10-14 · **Revised**: 2026-10-14 — three review rounds on PR #197 addressed in place (round 1: 6B/3M/2L — class-DC rescoped to `class_dc.base`, sheet alignment tasked, sweep re-scoped, SC-8 added; round 2: 1B/2M/1L — SC-5 exact-set assertion, honest blind-spot list, `spell_attack.total` row; round 3: 1B/2M/2L — `class_dc.total` + `casters → []` mutation rows, directional-pattern wording, revision stamps). Full changelog below.
+**Created**: 2026-10-14 · **Revised**: 2026-10-14 — four review rounds on PR #197 addressed in place (round 1: 6B/3M/2L — class-DC rescoped to `class_dc.base`, sheet alignment tasked, sweep re-scoped, SC-8 added; round 2: 1B/2M/1L — SC-5 exact-set assertion, honest blind-spot list, `spell_attack.total` row; round 3: 1B/2M/2L — `class_dc.total` + `casters → []` mutation rows, directional-pattern wording, revision stamps; round 4: 2B/0M/1L — `fort`/`ref`/`will`/`perception` rows, visible-text label mechanism, `Math.min`). Full changelog below.
 **Status**: Specify gate run 2026-10-14 (Korrin, front half of the SDD pipeline — docs only, no code in this pass); design signed by Korrin same day. **Implementation hold (Thrane, binding): no E14 code merges to `main` before gh#13 closes — spec, design and plan on disk are fine.**
 **Input**: `docs/EPICS.md` Epic E14 (specify prompt + AI Guardrails); PRD v3.6 FG5 ("GM stat density (P1)") + Non-Goals (Combat tracking) + US-9; `CONSTITUTION.md` Articles I/II/VI; E8 `specs/008-buff-effect-engine/contracts/engine-output.md` (binding — the derived shape the stat block reads); E10 `specs/009-party-view-gm-seat-pwa/` (the surface this epic extends); merged tree: `web/src/lib/party/state.js` (the per-card `view`), `web/src/lib/sheet/` (the sheet's own read of the same view), `engine/src/vocab.rs` (the closed stat vocabulary — no `initiative` in it).
 
@@ -45,7 +45,7 @@ payoff of the whole engine: one glance, full picture, zero clicks.
 **Independent Test**: Mount the roster with a seeded engine-output fixture;
 assert each card renders AC, the three saves, Perception, Initiative,
 spell/class DC (or its absence), and exactly three key skills with their
-modifiers, by accessible label. Mutate the fixture (an applied effect moves
+modifiers, by visible label text. Mutate the fixture (an applied effect moves
 `ac.total`, a skill total drops) and re-assert: the card tracks the fixture
 exactly, key skills re-select. A second computation path cannot pass this.
 
@@ -86,7 +86,8 @@ exactly, key skills re-select. A second computation path cannot pass this.
 ### FR-1 — Stat block contents (the card's numbers)
 
 Each roster card extends, below the existing HP bar and effects strip, with a
-compact stat block rendering, each with an accessible label:
+compact stat block rendering, each entry's label rendered as visible text
+(D7: `StatTile`'s `<div class="k">` — the mechanism SC-1's queries read):
 
 - **AC** — `derived.ac.total`, plain number.
 - **Fort / Ref / Will** — `derived.fort.total`, `derived.ref.total`,
@@ -214,7 +215,11 @@ is decoration, and round 1 said so):
    Comparing and sorting wire totals (FR-2) is selection, not computation.
 3. **Fixture tracking** — *mechanism: a component test*. Mounts the card
    against an engine fixture and mutates **every FR-1 entry's backing
-   field, one at a time** — an applied buff moves `ac.total`; a skill total
+   field, one at a time** — an applied buff moves `ac.total`; each of
+   `fort.total`, `ref.total`, `will.total` moves (round 4 B2 — the rows
+   plan and design carried since round 1 while citing this table as
+   authoritative); `perception.total` moves (the Init entry moves with
+   it); a skill total
    drops; `casters[0].spell_dc.total` moves; `casters[0].spell_attack.total`
    moves (the attack note moves with it); `class_dc.total` moves (the
    displayed value — the `base`-null absence test alone cannot catch a
@@ -282,9 +287,10 @@ rule as the card's existing skeleton bar.
 ## Success Criteria
 
 - **SC-1** Every stat FR-1 names is visible on each party card without
-  drill-in, labeled accessibly, for a character with a delivered engine
-  output. *(Bench-verifiable at the implementation PR: component test by
-  label.)*
+  drill-in, each entry's label rendered as visible text (D7), for a
+  character with a delivered engine
+  output. *(Bench-verifiable at the implementation PR: component test
+  locating each entry by its visible label text.)*
 - **SC-2** Two characters with different engine outputs render different
   stat blocks — every displayed value moves with its fixture field,
   enumerated one at a time by FR-3 statement 3's mutation table, absence
@@ -417,3 +423,15 @@ reviewer's probe (right-hand operands, helper calls, wrapped fields)
 StatBlock supplies the labels in its own markup, verified against
 `StatTile.svelte` (M2); revision stamps updated through round 3 (L1);
 "focusable or interactive" wording aligned across all SC-5 sites (L2).
+
+**Round 4 (PR #197, reject — 2 blocking / 0 medium / 1 low)**: FR-3
+statement 3's table completed — `fort`/`ref`/`will`/`perception` rows
+added, matching plan Task 3 and design D8, which had carried them since
+round 1 while citing this table as authoritative (B2, the reviewer's own
+admitted miss); the accessible-name mechanism stated truthfully — the
+round-3 replacement (`aria-label` on each tile) was also unreal, since
+`StatTile` destructures its props with no rest and spreads nothing onto
+its root div, so unknown attributes are dropped; tile labels are read as
+**visible text** (`<div class="k">`), `StatTile.svelte` stays out of the
+file map, and the group root keeps the region's `aria-label` (B1);
+`Math.min` added to the plan's pattern prose (L1).

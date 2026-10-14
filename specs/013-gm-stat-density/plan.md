@@ -1,7 +1,7 @@
 # GM Stat Density Implementation Plan (E14)
 
 **Epic**: E14 — Phase 3, P1 · GitHub issue #16 · spec + design in this
-directory (2026-10-14, Korrin; revised same day through review rounds 1–3 on PR #197).
+directory (2026-10-14, Korrin; revised same day through review rounds 1–4 on PR #197).
 **Seat note**: this plan lands now, ahead of implementation, per the lane's
 opening task. **Binding hold (Thrane): no E14 implementation merges to
 `main` before gh#13 closes.** The implementation seat may build and PR; the
@@ -115,7 +115,9 @@ null. No control of the unit's own anywhere in it — the only focusable
 elements are the `StatTile` provenance hovers (SC-5).
 
 **Acceptance**:
-- mount with a full fixture: every FR-1 entry found by accessible label
+- mount with a full fixture: every FR-1 entry found by visible label text
+  (D7: text queries on `StatTile`'s `<div class="k">` — StatTile forwards
+  no attributes, round 4 B1)
   with the fixture's exact values (SC-1);
 - **mutate every FR-1 entry's backing field, one at a time, and re-assert**
   (spec FR-3 stmt 3's table — round-1 finding M2): `ac.total` +2; each of
@@ -181,7 +183,7 @@ down/full/effect-chip regressions untouched (existing tests stay green).
    diff's reality). Paste command and output; **name the pattern's blind
    spots next to it, illustrative not closed** (the pattern is directional
    — it catches `<view-field> <operator>` shapes plus literal
-   `reduce`/`Math.max`; it misses right-hand operands, helper calls,
+   `reduce`/`Math.max`/`Math.min`; it misses right-hand operands, helper calls,
    wrapped fields, template concatenation, aliasing) and state the
    compensating evidence:
    line-by-line diff review plus the SC-2/SC-3 tests — the grep is a
