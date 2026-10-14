@@ -54,7 +54,7 @@
       {/if}
       <!-- Contract §1: `class_dc` is always an object; a null `base` means
         the character has no class DC — no entry, never a dash or a zero. -->
-      {#if numbers.class_dc.base != null}
+      {#if numbers.class_dc.base !== null && numbers.class_dc.base !== undefined}
         <StatTile label="Class DC" value={numbers.class_dc.total} provenance={numbers.class_dc} />
       {/if}
     </div>

@@ -115,7 +115,7 @@
     The old unconditional `—` placeholder had no provenance hover and no
     information; absence is absence (the dash tile was the merged-tree
     defect FR-1 names). -->
-    {#if numbers.class_dc.base != null}
+    {#if numbers.class_dc.base !== null && numbers.class_dc.base !== undefined}
       <StatTile label="Class DC" value={numbers.class_dc.total} cls="t-classdc" note={(identity.keyability ?? '').toUpperCase()} provenance={numbers.class_dc} />
     {/if}
     <StatTile label="Reflex" value={signed(numbers.ref.total)} cls="t-reflex" provenance={numbers.ref} />
