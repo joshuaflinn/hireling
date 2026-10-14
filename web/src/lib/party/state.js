@@ -27,6 +27,9 @@ const vitalsTarget = (characterId, field) => ({
  * @property {import('svelte/store').Readable<number | null>} hpMax null until
  *   the wire delivers the engine output — the honest skeleton state
  * @property {import('svelte/store').Readable<Array<object>>} effects
+ * @property {import('svelte/store').Readable<object | null>} view the
+ *   engine output verbatim (the same `views` map entry `hpMax`/`effects`
+ *   derive from — one store, E14 design D1); null until the wire delivers
  * @property {import('svelte/store').Readable<boolean>} syncing
  */
 
@@ -95,6 +98,9 @@ export function createRosterState({ sync, roster }) {
       // number (the same honest gap the sheet renders).
       hpMax: derived(view, ($view) => $view?.render_base?.hp_max ?? null),
       effects: derived(view, ($view) => $view?.effects ?? []),
+      // The stat block's source (E14 design D1): the same per-card engine
+      // output, exposed verbatim — the card derives, the block renders.
+      view,
       syncing,
     };
   });

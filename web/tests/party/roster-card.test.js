@@ -6,6 +6,7 @@ import { tick } from 'svelte';
 import { createRosterState } from '../../src/lib/party/state.js';
 import RosterCard from '../../src/lib/party/RosterCard.svelte';
 import { targetKey } from '../../src/lib/sync/store.js';
+import engine from '../data/engine_output_reference.json';
 
 /** A read-half sync fake: state(), derived(), isSyncing(), subscribe(). */
 function fakeSync() {
@@ -199,5 +200,118 @@ test('tapping the card calls onopen — navigation, not an edit', async () => {
   await tick();
   fireEvent.click(screen.getByRole('button', { name: /Flinn/ }));
   assert.equal(opened, 1);
+  state.destroy();
+});
+
+// ---- E14 task 4: the stat block on the card -------------------------------
+
+/** A card whose engine output is the reference fixture — optionally with
+ * Bless's status bonus on `ac.applied` (SC-8's non-default state). */
+function seededStatCard({ blessAc = false } = {}) {
+  const sync = fakeSync();
+  const roster = { characters: [rosterCharacter(7, 'Flinn', 20)] };
+  const view = structuredClone(engine);
+  view.effects = [BLESS, { ...GUIDANCE, tracked_manually: false }];
+  if (blessAc) {
+    view.derived.ac.applied = [
+      { type: 'status', value: 2, effect_id: 11, effect_name: 'Bless', source_character_id: 3 },
+    ];
+  }
+  sync.deliverDerived(view);
+  const state = createRosterState({ sync, roster });
+  return { sync, state, card: state.cards[0] };
+}
+
+test('the card renders the stat block between the bar and the effects strip', async () => {
+  const { state } = seededStatCard();
+  const { container } = render(RosterCard, {
+    props: { card: state.cards[0], onopen: () => {} },
+  });
+  await tick();
+  const group = screen.getByRole('group', { name: 'Stats' });
+  assert.ok(group, 'the stat block mounts, labelled');
+  assert.match(group.textContent ?? '', /\b16\b/, 'AC from the engine fixture');
+  assert.match(group.textContent ?? '', /Mror Holds History Lore/, 'a key skill renders');
+  // Below the bar, above the effects strip (design D2's mount point).
+  const bar = container.querySelector('.hp');
+  const strip = container.querySelector('.strip');
+  assert.ok(bar && strip, 'bar and strip both render');
+  assert.ok(
+    /** @type {HTMLElement} */ (bar).compareDocumentPosition(group) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    'the stat block sits below the HP bar',
+  );
+  assert.ok(
+    group.compareDocumentPosition(/** @type {HTMLElement} */ (strip)) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    'the effects strip stays below the stat block',
+  );
+  state.destroy();
+});
+
+test('SC-5 scoped: the stat-block group holds only provenance affordances — effects ConditionTips stay outside it', async () => {
+  // The two traps a coarser query falls into: a card-level count (fails on
+  // any card with effects — the chips carry role="button" ConditionTips) and
+  // an empty-region claim (vacuous without non-empty `applied`). This mounts
+  // the card on the non-empty-applied fixture WITH effects present, then
+  // scopes to the stat block's own group (design D7).
+  const { state } = seededStatCard({ blessAc: true });
+  let opened = 0;
+  const { container } = render(RosterCard, {
+    props: { card: state.cards[0], onopen: () => (opened += 1) },
+  });
+  await tick();
+  const group = screen.getByRole('group', { name: 'Stats' });
+  // The fixture is live: affordances exist inside the group, and the effects
+  // strip really renders role="button" ConditionTips — outside the group.
+  assert.ok(
+    group.querySelectorAll('[tabindex="0"]').length >= 1,
+    'provenance affordances present on this fixture',
+  );
+  const stripTips = container.querySelectorAll('.strip [role="button"]');
+  assert.ok(stripTips.length >= 2, 'effects ConditionTips render outside the group');
+  for (const tip of stripTips) {
+    assert.equal(
+      /** @type {HTMLElement} */ (tip).closest('[role="group"]'),
+      null,
+      'no effect ConditionTip inside the stat-block group',
+    );
+  }
+  // The region's focusable/interactive set: exactly E6's provenance
+  // affordances (a role="note" span or the ConditionTip nested in one).
+  const focusable = group.querySelectorAll(
+    '[tabindex], button, input, select, textarea, a[href], [role="button"]',
+  );
+  for (const el of focusable) {
+    assert.ok(
+      /** @type {HTMLElement} */ (el).closest('.prov'),
+      `focusable element is a provenance affordance: ${el.outerHTML.slice(0, 80)}`,
+    );
+  }
+  assert.equal(
+    group.querySelectorAll('button, input, select, textarea, a[href]').length,
+    0,
+    'no control of the unit own inside the stat block',
+  );
+  // The drill-in remains the card's one navigation control (FR-5).
+  fireEvent.click(screen.getByRole('button', { name: /Flinn/ }));
+  assert.equal(opened, 1, 'the card-level tap still navigates');
+  state.destroy();
+});
+
+test('stat block loads honestly: skeleton entries, no numbers, when the view has not landed', async () => {
+  const { state } = seededCard(); // view without a derived payload
+  const { container } = render(RosterCard, {
+    props: { card: state.cards[0], onopen: () => {} },
+  });
+  await tick();
+  const group = screen.getByRole('group', { name: 'Stats' });
+  assert.equal(group.querySelectorAll('.tile').length, 0, 'no tiles without the view');
+  assert.equal(group.querySelectorAll('dt').length, 0, 'no key skills without the view');
+  assert.ok(
+    group.querySelectorAll('.skeleton').length >= 1,
+    'the stat-block skeleton renders beside the bar skeleton',
+  );
+  assert.doesNotMatch(group.textContent ?? '', /[0-9]/, 'no invented numbers');
   state.destroy();
 });
