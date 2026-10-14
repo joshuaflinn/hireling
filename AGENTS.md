@@ -262,7 +262,10 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   the branch name. PR open: `Closes #N` plus a link back to your tracking task.
   Merge: GitHub closes the issue.
 - **Gate yourself before the PR.** Run `just ci-local` (fmt / clippy-deny block /
-  tests / cargo-deny) and paste the result. CI runs **grizzly-gate** (standalone
+  tests / cargo-deny) and paste the result. Any count you carry into the PR body
+  names the command that produced it — warning census, test count, line count. A
+  figure nobody can re-run can only be believed, not checked, so the command goes
+  on the page next to the number. CI runs **grizzly-gate** (standalone
   mode, pinned image) on every PR — a red gate is a red PR, no exceptions. The
   lint/test configs are vendored from Bear's rust-toolkit; if a lint fights you,
   propose tuning it in a PR, don't `#[allow]` around it.
