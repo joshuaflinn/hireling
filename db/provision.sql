@@ -3,7 +3,9 @@
 -- Run ONCE by the operator, as a superuser, against the house Postgres
 -- instance (Asgard):
 --
---     psql -h asgard -f db/provision.sql
+--     docker run --rm --network asgard-net \
+--       -v <abs-path-to-checkout>/db/provision.sql:/tmp/provision.sql \
+--       postgres:16 psql -h asgard -U postgres -f /tmp/provision.sql
 --
 -- What DDL cannot express (recorded here by design, per design.md §1):
 --
