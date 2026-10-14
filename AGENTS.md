@@ -140,6 +140,37 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   gated. Every verdict states the SHA it is bound to, so a wrong-head read is
   visible in the record afterwards — that is what makes this rule
   self-checking, and it costs nothing the record does not already carry.
+- **Review rounds — two author-text rounds, then a verdict.** The budget
+  counts rounds that review changed author text. Two of those, then a
+  verdict — accept-with-follow-up-issues or reject-with-a-plan. There is no
+  third author-text round: if the bar cannot be met in two, that is Thrane's
+  decision about the task, not another round. PR #197 is the reason: five
+  author-text rounds on a docs-only spec in one morning, rounds 3–5 of which
+  should never have opened — a shrinking defect count feels like progress,
+  and it is not a licence to keep re-heating the same billet.
+
+  **A carry-over round does not count against the budget.** When condition 2
+  fails only because `main` moved an unrelated part of a shared file — the
+  PR's own hunks byte-identical at both heads — the round was forced by the
+  strict up-to-date policy, not earned by the author. Charging it to the
+  budget would force premature verdicts on busy files (`gate.yml`,
+  `AGENTS.md`, `justfile`, `Cargo.toml`); PR #158 paid that twice in one
+  afternoon (gh#166). The price of not counting is narrowness: a carry-over
+  round's only question is the *combination* — read the merged file as one
+  unit and look for interaction defects. It may not re-litigate the author's
+  diff; that diff already carries a verdict. Announcing a *wide* round at a
+  carry-over head is itself a defect. If a carry-over round finds a real
+  defect, it rejects, and the author's fix commit then opens a counted
+  author-text round — the narrow scope is a scope limit, not a lower bar.
+
+  **Which kind a round is, checkable:** compare the PR's own hunks at both
+  heads. Byte-identical hunks mean carry-over — narrow, uncounted. Changed
+  hunks mean an author-text round — wide, counted.
+
+  The press rule is separate from the budget and unchanged: every announced
+  round at a head has a verdict against it before the press, a narrower
+  accept does not close a wider round still writing, and two verdicts at one
+  head that disagree are a reject with the wider scope deciding (PR #158).
 - **Verdict carry-over.** A verdict re-binds to a new head without a new
   review round only when **all three** of these hold, each posted as
   checkable evidence on the PR:
