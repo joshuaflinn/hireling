@@ -170,7 +170,8 @@ readable by text, assertable by role.
   StatsPane's existing tests keep passing after the extraction).
 - `web/tests/party/stat-block.test.js` — SC-1, SC-2, SC-3, SC-7, SC-8:
   mount with fixture; assert by visible label text (D7: text queries on
-  `StatTile`'s `<div class="k">`); **mutate every FR-1 entry's backing
+  `StatTile`'s `<div class="k">` for the tiles, `<dt>` for the key-skills
+  rows); **mutate every FR-1 entry's backing
   field one at a time** (spec FR-3 stmt 3's table — `ac.total`, saves,
   perception, `casters[0].spell_dc.total`, `casters[0].spell_attack.total`,
   `class_dc.total`, `class_dc.base` → null, `casters` → `[]` (entry and
