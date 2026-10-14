@@ -9,6 +9,7 @@
   import SkillRow from './SkillRow.svelte';
   import StatTile from './StatTile.svelte';
   import { findOpError } from '../state.js';
+  import { primaryCaster } from '../../engine/caster.js';
   import { rankLetter, rankName, signed } from '../../engine/format.js';
   import { partitionSkills } from '../../engine/partition.js';
 
@@ -47,9 +48,9 @@
   const numbers = $derived(view.derived);
   const attrs = $derived(['str', 'dex', 'con', 'int', 'wis', 'cha']);
   const langList = $derived((identity.languages ?? []).filter((/** @type {string} */ lang) => lang && lang !== 'None selected'));
-  const spellDc = $derived(
-    numbers.casters.find((/** @type {any} */ caster) => !caster.innate) ?? numbers.casters[0] ?? null,
-  );
+  // The selection rule lives in the engine lib (E14 design D5) — the same
+  // helper the party-card stat block calls, so the two surfaces can't drift.
+  const spellDc = $derived(primaryCaster(numbers.casters));
   // Inline rejections (spec §6): the matching opError renders at its
   // control, calm and auto-clearing (the state layer clears on the next
   // applied ack).
