@@ -194,13 +194,24 @@ impl TestDb {
     /// *reachable* server, a rejected password, a failed CREATE DATABASE,
     /// connect, or migration run panics red.
     async fn provision(test: &str) -> Result<TestDb, String> {
-        let base = base_url();
+        Self::provision_from(base_url(), explicitly_requested(), test).await
+    }
+
+    /// `provision` with the base URL and the "explicitly requested" flag
+    /// injected, so the Skip branch's wiring has an in-repo test without
+    /// mutating the process environment (it is global; the suite's
+    /// DB-backed tests read it concurrently) — the same seam
+    /// [`crate::testing::test_pool_from`] gives `test_pool`. `provision`
+    /// is a thin env-read over this, so the production path every
+    /// DB-backed test rides owns the fail-closed decision, not the
+    /// [`skip_or_fail_closed`] helper alone (gh#218).
+    async fn provision_from(base: String, requested: bool, test: &str) -> Result<TestDb, String> {
         let admin = match connect_maintenance(&base, test).await {
             MaintenanceConnect::Up(pool) => pool,
             MaintenanceConnect::Skip(reason) => {
                 // A requested database is never a skip: the helper panics
                 // (fail closed) when the URL was explicitly set (gh#127).
-                if let Err(skip) = skip_or_fail_closed(explicitly_requested(), &reason) {
+                if let Err(skip) = skip_or_fail_closed(requested, &reason) {
                     eprintln!("{skip}");
                     return Err(skip);
                 }
@@ -1680,6 +1691,16 @@ const DEAD_URL: &str = "postgres://hireling:hireling@127.0.0.1:59999/postgres";
 /// gh#125). Asserts both sides of the cap: long enough to prove the
 /// deadline is what fired, short enough to prove it is the 5s cap and not
 /// the 30s default.
+///
+/// Recorded limits (gh#127, rehomed here by gh#218): the `4s..15s` band is
+/// NOT a `threshold - 1` / `threshold` boundary pair in the AGENTS.md
+/// *Rules exactness* sense — it distinguishes the 5s cap from sqlx's 30s
+/// default, not from a 14s cap; that is about as good as a wall-clock
+/// timeout assertion gets, and it is recorded so nobody reads it as the
+/// boundary pair. The test also costs ~5s of real clock on every
+/// `cargo test --lib`, and prints a genuine panic plus a backtrace notice
+/// to stderr while passing — one alarming-looking block in an otherwise
+/// clean log.
 #[tokio::test]
 async fn probe_requested_but_dead_fails_closed_within_the_cap() {
     let start = std::time::Instant::now();
@@ -1712,6 +1733,14 @@ async fn probe_requested_but_dead_fails_closed_within_the_cap() {
 /// Not requested + unreachable = a loud skip: `None`, on a paused clock so
 /// the probe's backoff deadline costs milliseconds of wall time. The other
 /// side of the two-fixture pair above.
+///
+/// Recorded limits (gh#127, rehomed here by gh#218): despite the name,
+/// this test asserts the skip (`None`), not the "loud" — nothing checks a
+/// notice was emitted. And it runs on a paused clock: if any environment
+/// ever DROPs rather than REJECTs loopback traffic to :59999, the TCP
+/// connect parks on I/O readiness, tokio's auto-advance never fires, and
+/// the test hangs rather than failing. Hypothetical — not reproduced on
+/// any host so far — but a hang is the expensive CI failure mode.
 #[tokio::test(start_paused = true)]
 async fn probe_unrequested_and_dead_skips_loud() {
     let pool = crate::testing::test_pool_from(DEAD_URL.to_owned(), false).await;
@@ -1868,6 +1897,32 @@ fn skip_branch_fails_closed_when_the_url_was_requested() {
     assert!(
         message.contains("fail closed, a requested database is never a skip"),
         "the panic must name the fail-closed rule, got: {message:?}"
+    );
+}
+
+/// The Skip branch's *wiring* (gh#218): the argument at the call site must
+/// be the injected `requested` flag, not a constant. Drive
+/// [`TestDb::provision_from`] — the path every DB-backed test rides — with
+/// `requested = true` against a dead port: it must panic (fail closed).
+/// Hardcoding `false` (or negating the flag) reds this; before the seam,
+/// that mutation stayed green everywhere, because on any host with a live
+/// Postgres the Skip branch never executes at all.
+#[tokio::test]
+async fn provision_requested_but_dead_fails_closed() {
+    let outcome = tokio::spawn(TestDb::provision_from(
+        DEAD_URL.to_owned(),
+        true,
+        "provision-fail-closed",
+    ))
+    .await
+    .err()
+    .expect(
+        "provision against a dead port with the URL requested must panic — \
+         it returned without panicking",
+    );
+    assert!(
+        outcome.is_panic(),
+        "requested-but-unreachable must panic (fail closed), got: {outcome:?}"
     );
 }
 
