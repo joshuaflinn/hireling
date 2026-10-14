@@ -681,13 +681,18 @@ inside #6:
    strict rule — it would need the designated owner's `sub`, plus how
    to treat the `SET NULL`'d undesignated case (the bootstrap rule
    FR-5 says is unnecessary) — so the reversal reaches FR-5, this
-   entry, the owner-visibility paragraph closing this log, FR-10's
-   and FR-11's inline flip-rule glosses ("any character owner";
-   "enabled for every character owner"), D4's third bullet and
-   rationale, both quartermaster edge cases above, and Task 1's
-   `PartySettings` payload, flip-rule boundary test and settings
-   acceptance cells (`plan.md`); no other decision in the log
-   depends on the permissive reading.
+   entry, the log preamble's superseded-reading note ("superseded at
+   round-1 review"), the Status block's and the requirements
+   checklist's overturnability notes ("overturnable by an owner";
+   "owner-visible and overturnable"), the owner-visibility paragraph
+   closing this log, FR-10's and FR-11's inline flip-rule glosses
+   ("any character owner"; "enabled for every character owner"), D4's
+   third bullet and rationale, both quartermaster edge cases above,
+   and Task 1's `PartySettings` payload and settings acceptance
+   cells, the plan preamble's flip-rule boundary test and Task 6's
+   settings-toggle acceptance cell ("including while designated")
+   (`plan.md`); no other decision in the log depends on the
+   permissive reading.
 
 No decision in this spec blocks the build. One product-intent reading is
 owner-visible rather than owner-settled — the flip rule's permissive
