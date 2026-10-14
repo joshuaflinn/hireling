@@ -77,6 +77,28 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   required approvals on `main` stay at 0 for the same reason. A merged PR
   with an empty review timeline is a missing record: restore it before the
   next merge ask.
+- **A review round opens with a check-runs read at the head under review.**
+  Before the diff: name the head, then read the `gate` check at it with
+  `gh api repos/joshuaflinn/hireling/commits/<sha>/check-runs`. The check-run
+  is the certificate. A bench `just ci-local` is corroboration and never a
+  substitute, because the two can disagree with the bench wrong: on PR #139
+  the gate image carried TypeScript 7.0.2 against `web/`'s 5.9.3 pin, TS2871
+  postdates 5.9, and so a green bench run at `f29e85d` *was* the defect. No
+  bench run could have caught that; the check-run at the head did.
+
+  **Name the head from the ref, not from the PR object** — `git fetch origin
+  <branch>` then `git rev-parse FETCH_HEAD`, or `git ls-remote origin
+  <branch>`. `gh pr view --json headRefOid` can serve a head minutes stale:
+  on PR #139 it served the superseded head `f29e85d` for about two minutes
+  after the push of `9116908` landed. The check-runs read at `f29e85d`
+  returns `gate / failure` (workflow run 38417930166) — indistinguishable
+  from a current red, while the gate at `9116908` was `success`, 16/16.
+  Reading check-runs at the wrong head is the same fault as not
+  reading them, and it fails both dangerous ways: a stale red bounces an
+  engineer for work already fixed, and a stale green certifies a head nobody
+  gated. Every verdict states the SHA it is bound to, so a wrong-head read is
+  visible in the record afterwards — that is what makes this rule
+  self-checking, and it costs nothing the record does not already carry.
 - **Verdict carry-over.** A verdict re-binds to a new head without a new
   review round only when **all three** of these hold, each posted as
   checkable evidence on the PR:
@@ -93,7 +115,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
      offsets may differ, nothing else may. The bases are the merge-bases
      with `origin/main` at review time and at the new head. Mechanical
      form, run once per reviewed path, the two sides' outputs for that
-     path compared equal: `git diff --output-indicator-old=O --output-indicator-new=N <base>...<head> -- <path> | grep -E '^[ON]'`. Where `main` has edited a
+     path compared equal: `git diff --output-indicator-old=O --output-indicator-new=N <base>...<head> -- <path> | grep -E '^([ON]|\\)'`. Where `main` has edited a
      reviewed file, the reviewer also names the incoming `main` hunks and
      states they do not interact with the reviewed ones. The knife-edge
      is the author's text: it moved, new round. A blob test is not
@@ -106,7 +128,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
      text comparison cannot see a semantic interaction with new `main`
      code.
 
-  When all three hold, **whoever is at the press** posts the re-bind on the
+  When all three hold, the re-bind goes on the
   PR as a review comment naming the old head, the new head, and the evidence
   for each condition. The routing splits on condition 2's own branch. Where
   `main` has not edited a reviewed file, the re-bind is wholly mechanical —
@@ -117,7 +139,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   did not move. Where `main` has edited a reviewed file, naming the incoming
   `main` hunks and stating they do not interact with the reviewed ones is
   judgment, and the judgment is the reviewer's — the re-bind routes to them.
-  PR #157 is the live proof of the second branch: an accepted verdict whose
+  PR #157 is the live proof that this case is real: an accepted verdict whose
   head had to move while `main` landed interacting prose in the same bullet.
   The verdict itself is still the reviewer's and only the reviewer's; the
   mechanical re-bind is bookkeeping over their verdict, not a second one.
