@@ -69,3 +69,40 @@ test('innate caster ordered first: the pane shows the non-innate block spell num
   );
   screen.getByText('Spell DC');
 });
+
+test('a character with a class DC renders the tile with its value and note', () => {
+  // The non-null side of the boundary (E14 task 1b): the reference fixture's
+  // Wizard carries class_dc base 19 — the tile renders as before.
+  const mounted = mountPane(structuredClone(engine));
+  const tile = mounted.container.querySelector('.t-classdc');
+  assert.ok(tile, 'the class-DC tile renders for a non-null base');
+  assert.match(
+    /** @type {HTMLElement} */ (tile.querySelector('.v'))?.textContent ?? '',
+    /^\s*19\s*$/,
+  );
+  assert.match(
+    /** @type {HTMLElement} */ (tile.querySelector('.x'))?.textContent ?? '',
+    /INT/,
+    'the key-ability note renders as before',
+  );
+});
+
+test('class_dc.base null: no Class DC tile — absence, never a dash', () => {
+  // The null side (E14 task 1b): contract §1 — the slot's output is null,
+  // nothing is invented. The old unconditional tile rendered a bare '—'
+  // with no provenance and no information; it must be gone, not dashed.
+  const view = structuredClone(engine);
+  view.derived.class_dc.base = null;
+  view.derived.class_dc.total = null;
+  const mounted = mountPane(view);
+  assert.equal(
+    mounted.container.querySelector('.t-classdc'),
+    null,
+    'no class-DC tile on the sheet, matching the card',
+  );
+  assert.equal(
+    mounted.container.textContent?.includes('Class DC'),
+    false,
+    'no Class DC label anywhere on the pane',
+  );
+});

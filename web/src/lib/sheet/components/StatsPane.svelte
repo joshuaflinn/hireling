@@ -110,7 +110,14 @@
     {/if}
     <StatTile label="Fort" value={signed(numbers.fort.total)} cls="t-fort" note={rankName(baseSheet.proficiencies.fortitude ?? 0)} provenance={numbers.fort} />
     <StatTile label="Perception" value={signed(numbers.perception.total)} cls="t-perception" provenance={numbers.perception} />
-    <StatTile label="Class DC" value={numbers.class_dc.total ?? '—'} cls="t-classdc" note={(identity.keyability ?? '').toUpperCase()} provenance={numbers.class_dc} />
+    <!-- E14 task 1b (design D6, spec FR-1): contract §1's null rule — a
+    null `class_dc.base` renders no tile on the sheet, same as the card.
+    The old unconditional `—` placeholder had no provenance hover and no
+    information; absence is absence (the dash tile was the merged-tree
+    defect FR-1 names). -->
+    {#if numbers.class_dc.base != null}
+      <StatTile label="Class DC" value={numbers.class_dc.total} cls="t-classdc" note={(identity.keyability ?? '').toUpperCase()} provenance={numbers.class_dc} />
+    {/if}
     <StatTile label="Reflex" value={signed(numbers.ref.total)} cls="t-reflex" provenance={numbers.ref} />
     <StatTile label="Speed" value={numbers.speed.total} cls="t-speed" note="feet" provenance={numbers.speed} />
     {#if spellDc}
