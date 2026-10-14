@@ -198,6 +198,8 @@ test('the real export pins the armor row shape: suit and shield on build.armor',
 
 test('the real export folds as exported; carrying the suit adds the +1', () => {
   const armor = taraan.build.armor;
+  // fixture bulk map (design §5: unit tests use a fixture map, not the
+  // live corpus) — these numbers are test data, not corpus/rules facts.
   const taraanBulk = { 'Kilted Breastplate': 20, "Caster's Targe": 10 };
   const sheetFor = (rows) => ({ equipment: [], weapons: [], armor: rows, containers: [] });
   const asExported = inventoryView(sheetFor(armor), taraanBulk, {}, qtyOne);
