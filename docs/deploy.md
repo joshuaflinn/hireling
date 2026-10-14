@@ -10,21 +10,24 @@ Every step below names: the command, the expected observable, and the asset that
 
 ## §1 Prerequisites
 
-**Host prerequisite (Mimir):** a `psql` client for §1.1 and §5 — those calls run from Mimir against Asgard over the `asgard-net` bridge. If Mimir has no client installed, §4 item 2's dockerized idiom is the substitution pattern (`docker run --rm --network asgard-net postgres:16 psql …`).
+**Host prerequisite (Mimir):** none beyond Docker itself. Every Asgard-touching `psql`/`pg_restore` call in §1.1 and §5 steps 2/3/7 runs dockerized on the bridge, per §4 item 2's idiom: `docker run --rm --network asgard-net postgres:16 psql …`. There is no host-client path: Asgard publishes no ports, and Docker's DNS resolves bridge names only for containers attached to `asgard-net`, so `psql -h asgard` from a Mimir shell fails name resolution regardless of what client is installed. Calls that read a local file (`provision.sql` in §1.1, the dump in §5 step 3) bind-mount it into the same throwaway container.
 
 ### 1.1 The hall is provisioned — verify, don't assume
 
 **Asset**: Asgard (house Postgres instance, postgres 16, reachable only over the `asgard-net` bridge, no published ports — `db/provision.sql`).
 
 ```sh
-psql -h asgard -U postgres -tAc "SELECT datname FROM pg_database WHERE datname = 'hireling'"
+docker run --rm --network asgard-net postgres:16 \
+  psql -h asgard -U postgres -tAc "SELECT datname FROM pg_database WHERE datname = 'hireling'"
 ```
 
-Expected: one row, `hireling`. If empty, provision once per `db/provision.sql` (run by the operator as a superuser), then set the role password interactively — the password is never in the repo:
+Expected: one row, `hireling`. If empty, provision once per `db/provision.sql` (run by the operator as a superuser; the file is bind-mounted from the checkout into the throwaway container), then set the role password interactively — the password is never in the repo:
 
 ```sh
-psql -h asgard -f db/provision.sql
-psql -h asgard -c "ALTER ROLE hireling PASSWORD '<from the house secret store>';"
+docker run --rm --network asgard-net -v <checkout>/db/provision.sql:/tmp/provision.sql postgres:16 \
+  psql -h asgard -U postgres -f /tmp/provision.sql
+docker run --rm --network asgard-net postgres:16 \
+  psql -h asgard -c "ALTER ROLE hireling PASSWORD '<from the house secret store>';"
 ```
 
 Expected: role `hireling` exists at `CONNECTION LIMIT 20`, database `hireling` owned by it. Schema is **not** applied here — the app migrates itself at boot (`src/db.rs::connect_and_migrate`, schema before traffic).
@@ -170,7 +173,7 @@ The parser requires exactly `--release <pf2e-N.N.N>` (`src/import/args.rs`); `pf
 
 Observable: `docker logs hireling` shows the import's summary lines; §4's corpus check returns a non-zero `corpus_entries` count.
 
-**License posture:** this is a private deployment — E4's license gate stays yellow-green and that is correct; the gate restricts *public* features only, and this epic changes nothing about it. (`license-verdict` exists for the day public exposure is on the table; running it now is informative, not required — and when it runs, it runs **from a checkout, not in the container**: it reads `NOTICE.md` and `licenses/` off disk, which `.dockerignore` keeps out of the image.)
+**License posture:** this is a private deployment — E4's license gate stays yellow-green and that is correct; the gate restricts *public* features only, and this epic changes nothing about it. (`license-verdict` exists for the day public exposure is on the table; running it now is informative, not required — and when it runs, it runs **from a checkout, not in the container**: it reads `NOTICE.md` and `licenses/` off disk, and neither reaches the image: `licenses/` is dockerignored, and `NOTICE.md` is never COPYed.)
 
 ### 2.5 Point Heimdall at the public probe
 
@@ -239,8 +242,8 @@ Walk top to bottom before any session. Every item is green or names the failing 
 An unverified backup is a hope, not a backup. This proves Asgard's rotation can actually restore the hall. **Execution is handoff-side** (requires Asgard access); this procedure and its verification queries are ours. Record the run — dump restored, scratch hall used, checks passed, teardown — as a comment on gh#13.
 
 1. **Pick the dump.** Latest rotation dump of the `hireling` hall from Asgard's existing backup schedule. **Asset**: Asgard (operator knows the rotation's location/format; `pg_dump` custom or plain).
-2. **Create a scratch hall.** `psql -h asgard -U postgres -c "CREATE DATABASE hireling_restore_scratch OWNER hireling"` — owner must be the app role so the container can read it.
-3. **Restore.** Plain SQL dump: `gunzip -c <dump> | psql -h asgard -U hireling -d hireling_restore_scratch`. Custom format: `pg_restore -h asgard -U hireling -d hireling_restore_scratch <dump>`. Expected: restore completes without error.
+2. **Create a scratch hall.** `docker run --rm --network asgard-net postgres:16 psql -h asgard -U postgres -c "CREATE DATABASE hireling_restore_scratch OWNER hireling"` — owner must be the app role so the container can read it.
+3. **Restore.** Plain SQL dump: `gunzip -c <dump> | docker run --rm -i --network asgard-net postgres:16 psql -h asgard -U hireling -d hireling_restore_scratch`. Custom format: `docker run --rm --network asgard-net -v <dump>:/dumps/backup postgres:16 pg_restore -h asgard -U hireling -d hireling_restore_scratch /dumps/backup`. Expected: restore completes without error.
 4. **Row counts on core tables** (identity, live state, corpus, sessions):
    ```sh
    docker exec <house-postgres-container> psql -U hireling -d hireling_restore_scratch -tAc \
@@ -252,7 +255,7 @@ An unverified backup is a hope, not a backup. This proves Asgard's rotation can 
    Expected: counts match the production hall's same query (run it on `hireling` and compare).
 5. **Boot the app against the scratch hall.** Outside session night — this borrows the public origin for a few minutes. `docker stop hireling`, then §2.2's `docker run` with the same env file plus one override: `-e HIRELING_DATABASE_URL=postgres://hireling:<password>@asgard:5432/hireling_restore_scratch`. Everything else identical, so OIDC legs work — the tunnel still fronts this container.
 6. **Verify through the real paths.** One login end-to-end (Authentik → party screen, §6 item 1's walk) and one roster read (open a character sheet and see its values). Expected: the restored hall serves them.
-7. **Teardown.** `docker stop` the scratch container; re-run §2.2 verbatim (no override) and confirm §4 items 4–5 green again; then `psql -h asgard -U postgres -c "DROP DATABASE hireling_restore_scratch"`.
+7. **Teardown.** `docker stop` the scratch container; re-run §2.2 verbatim (no override) and confirm §4 items 4–5 green again; then `docker run --rm --network asgard-net postgres:16 psql -h asgard -U postgres -c "DROP DATABASE hireling_restore_scratch"`.
 8. **Record on gh#13**: dump file + timestamp, scratch hall name, the four counts, login/roster result, teardown confirmation.
 
 A failed rehearsal is a stop-the-line finding against Asgard's rotation — reported through Thrane to Josh — not something to paper over (spec Edge Cases).
