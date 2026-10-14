@@ -1,5 +1,6 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
+/* global structuredClone, Node */
 import { render, screen, cleanup, fireEvent } from '@testing-library/svelte';
 import { tick } from 'svelte';
 
@@ -301,7 +302,7 @@ test('SC-5 scoped: the stat-block group holds only provenance affordances — ef
 
 test('stat block loads honestly: skeleton entries, no numbers, when the view has not landed', async () => {
   const { state } = seededCard(); // view without a derived payload
-  const { container } = render(RosterCard, {
+  render(RosterCard, {
     props: { card: state.cards[0], onopen: () => {} },
   });
   await tick();

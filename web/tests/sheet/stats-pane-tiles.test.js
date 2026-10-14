@@ -1,3 +1,4 @@
+/* global structuredClone */
 import { render, screen, cleanup } from '@testing-library/svelte';
 import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';

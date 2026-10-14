@@ -1,3 +1,4 @@
+/* global structuredClone */
 import { render, screen, cleanup } from '@testing-library/svelte';
 import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
@@ -11,7 +12,6 @@ import StatBlock from '../../src/lib/party/StatBlock.svelte';
 import StatsPane from '../../src/lib/sheet/components/StatsPane.svelte';
 import RosterCard from '../../src/lib/party/RosterCard.svelte';
 import { createRosterState } from '../../src/lib/party/state.js';
-import { targetKey } from '../../src/lib/sync/store.js';
 
 // StatBlock (E14 tasks 3, design D2/D3/D6/D7): SC-1 presence, SC-2 fixture
 // tracking (every FR-1 entry's backing field mutated one at a time), SC-3
