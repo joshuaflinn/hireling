@@ -181,8 +181,10 @@ fn the_pinned_effect_ops_are_the_write_paths_accepted_set() {
         );
     }
 
-    // The deny arm: an unpinned name is rejected, so the loop above
-    // cannot go green against a validator that accepts everything.
+    // The deny arms: an unpinned name is rejected on BOTH target kinds,
+    // so the loop above cannot go green against a validator that accepts
+    // everything — and the EffectNew arm cannot pass on payload shape
+    // alone (round-1 F1: it hardcoded "create" and never read the op).
     assert!(
         validate_bounds(
             &FieldTarget::Effect { effect_id: 41 },
@@ -190,5 +192,26 @@ fn the_pinned_effect_ops_are_the_write_paths_accepted_set() {
         )
         .is_err(),
         "an op name outside the pinned set must be rejected by the bounds validator"
+    );
+    assert!(
+        validate_bounds(
+            &FieldTarget::EffectNew { party_id: 1 },
+            &serde_json::json!({
+                "op": "sunder",
+                "name": "x",
+                "source_character_id": 1,
+                "targets": [3],
+            }),
+        )
+        .is_err(),
+        "an op name outside the pinned set must be rejected on effect_new too"
+    );
+    assert!(
+        validate_bounds(
+            &FieldTarget::EffectNew { party_id: 1 },
+            &serde_json::json!({"name": "x", "source_character_id": 1, "targets": [3]}),
+        )
+        .is_err(),
+        "an effect_new frame with no op key is denied by default, not shape-checked"
     );
 }

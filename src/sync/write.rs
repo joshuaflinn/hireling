@@ -1560,7 +1560,15 @@ pub(crate) fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result
         // −50..=50. The database-dependent checks (roster membership,
         // ownership, corpus rows) live in the effect engine, where the rows
         // are.
-        FieldTarget::EffectNew { .. } => validate_effect_value(value, "create"),
+        FieldTarget::EffectNew { .. } => {
+            let op = value.get("op").and_then(JsonValue::as_str).unwrap_or("");
+            if op != "create" {
+                return Err(format!(
+                    "unknown effect op {op:?} on effect_new (create goes on effect_new; update and end on effect)"
+                ));
+            }
+            validate_effect_value(value, "create")
+        }
         FieldTarget::Effect { .. } => {
             let op = value.get("op").and_then(JsonValue::as_str).unwrap_or("");
             match op {
