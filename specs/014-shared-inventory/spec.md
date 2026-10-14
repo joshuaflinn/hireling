@@ -676,8 +676,14 @@ inside #6:
    product-intent reading in this spec they may want to see; an owner
    may overturn it, and the spec is written to be reversible if they do
    — the strict rule is recorded above as the rejected alternative, and
-   reinstating it is a one-clause edit to FR-5 plus this entry; no other
-   decision in the log depends on the permissive reading.
+   reinstating it is not a one-clause edit: D4's variant payload
+   `PartySettings { actor_is_party_member: bool }` cannot carry the
+   strict rule — it would need the designated owner's `sub`, plus how
+   to treat the `SET NULL`'d undesignated case (the bootstrap rule
+   FR-5 says is unnecessary) — so the reversal reaches FR-5, this
+   entry, D4's third bullet and rationale, both quartermaster edge
+   cases above, and Task 1's settings acceptance cells (`plan.md`);
+   no other decision in the log depends on the permissive reading.
 
 No decision in this spec blocks the build. One product-intent reading is
 owner-visible rather than owner-settled — the flip rule's permissive

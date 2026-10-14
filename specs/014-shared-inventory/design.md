@@ -170,9 +170,8 @@ becomes a per-variant match:
 `sole_writer()` is **deleted** and its three sole-owner arms
 (`Character`, `Effect`, `CustomRow`) move inline into the per-variant
 write match — the per-variant write branch is where the new rules live,
-and once it absorbs those arms the function has no callers (a dead `pub
-fn` in a single-binary crate is a `dead_code` warning, and the gate's
-warning census is zero). It cannot simply stay unchanged: an exhaustive
+and once it absorbs those arms the function has no callers. It cannot
+simply stay unchanged: an exhaustive
 `&str`-returning match has nothing to return for a party-membership
 variant, and the `_ =>` catch-all that would paper over that is
 unavailable — `wildcard_enum_match_arm` is denied project-wide
