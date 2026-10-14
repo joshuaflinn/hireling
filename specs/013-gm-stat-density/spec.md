@@ -1,7 +1,7 @@
 # Feature Specification: GM Stat Density — Party-Card Stat Blocks (E14)
 
 **Epic**: E14 — Phase 3, P1 · depends on E10 (closed) · GitHub issue #16
-**Created**: 2026-10-14 · **Revised**: 2026-10-14 — round-1 review (PR #197, reject) findings F1–F6 / M1–M3 / L1–L2 addressed; class-DC absence rescoped to `class_dc.base`, sheet alignment tasked, guardrail sweep re-scoped, provenance hover given its non-default test.
+**Created**: 2026-10-14 · **Revised**: 2026-10-14 — three review rounds on PR #197 addressed in place (round 1: 6B/3M/2L — class-DC rescoped to `class_dc.base`, sheet alignment tasked, sweep re-scoped, SC-8 added; round 2: 1B/2M/1L — SC-5 exact-set assertion, honest blind-spot list, `spell_attack.total` row; round 3: 1B/2M/2L — `class_dc.total` + `casters → []` mutation rows, directional-pattern wording, revision stamps). Full changelog below.
 **Status**: Specify gate run 2026-10-14 (Korrin, front half of the SDD pipeline — docs only, no code in this pass); design signed by Korrin same day. **Implementation hold (Thrane, binding): no E14 code merges to `main` before gh#13 closes — spec, design and plan on disk are fine.**
 **Input**: `docs/EPICS.md` Epic E14 (specify prompt + AI Guardrails); PRD v3.6 FG5 ("GM stat density (P1)") + Non-Goals (Combat tracking) + US-9; `CONSTITUTION.md` Articles I/II/VI; E8 `specs/008-buff-effect-engine/contracts/engine-output.md` (binding — the derived shape the stat block reads); E10 `specs/009-party-view-gm-seat-pwa/` (the surface this epic extends); merged tree: `web/src/lib/party/state.js` (the per-card `view`), `web/src/lib/sheet/` (the sheet's own read of the same view), `engine/src/vocab.rs` (the closed stat vocabulary — no `initiative` in it).
 
@@ -202,21 +202,28 @@ is decoration, and round 1 said so):
    `caster.js` — D4/D5 put new code in `web/src/lib/engine/`, which already
    holds pre-existing sheet-path arithmetic in `format.js:28,36`; that
    file predates E14, is outside this diff, and is named here so the
-   sweep's claim stays exact). The sweep is a tripwire with known blind
-   spots — the Task 5 pattern catches bare, spaced and no-space operators
-   on view fields plus literal `reduce(`/`Math.max`/`Math.min`; what it
-   cannot catch is template concatenation and aliasing — so the pattern is
-   tuned to the diff at Task 5 and the compensating evidence is the diff
-   review plus statements 3 and 4.
+   sweep's claim stays exact). The sweep is a tripwire and its pattern is
+   directional, not exhaustive — it catches `<view-field> <operator>`
+   shapes (bare, spaced or no-space) plus literal `reduce(`/`Math.max`/
+   `Math.min`. Its blind spots *include* right-hand operands
+   (`bonus + view.ac.total`), helper calls (`sum(view.fort.total, 2)`),
+   wrapped fields (`Number(view.ac.total) - Number(view.ref.total)`),
+   template concatenation and aliasing — illustrative, not closed. The
+   pattern is tuned to the diff at Task 5 and the compensating
+   evidence is the diff review plus statements 3 and 4.
    Comparing and sorting wire totals (FR-2) is selection, not computation.
 3. **Fixture tracking** — *mechanism: a component test*. Mounts the card
    against an engine fixture and mutates **every FR-1 entry's backing
    field, one at a time** — an applied buff moves `ac.total`; a skill total
    drops; `casters[0].spell_dc.total` moves; `casters[0].spell_attack.total`
-   moves (the attack note moves with it); `class_dc.base` goes null and
-   the entry disappears; `hp_max` moves the bar — asserting the card
-   tracks each mutation exactly, every displayed value included. A
-   hardcoded constant, a cached recompute,
+   moves (the attack note moves with it); `class_dc.total` moves (the
+   displayed value — the `base`-null absence test alone cannot catch a
+   hardcoded Class DC, round 3 B1); `class_dc.base` goes null and
+   the entry disappears; `casters` empties (`[]`) and the spell-DC entry
+   and its attack note disappear (FR-1's absence — round 3 B1);
+   `hp_max` moves the bar — asserting the card
+   tracks each mutation exactly, every displayed value and absence
+   included. A hardcoded constant, a cached recompute,
    or a second math path cannot pass.
 4. **Sheet equality** — *mechanism: a component test*. The same fixture
    drives the sheet's `StatsPane` and the card's stat block; AC, saves,
@@ -315,10 +322,12 @@ rule as the card's existing skeleton bar.
   `web/src/lib/party/` plus this epic's new engine-lib helpers — with the
   command and output pasted in the implementation PR, the pattern's blind
   spots named next to it, and the compensating diff review stated. The grep
-  alone cannot prove absence (template concatenation and aliasing are
-  outside any literal pattern, and whatever blind spots the tuned pattern
-  leaves are named next to the pasted output — the plan's Task 5 list is
-  the honest one); statements 3 and 4 are the criteria
+  alone cannot prove absence (the pattern is directional — blind spots
+  *include* right-hand operands, helper calls, wrapped fields, template
+  concatenation and aliasing, illustrative not closed — and whatever the
+  tuned pattern leaves open is named next to the pasted output; the plan's
+  Task 5 list and this one say the same thing); statements 3 and 4 are the
+  criteria
   with teeth, and the PR body says so rather than laundering the tripwire
   as proof. *(Bench-verifiable as stated: sweep + review, honestly
   labelled.)*
@@ -390,3 +399,21 @@ innate-first discriminating fixture required in edge cases, design and plan
 table now enumerates every FR-1 entry (M2); lore-label parity pinned by test
 (M3); book-without-page citations re-anchored on readable sources (L1);
 date stamps corrected to the commit's date (L2).
+
+**Round 2 (PR #197, reject — 1 blocking / 2 medium / 1 low)**: SC-5
+re-mechanized as an exact-set assertion — the region's focusable set is
+exactly E6's provenance affordances, no control beyond them, mounted on
+SC-8's non-empty-`applied` fixture with effects present — across all six
+sites (B1); plan Task 3's executable line reads `class_dc.base` null (M1);
+the sweep's blind-spot list made honest in spec and plan (M2); the
+`spell_attack.total` mutation row added (L1).
+
+**Round 3 (PR #197, reject — 1 blocking / 2 medium / 2 low)**:
+`class_dc.total` and `casters → []` mutation rows added to all three
+enumerations — spec FR-3 stmt 3, plan Task 3, design D8 (B1); the
+blind-spot lists re-worded as directional-illustrative after the
+reviewer's probe (right-hand operands, helper calls, wrapped fields)
+(M1); the false "`StatTile` carries `aria-label`s" claim replaced —
+StatBlock supplies the labels in its own markup, verified against
+`StatTile.svelte` (M2); revision stamps updated through round 3 (L1);
+"focusable or interactive" wording aligned across all SC-5 sites (L2).

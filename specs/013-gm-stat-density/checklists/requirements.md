@@ -1,8 +1,8 @@
 # Specification Quality Checklist: GM Stat Density (E14)
 
 **Purpose**: Validate specification completeness and quality before review.
-**Created**: 2026-10-14 · **Revalidated**: 2026-10-14 after round-1 review
-revisions (PR #197)
+**Created**: 2026-10-14 · **Revalidated**: 2026-10-14 through review
+rounds 1–3 on PR #197
 **Feature**: [spec.md](../spec.md) · gh#16
 
 ## Content Quality
@@ -49,8 +49,9 @@ revisions (PR #197)
 ## Notes
 
 - Validation run 2026-10-14 (Korrin): all items pass on first iteration;
-  revalidated same day after round-1 review (reject, 6 blocking / 3 medium
-/ 2 low — every finding addressed in spec/design/plan; the changelog is in
+  revalidated same day through review rounds 1–3 (rejects: 6B/3M/2L,
+  1B/2M/1L, 1B/2M/2L — every finding addressed in spec/design/plan; the
+  changelog is in
   spec.md's Clarify Log).
 - The two decisions the PRD deferred to this spec (key-skills rule;
   guardrail testability) are settled in the spec text, not deferred to

@@ -1,7 +1,7 @@
 # GM Stat Density Implementation Plan (E14)
 
 **Epic**: E14 — Phase 3, P1 · GitHub issue #16 · spec + design in this
-directory (2026-10-14, Korrin; revised same day after round-1 review).
+directory (2026-10-14, Korrin; revised same day through review rounds 1–3 on PR #197).
 **Seat note**: this plan lands now, ahead of implementation, per the lane's
 opening task. **Binding hold (Thrane): no E14 implementation merges to
 `main` before gh#13 closes.** The implementation seat may build and PR; the
@@ -123,10 +123,14 @@ elements are the `StatTile` provenance hovers (SC-5).
   with it); `casters[0].spell_dc.total` moved **and
   `casters[0].spell_attack.total` moved (the attack note moves with it —
   round-2 L1: the note is a displayed value and needs its own row)**;
+  `class_dc.total` moved (the displayed value — the `base`-null absence
+  test alone cannot catch a hardcoded Class DC, round-3 B1);
   `class_dc.base` → null and
-  the entry disappears; a key-skill total moved far enough to re-select;
-  `render_base.hp_max` moves the bar — every rendered value tracks exactly
-  (SC-2);
+  the entry disappears; `casters` → `[]` and the spell-DC entry and its
+  attack note disappear (FR-1's absence, round-3 B1); a key-skill total
+  moved far enough to re-select;
+  `render_base.hp_max` moves the bar — every rendered value and absence
+  tracks exactly (SC-2);
 - the same fixture through `StatsPane`: AC, saves, Perception, spell DC,
   class DC values equal — **absence included**: `class_dc.base` null omits
   both the card entry and the sheet tile (SC-3, unconditional after
@@ -159,7 +163,8 @@ block below the bar; **SC-5 scoped query: card mounted on SC-8's
 non-empty-`applied` fixture with effects present (provenance affordances
 render inside the region, ConditionTips render outside it — the two cases
 a card-level count and an empty-region claim each miss), stat-block group
-located by role/name, every focusable element inside it a provenance
+located by role/name, every focusable or interactive element inside it a
+provenance
 affordance, no `<button>` or form control beyond them**; the drill-in
 remains the card's navigation control;
 down/full/effect-chip regressions untouched (existing tests stay green).
@@ -174,8 +179,11 @@ down/full/effect-chip regressions untouched (existing tests stay green).
      web/src/lib/party/ web/src/lib/engine/key-skills.js web/src/lib/engine/caster.js`
    → no hits over code introduced by this diff (tune the pattern to the
    diff's reality). Paste command and output; **name the pattern's blind
-   spots next to it** (no-space operators are caught here but template
-   concatenation and aliasing are not) and state the compensating evidence:
+   spots next to it, illustrative not closed** (the pattern is directional
+   — it catches `<view-field> <operator>` shapes plus literal
+   `reduce`/`Math.max`; it misses right-hand operands, helper calls,
+   wrapped fields, template concatenation, aliasing) and state the
+   compensating evidence:
    line-by-line diff review plus the SC-2/SC-3 tests — the grep is a
    tripwire, not proof, and the PR body says so;
 2. `just ci-local` full run, pasted; warning count named (a clean handover
