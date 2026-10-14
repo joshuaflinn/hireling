@@ -1,0 +1,27 @@
+# Build-context hygiene (E11 FR-1, design D2): the three build stages COPY
+# exactly web/, engine/, migrations/, src/, data/, and the Cargo + npm
+# manifests. Everything else stays out of the context so `docker build`
+# uploads source and manifests only — no VCS history, no build outputs, no
+# workspace scratch.
+
+# VCS — the image builds from a git checkout; git history never enters it.
+.git
+.gitignore
+.gitattributes
+
+# Build outputs and dependency trees — rebuilt inside the stages, never
+# shipped in from the host (a host target/ or node_modules would also be
+# the wrong architecture half the time).
+target/
+**/node_modules/
+web/dist/
+
+# Repo-only artifacts: documents, specs, integration tests, operator and CI
+# tooling. None of it is COPYed by the Dockerfile.
+docs/
+specs/
+tests/
+scripts/
+licenses/
+.github/
+.specify/
