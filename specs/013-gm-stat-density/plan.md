@@ -116,9 +116,13 @@ elements are the `StatTile` provenance hovers (SC-5).
 
 **Acceptance**:
 - mount with a full fixture: every FR-1 entry found by visible label text
-  (D7: text queries on `StatTile`'s `<div class="k">` — StatTile forwards
-  no attributes, round 4 B1)
+  (D7: text queries on `StatTile`'s `<div class="k">` for the tiles,
+  `<dt>` for the key-skills rows — StatTile forwards no attributes,
+  round 4 B1)
   with the fixture's exact values (SC-1);
+- the Init tile's doc comment carries the *Player Core* page citation for
+  PF2e's Perception-by-default initiative rule, written off the source
+  page (spec FR-4; AGENTS.md rules-exactness §1);
 - **mutate every FR-1 entry's backing field, one at a time, and re-assert**
   (spec FR-3 stmt 3's table — round-1 finding M2): `ac.total` +2; each of
   `fort/ref/will.total` moved; `perception.total` (the Init entry moves

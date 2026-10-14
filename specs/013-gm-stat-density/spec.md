@@ -87,7 +87,8 @@ exactly, key skills re-select. A second computation path cannot pass this.
 
 Each roster card extends, below the existing HP bar and effects strip, with a
 compact stat block rendering, each entry's label rendered as visible text
-(D7: `StatTile`'s `<div class="k">` — the mechanism SC-1's queries read):
+(D7: `StatTile`'s `<div class="k">` for the tiles, `<dt>` for the
+key-skills rows — the mechanism SC-1's queries read):
 
 - **AC** — `derived.ac.total`, plain number.
 - **Fort / Ref / Will** — `derived.fort.total`, `derived.ref.total`,
