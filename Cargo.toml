@@ -38,6 +38,13 @@ serde_json = "1.0.151"
 # sha256 for the asset digest check and per-row content hashes
 # (E4: FR-3, FR-6).
 sha2 = "0.11.0"
+# `EnumIter` for `VitalsField` (gh#91 F1): the wire-contract pin must derive
+# the variant set from the enum definition itself. Every hand-written
+# enumeration of the variants has a bypass — an orphan chain arm or an
+# unupdated array — that leaves the suite green with a new wire value
+# unpinned. `iter()` cannot drift: a new variant is in the derived set at
+# birth, and the fixture assert stays red until the pin is updated.
+strum = { version = "0.27", features = ["derive"] }
 # Postgres driver + the `sqlx migrate` tool the settled stack mandates
 # (epic E2; Constitution V). Minimal features: no TLS — the database is
 # reached over the trusted house bridge (asgard-net), not the public internet.

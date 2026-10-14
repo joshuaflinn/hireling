@@ -23,5 +23,6 @@
       "fields": ["party_id"]
     }
   },
-  "effect_ops": ["create", "update", "end"]
+  "effect_ops": ["create", "update", "end"],
+  "vitals_fields": ["hp", "temp_hp", "money", "level_adjust", "focus_current", "hero_points", "daily", "shield_raised"]
 }
