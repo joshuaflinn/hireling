@@ -150,27 +150,31 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   and it is not a licence to keep re-heating the same billet.
 
   **A carry-over round does not count against the budget.** When condition 2
-  fails only because `main` moved an unrelated part of a shared file — the
-  PR's own hunks byte-identical at both heads — the round was forced by the
-  strict up-to-date policy, not earned by the author. Charging it to the
-  budget would force premature verdicts on busy files (`gate.yml`,
-  `AGENTS.md`, `justfile`, `Cargo.toml`); PR #158 paid that twice in one
-  afternoon (gh#166). The price of not counting is narrowness: a carry-over
-  round's only question is the *combination* — read the merged file as one
-  unit and look for interaction defects. It may not re-litigate the author's
-  diff; that diff already carries a verdict. Announcing a *wide* round at a
-  carry-over head is itself a defect. If a carry-over round finds a real
-  defect, it rejects, and the author's fix commit then opens a counted
-  author-text round — the narrow scope is a scope limit, not a lower bar.
+  of *Verdict carry-over* below (identical contribution) fails only because
+  `main` moved an unrelated part of a shared file — the PR's own hunks
+  byte-identical at both heads — the round was forced by the strict
+  up-to-date policy, not earned by the author. Charging it to the budget
+  would force premature verdicts on busy files (`gate.yml`, `AGENTS.md`,
+  `justfile`, `Cargo.toml`); PR #158 paid that twice in one afternoon
+  (gh#166). The price of not counting is narrowness: a carry-over round's
+  only question is the *combination* — read the merged file as one unit and
+  look for interaction defects. It may not re-litigate the author's diff;
+  that diff already carries a verdict. Announcing a *wide* round at a
+  carry-over head is itself a defect. A carry-over round's scope is not
+  widened — the one-open-round widening remedy does not apply at a
+  carry-over head. If a carry-over round finds a real defect, it rejects,
+  and the author's fix commit then opens a counted author-text round — the
+  narrow scope is a scope limit, not a lower bar.
 
   **Which kind a round is, checkable:** compare the PR's own hunks at both
-  heads. Byte-identical hunks mean carry-over — narrow, uncounted. Changed
+  heads. The first round on a PR has no prior head; it is an author-text
+  round. Byte-identical hunks mean carry-over — narrow, uncounted. Changed
   hunks mean an author-text round — wide, counted.
 
   The press rule is separate from the budget and unchanged: every announced
   round at a head has a verdict against it before the press, a narrower
-  accept does not close a wider round still writing, and two verdicts at one
-  head that disagree are a reject with the wider scope deciding (PR #158).
+  accept does not close a wider round still writing, and where two verdicts
+  at one head disagree, the wider scope counts (PR #158).
 - **Verdict carry-over.** A verdict re-binds to a new head without a new
   review round only when **all three** of these hold, each posted as
   checkable evidence on the PR:
