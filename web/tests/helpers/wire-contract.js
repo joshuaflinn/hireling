@@ -24,6 +24,13 @@ const fixture = JSON.parse(
 
 const kinds = fixture.targets;
 const effectOps = new Set(fixture.effect_ops);
+// gh#91: the vitals target's `field` is the one enum-valued wire value —
+// the fixture pins the legal set, the Rust suite pins the fixture to the
+// serde names, and this set pins the client's literals to the fixture.
+const vitalsFields = new Set(fixture.vitals_fields);
+if (vitalsFields.size === 0) {
+  throw new Error('the contract fixture pins no vitals_fields — refusing to gate without it');
+}
 
 /** Assert one write frame's `target` against the pinned contract: the
  * `kind` must be one the server decodes, and the key set must match the
@@ -41,6 +48,12 @@ export function assertWriteTarget(target) {
     [...entry.fields].sort(),
     `the "${target.kind}" target's field set must match the pinned contract exactly`,
   );
+  if (target.kind === 'vitals') {
+    assert.ok(
+      vitalsFields.has(target.field),
+      `unknown vitals field "${target.field}" — the pinned contract accepts: ${[...vitalsFields].join(', ')}`,
+    );
+  }
 }
 
 /** Assert an effect frame's `value.op` against the accepted op set (the

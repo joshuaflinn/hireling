@@ -365,6 +365,38 @@ test('qty writes are deltas against base, clamped at zero', () => {
   );
 });
 
+test('temp_hp writes are clamped-at-zero vitals writes riding the pinned field name', () => {
+  const { mocks, state } = setup();
+  state.connect();
+  handshake(mocks.sockets[0]);
+
+  state.writeTempHp(4);
+  assert.equal(get(state.tempHp).value, 4, 'the echo paints immediately');
+  assert.equal(get(state.tempHp).pending, true, 'tagged pending');
+  let write = mocks.sockets[0].sent.map((r) => JSON.parse(r)).find((f) => f.t === 'write');
+  assertWriteTarget(write.target);
+  assert.deepEqual(
+    write.target,
+    { kind: 'vitals', character_id: CHARACTER_ID, field: 'temp_hp' },
+    'the temp pool rides the vitals kind',
+  );
+  assert.equal(write.value, 4, 'the wire value is the clamped integer');
+  mocks.sockets[0].message(
+    JSON.stringify({ t: 'ack', op_id: write.op_id, outcome: 'applied', version: 6 }),
+  );
+  assert.equal(get(state.tempHp).pending, false, 'the ack settles');
+
+  // The pool cannot go negative on the wire — the client clamps at zero
+  // (web/src/lib/sheet/state.js writeTempHp).
+  state.writeTempHp(-3);
+  write = [...mocks.sockets[0].sent]
+    .reverse()
+    .map((r) => JSON.parse(r))
+    .find((f) => f.t === 'write');
+  assertWriteTarget(write.target);
+  assert.equal(write.value, 0, 'negative temp hp clamps to zero at the client');
+});
+
 test('New Day enqueues the whole reset burst FIFO: slots, focus, daily', () => {
   const { mocks, state } = setup();
   state.connect();
