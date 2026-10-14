@@ -1,0 +1,29 @@
+# Build-context hygiene (E11 FR-1, design D2). This file is a DENYLIST of
+# patterns anchored at the context root. The three build stages COPY exactly
+# web/, engine/, migrations/, src/, data/, and the Cargo + npm manifests;
+# the patterns below keep VCS history, build outputs, and repo-only
+# docs/specs/tooling out of what `docker build` uploads. A root path not
+# named here DOES enter the context — it is simply never COPYed, so it
+# never reaches a layer.
+
+# VCS — the image builds from a git checkout; git history never enters it.
+.git
+.gitignore
+.gitattributes
+
+# Build outputs and dependency trees — rebuilt inside the stages, never
+# shipped in from the host (a host target/ or node_modules would also be
+# the wrong architecture half the time).
+target/
+**/node_modules/
+web/dist/
+
+# Repo-only artifacts: documents, specs, integration tests, operator and CI
+# tooling. None of it is COPYed by the Dockerfile.
+docs/
+specs/
+tests/
+scripts/
+licenses/
+.github/
+.specify/

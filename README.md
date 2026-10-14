@@ -104,6 +104,10 @@ ALTER ROLE hireling PASSWORD '<from the house secret store>';  # never in git
 Schema migrations are not run by hand in production: the deployed binary
 applies its embedded migrations at boot, as it does locally.
 
+Deploying and operating the service itself — container build, first deploy,
+update/rollback, session-night readiness, backup-restore rehearsal, go-live
+checklist — is [`docs/deploy.md`](docs/deploy.md)'s job.
+
 ## Layout
 
 - `src/` — the Rust backend (axum, single binary)
