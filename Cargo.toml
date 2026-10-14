@@ -44,7 +44,7 @@ sha2 = "0.11.0"
 # unupdated array — that leaves the suite green with a new wire value
 # unpinned. `iter()` cannot drift: a new variant is in the derived set at
 # birth, and the fixture assert stays red until the pin is updated.
-strum = { version = "0.27", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 # Postgres driver + the `sqlx migrate` tool the settled stack mandates
 # (epic E2; Constitution V). Minimal features: no TLS — the database is
 # reached over the trusted house bridge (asgard-net), not the public internet.
