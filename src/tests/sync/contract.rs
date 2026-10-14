@@ -10,6 +10,7 @@
 //! undecodable frame at the socket while the web suite stays green.
 
 use serde_json::Value;
+use strum::IntoEnumIterator;
 
 use crate::sync::protocol::{FieldTarget, VitalsField};
 
@@ -147,28 +148,15 @@ fn the_pinned_vitals_fields_are_the_serde_wire_names_of_the_enum() {
         .collect();
     pinned.sort_unstable();
 
-    // One representative per `VitalsField` variant — the same shape the
-    // FieldTarget pin above uses. The compile gate lives in `as_str`'s
-    // exhaustive match (`src/sync/protocol.rs`): adding a variant stops
-    // the crate compiling until the fixture is updated deliberately — a
-    // new wire value cannot slip onto the socket silently (gh#91).
-    let variants = [
-        VitalsField::Hp,
-        VitalsField::TempHp,
-        VitalsField::Money,
-        VitalsField::LevelAdjust,
-        VitalsField::FocusCurrent,
-        VitalsField::HeroPoints,
-        VitalsField::Daily,
-        VitalsField::ShieldRaised,
-    ];
-
-    // Derive, never trust: each name comes off the serde wire shape, so a
+    // Derive, never trust — twice over. The set of variants comes off
+    // `EnumIter`, generated from the enum definition itself (gh#91 F1): a
+    // new variant is in this set the moment it exists, with nothing in this
+    // file to edit and no hand-written list that could silently omit it.
+    // Each name then comes off the serde wire shape, so a
     // `rename`/`rename_all` drift turns this red even when the fixture was
     // hand-updated to match `as_str`'s ledger names — serde's name is what
     // the socket decodes, and that is what this file pins.
-    let mut wire_names: Vec<String> = variants
-        .iter()
+    let mut wire_names: Vec<String> = VitalsField::iter()
         .map(|field| {
             serde_json::to_value(field)
                 .expect("a VitalsField encodes")
