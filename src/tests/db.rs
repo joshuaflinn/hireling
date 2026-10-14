@@ -1330,9 +1330,10 @@ async fn column_present(db: &TestDb, table: &str, column: &str) -> bool {
 }
 
 #[tokio::test]
-async fn e12_activation_lands_the_version_and_coins_columns() {
-    let db = provision_or_skip!("e12_schema");
-    let (party, _) = seed_character(&db, "sub-a", "E12 Schema").await;
+async fn e12_version_columns_draw_from_the_global_field_sequence() {
+    let db = provision_or_skip!("e12_sequence_source");
+    let (party, _, pre_party_mint, hp_version) =
+        seed_party_with_matured_watermark(&db, "sub-a", "E12 Sequence").await;
 
     // D1.1 + D1.2 — both version columns exist, draw from the global field
     // sequence without being named on insert, and are distinct per row.
@@ -1360,8 +1361,10 @@ async fn e12_activation_lands_the_version_and_coins_columns() {
     .parse::<i64>()
     .expect("stash version parses");
     assert!(
-        rope_version > 0,
-        "party_stash.version must come from field_version_seq, got {rope_version}"
+        rope_version > hp_version,
+        "stash versions must come from the one global sequence shared with character \
+         fields (hp {hp_version}, stash {rope_version}) — a dedicated per-table \
+         sequence would mint beneath the matured watermark"
     );
     assert_ne!(
         rope_version, torch_version,
@@ -1375,9 +1378,84 @@ async fn e12_activation_lands_the_version_and_coins_columns() {
     .parse::<i64>()
     .expect("quartermaster version parses");
     assert!(
-        quartermaster_version > 0,
-        "parties.quartermaster_version must come from field_version_seq, got {quartermaster_version}"
+        quartermaster_version > pre_party_mint,
+        "quartermaster_version must come from the one global sequence — it was \
+         minted after a direct draw of {pre_party_mint} against the matured \
+         watermark, and a dedicated per-table sequence would sit far beneath \
+         it (got {quartermaster_version})"
     );
+
+    db.drop_self().await;
+}
+
+/// `seed_character`'s steps with the sequence watched: the field-version
+/// watermark is matured first and one value drawn before the party row
+/// exists, so `quartermaster_version`'s source is discriminable. In a fresh
+/// database both candidate sequences live near 1 — the poc seed's party rows
+/// cost a per-table sequence only its ALTER rewrite — so a small inequality
+/// can pass by coincidence. A long-running server's watermark is far above
+/// 1, and that is exactly the state the global sequence guards: a per-table
+/// sequence starting at 1 would mint versions beneath every client's
+/// `since`. 1000 buys margin no template accident can cross. Returns
+/// (`party_id`, `character_id`, `pre_party_mint`, `hp_version`).
+async fn seed_party_with_matured_watermark(
+    db: &TestDb,
+    sub: &str,
+    party_name: &str,
+) -> (i64, i64, i64, i64) {
+    exec(
+        db,
+        &format!(
+            "INSERT INTO accounts (sub, username, display_name, role)
+             VALUES ('{sub}', '{sub}', 'Display {sub}', 'player')"
+        ),
+        &format!("seed account {sub}"),
+    )
+    .await;
+    exec(
+        db,
+        "SELECT setval('field_version_seq', 1000, true)",
+        "mature the field-version watermark",
+    )
+    .await;
+    let pre_party_mint: i64 = one_string(db, "SELECT nextval('field_version_seq')::text")
+        .await
+        .parse()
+        .expect("pre-party mint parses");
+    let party = one_string(
+        db,
+        &format!("INSERT INTO parties (name) VALUES ('{party_name}') RETURNING id::text"),
+    )
+    .await
+    .parse::<i64>()
+    .expect("party id parses");
+    let character = one_string(
+        db,
+        &format!(
+            "INSERT INTO characters (party_id, owner_sub, payload_raw, base_sheet)
+             VALUES ({party}, '{sub}', '{{\"success\":true}}', '{{\"level\":5}}')
+             RETURNING id::text"
+        ),
+    )
+    .await
+    .parse::<i64>()
+    .expect("character id parses");
+    exec(
+        db,
+        &format!(
+            "INSERT INTO character_vitals (character_id, hp, temp_hp) VALUES ({character}, 25, 3)"
+        ),
+        &format!("seed vitals for {sub}"),
+    )
+    .await;
+    let hp_version = vitals_version(db, character, "hp_version").await;
+    (party, character, pre_party_mint, hp_version)
+}
+
+#[tokio::test]
+async fn e12_coins_columns_are_one_fact_all_or_none() {
+    let db = provision_or_skip!("e12_coins");
+    let (party, _) = seed_character(&db, "sub-a", "E12 Coins").await;
 
     // D1.3 — the coins columns: NULL on an item movement, signed amounts on
     // a money movement (quantity carries a meaningless 1 per the migration
@@ -1417,6 +1495,22 @@ async fn e12_activation_lands_the_version_and_coins_columns() {
              VALUES ({party}, 'bank adjustment', 1, 'bank', 'outside', 'sub-a', -3, 0, 0)"
         ),
         "signed coins store (a withdrawal is negative)",
+    )
+    .await;
+
+    // All-or-none backing (claim_history_coins_all_or_none): the three
+    // columns are one fact, so a partial money row — some denominations set,
+    // others NULL — must raise, not sit ambiguously between the item-movement
+    // predicate (all three NULL) and a money movement. Two-sided: the
+    // all-three inserts above store, the one-of-three insert raises.
+    db.assert_fails_with(
+        &format!(
+            "INSERT INTO claim_history (party_id, item_name, quantity, origin, destination, actor_sub, coins_gp)
+             VALUES ({party}, 'bank adjustment', 1, 'outside', 'bank', 'sub-a', 7)"
+        ),
+        CHECK_VIOLATION,
+        "a partial money row (some denominations set, others NULL) must raise — \
+         the coins columns stand or fall together",
     )
     .await;
 
@@ -1537,14 +1631,16 @@ async fn e12_claim_history_stays_append_only_after_the_coins_alter() {
     exec(
         &db,
         &format!(
-            "INSERT INTO claim_history (party_id, item_name, quantity, origin, destination, actor_sub, coins_gp)
-             VALUES ({party}, 'bank adjustment', 1, 'outside', 'bank', 'sub-a', 7)"
+            "INSERT INTO claim_history (party_id, item_name, quantity, origin, destination, actor_sub, coins_gp, coins_sp, coins_cp)
+             VALUES ({party}, 'bank adjustment', 1, 'outside', 'bank', 'sub-a', 7, 0, 0)"
         ),
         "claim insert with coins must succeed",
     )
     .await;
     db.assert_fails_with(
-        &format!("UPDATE claim_history SET coins_gp = 9 WHERE party_id = {party}"),
+        &format!(
+            "UPDATE claim_history SET coins_gp = 9, coins_sp = 0, coins_cp = 0 WHERE party_id = {party}"
+        ),
         TRIGGER_EXCEPTION,
         "claim UPDATE must still be rejected after the coins columns landed",
     )

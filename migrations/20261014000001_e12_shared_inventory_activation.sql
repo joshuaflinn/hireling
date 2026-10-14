@@ -3,7 +3,8 @@
 -- unused (migration 20260924000005) and parties.quartermaster_character_id
 -- present but dormant (20260924000001); E7 FR-13 named this epic as the one
 -- to add the version columns. Five changes, all reversible — the down file
--- restores the exact pre-E12 state.
+-- restores the pre-E12 state, with one caveat on the audit CHECK documented
+-- there (as in migration 20260924000009's down).
 
 -- D1.1: the stash row's version unit (spec FR-2.2) — the shipped table had
 -- none. One row is one version unit (the inv/effect precedent); the global
@@ -24,11 +25,20 @@ ALTER TABLE parties
 -- meaningless 1 (its CHECK (> 0) still stands); the item_name of a money row
 -- carries a deterministic label — the sold item's name for a sale, the fixed
 -- text `bank adjustment` for a manual adjustment. No note column exists or
--- is added (spec Clarify Log #5: actor logging, not notes).
+-- is added (spec Clarify Log #5: actor logging, not notes). The three
+-- columns are one fact — the money movement's signed total — so they stand
+-- or fall together: claim_history_coins_all_or_none makes partial population
+-- (some denominations set, others NULL) impossible, because such a row sits
+-- ambiguously between the item-movement predicate (all three NULL) and a
+-- money movement. The structural backing lives here, in the one-way file,
+-- rather than in the write path, so no future writer can mint the ambiguous
+-- shape after the cheap moment has passed.
 ALTER TABLE claim_history
     ADD COLUMN coins_gp int,
     ADD COLUMN coins_sp int,
-    ADD COLUMN coins_cp int;
+    ADD COLUMN coins_cp int,
+    ADD CONSTRAINT claim_history_coins_all_or_none
+        CHECK (num_nonnulls(coins_gp, coins_sp, coins_cp) IN (0, 3));
 
 -- D1.4: audit values for the three new denial surfaces. Postgres cannot
 -- alter a CHECK in place: drop and re-add under the same auto-named
