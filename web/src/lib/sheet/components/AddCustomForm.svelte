@@ -20,7 +20,8 @@
   // it with showModal(), so the instance unmounts before `kind` could change
   // (svelte-check state_referenced_locally — ruled not-a-defect, MOR-129;
   // re-verified under gh#182 — non-null kinds only leave through null,
-  // which unmounts the form).
+  // which unmounts the form) — and ConditionPicker mounts it with a
+  // literal `kind="condition"`, which cannot change either.
   // svelte-ignore state_referenced_locally
   let valueOrRank = $state(kind === 'spell' ? '1' : '');
   /** @type {Record<string, string>} */
