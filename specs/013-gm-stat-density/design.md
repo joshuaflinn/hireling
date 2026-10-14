@@ -43,8 +43,8 @@ computing anything in the state layer — same fault, one layer down.
 `web/src/lib/party/StatBlock.svelte` — props `{ view }` (the engine output
 or null). Inside: `StatTile` per spec FR-1 entry (AC, Fort, Ref, Will,
 Perception, Init, Spell DC, Class DC — the last two conditionally), the
-key-skills line (Task 4's markup), skeleton rows when `view` is null. Tiles
-carry their `provenance` — E6's hover, free.
+key-skills line (Task 3's markup, Task 4's CSS), skeleton rows when `view`
+is null. Tiles carry their `provenance` — E6's hover, free.
 
 `RosterCard` mounts it between the HP bar and the effects strip.
 
