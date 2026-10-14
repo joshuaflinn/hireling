@@ -49,7 +49,14 @@ pub enum FieldTarget {
 /// wire means never toggled live — the sheet's own `ac.shieldRaised`
 /// governs; `true`/`false` is the player's override, and an applied write
 /// fans out the character's recompute (the flag feeds the engine's AC).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `EnumIter` (gh#91 F1): the wire-contract pin (`src/tests/sync/contract.rs`)
+/// derives the pinned set from `VitalsField::iter()`, which this derive
+/// generates from the enum definition itself — a new variant is in the
+/// derived set the moment it exists, so the fixture assert stays red until
+/// the pin is updated deliberately. No hand-written list can substitute:
+/// every one of them can silently omit the new variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, strum::EnumIter)]
 #[serde(rename_all = "snake_case")]
 pub enum VitalsField {
     Hp,
