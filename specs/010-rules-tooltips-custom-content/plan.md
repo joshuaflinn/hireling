@@ -33,7 +33,7 @@
 - [ ] Port `esc`/`linkifyConditions` verbatim-in-spirit from the frozen prototype; extend `scrub` + `scrubAttributes` per contract §1 — beyond both the prototype and the shipped module, deliberate.
 - [ ] Test first: contract §4's new rows only — discard-set fixtures, scheme allowlist (`data:`/protocol-relative/relative dropped; `https:` + fragment survive), `esc`, linkify (text-segment-only, tag passthrough, `skip`, `link:false`). The 7 shipped tests stay untouched. Each new row is a named test.
 
-**Done when:** `npx vitest run web/tests/util/inert-html.test.js` green; `grep -rn "{@html}" web/src` shows zero outside the two sanctioned components; `just ci-local` green.
+**Done when:** `npm --prefix web test -- tests/util/inert-html.test.js` green; `grep -rn "{@html}" web/src` shows zero outside the two sanctioned components; `just ci-local` green.
 
 ### Task 2: The curated seed + lookup
 
