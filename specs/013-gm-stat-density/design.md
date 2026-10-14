@@ -133,9 +133,17 @@ one `<button>`; the stat block is divs and spans inside it. **The effects
 strip already nests `role="button"` ConditionTip spans inside the card
 button** (`RosterCard.svelte` mounts `EffectsStrip` inside `<button>`), so
 "the card has no nested interactive element" is not available as a claim —
-the stat block's own region is: its root renders as a labelled group
-(`role="group"` + `aria-label="Stats"`), contains no interactive role
-and no `tabindex`, and SC-5's test asserts exactly that region. Tiles carry
+and neither, since round 2 (B1), is "the region holds no interactive role
+at all": FR-1 puts the provenance hover on every entry, and `Provenance`
+is focusable by design (`tabindex="0" role="note"` on any non-empty
+`applied`/`suppressed`, with a nested ConditionTip `role="button"`) — the
+same read-only affordance the sheet's tiles already carry. The stat
+block's own region is: its root renders as a labelled group
+(`role="group"` + `aria-label="Stats"`), its focusable set is exactly
+those provenance affordances, and it adds no control of its own — nothing
+that mutates state. SC-5's test asserts exactly that region, on SC-8's
+non-empty-`applied` fixture, so the affordances are present to be
+counted. Tiles carry
 `aria-label`s through `StatTile`'s existing structure; the key-skills rows
 render as a definition-style list with `<dt>/<dd>` (name / modifier) —
 readable by text, assertable by role.
@@ -161,9 +169,12 @@ readable by text, assertable by role.
   (empty `applied` → no affordance; non-empty → breakdown on both
   surfaces)**; null-view skeleton.
 - `web/tests/party/roster-card.test.js` (existing, extended) — SC-5:
-  **scoped query** — card mounted with effects present, stat-block group
-  located by role/name, no interactive role and no `tabindex` inside it;
-  card-level drill-in posture asserted for what it proves (FR-5).
+  **scoped query** — card mounted on SC-8's non-empty-`applied` fixture
+  with effects present, stat-block group located by role/name, every
+  focusable/interactive element inside it a provenance affordance
+  (`role="note"` span or its nested ConditionTip) and no `<button>` or
+  form control beyond them; card-level drill-in posture asserted for what
+  it proves (FR-5).
 - Sheet suites — Task 1b's class-DC alignment: a null-`class_dc.base`
   fixture renders no Class DC tile through StatsPane (suite that mounts it:
   `web/tests/shell/components.test.js` or a focused new one — seat's

@@ -107,9 +107,12 @@ two-line fallback, do not re-abstract it; core rows: capitalized key).
 **Do**: props `{ view }`; tiles per FR-1 via `StatTile` (AC plain; Fort /
 Ref / Will / Perception / Init signed via `signed()`; Init = perception's
 total + provenance, label `Init`; Spell DC via `primaryCaster` with attack
-note, omitted when no caster; Class DC omitted when `class_dc` null); the
+note, omitted when no caster; Class DC omitted when `class_dc.base` null —
+`class_dc` itself is always an object, E8 contract §3 — round 1 F2's
+misstatement kept out of the executable line, round 2 M1); the
 key-skills `<dt>/<dd>` list via `keySkills`; skeleton rows when `view`
-null. No interactive elements anywhere in the unit.
+null. No control of the unit's own anywhere in it — the only focusable
+elements are the `StatTile` provenance hovers (SC-5).
 
 **Acceptance**:
 - mount with a full fixture: every FR-1 entry found by accessible label
@@ -117,7 +120,10 @@ null. No interactive elements anywhere in the unit.
 - **mutate every FR-1 entry's backing field, one at a time, and re-assert**
   (spec FR-3 stmt 3's table — round-1 finding M2): `ac.total` +2; each of
   `fort/ref/will.total` moved; `perception.total` (the Init entry moves
-  with it); `casters[0].spell_dc.total` moved; `class_dc.base` → null and
+  with it); `casters[0].spell_dc.total` moved **and
+  `casters[0].spell_attack.total` moved (the attack note moves with it —
+  round-2 L1: the note is a displayed value and needs its own row)**;
+  `class_dc.base` → null and
   the entry disappears; a key-skill total moved far enough to re-select;
   `render_base.hp_max` moves the bar — every rendered value tracks exactly
   (SC-2);
@@ -131,8 +137,10 @@ null. No interactive elements anywhere in the unit.
   sheet's, engine text verbatim;
 - null view → zero stat numbers rendered (SC-7), skeleton present;
 - **SC-5 unit half**: the stat block's root is a labelled group
-  (`role="group"`, `aria-label="Stats"`); `within(group)` finds no
-  interactive role and no `tabindex`.
+  (`role="group"`, `aria-label="Stats"`); on the non-empty-`applied`
+  fixture (SC-8's), every focusable/interactive element `within(group)` is
+  a provenance affordance (`role="note"` span or the ConditionTip nested
+  in one) — no `<button>`, no form control, nothing else.
 `npm --prefix web run test -- run web/tests/party/stat-block.test.js`.
 
 ## Task 4 — Mount in `RosterCard`, card-level acceptance (D2)
@@ -147,10 +155,13 @@ density (tiles wrap, key-skills line, `--panel`/`--edge` tokens like the
 card).
 
 **Acceptance**: roster-card suite extended — the card renders the stat
-block below the bar; **SC-5 scoped query: card mounted with effects
-present (ConditionTips render — the case the card-level count cannot
-guard), stat-block group located by role/name, no interactive role and no
-`tabindex` inside it**; the drill-in remains the card's navigation control;
+block below the bar; **SC-5 scoped query: card mounted on SC-8's
+non-empty-`applied` fixture with effects present (provenance affordances
+render inside the region, ConditionTips render outside it — the two cases
+a card-level count and an empty-region claim each miss), stat-block group
+located by role/name, every focusable element inside it a provenance
+affordance, no `<button>` or form control beyond them**; the drill-in
+remains the card's navigation control;
 down/full/effect-chip regressions untouched (existing tests stay green).
 `npm --prefix web run test -- run web/tests/party`.
 

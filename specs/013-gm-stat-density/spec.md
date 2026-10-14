@@ -76,8 +76,10 @@ exactly, key skills re-select. A second computation path cannot pass this.
    block shows its skeleton state — no invented numbers, mirroring the
    HP-bar skeleton the card already renders.
 6. **Given** the GM seat, **When** the stat block renders, **Then** it adds
-   zero write affordances: the card remains one navigation control, and
-   nothing inside it is interactive.
+   zero write affordances: the card remains one navigation control, and the
+   stat block adds no control of its own — its only focusable elements are
+   the sheet's own read-only provenance hovers (FR-1, same affordance both
+   surfaces carry).
 
 ## Functional Requirements
 
@@ -201,16 +203,20 @@ is decoration, and round 1 said so):
    holds pre-existing sheet-path arithmetic in `format.js:28,36`; that
    file predates E14, is outside this diff, and is named here so the
    sweep's claim stays exact). The sweep is a tripwire with known blind
-   spots — no-space operators, `reduce`, `Math.max`, template
-   concatenation — so the pattern is tuned to the diff at Task 5 and the
-   compensating evidence is the diff review plus statements 3 and 4.
+   spots — the Task 5 pattern catches bare, spaced and no-space operators
+   on view fields plus literal `reduce(`/`Math.max`/`Math.min`; what it
+   cannot catch is template concatenation and aliasing — so the pattern is
+   tuned to the diff at Task 5 and the compensating evidence is the diff
+   review plus statements 3 and 4.
    Comparing and sorting wire totals (FR-2) is selection, not computation.
 3. **Fixture tracking** — *mechanism: a component test*. Mounts the card
    against an engine fixture and mutates **every FR-1 entry's backing
    field, one at a time** — an applied buff moves `ac.total`; a skill total
-   drops; `casters[0].spell_dc.total` moves; `class_dc.base` goes null and
+   drops; `casters[0].spell_dc.total` moves; `casters[0].spell_attack.total`
+   moves (the attack note moves with it); `class_dc.base` goes null and
    the entry disappears; `hp_max` moves the bar — asserting the card
-   tracks each mutation exactly. A hardcoded constant, a cached recompute,
+   tracks each mutation exactly, every displayed value included. A
+   hardcoded constant, a cached recompute,
    or a second math path cannot pass.
 4. **Sheet equality** — *mechanism: a component test*. The same fixture
    drives the sheet's `StatsPane` and the card's stat block; AC, saves,
@@ -253,7 +259,10 @@ highlight a turn, or count anything.
 The stat block renders for every viewer of the party screen — GM and players
 alike (it is the shared card surface; FG5's name is about the GM's need).
 It adds no write affordance anywhere: the card remains a single `<button>`
-(the drill-in), the stat block's entries are non-interactive, and the GM
+(the drill-in), the stat block's entries carry no control of their own —
+their only focusable elements are E6's read-only provenance hovers, the
+same `role="note"` affordance the sheet's tiles already carry (FR-1,
+SC-5) — and the GM
 seat's zero-affordance posture (E10's acceptance) is unchanged.
 
 ### FR-6 — Offline and loading states
@@ -280,23 +289,36 @@ rule as the card's existing skeleton bar.
   different names → name ascending; three-way tie → exact predicted order;
   and the selection re-runs when a fixture's totals change. *(Bench-verifiable,
   boundary-style assertions per the two-fixture rule.)*
-- **SC-5** No write affordance exists inside the stat block, any role.
-  *(Bench-verifiable with a **scoped** query. The effects strip already
-  nests `role="button"` ConditionTip spans inside the card's drill-in
-  button — `RosterCard.svelte` mounts `EffectsStrip` inside `<button>` — so
-  a card-level button count passes trivially on a card without a stat
-  block and already fails on a card with effects: it cannot guard the stat
-  block. The test mounts the card **with effects present**, locates the
-  stat block's own region — StatBlock's root is a labelled group, D7 — and
-  asserts that region contains no interactive role and no `tabindex`. The
-  card-level drill-in assertion stays, as the FR-5 posture check it
-  actually proves.)*
+- **SC-5** The stat block region's focusable set is exactly E6's
+  read-only provenance affordances — it contains no control of its own and
+  nothing that mutates state.
+  *(Bench-verifiable with a **scoped** query, on SC-8's fixture. Two traps
+  the assertion must not fall into. First, a card-level button count: the
+  effects strip already nests `role="button"` ConditionTip spans inside
+  the card's drill-in button — `RosterCard.svelte` mounts `EffectsStrip`
+  inside `<button>` — so it fails on any card with effects and guards
+  nothing. Second, an empty-region "no interactive role and no `tabindex`"
+  claim (round 2, B1): FR-1 mandates the provenance hover on every entry,
+  `Provenance.svelte` emits `tabindex="0" role="note"` whenever
+  `applied`/`suppressed` is non-empty and nests a `role="button"`
+  ConditionTip — so that claim only ever passes on an empty-`applied`
+  fixture and is jointly unsatisfiable with SC-8, which requires the
+  non-empty state. The test therefore mounts the card **on SC-8's
+  non-empty-`applied` fixture, with effects present**, locates the stat
+  block's own region — StatBlock's root is a labelled group, D7 — and
+  asserts: every focusable or interactive element inside it is E6's own
+  provenance affordance (a `role="note"` span or the ConditionTip
+  nested in one), and the region holds no `<button>`, no form control, no
+  control outside those affordances. The card-level drill-in assertion
+  stays, as the FR-5 posture check it actually proves.)*
 - **SC-6** FR-3 statement 2's sweep passes over its exact scope —
   `web/src/lib/party/` plus this epic's new engine-lib helpers — with the
   command and output pasted in the implementation PR, the pattern's blind
   spots named next to it, and the compensating diff review stated. The grep
-  alone cannot prove absence (it is blind to no-space operators, `reduce`,
-  `Math.max`, template concatenation); statements 3 and 4 are the criteria
+  alone cannot prove absence (template concatenation and aliasing are
+  outside any literal pattern, and whatever blind spots the tuned pattern
+  leaves are named next to the pasted output — the plan's Task 5 list is
+  the honest one); statements 3 and 4 are the criteria
   with teeth, and the PR body says so rather than laundering the tripwire
   as proof. *(Bench-verifiable as stated: sweep + review, honestly
   labelled.)*
