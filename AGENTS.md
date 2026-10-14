@@ -88,13 +88,13 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   round split across tasks produces verdicts that are each correct in
   their own scope and jointly unreadable at the press. While a round is
   open, the press waits, and it reads that state off the PR — the round
-  is open when it is announced on the PR and closed when the verdict is
-  posted to it — never off tracker task state, which the press seat
-  cannot see at the PR.
+  is open when it is announced on the PR and closed when the verdict at
+  that head is posted to it — never off tracker task state, which the
+  press seat cannot see at the PR.
 - **A review round announces itself on the PR before it reads the diff.** A
   review comment (`gh pr review <n> --comment -F -`) naming the head SHA under
-  review, the questions the round is asking, and the review task. That comment
-  opens the round; the verdict at that head closes it. One `gh` call, and the
+  review, the questions the round is asking, and the review task. One `gh`
+  call, and the
   open-round signal lives where a presser already reads — no board access
   required, because this file governs any agent in this repo, not one
   harness.
@@ -105,16 +105,19 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   way. Opening a second is a provisioning defect — note it in the PR body and
   report it on the tracking task, same handling as a branch collision.
 
-  **The press blocks while a round is open.** Every announced round at the
-  head being merged has a verdict against it before the press, and an accept
-  is a verdict on the scope that round asked, not on the head — a narrower
-  accept does not close a wider round still writing, and where two verdicts
+  **Every announced round at the head being merged has a verdict against it
+  before the press** — a narrower accept does not close a wider round still
+  writing, and where two verdicts
   at one head disagree, the wider scope counts. PR #158 is the reason: it
-  merged at 20:26:54Z on a round-3 accept (review 5509509486, 20:24:29Z, two
-  questions) while a wider round-3 review was still running, and the reject
-  (review 5509546840) landed 44 seconds after the merge, at 20:27:38Z, with
-  a real defect in it (gh#169). Neither seat was wrong on its own terms —
-  nothing on the PR said the wider round was mid-sentence.
+  merged at 20:26:54Z on a round-3 accept (review 5509509486, 20:24:29Z, one
+  question of the round's three) while a wider round-3 review was still
+  running, and the reject (review 5509546840) landed 44 seconds after the
+  merge, at 20:27:38Z, with a real defect in it (gh#169). Neither review
+  seat was wrong on its own terms — the accept was right inside the one
+  question it named, the reject right across the round's three. What failed
+  was at the press: an announced three-question round and a verdict covering
+  one of them were both on the PR, and the narrow accept was read as an
+  acceptance of the head.
 - **A review round opens with a check-runs read at the head under review.**
   Before the diff: name the head, then read the `gate` check at it with
   `gh api repos/joshuaflinn/hireling/commits/<sha>/check-runs`. The check-run
