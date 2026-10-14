@@ -11,7 +11,7 @@ use serde_json::json;
 use crate::engine_host::recompute::recompute_character;
 use crate::pbimport::{model, transform};
 use crate::sync::protocol::{FieldTarget, Outcome, ServerFrame};
-use crate::sync::test_helpers::{connect, read_frame, send_raw, spawn_server};
+use crate::sync::test_helpers::{connect, p95, read_frame, send_raw, spawn_server};
 use crate::testing;
 
 /// The prototype's own export, verbatim — the sheet every character here
@@ -468,6 +468,44 @@ async fn a_non_targeted_character_derives_byte_identical() {
     testing::drop_test_db(pool, "e8_isolated").await;
 }
 
+/// The gh#134 failure's shape: nineteen samples inside the 50 ms smoke
+/// budget and one tail outlier. Nearest-rank p95 selects the 19th order
+/// statistic, so the outlier is not the asserted value and the budget
+/// holds — the property the old `gaps.last()` broke.
+#[test]
+fn p95_leaves_a_single_tail_outlier_out_of_the_selection() {
+    let in_budget: Vec<f64> = (0..19).map(|i| 40.0 + 0.5 * f64::from(i)).collect();
+    let mut gaps: Vec<f64> = in_budget.into_iter().chain([54.7]).collect();
+    assert_eq!(gaps.len(), 20);
+    let selected = p95(&mut gaps);
+    assert_eq!(
+        selected, 49.0,
+        "p95 of 20 samples is the 19th order statistic"
+    );
+    assert!(
+        selected < 50.0,
+        "one outlier over budget must stay green: {selected}"
+    );
+}
+
+/// Three samples over the budget must still fail it: index 18 now sits
+/// inside the outlier band, so the selected value crosses the line.
+#[test]
+fn p95_still_fails_when_three_samples_exceed_the_budget() {
+    let in_budget: Vec<f64> = (0..17).map(|i| 40.0 + 0.5 * f64::from(i)).collect();
+    let mut gaps: Vec<f64> = in_budget.into_iter().chain([52.0, 54.0, 56.0]).collect();
+    assert_eq!(gaps.len(), 20);
+    let selected = p95(&mut gaps);
+    assert_eq!(
+        selected, 54.0,
+        "p95 of 20 samples is the 19th order statistic"
+    );
+    assert!(
+        selected >= 50.0,
+        "three outliers over budget must go red: {selected}"
+    );
+}
+
 #[tokio::test]
 async fn the_derived_fan_out_stays_within_the_smoke_budget() {
     let Some(pool) = testing::test_pool().await else {
@@ -512,9 +550,10 @@ async fn the_derived_fan_out_stays_within_the_smoke_budget() {
         let _ = read_frame(&mut writer.stream, "end diff").await;
         let _ = read_derived(&mut writer.stream).await;
     }
-    gaps.sort_by(f64::total_cmp);
-    // 20 samples: the 95th percentile is the 19th order statistic — the max.
-    let p95 = *gaps.last().expect("non-empty gaps");
+    // 20 samples: nearest-rank p95 is the 19th order statistic (index 18)
+    // — the max is not the asserted value, so one tail outlier stays green.
+    // The helper sorts in place, so a failure prints the sorted sample.
+    let p95 = p95(&mut gaps);
     assert!(
         p95 < 50.0,
         "derived fan-out p95 {p95:.1} ms exceeds the 50 ms smoke budget: {gaps:?}"
