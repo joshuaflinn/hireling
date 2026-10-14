@@ -28,7 +28,7 @@ rounds 1–4 on PR #197
 - [x] Success criteria are technology-agnostic (rendered/trackable/equal —
       no framework names in the SCs themselves).
 - [x] All acceptance scenarios defined (six, Given/When/Then).
-- [x] Edge cases identified (ten, including null `class_dc.base`,
+- [x] Edge cases identified (nine, including null `class_dc.base`,
       innate-first caster ordering, innate-only caster, degenerate skill
       lists, offline).
 - [x] Scope is clearly bounded (Position + FR-4's non-goal flag + the
