@@ -1,8 +1,8 @@
 # Feature Specification: GM Stat Density — Party-Card Stat Blocks (E14)
 
 **Epic**: E14 — Phase 3, P1 · depends on E10 (closed) · GitHub issue #16
-**Created**: 2026-10-16
-**Status**: Specify gate run 2026-10-16 (Korrin, front half of the SDD pipeline — docs only, no code in this pass); design signed by Korrin same day. **Implementation hold (Thrane, binding): no E14 code merges to `main` before gh#13 closes — spec, design and plan on disk are fine.**
+**Created**: 2026-10-14 · **Revised**: 2026-10-14 — round-1 review (PR #197, reject) findings F1–F6 / M1–M3 / L1–L2 addressed; class-DC absence rescoped to `class_dc.base`, sheet alignment tasked, guardrail sweep re-scoped, provenance hover given its non-default test.
+**Status**: Specify gate run 2026-10-14 (Korrin, front half of the SDD pipeline — docs only, no code in this pass); design signed by Korrin same day. **Implementation hold (Thrane, binding): no E14 code merges to `main` before gh#13 closes — spec, design and plan on disk are fine.**
 **Input**: `docs/EPICS.md` Epic E14 (specify prompt + AI Guardrails); PRD v3.6 FG5 ("GM stat density (P1)") + Non-Goals (Combat tracking) + US-9; `CONSTITUTION.md` Articles I/II/VI; E8 `specs/008-buff-effect-engine/contracts/engine-output.md` (binding — the derived shape the stat block reads); E10 `specs/009-party-view-gm-seat-pwa/` (the surface this epic extends); merged tree: `web/src/lib/party/state.js` (the per-card `view`), `web/src/lib/sheet/` (the sheet's own read of the same view), `engine/src/vocab.rs` (the closed stat vocabulary — no `initiative` in it).
 
 ---
@@ -61,9 +61,12 @@ exactly, key skills re-select. A second computation path cannot pass this.
    sheet's StatsPane shows (first non-innate caster, else first caster),
    with the spell attack modifier as its note; a character with no casters
    shows no spell-DC entry.
-3. **Given** a character whose `class_dc` is `null` on the wire, **When**
-   the card renders, **Then** no class-DC entry renders (the slot's output
-   is null — nothing is invented); a character with a class DC shows it.
+3. **Given** a character whose `class_dc.base` is `null` on the wire (the
+   `class_dc` object is always present — E8 contract §3; only `base` and
+   `total` go null), **When** the card renders, **Then** no class-DC entry
+   renders (the slot's output is null — nothing is invented), and the
+   sheet's StatsPane likewise omits its tile for the same character — a
+   character with a class DC shows it on both surfaces.
 4. **Given** any effect change that recomputes a character's engine output
    (buff, condition, level adjust), **When** the recompute lands on the
    wire, **Then** the card's stat block reflects the new totals without a
@@ -93,15 +96,31 @@ compact stat block rendering, each with an accessible label:
   non-innate block, else the first block; `StatsPane`'s existing
   `$derived`), value `spell_dc.total`, note `attack <signed
   spell_attack.total>`. Absent when `casters` is empty.
-- **Class DC** — `derived.class_dc.total`; the entry is **omitted** when the
-  output's `class_dc` is null (E8 contract §1: null base ⇒ not rendered).
+- **Class DC** — `derived.class_dc.total`; the entry is **omitted** when
+  the output's `class_dc.base` is null (E8 contract §1: null base ⇒ not
+  rendered; `class_dc` itself is always an object — contract §3).
+  **Sheet alignment (merged-tree defect, fixed by this epic's
+  implementation — plan Task 1b)**: StatsPane currently renders the tile
+  unconditionally with a `—` placeholder (`StatsPane.svelte:112`), against
+  contract §1 — which made sheet-equality (FR-3 statement 4) unsatisfiable
+  for classless characters: spec, plan and merged code could not all hold.
+  The implementation renders the sheet's tile conditionally too: null base
+  ⇒ no tile on either surface. The dash carries no information a null-base
+  stat can stand behind — its provenance hover renders nothing (modifiers
+  to a null base are suppressed from display by the same contract line),
+  so the tile shows a bare `—` for a stat the character does not have.
 - **Key skills** — FR-2, exactly three rows: display name + signed total.
 
 HP current/max stays the existing `HpBar` (it already renders `current / max`
 text); the stat block does not duplicate it. Every entry reuses E6's
 `StatTile`-style presentation including the provenance hover (applied /
 suppressed verbatim from the engine output) — the GM can hover a number and
-see its math, same as a player can on the sheet.
+see its math, same as a player can on the sheet. **The hover is exercised
+in its non-default state (SC-8)**: the reference fixture's `applied` lists
+are empty on every stat, and `Provenance` renders nothing when both lists
+are empty (`Provenance.svelte` gates on `count > 0`) — so a fixture with a
+non-empty `applied` list is required to prove the affordance renders at
+all, on both surfaces.
 
 ### FR-2 — Key skills: the selection rule (settled here, as the PRD deferred)
 
@@ -121,10 +140,12 @@ pre-filter by proficiency.
 **Consequences, stated so a reviewer can check them**:
 
 - An **untrained** row (rank 0) **can** win a slot when its `total` is
-  genuinely in the top three. Per Player Core's proficiency rules an
-  untrained skill adds no level and no proficiency bonus, so in practice
-  trained rows dominate after the earliest levels — but the rule is honest
-  arithmetic: filter nothing, rank what is.
+  genuinely in the top three. The engine's proficiency arithmetic already
+  encodes the untrained cost in the wire's `total` (a rank-0 row carries no
+  proficiency bonus there), so in practice trained rows dominate after the
+  earliest levels — but this rule is honest arithmetic over the delivered
+  totals: filter nothing, rank what is. The comparator reads totals; it
+  re-encodes no book math, so it carries no book citation.
 - **Lores compete with core skills on equal terms.** A loremaster's best
   number is usually a Lore; excluding it would misreport "three highest
   skill modifiers."
@@ -161,32 +182,57 @@ view — the `views` map entry `sync.derived(characterId)` that
 renders `sync.derived(characterId)` through its own store
 (`web/src/lib/sheet/state.js`). One engine, one wire, two views.
 
-**Testable statements** (each is an acceptance criterion the implementation
-PR must demonstrate, and a reviewer can check):
+**Checkable statements** — each names the mechanism that checks it; the
+implementation PR must show every mechanism (a statement with no mechanism
+is decoration, and round 1 said so):
 
-1. **Verbatim read**: every stat-block number is a field of that view read
-   as-is — `derived.<stat>.total`, `derived.casters[…].spell_dc.total`,
+1. **Verbatim read** — *mechanism: diff review at the implementation PR*.
+   Every stat-block number is a field of that view read as-is —
+   `derived.<stat>.total`, `derived.casters[…].spell_dc.total`,
    `render_base.hp_max` (the bar) — or a vitals field store (the bar's
-   current HP). Formatting (`signed`) is display, not computation.
-2. **Selection ≠ derivation**: the key-skills comparator (FR-2) sorts and
-   compares engine-provided totals; no party-lib code combines, sums, or
-   offsets engine numbers. A static sweep of `web/src/lib/party/` finds no
-   arithmetic over engine-derived values.
-3. **Fixture tracking**: a component test mounts the card against an engine
-   fixture, mutates the fixture's derived values (an applied buff moves
-   `ac.total`; a skill total drops; a caster list empties), and asserts the
-   card tracks every mutation exactly. A hardcoded constant, a cached
-   recompute, or a second math path cannot pass.
-4. **Sheet equality**: the same fixture drives the sheet's `StatsPane` and
-   the card's stat block; AC, saves, Perception, spell DC and class DC
-   render identical values in both. One engine source, two views — the E10
-   chip-equality rule, extended to numbers.
+   current HP). Formatting (`signed`) is display, not computation. The
+   reviewer's checklist at the PR: every rendered value traces to a named
+   view field; any value that does not is a second path.
+2. **Selection ≠ derivation** — *mechanism: a scoped sweep plus
+   line-by-line diff review*. No E14 code combines, sums, offsets or
+   clamps engine numbers. The sweep's scope is exact: `web/src/lib/party/`
+   **plus this epic's own engine-lib helpers** (`key-skills.js`,
+   `caster.js` — D4/D5 put new code in `web/src/lib/engine/`, which already
+   holds pre-existing sheet-path arithmetic in `format.js:28,36`; that
+   file predates E14, is outside this diff, and is named here so the
+   sweep's claim stays exact). The sweep is a tripwire with known blind
+   spots — no-space operators, `reduce`, `Math.max`, template
+   concatenation — so the pattern is tuned to the diff at Task 5 and the
+   compensating evidence is the diff review plus statements 3 and 4.
+   Comparing and sorting wire totals (FR-2) is selection, not computation.
+3. **Fixture tracking** — *mechanism: a component test*. Mounts the card
+   against an engine fixture and mutates **every FR-1 entry's backing
+   field, one at a time** — an applied buff moves `ac.total`; a skill total
+   drops; `casters[0].spell_dc.total` moves; `class_dc.base` goes null and
+   the entry disappears; `hp_max` moves the bar — asserting the card
+   tracks each mutation exactly. A hardcoded constant, a cached recompute,
+   or a second math path cannot pass.
+4. **Sheet equality** — *mechanism: a component test*. The same fixture
+   drives the sheet's `StatsPane` and the card's stat block; AC, saves,
+   Perception, spell DC and class DC render identical values in both —
+   **including absence**: a null `class_dc.base` omits the entry on the
+   card *and* the tile on the sheet (FR-1's alignment makes this
+   unconditional; against the merged sheet's unconditional dash it was
+   unsatisfiable). One engine source, two views — the E10 chip-equality
+   rule, extended to numbers.
 
 ### FR-4 — Initiative modifier display (and the non-goal, flagged)
 
 The stat block shows an **Initiative** entry whose value is
-`derived.perception.total` — PF2e's initiative is by default a Perception
-check (Player Core, Encounters: Rolling Initiative). The entry's provenance
+`derived.perception.total`. Its authority is the PRD's own ruling —
+`docs/PRD.md:41-42`: "displaying an initiative *modifier* is a stat, not
+tracking — that's fine" — and the closed vocabulary below forces the
+source: Perception is the only initiative-adjacent number the engine
+recomputes. (PF2e's Perception-by-default encounter rule is why the `Init`
+label reads honestly; a page-level *Player Core* citation for it lands in
+the implementation PR's doc comment on the Init tile, written off the
+source page per AGENTS.md rules-exactness §1 — this spec cites only what
+it can read.) The entry's provenance
 hover is Perception's own (`perception.applied` / `.suppressed`), because
 that is the math behind the number.
 
@@ -224,8 +270,9 @@ rule as the card's existing skeleton bar.
   output. *(Bench-verifiable at the implementation PR: component test by
   label.)*
 - **SC-2** Two characters with different engine outputs render different
-  stat blocks — every displayed value moves with its fixture field
-  (two-fixture rule; FR-3 statement 3). *(Bench-verifiable.)*
+  stat blocks — every displayed value moves with its fixture field,
+  enumerated one at a time by FR-3 statement 3's mutation table, absence
+  states included (two-fixture rule). *(Bench-verifiable.)*
 - **SC-3** Card stat values equal the sheet's values for the same character
   state, including under an active effect (FR-3 statement 4). *(Bench-verifiable.)*
 - **SC-4** The key-skills tie-break fixtures each render deterministically:
@@ -233,23 +280,53 @@ rule as the card's existing skeleton bar.
   different names → name ascending; three-way tie → exact predicted order;
   and the selection re-runs when a fixture's totals change. *(Bench-verifiable,
   boundary-style assertions per the two-fixture rule.)*
-- **SC-5** No write affordance exists on the stat block for any role; the
-  card's only interactive element remains the drill-in. *(Bench-verifiable:
-  role query on the mounted card.)*
-- **SC-6** The static sweep of FR-3 statement 2 passes: no arithmetic over
-  engine numbers in `web/src/lib/party/`. *(Bench-verifiable: the named grep,
-  run and pasted in the implementation PR.)*
+- **SC-5** No write affordance exists inside the stat block, any role.
+  *(Bench-verifiable with a **scoped** query. The effects strip already
+  nests `role="button"` ConditionTip spans inside the card's drill-in
+  button — `RosterCard.svelte` mounts `EffectsStrip` inside `<button>` — so
+  a card-level button count passes trivially on a card without a stat
+  block and already fails on a card with effects: it cannot guard the stat
+  block. The test mounts the card **with effects present**, locates the
+  stat block's own region — StatBlock's root is a labelled group, D7 — and
+  asserts that region contains no interactive role and no `tabindex`. The
+  card-level drill-in assertion stays, as the FR-5 posture check it
+  actually proves.)*
+- **SC-6** FR-3 statement 2's sweep passes over its exact scope —
+  `web/src/lib/party/` plus this epic's new engine-lib helpers — with the
+  command and output pasted in the implementation PR, the pattern's blind
+  spots named next to it, and the compensating diff review stated. The grep
+  alone cannot prove absence (it is blind to no-space operators, `reduce`,
+  `Math.max`, template concatenation); statements 3 and 4 are the criteria
+  with teeth, and the PR body says so rather than laundering the tripwire
+  as proof. *(Bench-verifiable as stated: sweep + review, honestly
+  labelled.)*
 - **SC-7** A stat block on a card whose engine output has not arrived
   renders skeleton entries, no numbers. *(Bench-verifiable.)*
+- **SC-8** The provenance hover renders its non-default state: a fixture
+  with a non-empty `applied` list shows the breakdown on the card's tile
+  and the sheet's tile for the same stat (engine text verbatim —
+  `signed(value) type — effect_name`, the strings `Provenance.svelte`
+  already renders); the empty-`applied` fixture renders no such affordance
+  on either surface. *(Bench-verifiable: two-fixture, both surfaces — the
+  non-default-state rule; the reference fixture is empty on every stat, so
+  a single-fixture test never enters the branch the rule is about.)*
 
 ## Edge Cases
 
 - **Character with no casters** — no spell-DC entry; the block shortens.
-- **Character with `class_dc: null`** — no class-DC entry (never "0",
-  never "—").
+- **Character with `class_dc.base: null`** — no class-DC entry on the card
+  and, after FR-1's alignment, no tile on the sheet (never "0", never
+  "—"; absence is absence).
 - **Innate-only caster** (sorcerer with innate block only) — the sheet's
   fallback picks the first block; the card shows the same DC the sheet
   shows (equality, SC-3, holds over the fallback too).
+- **Innate block ordered first** (`casters = [innate, non-innate]`) — the
+  one ordering where "first non-innate" and "first block" disagree. Both
+  views pick the non-innate block, and the fixtures pin exactly this side
+  of the boundary: the reference fixture's casters are non-innate-first
+  (`[Wizard, Wellspring Gnome]`), an ordering on which the two rules
+  return the same block and a degraded extraction passes silently — the
+  discriminating fixture is required, not optional (plan Task 1).
 - **Tie among lores and core at equal totals** — FR-2's comparator decides;
   lore-vs-core identity never enters the comparison (the wire names do).
 - **A skill named identically to a lore key** — impossible on the wire
@@ -279,3 +356,15 @@ No `[NEEDS CLARIFICATION]` markers remain. The two deliberately deferred
 decisions (key-skills rule, guardrail testability) are settled in FR-2 and
 FR-3 respectively, with rejected alternatives recorded. No question in this
 spec needs Josh.
+
+**Round 1 (PR #197, reject — 6 blocking / 3 medium / 2 low)**: all findings
+addressed in this revision — class-DC absence rescoped to `class_dc.base`
+with the sheet alignment tasked (F1, F2); SC-5 re-mechanized as a scoped
+query that can fail for what it claims (F3); provenance hover given its
+non-default-state test, SC-8 (F4); the sweep re-scoped onto the directories
+the new code actually lands in, blind spots named (F5, M1); the
+innate-first discriminating fixture required in edge cases, design and plan
+(F6); FR-3's statements re-bound each to its mechanism, Task 3's mutation
+table now enumerates every FR-1 entry (M2); lore-label parity pinned by test
+(M3); book-without-page citations re-anchored on readable sources (L1);
+date stamps corrected to the commit's date (L2).

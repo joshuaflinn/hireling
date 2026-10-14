@@ -1,7 +1,8 @@
 # Specification Quality Checklist: GM Stat Density (E14)
 
 **Purpose**: Validate specification completeness and quality before review.
-**Created**: 2026-10-16
+**Created**: 2026-10-14 · **Revalidated**: 2026-10-14 after round-1 review
+revisions (PR #197)
 **Feature**: [spec.md](../spec.md) · gh#16
 
 ## Content Quality
@@ -20,14 +21,16 @@
       PRD-deferred decisions settled in FR-2 / FR-3 with rejected
       alternatives).
 - [x] Requirements are testable and unambiguous (FR-1 field-by-field; FR-2
-      a total-order comparator; FR-3 four checkable statements).
-- [x] Success criteria are measurable (SC-1..SC-7, each mapped to a bench
+      a total-order comparator; FR-3 four statements, **each now bound to
+      the mechanism that checks it** — diff review, scoped sweep, or test).
+- [x] Success criteria are measurable (SC-1..SC-8, each mapped to a bench
       verification in design D8).
 - [x] Success criteria are technology-agnostic (rendered/trackable/equal —
       no framework names in the SCs themselves).
 - [x] All acceptance scenarios defined (six, Given/When/Then).
-- [x] Edge cases identified (nine, including null class DC, innate-only
-      caster, degenerate skill lists, offline).
+- [x] Edge cases identified (ten, including null `class_dc.base`,
+      innate-first caster ordering, innate-only caster, degenerate skill
+      lists, offline).
 - [x] Scope is clearly bounded (Position + FR-4's non-goal flag + the
       stop-and-flag rule for out-of-surface changes).
 - [x] Dependencies and assumptions identified (E10 closed; E8 contract
@@ -45,7 +48,10 @@
 
 ## Notes
 
-- Validation run 2026-10-16 (Korrin): all items pass on first iteration.
+- Validation run 2026-10-14 (Korrin): all items pass on first iteration;
+  revalidated same day after round-1 review (reject, 6 blocking / 3 medium
+/ 2 low — every finding addressed in spec/design/plan; the changelog is in
+  spec.md's Clarify Log).
 - The two decisions the PRD deferred to this spec (key-skills rule;
   guardrail testability) are settled in the spec text, not deferred to
   design or plan — checked explicitly against the task's Done definition.
