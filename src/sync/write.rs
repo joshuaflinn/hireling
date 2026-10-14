@@ -1476,7 +1476,9 @@ fn validate_daily(value: &JsonValue) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result<(), String> {
+/// The write path's own bounds gate; the wire-contract suite pins the
+/// fixture's `effect_ops` through it (gh#90 F3), so it is crate-visible.
+pub(crate) fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result<(), String> {
     match target {
         FieldTarget::Vitals {
             character_id: _,
