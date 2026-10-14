@@ -2,7 +2,9 @@
 //!
 //! The whole matrix is asserted here as rows: every role × every resource
 //! kind × every action. A verdict that drifts from the spec fails this table,
-//! not a player's session.
+//! not a player's session. Party-scoped resources (E12 design D4) ride the
+//! same rule with the deciding facts carried in the variant payload — the
+//! table below pins every cell of that table too.
 
 use super::Action;
 use super::Actor;
@@ -28,6 +30,15 @@ fn resources() -> Vec<Resource> {
         },
         Resource::CustomRow {
             creator_sub: "author".to_owned(),
+        },
+        Resource::Stash {
+            actor_is_party_member: true,
+        },
+        Resource::Bank {
+            quartermaster_owner_sub: Some("qm-owner".to_owned()),
+        },
+        Resource::PartySettings {
+            actor_is_party_member: true,
         },
     ]
 }
@@ -186,5 +197,141 @@ fn identity_is_matched_exactly_not_by_prefix_or_case() {
     assert_eq!(
         authorize(&actor("OWNER", Role::Player), Action::Write, &character),
         Verdict::Deny
+    );
+}
+
+// --- Party-scoped resources (E12 design D4) — the deciding fact rides in
+// --- the variant; the matrix performs no lookups.
+
+#[test]
+fn any_party_member_writes_the_stash_and_non_members_do_not() {
+    // The shared loot list is the party's, not one owner's (spec FR-1): any
+    // account owning a character in the party writes it. Identity is
+    // irrelevant — the membership fact is the input, loaded fresh at the
+    // call site.
+    let member = Resource::Stash {
+        actor_is_party_member: true,
+    };
+    assert_eq!(
+        authorize(&actor("member-one", Role::Player), Action::Write, &member),
+        Verdict::Allow
+    );
+    assert_eq!(
+        authorize(&actor("member-two", Role::Player), Action::Write, &member),
+        Verdict::Allow,
+        "a second member is equally allowed — no sole writer exists"
+    );
+    let non_member = Resource::Stash {
+        actor_is_party_member: false,
+    };
+    assert_eq!(
+        authorize(
+            &actor("member-one", Role::Player),
+            Action::Write,
+            &non_member
+        ),
+        Verdict::Deny,
+        "the same sub denies when the loaded membership fact says non-member —
+         facts are inputs, reloaded per message"
+    );
+    assert_eq!(
+        authorize(&actor("outsider", Role::Player), Action::Write, &non_member),
+        Verdict::Deny
+    );
+    assert_eq!(
+        authorize(&actor("the-gm", Role::Gm), Action::Write, &member),
+        Verdict::Deny,
+        "the GM role denies first, even when the fact would allow"
+    );
+}
+
+#[test]
+fn only_the_quartermasters_owner_writes_the_bank() {
+    // Money moves are quartermaster-only (spec FR-7): the owner of the
+    // character named by parties.quartermaster_character_id — and nobody
+    // else, member or not (E12 design D4).
+    let designated = Resource::Bank {
+        quartermaster_owner_sub: Some("qm-owner".to_owned()),
+    };
+    assert_eq!(
+        authorize(&actor("qm-owner", Role::Player), Action::Write, &designated),
+        Verdict::Allow
+    );
+    assert_eq!(
+        authorize(
+            &actor("fellow-member", Role::Player),
+            Action::Write,
+            &designated
+        ),
+        Verdict::Deny,
+        "party membership buys no bank access"
+    );
+    assert_eq!(
+        authorize(&actor("outsider", Role::Player), Action::Write, &designated),
+        Verdict::Deny
+    );
+    assert_eq!(
+        authorize(&actor("the-gm", Role::Gm), Action::Write, &designated),
+        Verdict::Deny
+    );
+    let undesignated = Resource::Bank {
+        quartermaster_owner_sub: None,
+    };
+    assert_eq!(
+        authorize(
+            &actor("qm-owner", Role::Player),
+            Action::Write,
+            &undesignated
+        ),
+        Verdict::Deny,
+        "undesignated denies everyone — no owner exists to allow (FR-5's
+         undesignated case)"
+    );
+    assert_eq!(
+        authorize(
+            &actor("fellow-member", Role::Player),
+            Action::Write,
+            &undesignated
+        ),
+        Verdict::Deny
+    );
+    assert_eq!(
+        authorize(&actor("the-gm", Role::Gm), Action::Write, &undesignated),
+        Verdict::Deny
+    );
+}
+
+#[test]
+fn any_character_owner_flips_party_settings_and_non_members_do_not() {
+    // FR-5's settled flip rule: party settings are writable by any character
+    // owner; the designated owner holds no exclusive lock on the toggle
+    // (Clarify Log #6, the owner-visible reading).
+    let member = Resource::PartySettings {
+        actor_is_party_member: true,
+    };
+    assert_eq!(
+        authorize(&actor("owner-a", Role::Player), Action::Write, &member),
+        Verdict::Allow
+    );
+    assert_eq!(
+        authorize(&actor("owner-b", Role::Player), Action::Write, &member),
+        Verdict::Allow,
+        "the flip rule knows no designated-owner exclusivity"
+    );
+    let non_member = Resource::PartySettings {
+        actor_is_party_member: false,
+    };
+    assert_eq!(
+        authorize(&actor("owner-a", Role::Player), Action::Write, &non_member),
+        Verdict::Deny
+    );
+    assert_eq!(
+        authorize(&actor("outsider", Role::Player), Action::Write, &non_member),
+        Verdict::Deny
+    );
+    assert_eq!(
+        authorize(&actor("the-gm", Role::Gm), Action::Write, &member),
+        Verdict::Deny,
+        "the GM is no character owner and writes no settings"
     );
 }
