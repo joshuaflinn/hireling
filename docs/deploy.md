@@ -10,7 +10,7 @@ Every step below names: the command, the expected observable, and the asset that
 
 ## §1 Prerequisites
 
-**Host prerequisite (Mimir):** none beyond Docker itself. Every Asgard-touching `psql`/`pg_restore` call in §1.1 and §5 steps 2/3/7 runs dockerized on the bridge, per §4 item 2's idiom: `docker run --rm --network asgard-net postgres:16 psql …`. There is no host-client path: Asgard publishes no ports, and Docker's DNS resolves bridge names only for containers attached to `asgard-net`, so `psql -h asgard` from a Mimir shell fails name resolution regardless of what client is installed. Calls that read a local file (`provision.sql` in §1.1, the dump in §5 step 3) bind-mount it into the same throwaway container.
+**Host prerequisite (Mimir):** none beyond Docker itself. Every Asgard-touching `psql`/`pg_restore` call in §1.1 and §5 steps 2/3/7 runs dockerized on the bridge, per §4 item 2's idiom: `docker run --rm --network asgard-net postgres:16 psql …`. There is no host-client path: Asgard publishes no ports, and Docker's DNS resolves bridge names only for containers attached to `asgard-net`, so `psql -h asgard` from a Mimir shell fails name resolution regardless of what client is installed. Calls that read a local file (`provision.sql` in §1.1, the dump in §5 step 3) bind-mount it into the same throwaway container — absolute paths only; Docker reads a relative `-v` source as a named volume.
 
 ### 1.1 The hall is provisioned — verify, don't assume
 
@@ -21,13 +21,14 @@ docker run --rm --network asgard-net postgres:16 \
   psql -h asgard -U postgres -tAc "SELECT datname FROM pg_database WHERE datname = 'hireling'"
 ```
 
-Expected: one row, `hireling`. If empty, provision once per `db/provision.sql` (run by the operator as a superuser; the file is bind-mounted from the checkout into the throwaway container), then set the role password interactively — the password is never in the repo:
+Expected: one row, `hireling`. If empty, provision once per `db/provision.sql` (run by the operator as a superuser; the file is bind-mounted from the checkout into the throwaway container), then set the role password interactively — the password is never in the repo. `\password` prompts twice, never echoes, and keeps the plaintext out of argv, psql history, and the server log:
 
 ```sh
-docker run --rm --network asgard-net -v <checkout>/db/provision.sql:/tmp/provision.sql postgres:16 \
+docker run --rm --network asgard-net -v <abs-path-to-checkout>/db/provision.sql:/tmp/provision.sql postgres:16 \
   psql -h asgard -U postgres -f /tmp/provision.sql
-docker run --rm --network asgard-net postgres:16 \
-  psql -h asgard -c "ALTER ROLE hireling PASSWORD '<from the house secret store>';"
+docker run --rm -it --network asgard-net postgres:16 psql -h asgard -U postgres
+# at the psql prompt:
+#   \password hireling
 ```
 
 Expected: role `hireling` exists at `CONNECTION LIMIT 20`, database `hireling` owned by it. Schema is **not** applied here — the app migrates itself at boot (`src/db.rs::connect_and_migrate`, schema before traffic).
@@ -243,7 +244,7 @@ An unverified backup is a hope, not a backup. This proves Asgard's rotation can 
 
 1. **Pick the dump.** Latest rotation dump of the `hireling` hall from Asgard's existing backup schedule. **Asset**: Asgard (operator knows the rotation's location/format; `pg_dump` custom or plain).
 2. **Create a scratch hall.** `docker run --rm --network asgard-net postgres:16 psql -h asgard -U postgres -c "CREATE DATABASE hireling_restore_scratch OWNER hireling"` — owner must be the app role so the container can read it.
-3. **Restore.** Plain SQL dump: `gunzip -c <dump> | docker run --rm -i --network asgard-net postgres:16 psql -h asgard -U hireling -d hireling_restore_scratch`. Custom format: `docker run --rm --network asgard-net -v <dump>:/dumps/backup postgres:16 pg_restore -h asgard -U hireling -d hireling_restore_scratch /dumps/backup`. Expected: restore completes without error.
+3. **Restore.** Plain SQL dump (`<dump>` is a Mimir-side path — `gunzip` runs on the host): `gunzip -c <dump> | docker run --rm -i --network asgard-net postgres:16 psql -h asgard -U hireling -d hireling_restore_scratch`. Custom format (`<abs-path-to-dump>` is bind-mounted into the container): `docker run --rm --network asgard-net -v <abs-path-to-dump>:/dumps/backup postgres:16 pg_restore -h asgard -U hireling -d hireling_restore_scratch /dumps/backup`. Expected: restore completes without error.
 4. **Row counts on core tables** (identity, live state, corpus, sessions):
    ```sh
    docker exec <house-postgres-container> psql -U hireling -d hireling_restore_scratch -tAc \
