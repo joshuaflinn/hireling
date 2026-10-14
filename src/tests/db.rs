@@ -54,6 +54,20 @@ fn explicitly_requested() -> bool {
     std::env::var_os("HIRELING_TEST_DATABASE_URL").is_some()
 }
 
+/// The `Skip` branch's fail-closed decision, factored out pure so the guard
+/// itself has a guard (gh#127): an explicitly requested database that no
+/// Postgres answers must never become a skip — the requested arm panics
+/// (fail closed) right here; only an unrequested environment gets the
+/// loud-skip `Err`.
+fn skip_or_fail_closed(requested: bool, reason: &str) -> Result<(), String> {
+    assert!(
+        !requested,
+        "HIRELING_TEST_DATABASE_URL is set but no test Postgres answered — \
+         fail closed, a requested database is never a skip: {reason}"
+    );
+    Err(reason.to_owned())
+}
+
 /// Outcome of the maintenance-pool connection attempt.
 enum MaintenanceConnect {
     /// Connected: the server is up and answered.
@@ -80,17 +94,30 @@ fn is_transport_unreachable(err: &sqlx::Error) -> bool {
     matches!(err, sqlx::Error::Io(_) | sqlx::Error::PoolTimedOut)
 }
 
+/// Parse the base URL and replace its database component with `database`,
+/// via the driver's parser — never string surgery. Both connection paths
+/// build their options here (the maintenance connect below and the
+/// fresh-db connect in [`TestDb::provision`]), so the URL-shape regression
+/// test `url_database_component_is_replaced_not_appended` guards the code
+/// the suite actually connects with: the old bare append produced
+/// `…/postgres/postgres` on a path-bearing URL (gh#125, gate run
+/// 38326952116) and stayed green wherever the base URL had no database
+/// component to double (gh#127).
+fn connect_options(base: &str, database: &str) -> PgConnectOptions {
+    let options: PgConnectOptions = base
+        .parse()
+        .unwrap_or_else(|err| panic!("HIRELING_TEST_DATABASE_URL ({base}) does not parse: {err}"));
+    options.database(database)
+}
+
 /// Connect the maintenance pool at the base URL with the database replaced
 /// by `postgres` (CREATE DATABASE works from any database; the operator
 /// URL may name any of them).
 async fn connect_maintenance(base: &str, test: &str) -> MaintenanceConnect {
-    let options: PgConnectOptions = base
-        .parse()
-        .unwrap_or_else(|err| panic!("HIRELING_TEST_DATABASE_URL ({base}) does not parse: {err}"));
     let attempt = PgPoolOptions::new()
         .max_connections(2)
         .acquire_timeout(std::time::Duration::from_secs(2))
-        .connect_with(options.database("postgres"))
+        .connect_with(connect_options(base, "postgres"))
         .await;
     match attempt {
         Ok(pool) => MaintenanceConnect::Up(pool),
@@ -171,13 +198,13 @@ impl TestDb {
         let admin = match connect_maintenance(&base, test).await {
             MaintenanceConnect::Up(pool) => pool,
             MaintenanceConnect::Skip(reason) => {
-                assert!(
-                    !explicitly_requested(),
-                    "HIRELING_TEST_DATABASE_URL is set but no test Postgres answered — \
-                     fail closed, a requested database is never a skip: {reason}"
-                );
-                eprintln!("{reason}");
-                return Err(reason);
+                // A requested database is never a skip: the helper panics
+                // (fail closed) when the URL was explicitly set (gh#127).
+                if let Err(skip) = skip_or_fail_closed(explicitly_requested(), &reason) {
+                    eprintln!("{skip}");
+                    return Err(skip);
+                }
+                unreachable!("a requested database is never a skip — skip_or_fail_closed panicked")
             }
             MaintenanceConnect::Fatal(context) => panic!("{context}"),
         };
@@ -198,12 +225,7 @@ impl TestDb {
 
         let pool = PgPoolOptions::new()
             .max_connections(5)
-            .connect_with({
-                let options: PgConnectOptions = base.parse().unwrap_or_else(|err| {
-                    panic!("HIRELING_TEST_DATABASE_URL ({base}) does not parse: {err}")
-                });
-                options.database(&name)
-            })
+            .connect_with(connect_options(&base, &name))
             .await
             .unwrap_or_else(|err| {
                 panic!("failed to connect to fresh database {name} (server reachable): {err}")
@@ -1293,12 +1315,13 @@ async fn probe_requested_but_dead_fails_closed_within_the_cap() {
         .await
         .err();
     let elapsed = start.elapsed();
-    let join_err = outcome.unwrap_or_else(|| {
-        panic!(
-            "probe against a dead port with the URL requested returned {:?} — must fail red",
-            "a pool", // unreachable in practice; the err() above is the contract
-        )
-    });
+    // `outcome` is `Some(JoinError)` when the probe panicked (the
+    // fail-closed contract) and `None` when it returned without panicking —
+    // which is the regression this test exists to catch (fail-closed
+    // decaying back into a skip), so the message names exactly that (gh#127).
+    let join_err = outcome.expect(
+        "probe against a dead port with the URL requested must panic — it returned without panicking",
+    );
     assert!(
         join_err.is_panic(),
         "requested-but-unreachable must panic (fail closed), got: {join_err:?}"
@@ -1408,6 +1431,71 @@ fn corrupt_password_swaps_only_the_password() {
     assert_eq!(
         corrupt_password("postgres://127.0.0.1:5432"),
         "postgres://hireling:definitely-wrong-password@127.0.0.1:5432"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// gh#127 — guards for the guards. PR #126 fixed the URL-shape append and
+// carried an in-branch assert for fail-closed; neither had a test of its
+// own. Each test below pins one guard against the exact regression it
+// exists to catch, purely — no server, no environment mutation.
+// ---------------------------------------------------------------------------
+
+/// The URL-shape regression (gh#125 first contact, gate run 38326952116):
+/// the database component is REPLACED via the driver's parser, never
+/// appended. Two fixtures differing only in the URL's shape — bare, and
+/// path-bearing like the gate's URL — must both land on exactly the
+/// requested database, for both connection paths' targets (maintenance
+/// `postgres`, fresh test database). Restoring the old string append makes
+/// the path-bearing fixture read `…/postgres/postgres` here and goes red;
+/// every local run stayed green under that bug because the default
+/// `base_url()` has no database component to double.
+#[test]
+fn url_database_component_is_replaced_not_appended() {
+    for base in [
+        "postgres://hireling:hireling@127.0.0.1:5432",
+        "postgres://hireling:hireling@127.0.0.1:5432/postgres",
+    ] {
+        // The maintenance connect replaces the database with `postgres`.
+        assert_eq!(
+            connect_options(base, "postgres").get_database(),
+            Some("postgres"),
+            "{base}: maintenance options must replace the database component"
+        );
+        // The fresh-db connect replaces it with the test database's name.
+        assert_eq!(
+            connect_options(base, "hireling_e2_x").get_database(),
+            Some("hireling_e2_x"),
+            "{base}: fresh-db options must replace the database component"
+        );
+    }
+}
+
+/// The `Skip` branch's fail-closed guard (gh#127): an explicitly requested
+/// database that no Postgres answers must panic — never a skip — while an
+/// unrequested environment gets the loud-skip `Err`. Both arms of
+/// `skip_or_fail_closed`, the decision `TestDb::provision` rides; before
+/// this test, deleting the branch's `assert!` left the suite green
+/// everywhere.
+#[test]
+fn skip_branch_fails_closed_when_the_url_was_requested() {
+    let reason =
+        "SKIPPED (no Postgres at postgres://…:59999 — run `just db`): sc1: connection refused";
+
+    // Unrequested + unreachable: the one legitimate loud skip.
+    assert_eq!(skip_or_fail_closed(false, reason), Err(reason.to_owned()));
+
+    // Requested + unreachable: fail closed — a panic naming the rule.
+    let panic = std::panic::catch_unwind(|| skip_or_fail_closed(true, reason))
+        .expect_err("a requested database must fail closed (panic), never skip");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or_default();
+    assert!(
+        message.contains("fail closed, a requested database is never a skip"),
+        "the panic must name the fail-closed rule, got: {message:?}"
     );
 }
 
