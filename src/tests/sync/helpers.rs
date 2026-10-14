@@ -432,3 +432,20 @@ pub async fn read_metrics_summary(app: &axum::Router, cookie: &str) -> serde_jso
         .to_bytes();
     serde_json::from_slice(&body).expect("summary json")
 }
+
+/// Nearest-rank p95 over a latency sample, in the sample's own units: the
+/// value at 1-based rank `ceil(0.95 * n)` of the sorted sample — the same
+/// definition the server-side ring uses. Sorts in place, so the caller's
+/// slice ends up ordered (handy for printing the distribution in a failure
+/// message). For 20 samples the selection is the 19th order statistic
+/// (0-based index 18), one slot below the max — a single tail outlier does
+/// not decide a budget assertion (gh#134; the one-outlier/three-outlier
+/// boundary is pinned in `derived_tests`).
+pub(crate) fn p95(samples: &mut [f64]) -> f64 {
+    samples.sort_by(f64::total_cmp);
+    let rank = (95 * samples.len()).div_ceil(100);
+    samples
+        .get(rank.clamp(1, samples.len()) - 1)
+        .copied()
+        .unwrap_or_else(|| panic!("p95 of an empty sample set"))
+}

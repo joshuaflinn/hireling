@@ -13,8 +13,8 @@ use crate::sync::SyncSettings;
 use crate::sync::protocol::{Outcome, ServerFrame, VitalsField};
 use crate::sync::shaper::{self, Profile};
 use crate::sync::test_helpers::{
-    PumpClient, captured_log, connect_pump, install_log_capture, pump_intro, pump_pong, pump_send,
-    read_frame, read_frame_within, read_metrics_summary, seed_member, spawn_server_with,
+    PumpClient, captured_log, connect_pump, install_log_capture, p95, pump_intro, pump_pong,
+    pump_send, read_frame, read_frame_within, read_metrics_summary, seed_member, spawn_server_with,
     spawn_shared_app,
 };
 use crate::testing;
@@ -37,17 +37,6 @@ const OPS_PER_LOAD_WRITER: u32 = 500;
 const SHAPED_SAMPLES: u32 = 1_000;
 const SHAPED_WRITERS: usize = 5;
 const VITALS_FIELDS: usize = 4;
-
-/// Nearest-rank p95 over the test's own samples — the same definition the
-/// server-side ring uses.
-fn p95(samples: &mut [f64]) -> f64 {
-    samples.sort_by(f64::total_cmp);
-    let rank = (95 * samples.len()).div_ceil(100);
-    samples
-        .get(rank.clamp(1, samples.len()) - 1)
-        .copied()
-        .unwrap_or_else(|| panic!("p95 of an empty sample set"))
-}
 
 /// The version column backing one vitals field (test-literal column names,
 /// same policy as `vitals_version`).
