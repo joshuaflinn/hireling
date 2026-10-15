@@ -12,7 +12,7 @@
 //!
 //! Both tests drive the route through the configured router, never the module
 //! underneath it (AGENTS.md: a spec'd behavior is proven on the production
-//! path that owns it). `resolve_lookup` stays private to `book_value` and
+//! path that owns it). `lookup` stays private to `book_value` and
 //! that is load-bearing: with the seam private, a session-less call into the
 //! lookup does not compile, so the HTTP surface is the only way in.
 //!
@@ -20,20 +20,29 @@
 //! so no literal is shared across the joint, and the wrapper convention is
 //! asserted without naming it twice.
 //!
-//! Three mutations were run against this file and `book_value.rs` to prove the
-//! two halves are not decorative. All three are caught; all three were reverted.
+//! Mutations were run against this file and `book_value.rs` to prove the two
+//! halves are not decorative. All were reverted. What each one kills is stated
+//! exactly, because the two halves guard different ends of the joint and one of
+//! them is blind to the other's moves:
 //!
 //! - **M1 — producer moves.** Rename `row_payload`'s `upstream` wrapper key.
 //!   Both halves fail: the row no longer sits under the path the read is
 //!   written against.
 //! - **M2 — consumer moves.** Restore the path design D5 sketched, leaving the
-//!   producer correct. Both halves fail, and the second one is the one that
+//!   producer correct. **Only half two fails.** Half one restates the route's
+//!   SQL path as its own literal, so a move in `book_value`'s SQL is invisible
+//!   to it — half one guards the producer end only. Half two is the one that
 //!   matters: `{found: false}` for a row that is priced and present. This is
 //!   the bug round 1 rejected the branch for, and it is the shape the
 //!   hand-seeded fixtures could not see — they built the row and read the path
 //!   with the same hand, so a wrong path was wrong in both.
 //! - **M2b — consumer moves at the leaf.** Rename the read's final key
-//!   (`price.value` → `price.coins`). Both halves fail.
+//!   (`price.value` → `price.coins`). **Only half two fails**, for the same
+//!   reason as M2.
+//!
+//! So the reading is: half one catches the producer moving, half two catches
+//! the consumer moving, and only M1 (or a real change to the captured price)
+//! kills both. That is coverage split across the pair, not duplicated in it.
 //!
 //! One mutation is *not* caught, and naming it is the honest version of this
 //! file's coverage claim: **M3 — drop `kind = 'item'` from the read.** Both
@@ -202,8 +211,10 @@ async fn seeded_party(pool: &sqlx::PgPool, sub: &str) -> i64 {
 /// Half one of the joint: the row the importer actually wrote carries the
 /// captured price at the path E12 reads. Producer side is the real write
 /// path, consumer side is the route's literal SQL path copied from
-/// `resolve_lookup`'s statement — rename the importer's `upstream` wrapper
-/// key and this fails.
+/// `lookup`'s statement — rename the importer's `upstream` wrapper key and this
+/// fails. Because the path is a literal here rather than read from `book_value`,
+/// a move in the route's own SQL cannot fail this half; half two covers that
+/// end. Keep the two literals apart on purpose.
 #[tokio::test]
 async fn the_importer_stores_the_price_where_the_route_reads_it() {
     let Some(pool) = imported_pool().await else {
@@ -221,7 +232,7 @@ async fn the_importer_stores_the_price_where_the_route_reads_it() {
         Some(&captured_price()),
         "E12's book-value read is a stored-path read of \
          data->'upstream'->'system'->'price'->'value' (the path in \
-         `book_value::resolve_lookup`'s SQL); the importer must leave the \
+         `book_value::lookup`'s SQL); the importer must leave the \
          captured wayfinder price sitting at it"
     );
     testing::drop_test_db(pool, "e12_bv_importer_path").await;
