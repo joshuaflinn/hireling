@@ -794,18 +794,23 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     }
   });
 
-  // --- write actions ------------------------------------------------------
-
-  /** @param {Record<string, *>} target @param {*} value @param {number} [baseVersion] */
-  function post(target, value, baseVersion) {
-    // The same pin the contract suite runs its own frames through, now on the
-    // production path: a frame this module builds must satisfy the fixture
-    // before it satisfies the socket.
-    assertWriteTarget(/** @type {{kind: string, field?: string}} */ (target));
-    if (target.kind === 'stash') assertStashOp(/** @type {{op: string}} */ (value));
-    sync.write(target, value, baseVersion);
+  /**
+   * One bank denomination to the integer the server requires, or `null` when the
+   * value cannot be one. `parse_bank_adjustment` (write.rs:1856-1873) wants a
+   * JSON NUMBER whose `as_i64` survives `i32::try_from`, so the two ways a
+   * coercion can lie — a fraction, and a magnitude outside i32 — are refusals
+   * rather than something to post anyway. A blank is the integer 0, not an
+   * omitted key: that same validator refuses an absent denomination outright.
+   * @param {*} value
+   * @returns {number|null}
+   */
+  function encodeCoin(value) {
+    if (value === '' || value === null || value === undefined) return 0;
+    const amount = Number(value);
+    if (!Number.isInteger(amount)) return null;
+    if (amount < -2147483648 || amount > 2147483647) return null;
+    return amount;
   }
-
 
   // --- write actions ------------------------------------------------------
 
@@ -890,20 +895,30 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
      *  balance it wants. A read-modify-write here is exactly the bug D2 was
      *  written to refuse. */
     adjustBank(coins) {
-      // Refused outright, never truncated — the module's own write rule says
-      // invalid input does not leave this layer, and `Number(x) | 0` broke it
-      // twice over: `2.7` posted 2 (a silent rounding of somebody's coin count)
-      // and 1e10 wrapped to 1410065408 (a signed 32-bit fold on a treasure
-      // amount). The same `Number.isInteger` gate `addRow` uses, for the same
-      // reason.
-      const raw = [coins?.gp ?? 0, coins?.sp ?? 0, coins?.cp ?? 0];
-      const amounts = [];
-      for (const value of raw) {
-        const amount = Number(value);
-        if (!Number.isInteger(amount)) return;
-        amounts.push(amount);
+      // The blank-vs-number rule is the server's, and §4 only fixes what a blank
+      // MEANS (no adjustment) — it says nothing about what the input may be.
+      // write.rs's `parse_bank_adjustment` is the boundary this frame is built to
+      // aim at, and it is stricter than a coercion: each of the three must be
+      // PRESENT, a JSON NUMBER, and an integer >= -2147483648 (`as_i64` +
+      // `i32::try_from`, write.rs:1856-1873), and an absent key is refused
+      // outright. So the client encodes a blank as the integer 0 rather than
+      // sending nothing, and refuses anything it cannot encode as an integer
+      // rather than coercing it into one — `Number(x) | 0` did exactly that, so
+      // 2.7 posted 2 (a rounded coin count) and 1e10 posted 1410065408 (a signed
+      // 32-bit wrap on a party's whole bank). `''`/`null`/`undefined` are the
+      // blanks and become 0; the screen's number inputs can hand back a string
+      // integer, which is a real number and stays.
+      /** @type {(number | string | null | undefined)[]} */
+      /** @type {Record<'gp' | 'sp' | 'cp', *>} */
+      const raw = { gp: coins?.gp, sp: coins?.sp, cp: coins?.cp };
+      /** @type {Record<'gp' | 'sp' | 'cp', number>} */
+      const encoded = /** @type {Record<'gp' | 'sp' | 'cp', number>} */ ({});
+      for (const coin of /** @type {const} */ (['gp', 'sp', 'cp'])) {
+        const amount = encodeCoin(raw[coin]);
+        if (amount === null) return;
+        encoded[coin] = amount;
       }
-      const [gp, sp, cp] = amounts;
+      const { gp, sp, cp } = encoded;
       // A no-op adjustment is not sent. FR-7 requires an adjustment that would
       // drive a denomination below zero to be refused WHOLE (write.rs:1878) and
       // is silent on the all-zero case, so the server would take a zero-frame as

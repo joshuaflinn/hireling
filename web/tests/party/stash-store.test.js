@@ -991,3 +991,41 @@ test('a subscriber may read a plain accessor during its own notification', () =>
     unsubscribe();
   }
 });
+
+test('adjustBank refuses a fractional or wrapped coin count instead of truncating it', () => {
+  // The client must build a frame the SERVER accepts. §4 fixes only what a blank
+  // means (no adjustment); write.rs's `parse_bank_adjustment` fixes what the
+  // input may be, and it is a hard boundary — each of `gp_delta`/`sp_delta`/
+  // `cp_delta` must be present, a JSON number, and an integer >= -2147483648
+  // (write.rs:1856-1873), so a string or absent key is refused whole. `Number(x)
+  // | 0` aimed at that boundary and missed it twice: 2.7 posted 2, and 1e10
+  // wrapped to 1410065408 — a party's whole bank, mis-posted by an arithmetic
+  // wrap. Both are refused; a blank still encodes as the integer 0, and a string
+  // integer is still a number.
+  const sync = fakeSync();
+  const stash = createStashState({ sync, partyId: 1 });
+  stash.adjustBank({ gp: 2.7 });
+  stash.adjustBank({ gp: 1e10 });
+  // `1e99` is not an integer either (it is Infinity, and Infinity fails
+  // Number.isInteger), so this is the third refusal rather than a fourth case.
+  stash.adjustBank({ gp: 1e99 });
+  assert.deepEqual(sync.writes.map((w) => w.value), [], 'a refused count posts nothing at all');
+
+  // A string integer is a real number, so it posts — and a single-denomination
+  // frame still carries the other two as the INTEGER 0.
+  stash.adjustBank({ gp: '4' });
+  assert.equal(sync.writes.length, 1);
+  assert.deepEqual(sync.writes[0].value, { gp_delta: 4, sp_delta: 0, cp_delta: 0 });
+
+  // A blank slot encodes as the INTEGER 0, it does not omit the key: write.rs
+  // refuses an absent `gp_delta` outright, so omitting would lose the whole
+  // adjustment rather than one denomination. Here the three blanks together are
+  // a no-op, and a no-op is not sent.
+  stash.adjustBank({ gp: '', sp: null, cp: undefined });
+  assert.equal(sync.writes.length, 1, 'a no-op adjustment is not sent');
+  assert.deepEqual(
+    Object.keys(sync.writes[0].value).sort(),
+    ['cp_delta', 'gp_delta', 'sp_delta'],
+    'a bank frame always carries all three deltas',
+  );
+});
