@@ -4,6 +4,8 @@
   import { createPartySession } from './lib/party/session.js';
   import ImportPage from './lib/import/ImportPage.svelte';
   import PartyView from './lib/party/PartyView.svelte';
+  import StashScreen from './lib/party/StashScreen.svelte';
+  import { createStashState } from './lib/party/stash.js';
   import SheetView from './lib/sheet/SheetView.svelte';
   import AboutView from './lib/sheet/components/AboutView.svelte';
   import ErrorState from './lib/sheet/components/ErrorState.svelte';
@@ -28,6 +30,12 @@
   // The drill-in target: { payload, editable } (FR-3's rule below).
   /** @type {{ payload: any, editable: boolean } | null} */
   let sheetTarget = $state(null);
+
+  // E12 Task 6: the stash is a second party-rooted screen, drilled into the
+  // same way the sheet is (party hub → screen → back), not a tab strip. Built
+  // from the session's own sync so one socket serves both screens and the
+  // stash's fan-out never needs a second connection.
+  let stashState = $state(null);
 
   // Entry flow (E3 Story 1 AC1): probe the session on load. A visitor
   // without one is sent to the login leg; a broken backend says so.
@@ -120,7 +128,20 @@
     // the about view. Clearing the drill-in here is what makes an about
     // round-trip land on the hub, never on a stale sheet.
     sheetTarget = null;
+    stashState = null;
     view = session?.roster?.characters.length ? 'party' : 'party-empty';
+  }
+
+  /** Open the stash (E12 FR-11: every seat, the GM included, may reach it). */
+  function openStash() {
+    if (!session) return;
+    stashState = createStashState({
+      sync: session.sync,
+      partyId: session.roster.party_id,
+      you: session.roster.you,
+      roster: session.roster.characters,
+    });
+    view = 'stash';
   }
 
   // Logout (E3 Story 6 AC3): a confirmed logout lands on a signed-out
@@ -168,11 +189,19 @@
     {offlineColdBoot}
     onimport={() => (view = 'import')}
     onopenCharacter={openCharacter}
+    onopenStash={openStash}
     onlogout={logout}
   />
   <footer class="app-footer">
     <button class="linkish" onclick={() => (view = 'about')}>About · licenses</button>
   </footer>
+{:else if view === 'stash' && stashState && session}
+  <!-- E12 Task 6: the drill-in back affordance matches the sheet's, so the
+       hub is reachable the same way from either screen. -->
+  <main>
+    <button class="back" onclick={backToParty}>← The party</button>
+    <StashScreen stash={stashState} roster={session.roster.characters} />
+  </main>
 {:else if view === 'about'}
   <AboutView onback={backToParty} />
 {:else if view === 'sheet' && sheetTarget && session}
