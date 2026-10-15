@@ -216,7 +216,7 @@ def check_files(paths: Sequence[str]) -> int:
 
     Three distinct faults share one gate: unreadable, duplicate key, and
     not-valid JSON. Counted and summarized separately so each failure line
-    names its own fault — the verdict (non-zero -> fail) is unchanged.
+    names its own fault. Any non-zero count fails the gate.
     """
     unreadable = 0
     duplicates = 0
