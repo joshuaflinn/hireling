@@ -118,6 +118,23 @@ export function createStore() {
     return { key, field };
   }
 
+  /**
+   * Is this written value an additive delta frame (`{gp_delta…}` /
+   * `{op:'qty', qty_delta…}`) rather than an absolute value? The additive class
+   * is the one whose applied version arrives without its value (the delta was
+   * added server-side; wire-protocol.md §4), so it is the only class whose ack
+   * version is not also a version whose VALUE has been seen.
+   *
+   * @param {*} value
+   */
+  function isAdditiveOpValue(value) {
+    return (
+      value !== null &&
+      typeof value === 'object' &&
+      ('gp_delta' in value || 'sp_delta' in value || 'cp_delta' in value || 'qty_delta' in value)
+    );
+  }
+
   /** @param {Field} field */
   function effectiveValue(field) {
     return field.pending !== null ? field.pending.value : field.serverValue;
@@ -133,6 +150,16 @@ export function createStore() {
           target: field.target,
           value: effectiveValue(field),
           version: field.serverVersion,
+          // The server's own last statement, alongside the rendered value above
+          // rather than buried under it. `value` is the field as it is SHOWN —
+          // the pending echo while a write is in flight, which is what a CAS
+          // field wants and what degraded-mode §4 asks for. On the ADDITIVE
+          // class that rendered value is the op's delta frame, so a reader that
+          // has to fold the echo onto a real balance or quantity cannot get the
+          // base out of `value` at all; it is in `serverValue`. Nothing that
+          // reads `value` changes, and the existing consumers (sheet/state.js,
+          // party/state.js) keep their own mirrors and never look here.
+          serverValue: field.serverValue,
         };
       }
       return out;
@@ -142,7 +169,13 @@ export function createStore() {
     /** @param {Record<string, *>} target @param {*} value @param {number} version */
     applyServerField(target, value, version) {
       const { field } = fieldFor(target);
-      if (version > field.serverVersion) {
+      // Strictly newer than the last value we applied — with one exception that
+      // only the additive class can produce: the version of THIS seat's own
+      // committed write, whose value the ack did not carry (see `ack` above).
+      // Refusing it would freeze the balance at a delta frame forever, because
+      // the number the ack recorded is the number the fan-out arrives under.
+      const ownCommittedVersion = field.opCommittedVersion ?? -1;
+      if (version > field.serverVersion || version === ownCommittedVersion) {
         field.target = target;
         field.serverValue = value;
         field.serverVersion = version;
@@ -178,6 +211,29 @@ export function createStore() {
         // `forbidden`: the winner arrived with the ack, ahead of its diff.
         field.serverValue = serverValue;
         field.serverVersion = serverVersion;
+      }
+      // The ack's `version` and the version of a field the server has already
+      // stated are different facts, and the check above cannot tell them apart.
+      // On an ADDITIVE op they arrive as the SAME number: wire-protocol.md §4
+      // gives `applied` the committed version, and the matching `diff` — which
+      // "may arrive before or after it" — carries that same version on the
+      // resulting value. So recording it here first means the diff at that
+      // version fails the strictly-newer test above and is discarded, leaving the
+      // field holding the op's own delta frame as if it were the committed
+      // balance, and every later fan-out with it. `op_committed_version` keeps
+      // the ack's number as what it is — "this op's write reached version N" —
+      // and leaves `serverVersion` at the last version whose VALUE was seen, so
+      // the additive diff is applied. CAS is untouched: its ack arrives with the
+      // value, `serverVersion` advances, and nothing depends on the new flag.
+      // Only the ADDITIVE class has a version whose value is absent from the
+      // frame that names it, so only it may hold an ack's version without the
+      // value. The class is read off the op being settled, not off the field:
+      // the frame is the delta, so the delta is the evidence. A CAS ack is not
+      // recorded this way and its `=== ownCommittedVersion` test below can never
+      // fire, which keeps "a version we already have is not news" (and its
+      // no-`changed`-event consequence) exactly as it was.
+      if (serverVersion !== null && isAdditiveOpValue(pending.op.value)) {
+        field.opCommittedVersion = serverVersion;
       }
       field.pending = null;
 
