@@ -9,9 +9,11 @@
 //! expectation would never fire and would itself become an
 //! unfulfilled-expectation error under `-D warnings`.
 
+use std::path::{Path, PathBuf};
+
 use super::{
     DEFAULT_FLOOR_GIB, FreeSpace, GIB, GuardOutcome, below_floor, exhausted_walk_anchor,
-    format_gib, guard_outcome, parse_df, parse_floor_gib,
+    format_gib, guard_outcome, nearest_existing_ancestor, parse_df, parse_floor_gib,
 };
 
 const FLOOR_BYTES: u64 = DEFAULT_FLOOR_GIB * GIB;
@@ -45,8 +47,10 @@ fn guard_outcome_refuses_below_floor() {
     let outcome = guard_outcome(FLOOR_BYTES - 1, FLOOR_BYTES, DEFAULT_FLOOR_GIB, "/");
     assert!(
         matches!(&outcome, GuardOutcome::Refuse { message }
-            if message.contains("need 10G") && message.contains("just disk-floor-gb=")),
-        "one byte below the floor must refuse, naming the floor and the in-tree remedy: {outcome:?}"
+            if message.contains("9.9G free")
+                && message.contains("need 10G")
+                && message.contains("just disk-floor-gb=")),
+        "one byte below the floor must refuse, reporting free space below the floor and naming the in-tree remedy: {outcome:?}"
     );
 }
 
@@ -65,12 +69,42 @@ fn exhausted_walk_anchor_keeps_relative_paths_on_the_cwd() {
     assert_eq!(
         exhausted_walk_anchor(false),
         ".",
-        "a relative CARGO_TARGET_DIR walks to the cwd's filesystem, not the root (round-2 F5)"
+        "a relative CARGO_TARGET_DIR walks to the cwd's filesystem, not the root"
     );
     assert_eq!(
         exhausted_walk_anchor(true),
         "/",
         "an absolute path that exhausts (defensive — the root exists) anchors at /"
+    );
+}
+
+#[test]
+fn nearest_existing_ancestor_anchors_exhausted_relative_walks_on_the_cwd() {
+    let nothing = &|_: &Path| false;
+    assert_eq!(
+        nearest_existing_ancestor(Path::new("target-gate-123"), nothing),
+        PathBuf::from("."),
+        "a single-component relative target dir walks to the cwd's filesystem, not the root"
+    );
+    assert_eq!(
+        nearest_existing_ancestor(Path::new("a/b/c"), nothing),
+        PathBuf::from("."),
+        "a multi-component relative path that does not exist walks to the cwd"
+    );
+    assert_eq!(
+        nearest_existing_ancestor(Path::new("/nope/deeper"), nothing),
+        PathBuf::from("/"),
+        "an absolute path that exhausts anchors at the root (defensive)"
+    );
+}
+
+#[test]
+fn nearest_existing_ancestor_stops_at_the_first_existing_ancestor() {
+    let exists = &|p: &Path| p == Path::new("a");
+    assert_eq!(
+        nearest_existing_ancestor(Path::new("a/b/c"), exists),
+        PathBuf::from("a"),
+        "the walk stops at the first ancestor the predicate says exists"
     );
 }
 
@@ -150,12 +184,16 @@ fn parse_floor_gib_rejects_non_numeric() {
 }
 
 #[test]
-fn format_gib_rounds_to_one_decimal() {
+fn format_gib_truncates_to_one_decimal() {
     assert_eq!(
         format_gib(41_649_950_720),
-        "38.8G",
-        "38.789 GiB rounds to 38.8G"
+        "38.7G",
+        "38.789 GiB truncates to 38.7G, never rounding up"
     );
-    assert_eq!(format_gib(429_496_729), "0.4G", "0.3999 GiB rounds to 0.4G");
+    assert_eq!(
+        format_gib(429_496_729),
+        "0.3G",
+        "0.3999 GiB truncates to 0.3G"
+    );
     assert_eq!(format_gib(GIB), "1.0G", "one gibibyte is 1.0G");
 }

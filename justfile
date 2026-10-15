@@ -276,9 +276,9 @@ json-keys:
     python3 scripts/check_json_dup_keys.py --self-test
     python3 scripts/check_json_dup_keys.py
 
-# The disk floor for `disk-guard`, overridable three ways (later wins):
-# `DISK_FLOOR_GB` env, or `just disk-floor-gb=<n> disk-guard`, or this
-# default. 10G is ~3x a measured full gate build — a leaked target-gate-*
+# The disk floor for `disk-guard`, overridable three ways (precedence:
+# `just disk-floor-gb=<n>` on the command line, then `DISK_FLOOR_GB` in the
+# environment, then this 10G default). 10G is ~3x a measured full gate build — a leaked target-gate-*
 # dir runs 2.2–3.7G (`du -sh` on this bench) — so the floor leaves headroom
 # for one build plus the checkouts, node_modules and git objects that share
 # the filesystem, without crying wolf on every bench holding a little

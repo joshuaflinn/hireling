@@ -6,6 +6,8 @@
 //! threshold and refusal rules are unit-tested through the production path
 //! instead of living inline in a recipe.
 
+use std::path::{Path, PathBuf};
+
 /// One gibibyte — the unit the floor and every reported figure share.
 pub const GIB: u64 = 1024 * 1024 * 1024;
 
@@ -79,12 +81,15 @@ pub fn parse_floor_gib(input: &str) -> Result<u64, String> {
         .map_err(|error| format!("floor '{trimmed}' is not a whole number of gibibytes ({error})"))
 }
 
-/// Format a byte count as a one-decimal gibibyte figure (`"38.8G"`).
+/// Format a byte count as a one-decimal gibibyte figure (`"38.7G"`),
+/// truncated, never rounded — a free-space report must not overstate.
 #[must_use]
 pub fn format_gib(bytes: u64) -> String {
-    // Tenths of a gibibyte, rounded half up, computed in u128 so a byte
-    // count near `u64::MAX` cannot overflow the multiplication.
-    let tenths = (u128::from(bytes) * 10 + u128::from(GIB) / 2) / u128::from(GIB);
+    // Tenths of a gibibyte, truncated, computed in u128 so a byte count
+    // near `u64::MAX` cannot overflow the multiplication. Truncation means
+    // a figure just below the floor can never display as the floor it is
+    // refusing against (half-up rounding did — gh#301 round 1 F1).
+    let tenths = u128::from(bytes) * 10 / u128::from(GIB);
     format!("{}.{}G", tenths / 10, tenths % 10)
 }
 
@@ -104,9 +109,8 @@ pub enum GuardOutcome {
 ///
 /// The refusal message names the condition (free space below the floor),
 /// the number measured, and a remedy that exists at this head: free space,
-/// or the `disk-floor-gb` just variable. The reaper task (#299) will swap
-/// that remedy for `just reap`; the threshold test asserts the text so that
-/// change is a covered one, not a silent drift.
+/// or the `disk-floor-gb` just variable. The threshold test asserts the
+/// message text.
 #[must_use]
 pub fn guard_outcome(
     free_bytes: u64,
@@ -135,12 +139,33 @@ pub fn guard_outcome(
     }
 }
 
+/// Walk `path` up to the nearest existing ancestor. The existence check is
+/// injected — the shell passes `Path::exists`, tests pass a fixed answer —
+/// so the walk is unit-tested without touching a filesystem.
+///
+/// A `CARGO_TARGET_DIR` that does not yet exist would make `df` exit
+/// non-zero (the detached-gate recipe points at `../target-gate-<n>` before
+/// `just ci-local` creates it), so the shell walks up to the nearest
+/// existing ancestor — the filesystem is the same either way.
+#[must_use]
+pub fn nearest_existing_ancestor(path: &Path, exists: &dyn Fn(&Path) -> bool) -> PathBuf {
+    let mut current = path.to_path_buf();
+    loop {
+        if exists(&current) {
+            return current;
+        }
+        if !current.pop() {
+            return PathBuf::from(exhausted_walk_anchor(path.is_absolute()));
+        }
+    }
+}
+
 /// The anchor a `PathBuf::pop()`-exhausted walk resolves to. An absolute
 /// path never exhausts — the root exists — so this is the defensive branch:
 /// a relative path that walks to the empty path means the current directory
 /// (`.`), whose filesystem is the one a relative `CARGO_TARGET_DIR` lives
-/// on. Round-2 F5 saw the shell return `/` here and read the root filesystem
-/// instead of the worktree's.
+/// on. Anchoring a relative path at `/` would report the root filesystem
+/// instead of the worktree's for a single-component target dir.
 #[must_use]
 pub fn exhausted_walk_anchor(path_is_absolute: bool) -> &'static str {
     if path_is_absolute { "/" } else { "." }

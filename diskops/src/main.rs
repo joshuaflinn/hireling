@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use diskops::{
-    DEFAULT_FLOOR_GIB, FreeSpace, GIB, GuardOutcome, exhausted_walk_anchor, guard_outcome,
+    DEFAULT_FLOOR_GIB, FreeSpace, GIB, GuardOutcome, guard_outcome, nearest_existing_ancestor,
     parse_df, parse_floor_gib,
 };
 
@@ -75,7 +75,7 @@ fn guard(args: &[String]) -> Result<ExitCode, String> {
     // still names a filesystem — walk to the nearest existing ancestor.
     let target = std::env::var_os("CARGO_TARGET_DIR");
     let path: PathBuf = match target {
-        Some(dir) => nearest_existing_ancestor(Path::new(&dir)),
+        Some(dir) => nearest_existing_ancestor(Path::new(&dir), &|p| p.exists()),
         None => std::env::current_dir()
             .map_err(|error| format!("cannot read the current directory: {error}"))?,
     };
@@ -90,27 +90,6 @@ fn guard(args: &[String]) -> Result<ExitCode, String> {
         GuardOutcome::Proceed { message } => {
             println!("{message}");
             Ok(ExitCode::SUCCESS)
-        }
-    }
-}
-
-/// `df` can only report a filesystem for a path that exists. A
-/// `CARGO_TARGET_DIR` that does not yet exist would make `df` exit
-/// non-zero, so walk up to the nearest existing ancestor — the filesystem
-/// is the same either way.
-fn nearest_existing_ancestor(path: &Path) -> PathBuf {
-    let mut current = path.to_path_buf();
-    loop {
-        if current.exists() {
-            return current;
-        }
-        if !current.pop() {
-            // A relative path that runs out of components walks to the empty
-            // path — the current directory's filesystem — not the root.
-            // Round-2 F5: a single-component relative `CARGO_TARGET_DIR`
-            // (`target-gate-123`) landed on `/` here and read the root
-            // filesystem instead of the worktree's.
-            return PathBuf::from(exhausted_walk_anchor(path.is_absolute()));
         }
     }
 }
