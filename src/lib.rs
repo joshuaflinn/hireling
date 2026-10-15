@@ -8,6 +8,7 @@
 //! modules always are.
 
 pub mod auth;
+pub mod book_value;
 pub mod config;
 pub mod custom;
 pub mod db;
