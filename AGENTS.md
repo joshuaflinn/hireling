@@ -373,11 +373,26 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   workspace: `<project>/MOR-<n>`, a sibling worktree on branch `MOR-<n>` cut
   from `origin/main`. That branch is the PR branch; the run's own harness
   prompt forbids switching or re-pointing it, so keep all commits on it.
+  Inside that tree the HEAD stays on `MOR-<n>` for the run's whole life —
+  `git checkout`/`git switch` onto another branch and `git rebase` of the
+  provisioned branch are both out; a rebase moves the branch under the
+  seats sharing the tree, and the force-push that would make it reachable
+  is already forbidden above. A detached read is the one exception to that
+  pin — the gate worktree recipe takes `--detach` in a separate worktree
+  and takes no commits. The consequence: a concurrent seat in that same
+  tree fails
+  `workspace_validation_failed` (`git_worktree_branch_incoherence`), which
+  reads to it as a provisioning defect. gh#149 is the structural cause —
+  one worktree per issue *lineage*, so sibling seats share one HEAD — and
+  PR #271, the gh#267 instance, cost a concurrent seat one heartbeat, no
+  text.
   Never cut your own worktree for your own task — verify where you are with
-  `git rev-parse --show-toplevel` and work there — with one exception, a
-  branch collision. The keep-all-commits instruction carries a premise: the
-  provisioned branch is *this* task's PR branch, 1:1. Check the premise at
-  pickup (`git branch --show-current`, then `gh pr list --head <branch>
+  `git rev-parse --show-toplevel` and work there — with one exception: any
+  work that is not this task's — a side fix, another issue's docs change, a
+  hotfix, a branch collision. The keep-all-commits instruction carries a
+  premise: the provisioned branch is *this* task's PR branch, 1:1. Check
+  the premise at pickup (`git branch --show-current`, then `gh pr list
+  --head <branch>
   --state open`, then `git status --short`): if the branch is already
   another open PR's head, if it carries another task's commits, or if the
   tree holds modified or untracked paths this task will not touch, the
