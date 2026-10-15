@@ -20,6 +20,16 @@ pub enum AuditEvent {
     /// One row per import attempt (E5, FR-16); admitted by migration
     /// 20260924000009 — the raised CHECK finding (design §5.2).
     CharacterImport,
+    /// A party stash write denial (E12 D1.4/D4; migration
+    /// `20260924000001_e12_shared_inventory_activation`) — non-member on
+    /// stash add/qty/meta/transfer.
+    ForbiddenStashWrite,
+    /// A party bank write denial (E12) — non-quartermaster, undesignated,
+    /// or GM on sell/adjust.
+    ForbiddenBankWrite,
+    /// A party settings write denial (E12) — non-member on the
+    /// quartermaster designation field.
+    ForbiddenPartyWrite,
 }
 
 impl AuditEvent {
@@ -34,6 +44,9 @@ impl AuditEvent {
             AuditEvent::ForbiddenCustomWrite => "forbidden_custom_write",
             AuditEvent::ForbiddenGmWrite => "forbidden_gm_write",
             AuditEvent::CharacterImport => "character_import",
+            AuditEvent::ForbiddenStashWrite => "forbidden_stash_write",
+            AuditEvent::ForbiddenBankWrite => "forbidden_bank_write",
+            AuditEvent::ForbiddenPartyWrite => "forbidden_party_write",
         }
     }
 }

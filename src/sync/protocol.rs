@@ -40,6 +40,56 @@ pub enum FieldTarget {
     EffectNew {
         party_id: i64,
     },
+    /// Stash row MINT (E12, contract §3): the row does not exist yet — the
+    /// target is the party it lands in; the duplicate-name refusal and the
+    /// `outside → stash` claim row live in the write path. All later
+    /// addressing (qty/meta) uses [`FieldTarget::Stash`].
+    StashNew {
+        party_id: i64,
+    },
+    /// One stash row, keyed by item name within the party (E12; the `inv`
+    /// keying precedent). `qty` is additive, `meta` is CAS — per-op
+    /// discrimination rides the value, the E8 op pattern.
+    Stash {
+        party_id: i64,
+        item_name: String,
+    },
+    /// The party bank balance — one row, one version unit, additive
+    /// signed deltas only (E12 FR-2.1).
+    Bank {
+        party_id: i64,
+    },
+    /// A versioned party-settings field (E12 FR-2.3/FR-5); at POC the one
+    /// field is the quartermaster designation.
+    Party {
+        party_id: i64,
+        field: PartyField,
+    },
+    /// A claim-history row (E12 FR-2.4): append-only, never written by a
+    /// client — it exists so appends and snapshots ride the one diff
+    /// mechanism, keyed by the monotonic row id (D7). Writes are refused at
+    /// bounds.
+    Claim {
+        claim_id: i64,
+    },
+}
+
+/// The versioned party-settings fields (E12 FR-5). `EnumIter` keeps the
+/// contract pin deriving from the definition, the [`VitalsField`] pattern.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, strum::EnumIter)]
+#[serde(rename_all = "snake_case")]
+pub enum PartyField {
+    Quartermaster,
+}
+
+impl PartyField {
+    /// The wire/ledger name of this field.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Quartermaster => "quartermaster",
+        }
+    }
 }
 
 /// The versioned vitals columns; money is one four-denomination unit (E2's
@@ -406,6 +456,65 @@ mod tests {
             serde_json::to_value(&create_frame).expect("encodes"),
             create
         );
+    }
+
+    #[test]
+    fn the_e12_party_targets_round_trip_to_the_contract_shapes() {
+        // E12 (contract §3's party rows): the mint addresses the party, the
+        // row addresses the party plus the exact item name, the bank and the
+        // settings field address the party, and a claim row is addressed by
+        // its monotonic id (read-only — it never rides a write frame).
+        let cases = [
+            (
+                json!({"kind": "stash_new", "party_id": 1}),
+                FieldTarget::StashNew { party_id: 1 },
+            ),
+            (
+                json!({"kind": "stash", "party_id": 1, "item_name": "Rope"}),
+                FieldTarget::Stash {
+                    party_id: 1,
+                    item_name: "Rope".to_owned(),
+                },
+            ),
+            (
+                json!({"kind": "bank", "party_id": 1}),
+                FieldTarget::Bank { party_id: 1 },
+            ),
+            (
+                json!({"kind": "party", "party_id": 1, "field": "quartermaster"}),
+                FieldTarget::Party {
+                    party_id: 1,
+                    field: PartyField::Quartermaster,
+                },
+            ),
+            (
+                json!({"kind": "claim", "claim_id": 42}),
+                FieldTarget::Claim { claim_id: 42 },
+            ),
+        ];
+        for (wire, target) in cases {
+            let frame = ClientFrame::decode(
+                &json!({"t": "write", "op_id": "op-e12", "target": wire,
+                        "base_version": 0, "value": {}})
+                .to_string(),
+            )
+            .expect("the party target decodes");
+            assert!(
+                matches!(frame, ClientFrame::Write { target: ref decoded, .. } if decoded == &target),
+                "decoded target must be {target:?}"
+            );
+            assert_eq!(
+                serde_json::to_value(&target).expect("encodes"),
+                wire,
+                "the serde wire shape must stay the contract literal"
+            );
+        }
+        // An unknown party-settings field name is a decode error —
+        // deny-by-default, the VitalsField property.
+        let unknown = serde_json::from_value::<FieldTarget>(
+            json!({"kind": "party", "party_id": 1, "field": "treasury"}),
+        );
+        assert!(unknown.is_err(), "unknown party field must be denied");
     }
 
     #[test]

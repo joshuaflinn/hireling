@@ -12,9 +12,10 @@ use anyhow::Context as _;
 use serde_json::Value as JsonValue;
 use sqlx::{PgPool, Postgres, Transaction};
 
+use crate::auth::audit::{AuditEvent, AuditOutcome};
 use crate::auth::authz::{Action, Actor, Resource, Role, Verdict, authorize};
 use crate::engine_host::apply::apply_condition;
-use crate::sync::protocol::{FieldTarget, Outcome, VitalsField};
+use crate::sync::protocol::{FieldTarget, Outcome, PartyField, VitalsField};
 
 /// One client operation: the decoded `write` frame's payload.
 pub struct ClientOp {
@@ -38,7 +39,14 @@ pub struct WriteResult {
     pub version: Option<i64>,
     pub winning_version: Option<i64>,
     pub reason: Option<String>,
-    pub broadcast: Option<(FieldTarget, JsonValue)>,
+    /// The RESOLVED rows an applied write fans out, overriding the default
+    /// echo of the op's own target and value — an effect op's diff is the
+    /// resolved row (a create's address is the new id, not `effect_new`),
+    /// and the E12 party writes fan the resolved row shape (D2). A mint or
+    /// compound op carries SEVERAL diffs, each with its own version (a
+    /// `stash_new` fans the stash row and its claim append, D7). Empty =
+    /// the session's default echo; every entry names its own version.
+    pub broadcast: Vec<(FieldTarget, JsonValue, i64)>,
     /// Characters whose derived numbers changed — old ∪ new targets of an
     /// applied effect op (sorted, deduped). Empty for field writes except
     /// `level_adjust` and `shield_raised`: both feed the engine's inputs
@@ -47,15 +55,18 @@ pub struct WriteResult {
 }
 
 impl WriteResult {
-    /// A result whose diff is the op's own target and value (every field
-    /// write; effect replays/supersessions broadcast nothing new).
-    fn echoing(op: &ClientOp) -> Self {
+    /// A result whose diff is the op's own target and value (every plain
+    /// field write; effect replays/supersessions and denials broadcast
+    /// nothing). The session pairs the empty broadcast with the op's
+    /// target, value, and applied version — the version arrives only after
+    /// the CAS runs, so it cannot be filled here.
+    fn echoing(_op: &ClientOp) -> Self {
         Self {
             outcome: Outcome::Applied,
             version: None,
             winning_version: None,
             reason: None,
-            broadcast: Some((op.target.clone(), op.value.clone())),
+            broadcast: Vec::new(),
             affected: Vec::new(),
         }
     }
@@ -105,6 +116,20 @@ pub async fn apply_write(
         FieldTarget::Effect { .. } | FieldTarget::EffectNew { .. }
     ) {
         return apply_effect_write(pool, actor, party_id, op).await;
+    }
+
+    // 1c. Party-scoped targets (E12): the stash mint, the stash row, the
+    //     bank, the quartermaster field. Their rows are the party's, not a
+    //     character's, so resolution, authz (D4's fact-carrying variants),
+    //     and apply all differ from the character-field CAS below.
+    if matches!(
+        op.target,
+        FieldTarget::StashNew { .. }
+            | FieldTarget::Stash { .. }
+            | FieldTarget::Bank { .. }
+            | FieldTarget::Party { .. }
+    ) {
+        return apply_party_write(pool, actor, party_id, op).await;
     }
 
     // 2. Resolve the target row (existence, owner, party). Unknown targets
@@ -175,7 +200,7 @@ pub async fn apply_write(
     result.winning_version = winning_version;
     if outcome != Outcome::Applied {
         // Only an applied write fans out; supersessions echo nothing.
-        result.broadcast = None;
+        result.broadcast = Vec::new();
     }
     if outcome == Outcome::Applied
         && let FieldTarget::Vitals {
@@ -343,7 +368,7 @@ async fn apply_effect_create(
         version: Some(version),
         winning_version: None,
         reason: None,
-        broadcast: Some((FieldTarget::Effect { effect_id }, value)),
+        broadcast: vec![(FieldTarget::Effect { effect_id }, value, version)],
         affected: sorted_unique(&create.targets),
     })
 }
@@ -433,7 +458,7 @@ async fn apply_effect_mutation(
             version: None,
             winning_version: Some(winning),
             reason: None,
-            broadcast: None,
+            broadcast: Vec::new(),
             affected: Vec::new(),
         });
     };
@@ -454,7 +479,7 @@ async fn apply_effect_mutation(
         version: Some(version),
         winning_version: None,
         reason: None,
-        broadcast: Some((FieldTarget::Effect { effect_id }, value)),
+        broadcast: vec![(FieldTarget::Effect { effect_id }, value, version)],
         affected: sorted_unique(old_targets.iter().chain(&new_targets)),
     })
 }
@@ -712,6 +737,830 @@ async fn ensure_in_party(
     Ok(())
 }
 
+/// What one party apply produced inside its transaction: the outcome triple
+/// plus the resolved-row diffs to fan out on commit (D2's shapes; a mint
+/// carries its row AND its claim append, D7). A `Rejected` here is
+/// mid-transaction — the caller rolls back and records the denial durably.
+struct PartyApply {
+    outcome: Outcome,
+    version: Option<i64>,
+    winning_version: Option<i64>,
+    reason: Option<String>,
+    diffs: Vec<(FieldTarget, JsonValue, i64)>,
+}
+
+impl PartyApply {
+    fn rejected(reason: String) -> Self {
+        Self {
+            outcome: Outcome::Rejected,
+            version: None,
+            winning_version: None,
+            reason: Some(reason),
+            diffs: Vec::new(),
+        }
+    }
+
+    fn superseded(winning_version: i64) -> Self {
+        Self {
+            outcome: Outcome::Superseded,
+            version: None,
+            winning_version: Some(winning_version),
+            reason: None,
+            diffs: Vec::new(),
+        }
+    }
+}
+
+/// The party-scoped write engine (E12, design D2): the stash mint, the
+/// additive stash-qty/bank applies, the CAS meta/quartermaster writes — one
+/// transaction like every other op: party scope → authz → ledger
+/// reservation → write → ledger finalize. The GM is denied first by the
+/// role check (D4; audits as `forbidden_gm_write`); the matrix reads the
+/// D4 fact-carrying variants with facts loaded fresh per message. Additive
+/// applies ignore `base_version` (FR-2.5: the frame carries it, the apply
+/// ignores it) and are never `superseded`; CAS remains for the absolute
+/// fields (meta, the designation). Denials audit per FR-10 under the D1.4
+/// values.
+async fn apply_party_write(
+    pool: &PgPool,
+    actor: &Actor,
+    party_id: i64,
+    op: ClientOp,
+) -> anyhow::Result<WriteResult> {
+    if let Some(denial) = party_write_scope_denial(pool, actor, party_id, &op).await? {
+        return Ok(denial);
+    }
+    if let Some(denial) = party_write_matrix_denial(pool, actor, party_id, &op).await? {
+        return Ok(denial);
+    }
+
+    // One transaction: ledger reservation → write → ledger finalize (the
+    // character-path discipline; FR-9 for the mint's claim row).
+    let mut tx = pool
+        .begin()
+        .await
+        .context("begin party write transaction")?;
+    let request = request_json(&op);
+    let reserved = reserve_ledger(
+        &mut tx,
+        &op.op_id,
+        &actor.sub,
+        &field_path(&op.target),
+        &request,
+    )
+    .await?;
+    if reserved.is_none() {
+        tx.rollback().await.context("rollback id race")?;
+        return answer_replay(pool, &op.op_id, &request).await;
+    }
+
+    let mut applied = match &op.target {
+        FieldTarget::StashNew {
+            party_id: target_party_id,
+        } => stash_new_tx(&mut tx, *target_party_id, actor, &op.value).await,
+        FieldTarget::Stash {
+            party_id: target_party_id,
+            item_name,
+        } => {
+            stash_tx(
+                &mut tx,
+                *target_party_id,
+                item_name,
+                op.base_version,
+                &op.value,
+            )
+            .await
+        }
+        FieldTarget::Bank {
+            party_id: target_party_id,
+        } => bank_tx(&mut tx, *target_party_id, &op.value).await,
+        FieldTarget::Party {
+            party_id: target_party_id,
+            field: PartyField::Quartermaster,
+        } => quartermaster_tx(&mut tx, *target_party_id, op.base_version, &op.value).await,
+        // An off-route target: refused, nothing written. (A future
+        // PartyField with no wired arm makes this match non-exhaustive —
+        // the compiler will name the arm to add.)
+        FieldTarget::Claim { .. }
+        | FieldTarget::Vitals { .. }
+        | FieldTarget::Slot { .. }
+        | FieldTarget::Inv { .. }
+        | FieldTarget::Effect { .. }
+        | FieldTarget::EffectNew { .. } => Ok(PartyApply::rejected("unknown target".to_owned())),
+    }?;
+    if applied.outcome == Outcome::Rejected {
+        // Nothing partial: the transaction (mint row, claim row, minted
+        // bank row — whatever the arm touched) rolls back whole, and the
+        // refusal is recorded durably by the denial path.
+        tx.rollback()
+            .await
+            .context("rollback refused party write")?;
+        let reason = applied
+            .reason
+            .unwrap_or_else(|| "unknown target".to_owned());
+        return record_denial(pool, actor, &op, Outcome::Rejected, reason).await;
+    }
+    finalize_ledger(&mut tx, &op.op_id, applied.outcome, applied.version).await?;
+    tx.commit().await.context("commit party write")?;
+
+    let mut result = WriteResult::echoing(&op).with_outcome(applied.outcome);
+    result.version = applied.version;
+    result.winning_version = applied.winning_version;
+    result.reason = applied.reason.take();
+    result.broadcast = std::mem::take(&mut applied.diffs);
+    Ok(result)
+}
+
+/// Party scope + GM gate (D4). The socket's party is the write's addressing
+/// scope (contract §1) — a target naming another party is forbidden even
+/// when the writer belongs to it. Returns the denial to short-circuit, or
+/// `None` to proceed.
+async fn party_write_scope_denial(
+    pool: &PgPool,
+    actor: &Actor,
+    party_id: i64,
+    op: &ClientOp,
+) -> anyhow::Result<Option<WriteResult>> {
+    let target_party = match &op.target {
+        FieldTarget::StashNew {
+            party_id: target_party_id,
+        }
+        | FieldTarget::Stash {
+            party_id: target_party_id,
+            ..
+        }
+        | FieldTarget::Bank {
+            party_id: target_party_id,
+        }
+        | FieldTarget::Party {
+            party_id: target_party_id,
+            ..
+        } => *target_party_id,
+        // Bounds rejects claim writes and the route admits only the four
+        // party targets; these arms keep the match honest if either gate
+        // ever moves.
+        FieldTarget::Claim { .. }
+        | FieldTarget::Vitals { .. }
+        | FieldTarget::Slot { .. }
+        | FieldTarget::Inv { .. }
+        | FieldTarget::Effect { .. }
+        | FieldTarget::EffectNew { .. } => {
+            return record_denial(
+                pool,
+                actor,
+                op,
+                Outcome::Rejected,
+                "unknown target".to_owned(),
+            )
+            .await
+            .map(Some);
+        }
+    };
+    if target_party != party_id {
+        return record_denial(
+            pool,
+            actor,
+            op,
+            Outcome::Forbidden,
+            "target party is not this party".to_owned(),
+        )
+        .await
+        .map(Some);
+    }
+    // The GM gate: named and audited as the role denial (D4; Task 3's
+    // acceptance pins the value).
+    if actor.role == Role::Gm {
+        return record_party_denial(
+            pool,
+            actor,
+            op,
+            "gm is read-only".to_owned(),
+            AuditEvent::ForbiddenGmWrite,
+        )
+        .await
+        .map(Some);
+    }
+    Ok(None)
+}
+
+/// E3's matrix per message, the deciding fact loaded fresh (D4). Each
+/// surface audits under its own D1.4 value on a denial.
+async fn party_write_matrix_denial(
+    pool: &PgPool,
+    actor: &Actor,
+    party_id: i64,
+    op: &ClientOp,
+) -> anyhow::Result<Option<WriteResult>> {
+    match &op.target {
+        FieldTarget::StashNew { .. } | FieldTarget::Stash { .. } => {
+            let member = is_party_member(pool, actor, party_id).await?;
+            if authorize(
+                actor,
+                Action::Write,
+                &Resource::Stash {
+                    actor_is_party_member: member,
+                },
+            ) == Verdict::Deny
+            {
+                return record_party_denial(
+                    pool,
+                    actor,
+                    op,
+                    "not a member of this party".to_owned(),
+                    AuditEvent::ForbiddenStashWrite,
+                )
+                .await
+                .map(Some);
+            }
+        }
+        FieldTarget::Bank { .. } => {
+            let owner = quartermaster_owner(pool, party_id).await?;
+            if authorize(
+                actor,
+                Action::Write,
+                &Resource::Bank {
+                    quartermaster_owner_sub: owner.clone(),
+                },
+            ) == Verdict::Deny
+            {
+                let reason = if owner.is_none() {
+                    "no quartermaster is designated"
+                } else {
+                    "only the quartermaster's owner may move the bank"
+                };
+                return record_party_denial(
+                    pool,
+                    actor,
+                    op,
+                    reason.to_owned(),
+                    AuditEvent::ForbiddenBankWrite,
+                )
+                .await
+                .map(Some);
+            }
+        }
+        FieldTarget::Party { .. } => {
+            let member = is_party_member(pool, actor, party_id).await?;
+            if authorize(
+                actor,
+                Action::Write,
+                &Resource::PartySettings {
+                    actor_is_party_member: member,
+                },
+            ) == Verdict::Deny
+            {
+                return record_party_denial(
+                    pool,
+                    actor,
+                    op,
+                    "not a member of this party".to_owned(),
+                    AuditEvent::ForbiddenPartyWrite,
+                )
+                .await
+                .map(Some);
+            }
+        }
+        // Covered by the scope match above.
+        FieldTarget::Claim { .. }
+        | FieldTarget::Vitals { .. }
+        | FieldTarget::Slot { .. }
+        | FieldTarget::Inv { .. }
+        | FieldTarget::Effect { .. }
+        | FieldTarget::EffectNew { .. } => {
+            return record_denial(
+                pool,
+                actor,
+                op,
+                Outcome::Rejected,
+                "unknown target".to_owned(),
+            )
+            .await
+            .map(Some);
+        }
+    }
+    Ok(None)
+}
+
+/// Record a party-write denial durably AND audit it (FR-10: every refusal
+/// in the audit trail under the D1.4 values, with the actor's identity).
+/// The ledger row is the verdict of record; the audit row is best-effort —
+/// the verdict is already delivered and must not change.
+async fn record_party_denial(
+    pool: &PgPool,
+    actor: &Actor,
+    op: &ClientOp,
+    reason: String,
+    event: AuditEvent,
+) -> anyhow::Result<WriteResult> {
+    let result = record_denial(pool, actor, op, Outcome::Forbidden, reason).await?;
+    crate::auth::audit::record(
+        pool,
+        event,
+        Some(&actor.sub),
+        &field_path(&op.target),
+        AuditOutcome::Denied,
+        None,
+    )
+    .await;
+    Ok(result)
+}
+
+/// The membership fact, loaded fresh per message (D4: facts are inputs).
+async fn is_party_member(pool: &PgPool, actor: &Actor, party_id: i64) -> anyhow::Result<bool> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM characters WHERE party_id = $1 AND owner_sub = $2)",
+    )
+    .bind(party_id)
+    .bind(&actor.sub)
+    .fetch_one(pool)
+    .await
+    .context("party membership lookup")
+}
+
+/// The `sub` of the account owning the designated quartermaster character,
+/// or `None` when the party has none (FR-5's undesignated case).
+async fn quartermaster_owner(pool: &PgPool, party_id: i64) -> anyhow::Result<Option<String>> {
+    sqlx::query_scalar(
+        "SELECT c.owner_sub FROM parties p \
+         LEFT JOIN characters c ON c.id = p.quartermaster_character_id \
+         WHERE p.id = $1",
+    )
+    .bind(party_id)
+    .fetch_one(pool)
+    .await
+    .context("quartermaster owner lookup")
+}
+
+/// The stash mint (D2): insert the row; a racing duplicate name hits the
+/// D1.5 unique constraint and maps to FR-1's friendly refusal; the claim
+/// row (`outside → stash`) lands in the same transaction (FR-9). The diff
+/// is the resolved row plus the claim append (D7).
+async fn stash_new_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    party_id: i64,
+    actor: &Actor,
+    value: &JsonValue,
+) -> anyhow::Result<PartyApply> {
+    let item_name = value
+        .get("item_name")
+        .and_then(JsonValue::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let quantity = as_i32(value.get("quantity").unwrap_or(&JsonValue::Null));
+    let bulk = stash_bulk_of(value.get("bulk"));
+    let notes = value
+        .get("notes")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("")
+        .to_owned();
+    let minted: Result<(i32, Option<f64>, String, i64), sqlx::Error> = sqlx::query_as(
+        "INSERT INTO party_stash (party_id, item_name, quantity, bulk, notes) \
+         VALUES ($1, $2, $3, $4, $5) \
+         RETURNING quantity, bulk::float8 AS bulk, notes, version",
+    )
+    .bind(party_id)
+    .bind(&item_name)
+    .bind(quantity)
+    .bind(bulk)
+    .bind(&notes)
+    .fetch_one(&mut **tx)
+    .await;
+    let (minted_quantity, minted_bulk, minted_notes, row_version) = match minted {
+        Ok(row) => row,
+        Err(err) if is_stash_name_violation(&err) => {
+            // FR-1's friendly refusal: the unique constraint is the
+            // structural identity; this message is its mapped surface.
+            return Ok(PartyApply::rejected(format!(
+                "\"{item_name}\" is already in the stash — adjust that row's quantity instead of adding it again"
+            )));
+        }
+        Err(err) => return Err(anyhow::Error::from(err).context("stash mint")),
+    };
+    let claim_id: i64 = sqlx::query_scalar(
+        "INSERT INTO claim_history (party_id, item_name, quantity, origin, destination, actor_sub) \
+         VALUES ($1, $2, $3, 'outside', 'stash', $4) RETURNING id",
+    )
+    .bind(party_id)
+    .bind(&item_name)
+    .bind(minted_quantity)
+    .bind(&actor.sub)
+    .fetch_one(&mut **tx)
+    .await
+    .context("stash mint claim row")?;
+    let claim_value = read_claim_row(&mut **tx, claim_id).await?;
+    Ok(PartyApply {
+        outcome: Outcome::Applied,
+        version: Some(row_version),
+        winning_version: None,
+        reason: None,
+        diffs: vec![
+            (
+                FieldTarget::Stash {
+                    party_id,
+                    item_name: item_name.clone(),
+                },
+                serde_json::json!({
+                    "item_name": item_name,
+                    "quantity": minted_quantity,
+                    "bulk": minted_bulk,
+                    "notes": minted_notes,
+                }),
+                row_version,
+            ),
+            (FieldTarget::Claim { claim_id }, claim_value, claim_id),
+        ],
+    })
+}
+
+/// The stash row's apply: `qty` additive (underflow/unknown-row refusal,
+/// never superseded) or `meta` CAS on the row version (D2). The diff is the
+/// resolved row shape in both cases.
+async fn stash_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    party_id: i64,
+    item_name: &str,
+    base_version: i64,
+    value: &JsonValue,
+) -> anyhow::Result<PartyApply> {
+    let op = value.get("op").and_then(JsonValue::as_str).unwrap_or("");
+    match op {
+        "qty" => stash_qty_tx(tx, party_id, item_name, value).await,
+        "meta" => stash_meta_tx(tx, party_id, item_name, base_version, value).await,
+        // Bounds admits only qty and meta (Task 3 adds transfer/sell).
+        _ => Ok(PartyApply::rejected(format!(
+            "unknown stash op {op:?} (qty and meta are the wired ops)"
+        ))),
+    }
+}
+
+/// The additive qty arm (D2): no version predicate — a stale base still
+/// applies, serialized by the row lock. An impossible draw refuses with a
+/// pre-formatted reason instead of erroring the driver.
+async fn stash_qty_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    party_id: i64,
+    item_name: &str,
+    value: &JsonValue,
+) -> anyhow::Result<PartyApply> {
+    let qty_delta = as_i32(value.get("qty_delta").unwrap_or(&JsonValue::Null));
+    // The quantity guard carries the shipped CHECK's semantics (> 0) plus
+    // the column's ceiling, so an impossible apply refuses instead of
+    // erroring the driver.
+    let updated: Option<(i32, Option<f64>, String, i64)> = sqlx::query_as(
+        "UPDATE party_stash SET quantity = quantity + $1, \
+         version = nextval('field_version_seq'), updated_at = now() \
+         WHERE party_id = $2 AND item_name = $3 \
+           AND quantity + $1 > 0 AND quantity + $1 <= $4 \
+         RETURNING quantity, bulk::float8 AS bulk, notes, version",
+    )
+    .bind(qty_delta)
+    .bind(party_id)
+    .bind(item_name)
+    .bind(i32::MAX)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("additive stash qty")?;
+    let Some((quantity, bulk, notes, version)) = updated else {
+        // Missing row vs refused draw: read the row to tell them apart
+        // (contract §4: unknown target is `rejected`).
+        let existing: Option<i32> = sqlx::query_scalar(
+            "SELECT quantity FROM party_stash WHERE party_id = $1 AND item_name = $2",
+        )
+        .bind(party_id)
+        .bind(item_name)
+        .fetch_optional(&mut **tx)
+        .await
+        .context("stash row read")?;
+        return Ok(match existing {
+            None => PartyApply::rejected("unknown target".to_owned()),
+            Some(current) => {
+                let target = i64::from(current) + i64::from(qty_delta.unwrap_or_default());
+                if target <= 0 {
+                    PartyApply::rejected(format!(
+                        "that draw would drive \"{item_name}\" below zero \
+                         ({current} in the stash, {delta} asked)",
+                        delta = qty_delta.unwrap_or_default()
+                    ))
+                } else {
+                    PartyApply::rejected(format!(
+                        "that draw would overflow \"{item_name}\"'s quantity \
+                         ({current} in the stash, {delta} asked)",
+                        delta = qty_delta.unwrap_or_default()
+                    ))
+                }
+            }
+        });
+    };
+    Ok(PartyApply {
+        outcome: Outcome::Applied,
+        version: Some(version),
+        winning_version: None,
+        reason: None,
+        diffs: vec![(
+            FieldTarget::Stash {
+                party_id,
+                item_name: item_name.to_owned(),
+            },
+            serde_json::json!({
+                "item_name": item_name,
+                "quantity": quantity,
+                "bulk": bulk,
+                "notes": notes,
+            }),
+            version,
+        )],
+    })
+}
+
+/// The CAS meta arm (D2, FR-2.2): the provided keys are set, the row
+/// version must still be base. A stale base supersedes; a missing row is
+/// rejected.
+async fn stash_meta_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    party_id: i64,
+    item_name: &str,
+    base_version: i64,
+    value: &JsonValue,
+) -> anyhow::Result<PartyApply> {
+    let set_bulk = value.get("bulk").is_some();
+    let set_notes = value.get("notes").is_some();
+    let bulk = stash_bulk_of(value.get("bulk"));
+    let notes = value.get("notes").and_then(JsonValue::as_str);
+    let updated: Option<(i32, Option<f64>, String, i64)> = if set_bulk && set_notes {
+        sqlx::query_as(
+            "UPDATE party_stash SET bulk = $1, notes = $2, \
+             version = nextval('field_version_seq'), updated_at = now() \
+             WHERE party_id = $3 AND item_name = $4 AND version = $5 \
+             RETURNING quantity, bulk::float8 AS bulk, notes, version",
+        )
+        .bind(bulk)
+        .bind(notes)
+        .bind(party_id)
+        .bind(item_name)
+        .bind(base_version)
+        .fetch_optional(&mut **tx)
+        .await
+        .context("CAS stash meta (bulk+notes)")?
+    } else if set_bulk {
+        sqlx::query_as(
+            "UPDATE party_stash SET bulk = $1, \
+             version = nextval('field_version_seq'), updated_at = now() \
+             WHERE party_id = $2 AND item_name = $3 AND version = $4 \
+             RETURNING quantity, bulk::float8 AS bulk, notes, version",
+        )
+        .bind(bulk)
+        .bind(party_id)
+        .bind(item_name)
+        .bind(base_version)
+        .fetch_optional(&mut **tx)
+        .await
+        .context("CAS stash meta (bulk)")?
+    } else if set_notes {
+        sqlx::query_as(
+            "UPDATE party_stash SET notes = $1, \
+             version = nextval('field_version_seq'), updated_at = now() \
+             WHERE party_id = $2 AND item_name = $3 AND version = $4 \
+             RETURNING quantity, bulk::float8 AS bulk, notes, version",
+        )
+        .bind(notes)
+        .bind(party_id)
+        .bind(item_name)
+        .bind(base_version)
+        .fetch_optional(&mut **tx)
+        .await
+        .context("CAS stash meta (notes)")?
+    } else {
+        // Bounds requires at least one field; this arm keeps the branch
+        // total if that gate ever moves.
+        return Ok(PartyApply::rejected(
+            "stash meta needs bulk or notes".to_owned(),
+        ));
+    };
+    let Some((quantity, resolved_bulk, resolved_notes, version)) = updated else {
+        let existing: Option<i64> = sqlx::query_scalar(
+            "SELECT version FROM party_stash WHERE party_id = $1 AND item_name = $2",
+        )
+        .bind(party_id)
+        .bind(item_name)
+        .fetch_optional(&mut **tx)
+        .await
+        .context("stash row version read")?;
+        return Ok(match existing {
+            None => PartyApply::rejected("unknown target".to_owned()),
+            Some(winning) => PartyApply::superseded(winning),
+        });
+    };
+    Ok(PartyApply {
+        outcome: Outcome::Applied,
+        version: Some(version),
+        winning_version: None,
+        reason: None,
+        diffs: vec![(
+            FieldTarget::Stash {
+                party_id,
+                item_name: item_name.to_owned(),
+            },
+            serde_json::json!({
+                "item_name": item_name,
+                "quantity": quantity,
+                "bulk": resolved_bulk,
+                "notes": resolved_notes,
+            }),
+            version,
+        )],
+    })
+}
+
+/// The bank's additive apply (D2): one version unit, signed per-denomination
+/// deltas, the shipped CHECKs' semantics enforced in the predicate so an
+/// impossible apply refuses with a pre-formatted reason instead of erroring
+/// the driver. The balance row mints with the party's first movement.
+async fn bank_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    party_id: i64,
+    value: &JsonValue,
+) -> anyhow::Result<PartyApply> {
+    let gp_delta = as_i32(value.get("gp_delta").unwrap_or(&JsonValue::Null));
+    let sp_delta = as_i32(value.get("sp_delta").unwrap_or(&JsonValue::Null));
+    let cp_delta = as_i32(value.get("cp_delta").unwrap_or(&JsonValue::Null));
+    sqlx::query("INSERT INTO party_bank (party_id) VALUES ($1) ON CONFLICT (party_id) DO NOTHING")
+        .bind(party_id)
+        .execute(&mut **tx)
+        .await
+        .context("ensure bank row")?;
+    // Additive: no version predicate — a stale base still credits, serialized
+    // by the row lock (FR-2.1).
+    let updated: Option<(i32, i32, i32, i64)> = sqlx::query_as(
+        "UPDATE party_bank SET gp = gp + $1, sp = sp + $2, cp = cp + $3, \
+         version = nextval('field_version_seq'), updated_at = now() \
+         WHERE party_id = $4 \
+           AND gp + $1 >= 0 AND sp + $2 >= 0 AND cp + $3 >= 0 \
+           AND gp + $1 <= $5 AND sp + $2 <= $5 AND cp + $3 <= $5 \
+         RETURNING gp, sp, cp, version",
+    )
+    .bind(gp_delta)
+    .bind(sp_delta)
+    .bind(cp_delta)
+    .bind(party_id)
+    .bind(i32::MAX)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("additive bank apply")?;
+    let Some((gp, sp, cp, version)) = updated else {
+        let (gp, sp, cp): (i32, i32, i32) =
+            sqlx::query_as("SELECT gp, sp, cp FROM party_bank WHERE party_id = $1")
+                .bind(party_id)
+                .fetch_one(&mut **tx)
+                .await
+                .context("bank row read")?;
+        let denominations = [
+            ("gp", gp, gp_delta.unwrap_or_default()),
+            ("sp", sp, sp_delta.unwrap_or_default()),
+            ("cp", cp, cp_delta.unwrap_or_default()),
+        ];
+        let reason = match denominations
+            .iter()
+            .find(|(_name, current, delta)| i64::from(*current) + i64::from(*delta) < 0)
+        {
+            Some((name, current, delta)) => format!(
+                "that adjustment would drive {name} below zero ({current} on the row, {delta} asked)"
+            ),
+            None => "that adjustment would overflow the balance".to_owned(),
+        };
+        return Ok(PartyApply::rejected(reason));
+    };
+    Ok(PartyApply {
+        outcome: Outcome::Applied,
+        version: Some(version),
+        winning_version: None,
+        reason: None,
+        diffs: vec![(
+            FieldTarget::Bank { party_id },
+            serde_json::json!({"gp": gp, "sp": sp, "cp": cp}),
+            version,
+        )],
+    })
+}
+
+/// The quartermaster designation: an absolute write under CAS on
+/// `quartermaster_version` (FR-2.3/FR-5); the value names a roster character
+/// or clears the designation.
+async fn quartermaster_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    party_id: i64,
+    base_version: i64,
+    value: &JsonValue,
+) -> anyhow::Result<PartyApply> {
+    let character_id = value.get("character_id").and_then(JsonValue::as_i64);
+    if let Some(character_id) = character_id {
+        let in_party: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM characters WHERE id = $1 AND party_id = $2")
+                .bind(character_id)
+                .bind(party_id)
+                .fetch_optional(&mut **tx)
+                .await
+                .context("roster check")?;
+        if in_party.is_none() {
+            return Ok(PartyApply::rejected(format!(
+                "character {character_id} is not a roster character of this party"
+            )));
+        }
+    }
+    let new_version: Option<i64> = sqlx::query_scalar(
+        "UPDATE parties SET quartermaster_character_id = $1, \
+         quartermaster_version = nextval('field_version_seq'), updated_at = now() \
+         WHERE id = $2 AND quartermaster_version = $3 \
+         RETURNING quartermaster_version",
+    )
+    .bind(character_id)
+    .bind(party_id)
+    .bind(base_version)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("CAS quartermaster")?;
+    let Some(version) = new_version else {
+        let winning: i64 =
+            sqlx::query_scalar("SELECT quartermaster_version FROM parties WHERE id = $1")
+                .bind(party_id)
+                .fetch_one(&mut **tx)
+                .await
+                .context("re-read quartermaster version")?;
+        return Ok(PartyApply::superseded(winning));
+    };
+    Ok(PartyApply {
+        outcome: Outcome::Applied,
+        version: Some(version),
+        winning_version: None,
+        reason: None,
+        diffs: vec![(
+            FieldTarget::Party {
+                party_id,
+                field: PartyField::Quartermaster,
+            },
+            serde_json::json!({"quartermaster_character_id": character_id}),
+            version,
+        )],
+    })
+}
+
+/// One committed claim row (D7). Coins are NULL on item rows (outside ↔
+/// stash); they are set only on the minted bank rows (Task 5). Decoded
+/// as a struct so the row shape has one owner instead of a nine-tuple
+/// repeated in the snapshot path.
+#[derive(sqlx::FromRow)]
+struct ClaimRow {
+    item_name: String,
+    quantity: i32,
+    origin: String,
+    destination: String,
+    actor_sub: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    coins_gp: Option<i32>,
+    coins_sp: Option<i32>,
+    coins_cp: Option<i32>,
+}
+
+/// One committed claim row in the snapshot/diff value shape (D7): the id
+/// rides the target, the fields ride the value, coins NULL on item rows.
+pub(crate) async fn read_claim_row(
+    executor: impl sqlx::PgExecutor<'_>,
+    claim_id: i64,
+) -> anyhow::Result<JsonValue> {
+    let row = sqlx::query_as::<_, ClaimRow>(
+        "SELECT item_name, quantity, origin, destination, actor_sub, created_at, \
+         coins_gp, coins_sp, coins_cp FROM claim_history WHERE id = $1",
+    )
+    .bind(claim_id)
+    .fetch_one(executor)
+    .await
+    .context("read claim row for diff")?;
+    Ok(serde_json::json!({
+        "item_name": row.item_name,
+        "quantity": row.quantity,
+        "origin": row.origin,
+        "destination": row.destination,
+        "actor_sub": row.actor_sub,
+        "created_at": row.created_at,
+        "coins_gp": row.coins_gp,
+        "coins_sp": row.coins_sp,
+        "coins_cp": row.coins_cp,
+    }))
+}
+
+/// `party_stash.bulk` extraction — bounds validated the range; absent or
+/// null reads as NULL (the schema's negligible/unknown convention).
+fn stash_bulk_of(value: Option<&JsonValue>) -> Option<f64> {
+    value.and_then(JsonValue::as_f64)
+}
+
+/// The D1.5 unique violation behind FR-1's friendly refusal: the insert's
+/// only unique constraint is the (`party_id`, `item_name`) identity key.
+fn is_stash_name_violation(err: &sqlx::Error) -> bool {
+    err.as_database_error().is_some_and(|db| {
+        db.is_unique_violation() && db.constraint() == Some("party_stash_party_id_item_name_key")
+    })
+}
+
 /// The create's modifier set: the corpus row resolved at apply time, or the
 /// hand-built payload as validated.
 async fn resolve_create_modifiers(
@@ -890,7 +1739,7 @@ async fn answer_replay(
             version: stored_version,
             winning_version: None,
             reason: None,
-            broadcast: None,
+            broadcast: Vec::new(),
             affected: Vec::new(),
         });
     }
@@ -904,7 +1753,7 @@ async fn answer_replay(
         version: None,
         winning_version: None,
         reason: Some("op_id was already used for a different request".to_owned()),
-        broadcast: None,
+        broadcast: Vec::new(),
         affected: Vec::new(),
     })
 }
@@ -964,7 +1813,7 @@ async fn record_denial(
         version: None,
         winning_version: None,
         reason: Some(reason),
-        broadcast: None,
+        broadcast: Vec::new(),
         affected: Vec::new(),
     })
 }
@@ -1062,6 +1911,19 @@ async fn resolve_target(pool: &PgPool, target: &FieldTarget) -> anyhow::Result<O
             party_id: Some(*party_id),
             field_path: format!("effect_new:{party_id}"),
         })),
+        // The E12 party targets are routed to `apply_party_write` before
+        // resolution (their authz keys on party membership, not a row
+        // owner); these arms keep the match honest and are unreachable
+        // through `apply_write`.
+        FieldTarget::StashNew { .. }
+        | FieldTarget::Stash { .. }
+        | FieldTarget::Bank { .. }
+        | FieldTarget::Party { .. }
+        | FieldTarget::Claim { .. } => Ok(Some(TargetRow {
+            owner_sub: String::new(),
+            party_id: None,
+            field_path: field_path(target),
+        })),
     }
 }
 
@@ -1110,6 +1972,14 @@ async fn cas(
         FieldTarget::Effect { .. } | FieldTarget::EffectNew { .. } => {
             Ok((Outcome::Rejected, None, None))
         }
+        // The E12 party targets route through `apply_party_write` (step
+        // 1c) — the additive applies carry no version predicate and the CAS
+        // ones ride the party engine; this arm keeps the match honest.
+        FieldTarget::StashNew { .. }
+        | FieldTarget::Stash { .. }
+        | FieldTarget::Bank { .. }
+        | FieldTarget::Party { .. }
+        | FieldTarget::Claim { .. } => Ok((Outcome::Rejected, None, None)),
     }
 }
 
@@ -1433,7 +2303,8 @@ async fn insert_ledger(
 }
 
 /// The ledger's canonical field-path text for a target (data-model.md):
-/// `vitals:hp`, `slot:Wizard:3:0`, `inv:Chalk`, `effect:42`.
+/// `vitals:hp`, `slot:Wizard:3:0`, `inv:Chalk`, `effect:42`, and the E12
+/// party paths (party-scoped: the stash is shared, the ledger names it).
 fn field_path(target: &FieldTarget) -> String {
     match target {
         FieldTarget::Vitals { field, .. } => format!("vitals:{}", field.as_str()),
@@ -1446,6 +2317,16 @@ fn field_path(target: &FieldTarget) -> String {
         FieldTarget::Inv { item_name, .. } => format!("inv:{item_name}"),
         FieldTarget::Effect { effect_id } => format!("effect:{effect_id}"),
         FieldTarget::EffectNew { party_id } => format!("effect_new:{party_id}"),
+        FieldTarget::StashNew { party_id } => format!("stash_new:{party_id}"),
+        FieldTarget::Stash {
+            party_id,
+            item_name,
+        } => format!("stash:{party_id}:{item_name}"),
+        FieldTarget::Bank { party_id } => format!("bank:{party_id}"),
+        FieldTarget::Party { party_id, field } => {
+            format!("party:{}:{party_id}", field.as_str())
+        }
+        FieldTarget::Claim { claim_id } => format!("claim:{claim_id}"),
     }
 }
 
@@ -1574,6 +2455,156 @@ fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result<(), String
                 )),
             }
         }
+        // E12's party targets (design D2): the mint, the row ops, the bank
+        // delta, the designation. The claim target is read-only — append-only
+        // rows have no write frame.
+        FieldTarget::StashNew { .. } => validate_stash_new(value),
+        FieldTarget::Stash { .. } => validate_stash(value),
+        FieldTarget::Bank { .. } => validate_bank(value),
+        FieldTarget::Party { .. } => validate_party(value),
+        FieldTarget::Claim { .. } => {
+            Err("claim rows are append-only and cannot be written".to_owned())
+        }
+    }
+}
+
+/// The `stash_new` mint payload: `{item_name, quantity > 0, bulk?, notes?}`
+/// (D2). The quantity floor is the shipped CHECK's (> 0) — a zero-quantity
+/// row is deleted, not kept.
+fn validate_stash_new(value: &JsonValue) -> Result<(), String> {
+    let Some(object) = value.as_object() else {
+        return Err("stash_new value must be an object".to_owned());
+    };
+    for key in object.keys() {
+        if !matches!(key.as_str(), "item_name" | "quantity" | "bulk" | "notes") {
+            return Err(format!("stash_new value: unknown key {key:?}"));
+        }
+    }
+    match object.get("item_name").and_then(JsonValue::as_str) {
+        Some(name) if !name.is_empty() => {}
+        _ => return Err("stash_new needs a non-empty item_name".to_owned()),
+    }
+    match object
+        .get("quantity")
+        .and_then(JsonValue::as_i64)
+        .and_then(|quantity| i32::try_from(quantity).ok())
+    {
+        Some(quantity) if quantity >= 1 => {}
+        _ => {
+            return Err(
+                "stash_new.quantity must be an integer \u{2265} 1 (a zero-quantity row is deleted, not kept)"
+                    .to_owned(),
+            )
+        }
+    }
+    validate_stash_bulk(object.get("bulk"))?;
+    if let Some(notes) = object.get("notes")
+        && !notes.is_string()
+    {
+        return Err("stash_new.notes must be a string".to_owned());
+    }
+    Ok(())
+}
+
+/// The stash row's op-discriminated value (D2): `{op:"qty", qty_delta}` or
+/// `{op:"meta", bulk?, notes?}` at this lane; Task 3's transfer/sell join
+/// the accepted set when they land.
+fn validate_stash(value: &JsonValue) -> Result<(), String> {
+    let Some(object) = value.as_object() else {
+        return Err("stash value must be an object carrying op".to_owned());
+    };
+    match object.get("op").and_then(JsonValue::as_str) {
+        Some("qty") => {
+            if object.len() != 2 || !object.contains_key("qty_delta") {
+                return Err("stash qty value must be exactly {op, qty_delta}".to_owned());
+            }
+            match object
+                .get("qty_delta")
+                .and_then(JsonValue::as_i64)
+                .and_then(|delta| i32::try_from(delta).ok())
+            {
+                Some(_) => Ok(()),
+                None => Err("qty_delta must be an integer".to_owned()),
+            }
+        }
+        Some("meta") => {
+            for key in object.keys() {
+                if !matches!(key.as_str(), "op" | "bulk" | "notes") {
+                    return Err(format!("stash meta value: unknown key {key:?}"));
+                }
+            }
+            if !object.contains_key("bulk") && !object.contains_key("notes") {
+                return Err("stash meta needs bulk or notes".to_owned());
+            }
+            validate_stash_bulk(object.get("bulk"))?;
+            if let Some(notes) = object.get("notes")
+                && !notes.is_string()
+            {
+                return Err("stash meta notes must be a string".to_owned());
+            }
+            Ok(())
+        }
+        Some(other) => Err(format!(
+            "unknown stash op {other:?} (qty and meta are the wired ops)"
+        )),
+        None => Err("stash value needs an op".to_owned()),
+    }
+}
+
+/// `party_stash.bulk` is numeric(6,1): 0..=99999.9, absent/null = negligible
+/// (the shipped convention; "L" = 0.1).
+fn validate_stash_bulk(value: Option<&JsonValue>) -> Result<(), String> {
+    match value {
+        None | Some(JsonValue::Null) => Ok(()),
+        Some(bulk) => match bulk.as_f64() {
+            Some(number) if (0.0..=99_999.9).contains(&number) => Ok(()),
+            Some(_) => Err(
+                "bulk must be a number within 0\u{2014}99999.9 (numeric(6,1); \"L\" = 0.1)"
+                    .to_owned(),
+            ),
+            None => Err("bulk must be a number".to_owned()),
+        },
+    }
+}
+
+/// The bank's signed per-denomination delta: exactly `{gp_delta, sp_delta,
+/// cp_delta}`, each an i32-range integer (the shipped int columns).
+fn validate_bank(value: &JsonValue) -> Result<(), String> {
+    let Some(object) = value.as_object() else {
+        return Err("bank value must be an object {gp_delta, sp_delta, cp_delta}".to_owned());
+    };
+    if object.len() != 3 {
+        return Err("bank needs exactly gp_delta, sp_delta, cp_delta".to_owned());
+    }
+    for key in ["gp_delta", "sp_delta", "cp_delta"] {
+        match object
+            .get(key)
+            .and_then(JsonValue::as_i64)
+            .and_then(|delta| i32::try_from(delta).ok())
+        {
+            Some(_) => {}
+            None => return Err(format!("bank.{key} must be a signed integer")),
+        }
+    }
+    Ok(())
+}
+
+/// The quartermaster write: exactly `{character_id}` — an integer (roster
+/// existence is the write arm's check, where the rows are) or null (clear).
+fn validate_party(value: &JsonValue) -> Result<(), String> {
+    let Some(object) = value.as_object() else {
+        return Err("party value must be exactly {character_id}".to_owned());
+    };
+    if object.len() != 1 {
+        return Err("party value must be exactly {character_id}".to_owned());
+    }
+    let Some(character_id) = object.get("character_id") else {
+        return Err("party value must be exactly {character_id}".to_owned());
+    };
+    if character_id.is_null() || character_id.as_i64().is_some() {
+        Ok(())
+    } else {
+        Err("character_id must be an integer or null".to_owned())
     }
 }
 
@@ -1787,7 +2818,7 @@ mod bounds_tests {
     use serde_json::json;
 
     #[test]
-    fn the_bounds_table_rejects_and_accepts_exactly() {
+    fn vitals_bounds_reject_and_accept_exactly() {
         let hp = |value| validate_bounds(&vitals(VitalsField::Hp), &value);
         assert!(hp(json!(0)).is_ok(), "hp 0 is the floor");
         assert!(hp(json!(300)).is_ok());
@@ -1856,7 +2887,10 @@ mod bounds_tests {
             "whole-row write: no extra keys"
         );
         assert!(daily(json!("zeroed")).is_err(), "daily must be an object");
+    }
 
+    #[test]
+    fn slot_and_inv_bounds_reject_and_accept_exactly() {
         let slot = |value| {
             validate_bounds(
                 &FieldTarget::Slot {
@@ -1887,6 +2921,107 @@ mod bounds_tests {
         };
         assert!(inv(json!({"qty_delta": -2})).is_ok(), "signed deltas fine");
         assert!(inv(json!({"other": 1})).is_err());
+    }
+
+    #[test]
+    fn party_target_bounds_reject_and_accept_exactly() {
+        // E12's party targets (design D2).
+        let mint = |value| validate_bounds(&FieldTarget::StashNew { party_id: 1 }, &value);
+        assert!(mint(json!({"item_name": "Rope", "quantity": 1})).is_ok());
+        assert!(
+            mint(json!({"item_name": "Rope", "quantity": 1, "bulk": 0.1, "notes": "x"})).is_ok()
+        );
+        assert!(
+            mint(json!({"item_name": "Rope", "quantity": 0})).is_err(),
+            "quantity > 0 is the shipped CHECK"
+        );
+        assert!(mint(json!({"item_name": "Rope", "quantity": -1})).is_err());
+        assert!(mint(json!({"quantity": 1})).is_err(), "item_name required");
+        assert!(
+            mint(json!({"item_name": "", "quantity": 1})).is_err(),
+            "empty name refused"
+        );
+        assert!(
+            mint(json!({"item_name": "Rope", "quantity": 1, "bulk": -0.1})).is_err(),
+            "negative bulk refused"
+        );
+        assert!(
+            mint(json!({"item_name": "Rope", "quantity": 1, "bulk": 100_000.0})).is_err(),
+            "numeric(6,1) ceiling"
+        );
+        assert!(mint(json!({"item_name": "Rope", "quantity": 1, "notes": 3})).is_err());
+        assert!(
+            mint(json!({"item_name": "Rope", "quantity": 1, "wat": 1})).is_err(),
+            "unknown keys denied"
+        );
+
+        let stash = |value| {
+            validate_bounds(
+                &FieldTarget::Stash {
+                    party_id: 1,
+                    item_name: "Rope".to_owned(),
+                },
+                &value,
+            )
+        };
+        assert!(stash(json!({"op": "qty", "qty_delta": -2})).is_ok());
+        assert!(
+            stash(json!({"op": "qty"})).is_err(),
+            "exactly {{op, qty_delta}}"
+        );
+        assert!(stash(json!({"op": "qty", "qty_delta": 1, "extra": 1})).is_err());
+        assert!(stash(json!({"op": "qty", "qty_delta": "two"})).is_err());
+        assert!(stash(json!({"op": "meta", "notes": "x"})).is_ok());
+        assert!(stash(json!({"op": "meta", "bulk": 0.5})).is_ok());
+        assert!(
+            stash(json!({"op": "meta", "bulk": null})).is_ok(),
+            "null clears to negligible"
+        );
+        assert!(
+            stash(json!({"op": "meta"})).is_err(),
+            "needs at least one field"
+        );
+        assert!(stash(json!({"op": "meta", "bulk": -1})).is_err());
+        assert!(
+            stash(json!({"op": "sell", "qty": 1})).is_err(),
+            "sell is lane L3, not wired yet"
+        );
+        assert!(stash(json!({"extra": 1})).is_err());
+
+        let bank = |value| validate_bounds(&FieldTarget::Bank { party_id: 1 }, &value);
+        assert!(
+            bank(json!({"gp_delta": 1, "sp_delta": -2, "cp_delta": 0})).is_ok(),
+            "signed deltas fine"
+        );
+        assert!(
+            bank(json!({"gp_delta": 1, "sp_delta": 2})).is_err(),
+            "all three"
+        );
+        assert!(bank(json!({"gp_delta": "x", "sp_delta": 2, "cp_delta": 0})).is_err());
+
+        let party = |value| {
+            validate_bounds(
+                &FieldTarget::Party {
+                    party_id: 1,
+                    field: PartyField::Quartermaster,
+                },
+                &value,
+            )
+        };
+        assert!(party(json!({"character_id": 3})).is_ok());
+        assert!(
+            party(json!({"character_id": null})).is_ok(),
+            "clearing is a legal write"
+        );
+        assert!(party(json!({"character_id": "three"})).is_err());
+        assert!(party(json!({"character_id": 3, "extra": 1})).is_err());
+        assert!(party(json!({})).is_err());
+
+        let claim = validate_bounds(&FieldTarget::Claim { claim_id: 1 }, &json!(null));
+        assert!(
+            claim.is_err(),
+            "claim rows are append-only — no write frame"
+        );
     }
 
     #[test]

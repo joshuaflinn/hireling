@@ -12,7 +12,7 @@
 use serde_json::Value;
 use strum::IntoEnumIterator;
 
-use crate::sync::protocol::{FieldTarget, VitalsField};
+use crate::sync::protocol::{FieldTarget, PartyField, VitalsField};
 
 /// The fixture this suite pins, relative to the crate manifest (repo root).
 const FIXTURE_PATH: &str = "specs/007-party-sync/contracts/field-targets.json";
@@ -67,6 +67,17 @@ fn every_field_target_variant_is_pinned_to_the_contract_fixture() {
         },
         FieldTarget::Effect { effect_id: 41 },
         FieldTarget::EffectNew { party_id: 1 },
+        FieldTarget::StashNew { party_id: 1 },
+        FieldTarget::Stash {
+            party_id: 1,
+            item_name: "Rope".to_owned(),
+        },
+        FieldTarget::Bank { party_id: 1 },
+        FieldTarget::Party {
+            party_id: 1,
+            field: PartyField::Quartermaster,
+        },
+        FieldTarget::Claim { claim_id: 42 },
     ];
 
     let mut pinned_kinds: Vec<&str> = Vec::new();
@@ -88,6 +99,11 @@ fn every_field_target_variant_is_pinned_to_the_contract_fixture() {
             FieldTarget::Inv { .. } => "inv",
             FieldTarget::Effect { .. } => "effect",
             FieldTarget::EffectNew { .. } => "effect_new",
+            FieldTarget::StashNew { .. } => "stash_new",
+            FieldTarget::Stash { .. } => "stash",
+            FieldTarget::Bank { .. } => "bank",
+            FieldTarget::Party { .. } => "party",
+            FieldTarget::Claim { .. } => "claim",
         };
         pinned_kinds.push(key);
 
@@ -171,6 +187,24 @@ fn the_pinned_vitals_fields_are_the_serde_wire_names_of_the_enum() {
         pinned, wire_names,
         "the fixture's vitals_fields must be exactly the serde wire names of \
          VitalsField — a renamed or added variant is a client-facing contract change"
+    );
+}
+
+#[test]
+fn the_pinned_stash_ops_are_the_write_paths_accepted_set() {
+    let fixture = fixture();
+    let ops: Vec<&str> = fixture
+        .get("stash_ops")
+        .and_then(Value::as_array)
+        .expect("the fixture pins the accepted stash ops")
+        .iter()
+        .map(|op| op.as_str().expect("op names are strings"))
+        .collect();
+    assert_eq!(
+        ops,
+        ["qty", "meta"],
+        "the accepted set is the write path's bounds table: qty and meta — \
+         src/sync/write.rs stash_tx (lane L3 adds transfer and sell)"
     );
 }
 

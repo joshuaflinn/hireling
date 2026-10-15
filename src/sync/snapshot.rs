@@ -10,7 +10,7 @@ use anyhow::Context as _;
 use serde_json::{Value as JsonValue, json};
 use sqlx::{PgPool, Row as _};
 
-use crate::sync::protocol::{FieldTarget, SnapshotField, VitalsField};
+use crate::sync::protocol::{FieldTarget, PartyField, SnapshotField, VitalsField};
 
 /// Every versioned live-state field of `party_id`: per character the four
 /// vitals fields, every spell-slot row, every inventory row; then one row
@@ -27,6 +27,10 @@ pub async fn party_snapshot(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<
     fields.extend(slot_fields(pool, party_id).await?);
     fields.extend(inventory_fields(pool, party_id).await?);
     fields.extend(effect_fields(pool, party_id).await?);
+    fields.extend(stash_fields(pool, party_id).await?);
+    fields.extend(bank_fields(pool, party_id).await?);
+    fields.push(party_fields(pool, party_id).await?);
+    fields.extend(claim_fields(pool, party_id).await?);
     Ok(fields)
 }
 
@@ -223,6 +227,106 @@ async fn effect_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<Snaps
         });
     }
     Ok(fields)
+}
+
+/// The E12 sections (D2's snapshot shapes): the party's stash rows (one row
+/// per item name), the bank balance when the party has one (the row mints
+/// with the first movement), the quartermaster designation, and the full
+/// claim log at POC scale keyed by the monotonic row id (FR-2.4: merge by
+/// id — the id rides the version slot, so the strictly-newer rule and the
+/// id rule are the same predicate).
+async fn stash_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<SnapshotField>> {
+    let rows: Vec<(String, i32, Option<f64>, String, i64)> = sqlx::query_as(
+        "SELECT item_name, quantity, bulk::float8 AS bulk, notes, version \
+         FROM party_stash WHERE party_id = $1 ORDER BY item_name",
+    )
+    .bind(party_id)
+    .fetch_all(pool)
+    .await
+    .context("snapshot stash")?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(item_name, quantity, bulk, notes, version)| SnapshotField {
+                field: FieldTarget::Stash {
+                    party_id,
+                    item_name: item_name.clone(),
+                },
+                value: json!({
+                    "item_name": item_name,
+                    "quantity": quantity,
+                    "bulk": bulk,
+                    "notes": notes,
+                }),
+                version,
+            },
+        )
+        .collect())
+}
+
+/// The bank balance row, when it exists — no row means no movement yet, and
+/// the snapshot omits the field rather than minting one.
+async fn bank_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<SnapshotField>> {
+    let row: Option<(i32, i32, i32, i64)> =
+        sqlx::query_as("SELECT gp, sp, cp, version FROM party_bank WHERE party_id = $1")
+            .bind(party_id)
+            .fetch_optional(pool)
+            .await
+            .context("snapshot bank")?;
+    Ok(row
+        .map(|(gp, sp, cp, version)| SnapshotField {
+            field: FieldTarget::Bank { party_id },
+            value: json!({"gp": gp, "sp": sp, "cp": cp}),
+            version,
+        })
+        .into_iter()
+        .collect())
+}
+
+/// The quartermaster designation — one field, always present (the party row
+/// exists; the designation may be null).
+async fn party_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<SnapshotField> {
+    let (quartermaster_character_id, version): (Option<i64>, i64) = sqlx::query_as(
+        "SELECT quartermaster_character_id, quartermaster_version FROM parties WHERE id = $1",
+    )
+    .bind(party_id)
+    .fetch_one(pool)
+    .await
+    .context("snapshot party settings")?;
+    Ok(SnapshotField {
+        field: FieldTarget::Party {
+            party_id,
+            field: PartyField::Quartermaster,
+        },
+        value: json!({"quartermaster_character_id": quartermaster_character_id}),
+        version,
+    })
+}
+
+/// The claim log, id order — the append-only record in full at POC scale.
+async fn claim_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<SnapshotField>> {
+    let rows = sqlx::query("SELECT id FROM claim_history WHERE party_id = $1 ORDER BY id")
+        .bind(party_id)
+        .fetch_all(pool)
+        .await
+        .context("snapshot claims")?;
+    let mut fields = Vec::with_capacity(rows.len());
+    for row in rows {
+        let claim_id: i64 = row.get("id");
+        fields.push(SnapshotField {
+            field: FieldTarget::Claim { claim_id },
+            value: read_claim_row_snapshot(pool, claim_id).await?,
+            version: claim_id,
+        });
+    }
+    Ok(fields)
+}
+
+/// One claim row's snapshot value — the same shape the claim-append diff
+/// carries (one shape, two riders). Delegates to the write path's reader
+/// so the row shape has a single owner.
+async fn read_claim_row_snapshot(pool: &PgPool, claim_id: i64) -> anyhow::Result<JsonValue> {
+    crate::sync::write::read_claim_row(pool, claim_id).await
 }
 
 /// The `snapshot_bytes` metric (contract §7): the serialized byte length of

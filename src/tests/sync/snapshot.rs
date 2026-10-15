@@ -5,7 +5,7 @@
 
 use serde_json::{Value as JsonValue, json};
 
-use crate::sync::protocol::{FieldTarget, SnapshotField, VitalsField};
+use crate::sync::protocol::{FieldTarget, PartyField, SnapshotField, VitalsField};
 use crate::sync::snapshot::{party_snapshot, snapshot_bytes};
 use crate::testing;
 
@@ -354,6 +354,23 @@ async fn a_snapshot_carries_every_versioned_field_with_its_db_version() {
             {"type": "untyped", "stat": "fort_save", "value": -2}
         ]),
     ));
+    // The E12 party field rides every snapshot (the designation is versioned
+    // party state, not a character's row).
+    let (qm_character, qm_version): (Option<i64>, i64) = sqlx::query_as(
+        "SELECT quartermaster_character_id, quartermaster_version FROM parties WHERE id = $1",
+    )
+    .bind(party_id)
+    .fetch_one(&pool)
+    .await
+    .expect("party row");
+    expected.push(SnapshotField {
+        field: FieldTarget::Party {
+            party_id,
+            field: PartyField::Quartermaster,
+        },
+        value: json!({"quartermaster_character_id": qm_character}),
+        version: qm_version,
+    });
 
     assert_eq!(
         fields.len(),
@@ -386,7 +403,16 @@ fn targets_character(target: &FieldTarget, character_id: i64) -> bool {
             character_id: owned,
             ..
         } => *owned == character_id,
-        FieldTarget::Effect { .. } | FieldTarget::EffectNew { .. } => false,
+        // Effects and the E12 party targets address no character's rows —
+        // the quartermaster designation names a character but does not
+        // address that character's rows.
+        FieldTarget::Effect { .. }
+        | FieldTarget::EffectNew { .. }
+        | FieldTarget::StashNew { .. }
+        | FieldTarget::Stash { .. }
+        | FieldTarget::Bank { .. }
+        | FieldTarget::Party { .. }
+        | FieldTarget::Claim { .. } => false,
     }
 }
 
@@ -421,8 +447,8 @@ async fn a_snapshot_contains_only_the_party_s_own_rows() {
     let own = party_snapshot(&pool, party_id).await.expect("own snapshot");
     assert_eq!(
         own.len(),
-        8 + 1 + 1,
-        "own party: 8 vitals + 1 slot + 1 item, no effects"
+        8 + 1 + 1 + 1,
+        "own party: 8 vitals + 1 slot + 1 item + the party settings field, no effects"
     );
     assert!(
         own.iter()
@@ -435,8 +461,8 @@ async fn a_snapshot_contains_only_the_party_s_own_rows() {
         .expect("other snapshot");
     assert_eq!(
         other.len(),
-        8 + 1 + 1 + 1,
-        "other party: 8 vitals + 1 slot + 1 item + 1 effect"
+        8 + 1 + 1 + 1 + 1,
+        "other party: 8 vitals + 1 slot + 1 item + 1 effect + the party settings field"
     );
     assert!(
         other
@@ -479,7 +505,7 @@ async fn snapshot_bytes_is_the_serialized_length_of_the_rows() {
 }
 
 #[tokio::test]
-async fn an_empty_party_yields_an_empty_snapshot() {
+async fn an_empty_party_yields_only_the_party_settings_row() {
     let Some(pool) = testing::test_pool().await else {
         return;
     };
@@ -492,12 +518,29 @@ async fn an_empty_party_yields_an_empty_snapshot() {
     let fields = party_snapshot(&pool, empty_party)
         .await
         .expect("snapshot builds");
-    assert!(fields.is_empty(), "no characters, no rows");
+    // No characters, no stash, no bank row, no claims — but the party's own
+    // settings field is versioned party state and rides every snapshot (E12).
+    assert_eq!(fields.len(), 1, "only the party settings field");
+    let party_field = fields.first().expect("one row asserted above");
+    assert!(
+        matches!(
+            &party_field.field,
+            FieldTarget::Party {
+                field: PartyField::Quartermaster,
+                ..
+            }
+        ),
+        "the one row is the quartermaster field: {:?}",
+        party_field.field
+    );
+    assert_eq!(
+        party_field.value,
+        json!({"quartermaster_character_id": null}),
+        "no designation"
+    );
     assert_eq!(
         snapshot_bytes(&fields).expect("bytes"),
-        serde_json::to_vec(&fields)
-            .expect("empty rows serialize")
-            .len() as u64,
+        serde_json::to_vec(&fields).expect("rows serialize").len() as u64,
     );
     testing::drop_test_db(pool, "snapshot_empty").await;
 }
