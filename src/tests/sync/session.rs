@@ -70,7 +70,11 @@ async fn a_member_connects_and_receives_hello_then_snapshot() {
     else {
         panic!("second frame must be snapshot, got {snapshot:?}")
     };
-    assert_eq!(fields.len(), 8, "one character, eight vitals fields");
+    assert_eq!(
+        fields.len(),
+        9,
+        "one character, eight vitals fields + the party settings field (E12)"
+    );
     assert_eq!(
         derived.len(),
         1,
