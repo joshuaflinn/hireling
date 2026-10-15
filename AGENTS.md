@@ -174,7 +174,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   merged at 20:26:54Z on a round-3 accept (review 5509509486, 20:24:29Z, one
   question of the round's three) while a wider round-3 review was still
   running, and the reject (review 5509546840) landed 44 seconds after the
-  merge, at 20:27:38Z, with a real defect in it (gh#169). Neither review
+  merge, at 20:27:38Z, with a real defect in it. Neither review
   seat was wrong on its own terms — the accept was right inside the one
   question it named, the reject right across the round's three. What failed
   was at the press: an announced three-question round and a verdict covering
