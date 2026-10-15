@@ -317,7 +317,7 @@ ci-drift:
 # prints only when every leg passed, so a piped run reads green only when
 # it is green. Note what it is not: the exit status is still the thing to
 # check, and a reader who ignores both is still reading one leg's output.
-ci-local: json-keys fmt-check lint test deny boundary web-check web-tsc web-test web-css-guard web-html-boundary web-eslint scan-semgrep ci-drift
+ci-local: json-keys fmt-check lint test deny boundary web-check web-tsc web-test web-css-guard web-html-boundary web-eslint scan-semgrep ship-guard ci-drift
     @echo "ci-local: every leg above passed"
 
 # Alias — same gate, the name the spec calls it by.
@@ -348,3 +348,48 @@ ship msg:
     git add -A
     git commit -m "{{ msg }}"
     git push -u origin HEAD
+
+# Prove the ship self-guard through the production path (gh#101). The guard
+# IS the behavior, so a test that does not invoke the recipe proves nothing:
+# `just ship` runs against a throwaway `main` checkout whose remote points at
+# a scratch bare repo (never origin — if the guard ever stops firing, the
+# push lands there, not on the real remote), and asserts exit 1, the refusal
+# message, and that the remote stayed empty. The guard fires before any git
+# command, so no push is attempted. A guard that cannot fail is not a guard
+# (MOR-130): with the guard removed a main-checkout ship commits the dirt
+# file and pushes — proven in the gh#101 verification — so all three
+# assertions red the moment the guard is gone.
+ship-guard:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    scratch=$(mktemp -d)
+    bare=$(mktemp -d)
+    trap 'rm -rf "$scratch" "$bare"' EXIT
+    git init -q -b main "$scratch"
+    git init -q --bare "$bare"
+    git -C "$scratch" remote add origin "$bare"
+    cp justfile "$scratch/justfile"
+    git -C "$scratch" add justfile
+    git -C "$scratch" -c user.email=ship-guard@example.invalid -c user.name='ship-guard' \
+        commit -q -m 'seed justfile'
+    printf 'dirt\n' > "$scratch/dirt"
+    set +e
+    out=$(cd "$scratch" && just ship test 2>&1)
+    rc=$?
+    set -e
+    if [ "$rc" -ne 1 ]; then
+        echo "ship-guard: expected exit 1 from a main-checkout ship, got $rc" >&2
+        printf '%s\n' "$out" >&2
+        exit 1
+    fi
+    if ! grep -qF "refusing to push main directly" <<< "$out"; then
+        echo "ship-guard: refusal message missing from ship output:" >&2
+        printf '%s\n' "$out" >&2
+        exit 1
+    fi
+    if [ -n "$(git --git-dir="$bare" for-each-ref --format='%(refname)')" ]; then
+        echo "ship-guard: the push ran despite the guard — remote refs:" >&2
+        git --git-dir="$bare" for-each-ref >&2
+        exit 1
+    fi
+    echo "ship-guard ok: ship refused main (exit 1, message, no push)"
