@@ -7,8 +7,10 @@ license = "MIT"
 
 # The engine crate (E8) is the portable buff/effect core: serde-only prod
 # deps, its own test suites. The binary is the workspace's other member.
+# diskops (MOR-637) is the std-only disk floor guard — zero deps, so
+# `just disk-guard` compiles in seconds even on a nearly-full disk.
 [workspace]
-members = ["engine"]
+members = ["engine", "diskops"]
 
 [dependencies]
 anyhow = "1.0.104"

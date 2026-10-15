@@ -276,6 +276,26 @@ json-keys:
     python3 scripts/check_json_dup_keys.py --self-test
     python3 scripts/check_json_dup_keys.py
 
+# The disk floor for `disk-guard`, overridable three ways (later wins):
+# `DISK_FLOOR_GB` env, or `just disk-floor-gb=<n> disk-guard`, or this
+# default. 10G is ~3x a measured full gate build — a leaked target-gate-*
+# dir runs 2.2–3.7G (`du -sh` on this bench) — so the floor leaves headroom
+# for one build plus the checkouts, node_modules and git objects that share
+# the filesystem, without crying wolf on every bench holding a little
+# history. CI runs the same default: the runner logged 75.4G free with the
+# gate cache already restored, so no override is needed.
+disk-floor-gb := env_var_or_default("DISK_FLOOR_GB", "10")
+
+# Free-space guard: fail fast, before the expensive ci-local legs, when the
+# filesystem holding the build output has less than disk-floor-gb free. The
+# decision lives in diskops (std-only, zero deps), so it compiles in under
+# a second even on a nearly-full disk — the only thing a completely full
+# disk cannot do is compile anything at all, and that failure is its own
+# message. Fires with the measured number and the remedy (free space, or
+# lower the floor via the disk-floor-gb variable).
+disk-guard:
+    cargo run -q --package diskops -- guard --floor-gib {{ disk-floor-gb }}
+
 # The guardrail guarding the guardrails (gh#151), the same script the gate
 # workflow's drift-check step runs: every ci-local leg has a CI home; every
 # pass declared in scripts/gate_passes.tsv is mirrored by a leg this
@@ -305,10 +325,10 @@ ci-drift:
 #
 # Repo-side legs — no image pass runs these; CI gates them as guard steps
 # in the gate job of .github/workflows/gate.yml, ahead of the image run:
-# json-keys, boundary, web-test, web-css-guard, web-html-boundary, and
-# ci-drift itself. That job's drift-check step runs this same ci-drift
-# recipe, so a new leg lands together with its CI home or the gate goes
-# red — bench and CI run one check, not two that can drift.
+# disk-guard, json-keys, boundary, web-test, web-css-guard,
+# web-html-boundary, and ci-drift itself. That job's drift-check step runs
+# this same ci-drift recipe, so a new leg lands together with its CI home
+# or the gate goes red — bench and CI run one check, not two that can drift.
 #
 # The closing line exists because `just` stops at the first failed
 # dependency and this recipe had no body: a run that died six legs in
@@ -317,7 +337,7 @@ ci-drift:
 # prints only when every leg passed, so a piped run reads green only when
 # it is green. Note what it is not: the exit status is still the thing to
 # check, and a reader who ignores both is still reading one leg's output.
-ci-local: json-keys fmt-check lint test deny boundary web-check web-tsc web-test web-css-guard web-html-boundary web-eslint scan-semgrep ship-guard ci-drift
+ci-local: disk-guard json-keys fmt-check lint test deny boundary web-check web-tsc web-test web-css-guard web-html-boundary web-eslint scan-semgrep ship-guard ci-drift
     @echo "ci-local: every leg above passed"
 
 # Alias — same gate, the name the spec calls it by.
