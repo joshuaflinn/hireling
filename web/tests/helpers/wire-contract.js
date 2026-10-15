@@ -24,6 +24,15 @@ const fixture = JSON.parse(
 
 const kinds = fixture.targets;
 const effectOps = new Set(fixture.effect_ops);
+// E12 §3: the stash row's `op` is the second enum-valued wire value. The
+// fixture pins the legal set (`qty`/`meta` on main today); this set pins the
+// client's literals to it, so a client that builds `{op:"transfer"}` before
+// lane L3 adds it fails a suite here instead of dying as a `rejected` ack at
+// the socket. The server's own bounds are src/sync/write.rs's accepted set.
+const stashOps = new Set(fixture.stash_ops);
+if (stashOps.size === 0) {
+  throw new Error('the contract fixture pins no stash_ops — refusing to gate without it');
+}
 // gh#91: the vitals target's `field` is the one enum-valued wire value —
 // the fixture pins the legal set, the Rust suite pins the fixture to the
 // serde names, and this set pins the client's literals to the fixture.
@@ -54,6 +63,19 @@ export function assertWriteTarget(target) {
       `unknown vitals field "${target.field}" — the pinned contract accepts: ${[...vitalsFields].join(', ')}`,
     );
   }
+}
+
+/** Assert a stash frame's `value.op` against the pinned op set — the same
+ * gate `assertEffectOp` is, one kind over. `qty` is additive (§4: no version
+ * predicate) and `meta` is absolute under CAS; both are legal today, and
+ * anything else the client builds is a frame the server refuses.
+ * @param {{op: string}} value the write frame's `value` */
+export function assertStashOp(value) {
+  assert.ok(value && typeof value === 'object', 'a stash write value is an object');
+  assert.ok(
+    stashOps.has(value.op),
+    `unknown stash op "${value.op}" — the pinned contract accepts: ${[...stashOps].join(', ')}`,
+  );
 }
 
 /** Assert an effect frame's `value.op` against the accepted op set (the
