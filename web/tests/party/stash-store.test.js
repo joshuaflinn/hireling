@@ -668,6 +668,51 @@ test('an additive balance reads the SERVER value when the ack lands after the di
   );
 });
 
+test('two offline draws on ONE field echo the sum, not the last delta', () => {
+  // degraded-mode §4 makes multiple ops on one field the expected offline shape,
+  // not an edge case: "a write applies to view state immediately, tagged
+  // `pending`", over a queue that is an unbounded FIFO with no coalescing. A
+  // player tapping draw twice offline has drawn twice.
+  //
+  // `readFields` used to file `mine` in a Map keyed by target with `set` inside
+  // the queue loop, so the second op OVERWROTE the first and the fold saw one
+  // delta — three taps on ten arrows showed one gone, and every test stayed green
+  // because each one had a single pending op (sample of one). Driven through
+  // `adjustQty`, the production write path, so an op that never reaches the queue
+  // cannot fake this green either.
+  const sync = fakeSync();
+  const stash = createStashState({ sync, partyId: 1 });
+  sync.deliver(STASH_TARGET(1, 'Arrow'), ROW('Arrow', 10), 3);
+
+  stash.adjustQty('Arrow', -1);
+  assert.deepEqual(quantities(stash.rows()), { Arrow: 9 }, 'the first draw echoes');
+  stash.adjustQty('Arrow', -1);
+  assert.deepEqual(quantities(stash.rows()), { Arrow: 8 }, 'so does the second, on top of it');
+  stash.adjustQty('Arrow', -2);
+  assert.deepEqual(quantities(stash.rows()), { Arrow: 6 }, 'and a third, folded in FIFO order');
+});
+
+test('two offline bank withdrawals on ONE field echo the sum', () => {
+  // The same collision on the other additive kind, and the reason a
+  // quantity-equality test would not have caught it: two withdrawals of
+  // DIFFERENT sizes are exactly what a real offline session produces.
+  const sync = fakeSync();
+  const stash = createStashState({ sync, partyId: 1 });
+  sync.deliver(BANK_TARGET(1), { gp: 20, sp: 0, cp: 0 }, 4);
+
+  stash.adjustBank({ gp: -3 });
+  assert.deepEqual(stash.bank(), { gp: 17, sp: 0, cp: 0 }, 'the first withdrawal echoes');
+  stash.adjustBank({ gp: -5 });
+  assert.deepEqual(stash.bank(), { gp: 12, sp: 0, cp: 0 }, 'the second lands on the first');
+  // And the third is refused whole: the server tracks a bank per denomination and
+  // refuses the adjustment if ANY denomination would go below zero
+  // (write.rs:1878-1887), so a -1 sp against a 0 sp bank never lands — and
+  // because the queue is FIFO, neither does anything behind it. Folding gp while
+  // refusing sp would render a balance the server cannot hold.
+  stash.adjustBank({ gp: -2, sp: -1 });
+  assert.deepEqual(stash.bank(), { gp: 12, sp: 0, cp: 0 }, 'a partial overdraw is refused whole, so the balance holds');
+});
+
 test('an additive qty draw reads the server quantity when the ack lands after the diff', () => {
   // The same ordering on the other additive kind — a drawn row is the one the
   // user is watching most closely, and the value the ack replaces is a
@@ -842,11 +887,21 @@ test('a pending bank delta is shown on top of the committed balance', () => {
   assert.deepEqual(stash.bank(), { gp: 15, sp: 0, cp: 0 }, 'the server confirms it');
 });
 
-test('a draw to zero renders no row, and a draw that would go negative is clamped', () => {
-  // Two-sided on the clamp, because a floor is a threshold like any other: at
+test('a draw to zero renders no row, and a draw past it is refused whole', () => {
+  // Two-sided on the threshold, because a refusal boundary is a threshold like
+  // any other and AGENTS.md's *Rules exactness* asks for both sides of it: at
   // exactly the committed quantity the row is gone (FR-1 renders nothing at
-  // zero), and past it the number stops at zero rather than going negative —
-  // the server refuses the overdraft outright rather than posting a debt (§4).
+  // zero), and past it the row shows the COMMITTED count, not a clamped zero.
+  //
+  // This is finding 3, and the old assertion here was the bug. It demanded a
+  // 5-draw on a 2-row echo `0`, but the server does not clamp and it does not
+  // zero: write.rs:1878-1887 refuses the adjustment ENTIRELY ("that adjustment
+  // would drive {name} below zero"), which is FR-7's "refused whole, with a
+  // reason." An echo of 0 is therefore just as much a number the server will
+  // never hold as -3 was — the floor was the wrong conclusion from a correct
+  // premise ("do not show -7"). The committed value is the only number on the
+  // client that survives the refusal, and it is what the screen must keep showing
+  // while the refusal notice arrives.
   const sync = fakeSync();
   const stash = createStashState({ sync, partyId: 1 });
 
@@ -859,7 +914,7 @@ test('a draw to zero renders no row, and a draw that would go negative is clampe
   over.deliver(STASH_TARGET(1, 'Torch'), ROW('Torch', 2), 40);
   stash2.adjustQty('Torch', -5);
   const drawn = quantities(stash2.rows());
-  assert.ok(!(drawn.Torch > 0), `a 5-draw on a 2-row does not show ${drawn.Torch}`);
+  assert.equal(drawn.Torch, 2, 'the overdraw is skipped, so the committed 2 stays on screen');
 
   const bank = fakeSync();
   const stash3 = createStashState({ sync: bank, partyId: 1 });
@@ -867,8 +922,8 @@ test('a draw to zero renders no row, and a draw that would go negative is clampe
   stash3.adjustBank({ gp: -10, sp: 0, cp: 0 });
   assert.deepEqual(
     stash3.bank(),
-    { gp: 0, sp: 0, cp: 0 },
-    'an overdraw shows 0 gp, never -7 — the client does not render a debt',
+    { gp: 3, sp: 0, cp: 0 },
+    'an overdraw keeps the committed 3 gp — never -7 (no debt) and never 0 (a balance the server will never hold)',
   );
 });
 

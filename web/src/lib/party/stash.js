@@ -41,7 +41,7 @@ import { assertWriteTarget, assertStashOp } from '../contract/wire-contract.js';
  * One refused-op record: degraded-mode §4's "expose on the op record" — the
  * shape the screen renders inline, self-clearing.
  *
- * @typedef {{op: Record<string, unknown>, outcome: string, reason: string|null}} OpRecord
+ * @typedef {{op: Record<string, unknown>, op_id: string, outcome: string, reason: string|null}} OpRecord
  *
  * The targets the party surface routes on — wire-protocol §3's field table,
  * restricted to what a stash screen folds. `field` is set on the party-settings
@@ -63,16 +63,6 @@ const bankTarget = (partyId) => ({ kind: 'bank', party_id: partyId });
 /** @param {number} partyId */
 const partyTarget = (partyId) => ({ kind: 'party', party_id: partyId, field: 'quartermaster' });
 
-/**
- * Ops that `wire-protocol.md` §3 names but lane L3 has not wired yet. The
- * contract says "lane L3 adds `transfer`/`sell` to the accepted set", and
- * `field-targets.json`'s `stash_ops` is the machine-readable half of that
- * sentence — so this list is DERIVED from the pin rather than typed in by
- * hand. When L3 merges, the fixture gains the op and the dialog unblocks
- * itself; nothing here needs editing, and nothing here can drift from the
- * contract it is describing.
- */
-const UNWIRED = ['transfer', 'sell'];
 
 /**
  * @typedef {object} StashRow
@@ -126,7 +116,6 @@ const UNWIRED = ['transfer', 'sell'];
  *   canSell: boolean,
  *   canTransfer: boolean,
  *   notices: OpRecord[],
- *   unwired: string[],
  * }} Projection
  *
  * @typedef {object} StashState
@@ -152,7 +141,6 @@ const UNWIRED = ['transfer', 'sell'];
  * @property {(coins: BankBalance) => void} adjustBank
  * @property {(itemName: string, qty: number, direction: 'in' | 'out', characterId: number) => void} transfer
  * @property {(itemName: string, qty: number, price: SellPrice) => void} sell
- * @property {() => string[]} unwiredActions ops the pin says are not on the wire
  * @property {() => import('svelte/store').Readable<Projection>} changed fires
  *   when the projection moved — what the screen re-reads itself off
  * @property {() => Projection} snapshot the whole folded view in the flat shape
@@ -216,6 +204,10 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
   // the party suite.
   /** @type {OpRecord[]} */
   let refused = [];
+  // bumped by the refusal paths and NOT by a clear, so the fold cache cannot
+  // serve a pre-refusal projection to a read that happens after one. Length
+  // alone would go stale: see the cache comment in `current()`.
+  let refusalSeq = 0;
 
   // Declared above the initial projection: `project()` runs on this line and
   // reads the cache and `refused`, so a later `const` or `let` would be in its
@@ -273,8 +265,6 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
   function readFields() {
     /** @type {Map<string, Entry>} */
     const server = new Map();
-    /** @type {Map<string, Entry>} */
-    const mine = new Map();
 
     // The join below is by STRING, and getting that string from one side only is
     // what took two rounds to find. `sync.state()` returns a plain object whose
@@ -300,21 +290,52 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
       for (const k of keys) if (!deepEqual(a[k], b[k])) return false;
       return true;
     };
+    // `mine` is a MULTI-map, and that is the whole defect this block used to
+    // carry. It was keyed by target and filled with `set`, so a second pending op
+    // on the same field overwrote the first: two offline draws on one row echoed
+    // one delta, and the queue's FIFO order was reduced to "the last tap". §4
+    // makes that shape the norm, not an edge — the queue is unbounded with no
+    // coalescing — so the fold has to see every pending op, in order.
+    /** @type {Map<string, Entry[]>} */
+    const mine = new Map();
+    /** @param {string} key @param {Entry} op */
+    const pushMine = (key, op) => {
+      const existing = mine.get(key);
+      if (existing) existing.push(op);
+      else mine.set(key, [op]);
+    };
+    /** Which state key (if any) this op's decoded target joins to. */
+    /** @param {StashTarget} opTarget */
+    const joinKey = (opTarget) => {
+      const found = stateEntries.find(([, e]) => sameTarget(entryOf(e).target, opTarget));
+      return found ? targetKey(entryOf(found[1]).target) : null;
+    };
+    // `targetKey` sorts keys (sync/store.js), so two ops on the same field share
+    // a join key whether or not their literals were written in the same order —
+    // which is what makes a list keyed by join key the same list §4 describes.
+    /** @type {Map<string, Entry[]>} */
+    const byJoin = new Map();
     for (const op of sync.queue?.() ?? []) {
       const opTarget = /** @type {StashTarget} */ (op.target);
-      const found = stateEntries.find(([, e]) => sameTarget(entryOf(e).target, opTarget));
-      const entry = found ? /** @type {Entry} */ (found[1]) : null;
-      if (entry) mine.set(targetKey(entry.target), /** @type {Entry} */ (/** @type {unknown} */ (op)));
+      const entry = /** @type {Entry} */ (/** @type {unknown} */ (op));
+      const key = joinKey(opTarget);
       // An op whose field the transport has never stated (a mint against a row
       // that does not exist yet) has no state key to join to. It is still mine,
       // so it is filed under its own encoding; nothing above can collide with it.
-      else mine.set(targetKey(op.target), /** @type {Entry} */ (/** @type {unknown} */ (op)));
+      const fileKey = key ?? targetKey(op.target);
+      pushMine(fileKey, entry);
+      if (key) {
+        const bucket = byJoin.get(key);
+        if (bucket) bucket.push(entry);
+        else byJoin.set(key, [entry]);
+      }
     }
 
     for (const [, raw] of stateEntries) {
       const entry = /** @type {Entry} */ (raw);
       const key = targetKey(entry.target);
-      const op = mine.get(key);
+      const pending = byJoin.get(key) ?? [];
+      const op = pending[pending.length - 1] ?? null;
       // The committed value comes from `entry.serverValue` — the transport's own
       // record of what the server last stated, which survives the echo rather
       // than being overwritten by it (sync/store.js). Falling back to `entry.value`
@@ -331,7 +352,6 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
       if (op && isDelta(op.value)) {
         // Pending additive echo: the committed base and my intent, kept apart.
         server.set(key, { target: entry.target, value, version: entry.version, serverValue: value });
-        mine.set(key, op);
       } else if (isDelta(value) || isDelta(shown)) {
         // The field's last statement is a DELTA, so it is not a balance and not
         // a row, and the caller must not render it as one. Two ways here, both
@@ -476,9 +496,14 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     // yet answered (degraded-mode §4 — "a write applies to view state
     // immediately, tagged `pending`"). Folded onto the committed value above,
     // never rendered as a raw delta frame.
-    for (const op of mine.values()) {
-      const { target } = op;
+    for (const group of mine.values()) {
+      // One group = every pending op on one field, in queue order. The group's
+      // first member stands in for target selection (they all share a target by
+      // construction); the fold below then walks the whole group, not one entry.
+      const op = group[0];
       if (!isDelta(op.value)) continue; // a CAS op's pending value is already shown
+      const { target } = op;
+      const pending = group;
       if (target.kind === 'bank') {
         // The delta is only an intent if there is a balance to put it on. The
         // wire never mints a bank row: wire-protocol §3 says the field is absent
@@ -489,19 +514,61 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
         // applies it to whatever the balance turns out to be, and the screen
         // shows no balance -- which is what the server will show too, since its
         // own ceiling guard refuses the overdraw.
-        if (committedBank === null) continue;
-        bank = foldBalance(committedBank, /** @type {{gp_delta?: number, sp_delta?: number, cp_delta?: number}} */ (op.value));
+        // Fold in FIFO order rather than assigning, so a second pending
+        // withdrawal lands on the first instead of replacing it (finding 2), and
+        // stop at the first overdraw rather than flooring it (finding 3).
+        //
+        // Finding 3 is why the fold BREAKS rather than skipping: write.rs:1878
+        // refuses an adjustment that would drive a denomination below zero and
+        // refuses it WHOLE (FR-7), so the overdraw never lands and neither can
+        // anything queued behind it. The server applies the queue in send order,
+        // so once a delta is refused the rest of that field's queue has no base
+        // to fold onto either — skipping ahead would show a balance the server
+        // will never hold, which is the same fault the floor had, one delta
+        // further down the list. `foldBalance`'s floor stays as the last line of
+        // defence for a base already at or below zero.
+        /** @type {BankBalance} */
+        let foldBase = /** @type {BankBalance} */ (bank ?? committedBank);
+        if (foldBase === null) continue;
+        for (const pendingOp of pending) {
+          if (!isDelta(pendingOp.value)) continue;
+          const incoming = /** @type {{gp_delta?: number, sp_delta?: number, cp_delta?: number}} */ (pendingOp.value);
+          if (
+            foldBase.gp + (incoming.gp_delta ?? 0) < 0 ||
+            foldBase.sp + (incoming.sp_delta ?? 0) < 0 ||
+            foldBase.cp + (incoming.cp_delta ?? 0) < 0
+          )
+            break;
+          foldBase = foldBalance(foldBase, incoming);
+        }
+        bank = foldBase;
       } else if (target.kind === 'stash') {
         // FR-1 deletes a row at exactly zero, so a draw that lands on zero is
         // shown as the row disappearing rather than as a 0-quantity row.
         const name = /** @type {string} */ (target.item_name);
         const shown = rows.find((row) => row.item_name === name);
-        const next =
-          Math.max(0, (shown?.quantity ?? 0) + (/** @type {{qty_delta?: number}} */ (op.value).qty_delta ?? 0));
         if (shown) {
-          if (next === 0) rows.splice(rows.indexOf(shown), 1);
-          else shown.quantity = next;
-        } else if (next > 0) {
+          // Fold every pending draw on this row in queue order (finding 2), and
+          // drop a draw the server would refuse rather than flooring at zero
+          // (finding 3, same reasoning as the bank above).
+          // Stop at the first overdraw — see the bank fold above for why a
+          // refusal ends the field's queue rather than stepping over it.
+          let quantity = shown.quantity;
+          for (const pendingOp of pending) {
+            const delta = /** @type {{qty_delta?: number}} */ (pendingOp.value).qty_delta ?? 0;
+            if (quantity + delta < 0) break;
+            quantity += delta;
+          }
+          if (quantity === 0) rows.splice(rows.indexOf(shown), 1);
+          else shown.quantity = quantity;
+          continue;
+        }
+        const next = pending.reduce(
+          (/** @type {number} */ total, /** @type {Entry} */ entry) =>
+            total + (/** @type {{qty_delta?: number}} */ (entry.value).qty_delta ?? 0),
+          0,
+        );
+        if (next > 0) {
           // A draw against a row the server has never stated. It renders, tagged
           // pending, because §4 says so — and it is the row the user is looking
           // at while the link is down.
@@ -513,7 +580,8 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     // A mint is not a delta — it creates a row the server has never stated, so
     // it is in neither view until the fan-out. Shown as pending for the same
     // §4 reason; it carries no bulk or notes because only the server's diff does.
-    for (const op of mine.values()) {
+    for (const group of mine.values()) {
+      const op = group[0];
       if (op.target.kind !== 'stash_new') continue;
       if (rows.some((row) => row.item_name === op.value.item_name)) continue;
       rows.push(rowOf(/** @type {Omit<StashRow, 'version' | 'bulk' | 'notes'> & Partial<Pick<StashRow, 'bulk' | 'notes'>>} */ (op.value), 0));
@@ -556,7 +624,6 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
       // first time a field is added, and `svelte-check` would report the drift
       // as `never` on lines that are correct.
       notices: refused,
-      unwired: unwiredActions(),
     };
   }
 
@@ -584,7 +651,12 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
   /** The wire moved: recompute and notify. The only place this writable is
    *  written, which is what makes a listener's read safe. */
   function refresh() {
-    projection.set(project());
+    // Fold directly, never through `current()`: the cache is keyed partly on the
+    // field set, and a refusal moves no field at all, so a cached fold could be
+    // served here with the notice missing.
+    cached = project();
+    cacheWitness = `${inputWitness(sync.state())}#${refusalSeq}`;
+    projection.set(cached);
   }
 
   /** The current projection, read synchronously. Plain function accessors are
@@ -617,13 +689,13 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     // `current()`'s own comment records as the blank-balance defect, so the
     // cache is allowed only because it is keyed on the INPUT, not on an event:
     // every branch below either proves nothing moved or re-folds.
-    // `refused.length` rides the witness because `refused` is part of the
-    // projection now: a record is appended by this module's own event handler
-    // and cleared without any field moving, and a cache keyed on the wire alone
-    // would serve a stale `notices` array for the whole render. Length is
-    // enough — the array is append-or-clear, never mutate-in-place — and it is
-    // read, not written, so it cannot re-enter a notification.
-    const witness = `${inputWitness(sync.state())}#${refused.length}`;
+    // `refusalSeq` rides the witness because the refused-op records are part of
+    // the projection: a record is appended by this module's own event handler
+    // without any field moving, and a cache keyed on the wire alone would serve a
+    // projection with the notice missing for every read after that refusal. It is
+    // a monotone counter rather than `refused.length` because a clear does not
+    // bump it — see `clearRefused()` for why that asymmetry is the invariant.
+    const witness = `${inputWitness(sync.state())}#${refusalSeq}`;
     if (witness !== cacheWitness) {
       cacheWitness = witness;
       cached = project();
@@ -645,13 +717,11 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
    *  `applyServerField` accepts as the owner's own committed version and which
    *  can carry a different value.
    *
-   *  Returns null on a `full_resync`: the transport cannot report its own
-   *  generation yet (sync/store.js has no such counter), and a resync can drop
-   *  rows while every surviving field keeps its version -- a smaller field set
-   *  would otherwise read as "nothing moved". The conservative answer is to
-   *  re-fold. A key built field-by-field could not: a resync that drops rows
-   *  leaves every surviving field where it was, so the whole-set string shrinks
-   *  and reads as moved. */
+   *  A key built over the WHOLE field set rather than field-by-field, and that
+   *  is what makes a `full_resync` visible: a resync can drop rows while every
+   *  surviving field keeps its version, so a per-field key would read "nothing
+   *  moved" while the set shrinks. The whole-set string shrinks with it and reads
+   *  as moved, which is the conservative direction. */
   /** @param {Record<string, {target: *, value: *, version: number, serverValue?: *}>} state
    *  @returns {string} */
   function inputWitness(state) {
@@ -671,13 +741,27 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
   // declaration itself lives above the initial `project()` — see the note there.
 
 
-  /** @param {Record<string, unknown>} op @param {string} outcome @param {string|null} [reason] */
-  function expose(op, outcome, reason) {
-    refused = [...refused, { op, outcome, reason: reason ?? null }];
+  /** @param {Record<string, unknown>} op @param {string} outcome
+   *  @param {string|null} [reason] @param {string} [opId] */
+  function expose(op, outcome, reason, opId) {
+    // `op_id` rides the record separately because `sync/index.js` passes `op: null`
+    // once the op has left the queue (an ack can arrive after the dequeue), and the
+    // `?? {}` above then files the frame as `{}`. A screen that keyed its each-block
+    // off `op.op_id` would key every such record on `undefined` — a duplicate key,
+    // and Svelte silently drops one of the two rows.
+    refused = [...refused, { op, op_id: opId ?? '', outcome, reason: reason ?? null }];
+    refusalSeq += 1;
   }
 
   function clearRefused() {
     refused = [];
+    // Deliberately does NOT bump `refusalSeq`. A clear only ever runs on an
+    // event whose branch calls `refresh()` immediately, and `refresh()` folds
+    // directly rather than through the cache — so the clear is published by that
+    // fold, and bumping here would leave the cache permanently one refusal behind
+    // (the append bumps, the clear does not, and the sum goes back down). The
+    // asymmetry is the invariant: `refusalSeq` is monotone over refusals, and
+    // every clear has a `refresh()` beside it.
   }
 
   const unsubscribe = sync.subscribe((event) => {
@@ -687,7 +771,16 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
       // server-side, so the inline record has done its job.
       clearRefused();
     } else if (event.type === 'op_exposed') {
-      expose(event.op ?? {}, event.outcome, event.reason ?? null);
+      expose(event.op ?? {}, event.outcome, event.reason ?? null, event.op_id);
+      // refresh() is the only place `projection` is ever written, and a refusal
+      // has no second signal behind it: a `rejected`/`forbidden` ack emits `queue`
+      // and `op_exposed` and never `fields` or `applied` (sync/index.js). Without
+      // this call the record lands in the store and the screen never hears about
+      // it — FR-11's "refused operations surface through the op record" reads as
+      // shipped when it is not, and the reverted echo stays wrong on screen. The
+      // `superseded` path gets away without it only because a field frame always
+      // follows a supersede; a refusal is terminal.
+      refresh();
     } else if (event.type === 'applied') {
       // Re-project on the ack too, not only on the field. §4 lets the own-write
       // diff land before or after the ack, and on the additive class the ack is
@@ -713,22 +806,17 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     sync.write(target, value, baseVersion);
   }
 
-  /** Which §3 ops the pin still has unshipped. The screen renders these as a
-   *  reason on the dialog, never as a button that silently does nothing. */
-  function unwiredActions() {
-    return UNWIRED.filter((name) => !isWired(name));
-  }
 
-  /** @param {string} name */
-  function isWired(name) {
-    // Derived from the fixture via the helper's own gate: if the pin accepts
-    // the op literal, the op is on the wire.
-    try {
-      assertStashOp({ op: name });
-      return true;
-    } catch {
-      return false;
-    }
+  // --- write actions ------------------------------------------------------
+
+  /** @param {Record<string, *>} target @param {*} value @param {number} [baseVersion] */
+  function post(target, value, baseVersion) {
+    // The same pin the contract suite runs its own frames through, now on the
+    // production path: a frame this module builds must satisfy the fixture
+    // before it satisfies the socket.
+    assertWriteTarget(/** @type {{kind: string, field?: string}} */ (target));
+    if (target.kind === 'stash') assertStashOp(/** @type {{op: string}} */ (value));
+    sync.write(target, value, baseVersion);
   }
 
   return {
@@ -769,14 +857,12 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
           item_name: name,
           quantity,
           bulk: item.bulk ?? null,
-          notes: item.notes?.trim() ? item.notes.trim() : null,
+          notes: item.notes?.trim() || null,
         },
       );
     },
 
-    /** Additive (§4): no version predicate, no CAS, and `superseded` is not
-     *  in this op's outcome vocabulary — a lost race is a refused draw, not a
-     *  silently dropped delta. */
+    /** Signed and additive (FR-1/FR-7): a delta, never a read-modify-write. */
     adjustQty(itemName, qtyDelta) {
       if (!itemName || !Number.isInteger(qtyDelta) || qtyDelta === 0) return;
       post(stashTarget(partyId, itemName), { op: 'qty', qty_delta: qtyDelta });
@@ -804,22 +890,35 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
      *  balance it wants. A read-modify-write here is exactly the bug D2 was
      *  written to refuse. */
     adjustBank(coins) {
-      const gp = Number(coins.gp) | 0;
-      const sp = Number(coins.sp) | 0;
-      const cp = Number(coins.cp) | 0;
+      // Refused outright, never truncated — the module's own write rule says
+      // invalid input does not leave this layer, and `Number(x) | 0` broke it
+      // twice over: `2.7` posted 2 (a silent rounding of somebody's coin count)
+      // and 1e10 wrapped to 1410065408 (a signed 32-bit fold on a treasure
+      // amount). The same `Number.isInteger` gate `addRow` uses, for the same
+      // reason.
+      const raw = [coins?.gp ?? 0, coins?.sp ?? 0, coins?.cp ?? 0];
+      const amounts = [];
+      for (const value of raw) {
+        const amount = Number(value);
+        if (!Number.isInteger(amount)) return;
+        amounts.push(amount);
+      }
+      const [gp, sp, cp] = amounts;
+      // A no-op adjustment is not sent. FR-7 requires an adjustment that would
+      // drive a denomination below zero to be refused WHOLE (write.rs:1878) and
+      // is silent on the all-zero case, so the server would take a zero-frame as
+      // a zero-delta APPLIED and fan a version bump for a field that never
+      // moved. `addRow` refuses its no-op inputs the same way.
       if (gp === 0 && sp === 0 && cp === 0) return;
       post(bankTarget(partyId), { gp_delta: gp, sp_delta: sp, cp_delta: cp });
     },
 
-    unwiredActions,
-
     /** FR-3 / FR-6: the compound ops. Both frames are built to the shapes the
      *  write path's bounds validator accepts (`stash_transfer_tx` /
      *  `stash_sell_tx`, and the pinned payloads in
-     *  `src/tests/sync/contract.rs`), and both are gated on the fixture so an
-     *  op the pin does not list never reaches the socket. */
+     *  `src/tests/sync/contract.rs`), and both are gated on the pin so a frame
+     *  the fixture does not list never reaches the socket. */
     transfer(itemName, qty, direction, characterId) {
-      if (!isWired('transfer')) return;
       const quantity = Number(qty);
       const character = Number(characterId);
       if (!Number.isInteger(quantity) || quantity < 1) return;
@@ -833,7 +932,6 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
       });
     },
     sell(itemName, qty, price) {
-      if (!isWired('sell')) return;
       const quantity = Number(qty);
       if (!Number.isInteger(quantity) || quantity < 1) return;
       // §3: `{pp?, gp?, sp?, cp?}`, every present denomination a non-negative

@@ -58,10 +58,11 @@ assert.deepEqual(
 //  the `targetFields` equality assertion above.)
 const effectOps = new Set(fixture.effect_ops);
 // E12 §3: the stash row's `op` is the second enum-valued wire value. The
-// fixture pins the legal set (`qty`/`meta` on main today); this set pins the
-// client's literals to it, so a client that builds `{op:"transfer"}` before
-// lane L3 adds it fails a suite here instead of dying as a `rejected` ack at
-// the socket. The server's own bounds are src/sync/write.rs's accepted set.
+// fixture pins the legal set (`qty`, `meta`, `transfer`, `sell` today, per
+// `src/sync/write.rs`'s dispatch); this set pins the client's literals to it, so
+// a client that builds an `{op}` the server does not route fails a suite here
+// instead of dying as a `rejected` ack at the socket. The server's own bounds are
+// src/sync/write.rs's accepted set.
 const stashOps = new Set(fixture.stash_ops);
 if (stashOps.size === 0) {
   throw new Error('the contract fixture pins no stash_ops — refusing to gate without it');

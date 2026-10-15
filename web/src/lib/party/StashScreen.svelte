@@ -92,7 +92,6 @@
   const canSell = $derived(projection?.canSell ?? false);
   const canTransfer = $derived(projection?.canTransfer ?? false);
   const notices = $derived(projection?.notices ?? []);
-  const unwired = $derived(projection?.unwired ?? []);
 
   function readProjection() {
     projection = stash.snapshot();
@@ -215,6 +214,12 @@
     closeDialog();
   }
 
+  // Keyed on `notice.op_id`, the event's own id, NOT `notice.op.op_id`: the
+  // transport hands the store `op: null` when the op has already left the queue
+  // (sync/index.js:188) and the store files that as `{}`, so a key read off the
+  // frame is `undefined` for every such notice — a duplicate key, and Svelte
+  // drops one of the rows. `op_id` is on the record for exactly this.
+
   /** A refused op is opaque to the store (`OpRecord.op` is whatever frame was
    *  sent), so the notice names the frame by the one field that identifies it:
    *  a value's `op` for the stash ops, else the target's `kind`. Declared here
@@ -280,7 +285,7 @@
      concerns rather than stopping the screen. -->
 {#if notices.length > 0}
   <ul class="notices" aria-label="Refused operations">
-    {#each notices as notice (notice.op.op_id)}
+    {#each notices as notice (notice.op_id)}
       <li class="notice">
         <strong>{notice.outcome}</strong>
         {noticeFrame(notice.op).value?.op ?? noticeFrame(notice.op).target?.kind}
@@ -407,13 +412,6 @@
         {dialog.kind === 'sell' ? 'Sell' : 'Transfer'} {dialog.item}
         <span class="on-hand">({dialog.quantity} in the stash)</span>
       </h3>
-
-      {#if unwired.length > 0}
-        <p class="warning" role="status">
-          {unwired.join(' and ')} {unwired.length > 1 ? 'are' : 'is'} not wired up on the
-          server yet (lane L3), so this cannot post. Everything else on this screen works.
-        </p>
-      {/if}
 
       <label>
         Quantity
@@ -645,8 +643,7 @@
     flex: 1;
   }
   .book-value,
-  .no-book-value,
-  .warning {
+  .no-book-value {
     margin: 0;
     font-size: 0.85rem;
     padding: 0.3rem 0.5rem;
@@ -655,8 +652,7 @@
   .book-value {
     background: color-mix(in srgb, var(--good, #5c8a4a) 16%, transparent);
   }
-  .no-book-value,
-  .warning {
+  .no-book-value {
     background: color-mix(in srgb, var(--warn, #b58a3a) 16%, transparent);
   }
   .error {

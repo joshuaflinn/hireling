@@ -13,7 +13,7 @@
 //     (E14 SC-5's discipline: assert the region's control set, not a page count)
 //   - a refused op record, rendered from a driven event, non-blocking
 
-/* global URL */
+/* global URL, setTimeout */
 
 import { afterEach, test, vi } from 'vitest';
 import assert from 'node:assert/strict';
@@ -103,8 +103,19 @@ function fakeSync() {
       store.applyServerField(target, value, version);
       emit({ type: 'fields' });
     },
-    expose(op, outcome, reason) {
-      emit({ type: 'op_exposed', op_id: op.op_id, outcome, op, reason });
+    /**
+     * Fan an `op_exposed` event — the sync surface's "your op was refused" signal —
+     * at the store's subscribers the way sync/index.js does it. `op` may be null:
+     * sync/index.js:188 passes `op: null` once the op has left the queue, and a
+     * fake that cannot say so cannot reproduce the case that matters.
+     */
+    expose(op, outcome, reason, opId) {
+      // `opId` defaults to the frame's own id, which is what a caller with a frame
+      // wants. A caller with NO frame (`op: null`, the lost-frame case) must pass
+      // it explicitly — sync/index.js:208 takes the id off the ack, not off the
+      // op it could not find, so a fake that derived it from the frame could not
+      // reproduce the case at all.
+      emit({ type: 'op_exposed', op_id: opId ?? (op ? op.op_id : ''), outcome, op, reason });
     },
   };
 }
@@ -158,6 +169,11 @@ function mount(o = {}) {
 
   const utils = render(StashScreen, { props: { stash, partyId: 1, roster: o.roster ?? [FLINN, BECKY] } });
   return { sync, stash, bookValueCalls, ...utils };
+}
+
+/** Let Svelte settle an ack that was emitted synchronously during render. */
+async function settle() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /** Everything write-shaped inside the screen's own region — the SC-5 scope. */
@@ -554,4 +570,111 @@ test('the add form posts a mint, and an empty name never reaches the wire', asyn
     assert.equal(mint.value.item_name, 'Hempen Rope');
     assert.equal(mint.value.quantity, 2);
   });
+});
+
+// Finding 1 (MOR-662) — a refused op must reach the SCREEN, not only the store.
+//
+// `stash.js`'s transport subscription had two branches that wrote the refused-op
+// record and neither one called `refresh()`, the only place the projection is
+// ever written — so the notice updated the store and the DOM never heard about
+// it. `sync/index.js` confirms there is no second signal: a `rejected` ack emits
+// `queue` and `op_exposed`, never `fields` and never `applied`, and (unlike
+// `superseded`) a refusal is not followed by a field frame that would paper over
+// it. FR-11 requires the record by name ("Refused operations (R4/R5 outcomes)
+// surface through the op record in the stash screen — non-blocking"), and FR-1's
+// duplicate-name rule depends on it: the "adjust the existing row instead" reason
+// IS a rejected ack.
+//
+// The `expose()` helper on the fake sync below has been sitting uncalled since
+// this file was written, while this file's own header advertised "a refused op
+// record, rendered from a driven event". That header described a test that did not
+// exist. It exists now.
+// One thing this test earned the hard way, recorded because it is the kind of
+// detail that gets a follow-up round the wrong shape. The first draft asserted the
+// reason text as the thing the notice shows, and the notice does not show it that
+// way: it names the frame it refused via `value.op` / `target.kind` (see
+// StashScreen's `noticeFrame`) and only then the reason. Assert the shape the
+// component actually renders, not the shape the store happened to record.
+test('a refused op surfaces its reason in the DOM, not only in the store', async () => {
+  const { sync, container } = mount({ rows: [ROW('Longsword', 2)], qm: 7 });
+  assert.ok(!container.textContent.includes('already in the stash'), 'no notice before the ack');
+
+  sync.expose(
+    {
+      op_id: 'op-dup',
+      target: { kind: 'stash_new', party_id: 1 },
+      value: { op: 'add', item_name: 'Longsword' },
+    },
+    'rejected',
+    'an item with that name is already in the stash — adjust its quantity instead',
+  );
+  // One microtask, and no more: the store's notification reaches the component's
+  // `changed()` subscriber synchronously, but the `$derived(notices)` recompute and
+  // the resulting DOM write flush on the next tick. The test asserts the flush, so
+  // it has to let it happen; the store half needs no await at all.
+  await settle();
+
+  // The DOM is the assertion. `stash.opErrors()` already returned this record at
+  // the old head and the screen stayed blank, so an accessor assert proves the
+  // recorder and proves nothing about the render (AGENTS.md, production-path rule).
+  // The item name lives in the rejected mint's `value`, and the notice renders
+  // the frame's identifying field — `value.op` for a compound op, `target.kind`
+  // for a mint (see StashScreen's noticeFrame). A mint has no op, so the kind is
+  // what the row can show; the reason carries the name the user typed.
+  const notice = container.textContent;
+  assert.match(notice, /rejected/, 'the outcome reaches the DOM');
+  assert.match(notice, /already in the stash/, 'the refusal reason reaches the DOM');
+  assert.match(notice, /Longsword|add/, 'and the frame it refused is named');
+  // Non-blocking: the rest of the screen is still there to act on.
+  // The screen is still usable, not disabled: the add form is present and its
+  // submit control is enabled. (The form's own label is "Add to stash".)
+  const submit = screen.getByRole('button', { name: /add to stash/i });
+  assert.ok(!submit.disabled, 'a refusal does not disable the form');
+});
+
+test('two lost-frame refusals in one turn render as two records', async () => {
+  // The latent duplicate-key defect the review named (minor #1), and a real one.
+  // The `{#each}` keyed on `notice.op.op_id`, but the transport hands the store
+  // `op: null` once an op has left the queue (sync/index.js:188) and the store
+  // files that frame as `{}` — so every lost-frame notice keys `undefined`, and
+  // Svelte silently drops one of the two rows. `OpRecord.op_id` (the EVENT's id,
+  // which the transport always has) is the key now.
+  //
+  // Both refusals are driven in one turn, and that is load-bearing rather than
+  // tidy: an await between them lets the first render, and then the second lands
+  // on an each-block that has to re-derive its key list from the records — which is
+  // where this dropped a row. One turn is also the shape the wire produces: a
+  // `rejected` and a `forbidden` ack off a two-op burst arrive in the same read.
+  const { sync, container } = mount({ rows: [ROW('Longsword', 2)], qm: 7 });
+  // Distinct ack ids, no frames at all: the record's own id is the only thing
+  // separating them, which is exactly what the each-block must key on.
+  // One of them carries an EMPTY ack id: `settleAck` reads `op_id` off the ack
+  // frame and never asserts it non-empty, so a peer or a future ack shape can hand
+  // two refusals the same id. The key must not be the thing that silently picks a
+  // winner — Svelte drops a row on a duplicate key, and the notice that vanishes
+  // is the user's only explanation for a write that never landed.
+  sync.expose(null, 'rejected', 'the first lost-frame refusal', 'ack-one');
+  sync.expose(null, 'forbidden', 'the second lost-frame refusal', 'ack-two');
+  await settle();
+  assert.match(container.textContent, /the first lost-frame refusal/);
+  assert.match(container.textContent, /the second lost-frame refusal/, 'two null frames are two records, not one');
+  // (a null frame's own slot renders empty — the notice names the frame it refused,
+  // and a frame the transport could not hand back has nothing to name)
+});
+
+test('two refusals in one turn render as two records', async () => {
+  const { sync, container } = mount({ rows: [ROW('Longsword', 2)], qm: 7 });
+  const draw = {
+    op_id: 'op-draw',
+    target: { kind: 'stash', party_id: 1, item_name: 'Longsword' },
+    value: { op: 'qty', qty_delta: -1 },
+  };
+  // One frame present, one lost: distinct keys even under the old code, so this is
+  // the control that keeps the key change from being justified by a test that only
+  // exercises the collision.
+  sync.expose(draw, 'rejected', 'not enough of that item in the stash');
+  sync.expose(null, 'forbidden', 'only the quartermaster may do that', 'ack-lost');
+  await settle();
+  assert.match(container.textContent, /not enough of that item in the stash/);
+  assert.match(container.textContent, /only the quartermaster may do that/, 'a null frame must not evict its sibling');
 });
