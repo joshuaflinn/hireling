@@ -344,13 +344,24 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   stage your own paths by name, never `git add -A` or `git commit -a`,
   because that is the mechanism that sweeps a foreign path onto a head a
   verdict may be bound to. Staging by name keeps the foreign path out of
-  your *commit* — not out of your commit's hook: the hook's fmt, clippy and
-  test legs read the whole tree, not the staged paths
-  (`.githooks/pre-commit:46,58,62,69`), so `cargo fmt --all` rewrites a
-  foreign `.rs` path in place, and clippy/test fail on foreign code that
-  does not compile. When the foreign text does not compile and you will not
-  adopt it, there is no legal commit — `--no-verify` is forbidden and the
-  hook legs fail on the tree — so stop and escalate it as a provisioning
+  your *commit* — not out of your commit's hook *when your commit stages a
+  `.rs` or `.toml`*: the hook's fmt, clippy and test legs then read the
+  whole tree, not the staged paths (`.githooks/pre-commit:58,62,69`, and
+  `:46` for why), so `cargo fmt --all` rewrites a foreign `.rs` path in
+  place, and clippy/test fail on foreign code that does not compile. A
+  commit staging neither `.rs` nor `.toml` exits at
+  `.githooks/pre-commit:40-42` before those legs run, so it is legal and
+  green with the foreign path still in the tree — commit your own paths by
+  name and escalate anyway. One leg does run before that exit: the JSON
+  duplicate-key check at `.githooks/pre-commit:28-33` reads every tracked
+  `*.json` from the working tree (`scripts/check_json_dup_keys.py:204,219`)
+  and rejects invalid as well as duplicate-keyed JSON (`:228-230`), so a
+  foreign tracked `.json` left mid-edit fails even a docs-only commit — no
+  legal commit there either, same handling: stop and escalate. Where the
+  legs *do* run and the foreign text
+  does not compile and you will not adopt it, there is no legal commit —
+  `--no-verify` is forbidden and the hook legs fail on the tree — so stop
+  and escalate it as a provisioning
   defect, the same class as a branch collision, naming the owning seat where
   you can tell it and Korrin otherwise; do not clean it, do not commit it,
   do not route around the hook. Note it in the PR body and report it on your
