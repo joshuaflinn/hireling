@@ -875,6 +875,11 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
 
     /** Absolute, CAS on the row version the seat actually read (D2). */
     editMeta(itemName, meta) {
+      // Looser than `addRow`'s `name === ''` refusal, deliberately and not by
+      // drift: `(party_id, item_name)` is the row-name key space, so `''` is not an
+      // admissible row identity on either side. Nothing mints it (`addRow` refuses
+      // it) and nothing addresses it (`stash_meta_tx` matches an existing row by
+      // name). The equality test would guard a state both write paths exclude.
       if (!itemName) return;
       const version = sync.state()[targetKey(stashTarget(partyId, itemName))]?.version ?? 0;
       post(

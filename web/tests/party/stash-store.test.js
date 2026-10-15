@@ -418,6 +418,30 @@ test('editMeta posts an absolute CAS frame carrying the row version it read', ()
   assert.equal(op.base_version, 44, 'a CAS write carries the version it read (D2)');
 });
 
+test('editMeta with both fields null posts the CLEAR frame', () => {
+  // The null-meta short-circuit review round 1 asked about, and it is real: bulk
+  // is an `Option<f64>` (unset it by sending null) and notes is nullable, so
+  // `{bulk: null, notes: null}` is the affordance that clears a row's bulk — not
+  // a no-op. A `meta.bulk !== null` short-circuit would look right in a unit test
+  // that never reached the branch and would ship a dead control.
+  //
+  // The screen's Edit row already gets this far, which is why the test goes
+  // through the store rather than trusting the DOM: its bulk input is
+  // `Number(bulkDraft) || null`, and clearing the input makes `Number('')` 0,
+  // which `|| null` turns back into null. So an empty Bulk box on save IS a clear,
+  // every time, and that path must stay open.
+  const sync = fakeSync();
+  const stash = createStashState({ sync, partyId: 1 });
+
+  sync.deliver(STASH_TARGET(1, 'Lantern'), ROW('Lantern', 1, { bulk: 0.1, notes: 'bullseye' }), 44);
+  stash.refresh();
+  stash.editMeta('Lantern', { bulk: null, notes: null });
+
+  const [op] = sync.writes;
+  assert.deepEqual(op.value, { op: 'meta', bulk: null, notes: null }, 'a clear posts, it is not swallowed');
+  assert.equal(op.base_version, 44);
+});
+
 test('setQuartermaster posts the party CAS frame; null clears the designation', () => {
   const sync = fakeSync();
   const stash = createStashState({ sync, partyId: 1 });
