@@ -218,6 +218,40 @@ jobs:
         if: ${{ !cancelled() }}
         run: just ci-drift
 
+      # The vendored-config drift check (gh#314): web/gate-eslint.config.mjs.tmpl
+      # is vendored from the pinned image's own eslint flat config by
+      # scripts/fetch_gate_file.py.
+      # This step is that guard's CI home (direction A of ci-drift: a
+      # repo-side leg needs a `run: just <leg>` step here) and reds when a
+      # vendored copy stops hashing to what scripts/gate_vendored.tsv records.
+      # A digest bump that forgets to re-vendor reds here before the image
+      # even runs.
+      - name: check-vendored — vendored config matches its recorded hash
+        if: ${{ !cancelled() }}
+        run: just check-vendored
+
+      # The other half of gh#314: the pinned digest must still carry the
+      # bytes we vendored. The offline check above hashes the vendored copies
+      # against the manifest; this extracts every manifest row's file from
+      # the image itself (cat via --entrypoint) and hashes each against the
+      # manifest too. The loop reads scripts/gate_vendored.tsv, not a
+      # hand-kept list, so a row added there is image-checked without a
+      # second edit here; --require-image-sources reds if the loop missed a
+      # row. Fails closed: a missing file, an unknown key, or a failed
+      # docker run reds the step under bash -e.
+      - name: check-vendored — image carries every vendored file
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS=$'\t' read -r image_path _ _; do
+            [ -n "$image_path" ] || continue
+            out="$RUNNER_TEMP/image-$(printf '%s' "$image_path" | tr '/' '_').tmp"
+            docker run --rm --entrypoint cat "${{ env.GATE_IMAGE }}" "/$image_path" > "$out"
+            args+=(--image-source "$image_path=$out")
+          done < <(grep -v '^#' scripts/gate_vendored.tsv)
+          python3 scripts/check_gate_vendored.py --require-image-sources "${args[@]}"
+
       # GIT_CONFIG_*/safe.directory: the cache restore extracts as the runner
       # user, so cached git state (cargo-deny's advisory DB, any future git
       # deps) comes back runner-owned while the container runs as root — git
