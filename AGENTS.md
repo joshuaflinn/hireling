@@ -150,7 +150,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   verdict per seat is not an alternative: it recreates the PR #158 shape — two
   verdicts at one head with different scopes, each correct in its own terms,
   jointly unreadable at the press, resolved by whichever the press happened to
-  read first (gh#169). At a carry-over head the collapse keeps the narrow
+  read first. At a carry-over head the collapse keeps the narrow
   scope: a withdrawn question outside the combination is declined as out of
   scope, and if real it opens a fresh counted round.
 
