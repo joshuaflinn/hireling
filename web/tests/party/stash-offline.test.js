@@ -80,6 +80,9 @@ const QM = () => ({ kind: 'party', party_id: 1, field: 'quartermaster' });
 const QM_VALUE = (id) => ({ quartermaster_character_id: id });
 
 const PLAYER_A = { sub: 'dev-sub-a', role: 'player' };
+
+/** @{item_name: quantity} — the rows by name, the shape these assertions read. */
+const quantities = (rows) => Object.fromEntries(rows.map((r) => [r.item_name, r.quantity]));
 // The transfer picker needs a real roster to pick from; character 7 is owned by
 // this seat so the transfer path is the shipped one (a non-owner's character
 // would be refused by the ownership rule, not the quantity rule).
@@ -227,10 +230,14 @@ test('reconnect replays the held queue once and once only', async () => {
 // 3. A write accepted at `reconnecting` must not fabricate a row.
 // ---------------------------------------------------------------------------
 
-test('a write sitting in the queue does NOT produce an optimistic row', async () => {
-  // The link is down and the write is held. If the screen painted a row here,
-  // the row would appear twice when the diff arrives — once from the local
-  // guess and once from the server's truth.
+test('a queued write echoes into the view immediately, and lands exactly once', async () => {
+  // degraded-mode.md §4 is the contract and it says the opposite of "wait for
+  // the ack": "a write applies to view state immediately, tagged `pending`
+  // (carrying `op_id`). The tag clears on the ack." design.md D6 excludes only
+  // the CLAIM LOG from local echo, and says so while explicitly naming the write
+  // targets as covered. So the mint shows at once, and the claim this suite
+  // exists to defend is the second half: when the server's diff lands, the row
+  // is ONE row, not the guess plus the truth.
   const h = harness();
   const stash = createStashState({ sync: h.sync, partyId: 1, you: PLAYER_A, roster: [] });
   h.goOffline();
@@ -238,10 +245,15 @@ test('a write sitting in the queue does NOT produce an optimistic row', async ()
   stash.addRow({ item_name: 'Ghost', quantity: 3 });
 
   assert.equal(h.queue().length, 1, 'the write is genuinely held, not dropped');
-  assert.deepEqual(stash.rows(), [], 'no local row is invented for a write merely sitting in the queue');
+  assert.deepEqual(
+    quantities(stash.rows()),
+    { Ghost: 3 },
+    'the mint is echoed into the view immediately, per §4',
+  );
   render(StashScreen, { props: { stash, roster: [] } });
-  assert.match(screen.getByRole('region', { name: /stash/i }).textContent, /nothing in the stash/i);
-  assert.equal(screen.queryByText('Ghost'), null, 'the pending item is not on screen at all');
+  const region = () => screen.getByRole('region', { name: /stash/i });
+  assert.match(region().textContent, /Ghost/, 'and the user can see what they just queued');
+  assert.doesNotMatch(region().textContent, /nothing in the stash/i, 'the echo is not blanked by the empty state');
 
   // ...and it appears exactly once when the server's diff actually lands. The
   // tab was never connected in this test, so there is no socket to deliver on
@@ -251,15 +263,18 @@ test('a write sitting in the queue does NOT produce an optimistic row', async ()
   h.deliver(STASH('Ghost'), { item_name: 'Ghost', quantity: 3, bulk: null, notes: null }, 11);
   await waitFor(() => assert.equal(stash.rows().length, 1, 'one row, from the server'), { timeout: TEST_WAIT_TIMEOUT });
   await waitFor(() => {
-    const list = within(screen.getByRole('region', { name: /stash/i })).getAllByRole('listitem');
+    const list = within(region()).getAllByRole('listitem');
     assert.equal(list.length, 1, 'exactly one row on screen — never the guess plus the truth');
     assert.equal(list[0].getAttribute('aria-label'), 'Ghost');
   }, { timeout: TEST_WAIT_TIMEOUT });
 });
 
-test('the bank balance never moves on an optimistic entry — only on the fan-out', async () => {
-  // Same rule one level up: a user who sells offline must not watch a balance
-  // appear that the server may still refuse.
+test('an offline bank entry echoes the projected balance, and the server has the last word', async () => {
+  // Same rule one level up, and the same §4 sentence: the delta folds onto the
+  // balance this seat read, so the user sees 15 gp of their own doing while the
+  // link is down. What the client must NEVER do is render the raw `{gp_delta:…}`
+  // frame or invent a balance the server never stated -- that is the shape the
+  // projection's delta guards exist for.
   const h = harness();
   await h.goLive();
   h.deliver(BANK(), { gp: 10, sp: 0, cp: 0 }, 5);
@@ -268,26 +283,19 @@ test('the bank balance never moves on an optimistic entry — only on the fan-ou
   h.goOffline();
 
   // `sell` is lane L3's and the store refuses it locally until the contract
-  // fixture carries it, so the no-optimistic-balance claim is proven on the
-  // shipped bank op — the same rule one call away, and the bank ceiling's own
-  // wording in stash.js is explicit that the server is the authority on the
-  // balance, never the client's arithmetic.
-  //
-  // Note what the projection does while the delta is outstanding: the balance
-  // keeps reading the server's last stated number rather than the op's own
-  // `{gp_delta:…}` frame or a client-side sum. That is the no-optimistic-UI
-  // claim in its strongest form — the number the user sees never moves until the
-  // server states a new one.
+  // fixture carries it, so the local-echo claim is proven on the shipped bank
+  // op -- same rule, one call away.
   stash.adjustBank({ gp: 5, sp: 0, cp: 0 });
   assert.deepEqual(
     stash.bank(),
-    { gp: 10, sp: 0, cp: 0 },
-    'the balance still reads the SERVER balance — the client never adds its own delta to it',
+    { gp: 15, sp: 0, cp: 0 },
+    'the queued delta folds onto the balance the seat read — the §4 echo',
   );
 
   // The link returns, the held delta replays, and the server's committed
-  // balance is what lands on the screen — the balance moves on the server's
-  // word and only on the server's word.
+  // balance is what lands on the screen. Where the client's arithmetic and the
+  // server's disagree, the server's wins and the echo follows it -- which is the
+  // half that matters: the client never gets to keep its guess.
   assert.equal(h.queue().length, 1, 'the entry is held while the link is down');
   const opId = /** @type {string} */ (h.queue()[0].op_id);
   await h.goLive(); // the held frame rides the reconnect's drain
@@ -296,18 +304,22 @@ test('the bank balance never moves on an optimistic entry — only on the fan-ou
   // arithmetically impossible — §4: "the global `field_version_seq` is the only
   // order", and the ack's version was minted from that same sequence.
   await h.ackWrite(opId, 7);
-  h.deliver(BANK(), { gp: 15, sp: 0, cp: 0 }, 8);
-  await waitFor(() => assert.deepEqual(stash.bank(), { gp: 15, sp: 0, cp: 0 }), { timeout: TEST_WAIT_TIMEOUT });
+  h.deliver(BANK(), { gp: 18, sp: 0, cp: 0 }, 8);
+  await waitFor(() => assert.deepEqual(stash.bank(), { gp: 18, sp: 0, cp: 0 }), { timeout: TEST_WAIT_TIMEOUT });
 });
 
 // ---------------------------------------------------------------------------
 // 4. A stale reconcile must not clobber a pending queue push.
 // ---------------------------------------------------------------------------
 
-test('a stale read on one field does not clobber a pending push on another', async () => {
+test('a server read does not clobber a pending push, and the queued intent still replays', async () => {
   // D1: the server's bank balance is an authoritative single-row read, so a
-  // late response can arrive carrying a balance the local user has already
-  // acted on. The rule is that a PENDING push outranks a STALE read.
+  // response can arrive carrying a balance from before the local user's queued
+  // withdrawal. Two things must both hold, and they pull opposite ways: the
+  // PENDING push keeps its place in the queue (a "latest write wins" cache
+  // rewrite would drop the user's intent on the floor), and the AUTHORITATIVE
+  // statement is what the field's committed value becomes -- the echo folds onto
+  // it rather than overriding it. §4: the server is authoritative.
   const h = harness();
   await h.goLive();
   const stash = createStashState({ sync: h.sync, partyId: 1, you: PLAYER_A, roster: [] });
@@ -317,19 +329,22 @@ test('a stale read on one field does not clobber a pending push on another', asy
   h.deliver(BANK(), { gp: 20, sp: 0, cp: 0 }, 30);
   await waitFor(() => assert.deepEqual(stash.bank(), { gp: 20, sp: 0, cp: 0 }), { timeout: TEST_WAIT_TIMEOUT });
 
-  // Go offline and spend. The user's own action is queued, not applied.
+  // Go offline and spend. The user's own action is queued, and echoed.
   h.goOffline();
   stash.adjustBank({ gp: -5, sp: 0, cp: 0 });
   assert.equal(h.queue().length, 1, 'the withdrawal is pending');
 
-  // Now the STALE read lands — a response to a request issued before the
-  // withdraw, still saying 20.
+  // Now the server's next statement lands on the same field.
   h.deliver(BANK(), { gp: 20, sp: 0, cp: 0 }, 31);
 
   // The pending push must survive it: a cache rewrite keyed on "latest write
   // wins" would drop the user's queued intent on the floor here.
-  assert.equal(h.queue().length, 1, 'the pending push is NOT clobbered by the stale read');
-  assert.deepEqual(stash.bank(), { gp: 20, sp: 0, cp: 0 }, 'the balance reads as the authoritative value, not a local guess');
+  assert.equal(h.queue().length, 1, 'the pending push is NOT clobbered by the server read');
+  assert.deepEqual(
+    stash.bank(),
+    { gp: 15, sp: 0, cp: 0 },
+    'the echo folds onto the server statement: 20 committed, minus the 5 still queued',
+  );
 
   // And when the link returns, the withdraw still replays and the server's
   // next word moves the balance.
@@ -344,12 +359,12 @@ test('a stale read on one field does not clobber a pending push on another', asy
     assert.deepEqual(
       writes[0].value,
       { gp_delta: -5, sp_delta: 0, cp_delta: 0 },
-      'the DELTA replays, never a balance',
+      'and replays as the DELTA the user asked for, never as a balance',
     );
   }, { timeout: TEST_WAIT_TIMEOUT });
-  const opId = /** @type {string} */ (h.queue()[0].op_id);
 
   // The server's own word moves the balance once the write is settled.
+  const opId = /** @type {string} */ (h.queue()[0].op_id);
   await h.ackWrite(opId, 32);
   h.deliver(BANK(), { gp: 15, sp: 0, cp: 0 }, 33);
   await waitFor(() => assert.deepEqual(stash.bank(), { gp: 15, sp: 0, cp: 0 }), { timeout: TEST_WAIT_TIMEOUT });

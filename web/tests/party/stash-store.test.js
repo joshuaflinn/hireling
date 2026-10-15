@@ -894,3 +894,45 @@ test('an unowned delta frame is never rendered, and never blanks the value', () 
   sync.deliverQuietly(STASH_TARGET(1, 'Ghost'), { op: 'qty', qty_delta: 3 }, 62);
   assert.deepEqual(quantities(stash.rows()), {}, 'and does not mint a row');
 });
+
+test('a subscriber may read a plain accessor during its own notification', () => {
+  // The exact shape StashScreen.svelte takes: it subscribes to `changed()` and,
+  // inside the callback, re-reads the projection through the plain accessors.
+  //
+  // `current()` used to `projection.set(next)` on EVERY read, so that callback
+  // wrote the very writable that was mid-notification — svelte 5 re-queued the
+  // subscriber, which read again, which wrote again. Not a slow render: an
+  // unbounded re-entrancy that never yields, so vitest could not even time it
+  // out. The reproduction is the subscriber below; if the loop is back, this
+  // file goes red with a counted error instead of wedging the run at 100% CPU.
+  const sync = fakeSync();
+  const stash = createStashState({ sync, partyId: 1 });
+
+  sync.deliver(BANK_TARGET(1), { gp: 4, sp: 2, cp: 1 }, 70);
+
+  let reads = 0;
+  let firstError = null;
+  const unsubscribe = stash.changed().subscribe(() => {
+    try {
+      reads += 1;
+      // The accessor, called from inside the notification — the line that
+      // re-entered the writable.
+      stash.bank();
+      stash.rows();
+      if (reads > 50) throw new Error(`a read inside a notification re-notified ${reads} times`);
+    } catch (e) {
+      firstError ??= e;
+      throw e;
+    }
+  });
+
+  try {
+    assert.equal(firstError, null, `reading the projection re-notified: ${firstError?.message}`);
+    // And the accessor still reads live after the subscription settles — the
+    // fix must not trade the loop for staleness.
+    sync.deliver(BANK_TARGET(1), { gp: 9, sp: 0, cp: 0 }, 71);
+    assert.deepEqual(stash.bank(), { gp: 9, sp: 0, cp: 0 }, 'a later frame still moves the read');
+  } finally {
+    unsubscribe();
+  }
+});

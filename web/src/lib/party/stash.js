@@ -26,7 +26,7 @@
 
 import { writable, get } from 'svelte/store';
 
-import { targetKey } from '../sync/store.js';
+import { encodeValue, targetKey } from '../sync/store.js';
 // The shared contract pin. It lives under tests/ because it is a gate, not
 // runtime code — but the production path runs through it too now, which is
 // the point: a frame must satisfy the fixture before it satisfies the socket.
@@ -345,6 +345,16 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
       const { target } = op;
       if (!isDelta(op.value)) continue; // a CAS op's pending value is already shown
       if (target.kind === 'bank') {
+        // The delta is only an intent if there is a balance to put it on. The
+        // wire never mints a bank row: wire-protocol §3 says the field is absent
+        // until the first movement, and the server creates it inside that first
+        // tx. So an offline withdrawal for a party with no stated balance has no
+        // base to fold onto, and rendering `0 + delta` would show the treasury as
+        // whatever the user last typed. The queue holds the intent, the server
+        // applies it to whatever the balance turns out to be, and the screen
+        // shows no balance -- which is what the server will show too, since its
+        // own ceiling guard refuses the overdraw.
+        if (committedBank === null) continue;
         bank = foldBalance(committedBank, op.value);
       } else if (target.kind === 'stash') {
         // FR-1 deletes a row at exactly zero, so a draw that lands on zero is
@@ -405,6 +415,27 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     };
   }
 
+  // One projection value per moved input, not one per read. `projection` is the
+  // writable a component subscribes to, and svelte 5's `writable` calls its
+  // listeners synchronously from `set` (store/shared/index.js). So a `set` that
+  // happens *inside* a listener re-enters the notification already running.
+  // `current()` used to `set` on every read, and the screen's listener reads
+  // (StashScreen.svelte) -- read, set, re-notify, read, forever. That is the
+  // busy spin: an unbounded re-entrancy that never returns to the event loop, so
+  // jsdom's queue is never reached and no test timeout can ever fire.
+  //
+  // What breaks the cycle: a read that finds the inputs unmoved returns the
+  // cached fold and writes NOTHING, so a listener may call any accessor from
+  // inside its own notification. A read that finds them moved still recomputes,
+  // so the never-stale guarantee on `current()` below is kept in full -- see
+  // `ensureCurrent()` for how "moved" is proved. `refused` is part of the
+  // projection too, but it moves only from this module's own event handler or a
+  // user action, never during a notification, so a read of it cannot re-enter.
+  let cacheWitness = null;
+  let cached = project();
+
+  /** The wire moved: recompute and notify. The only place this writable is
+   *  written, which is what makes a listener's read safe. */
   function refresh() {
     projection.set(project());
   }
@@ -417,21 +448,65 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
    *  fan-out. The one store this module exports is `changed`, which exists so
    *  a component can re-read when the wire moves.
    *
-   *  It re-projects on every read, and that is load-bearing. `project()` is a
+   *  It always reflects the latest state, and that is load-bearing. `project()` is a
    *  pure fold over the sync store's map with no I/O, and a cache updated only by
    *  the `fields`/`applied` events goes wrong whenever a value is delivered
    *  without one: the caller that hands `deliver()` straight to the store, a
    *  future event kind, a frame the transport accepts while this module's
-   *  listener is not subscribed yet. The cached version did exactly that and read
+   *  listener is not subscribed yet. A cache that only the wire events update did
+   *  exactly that and read
    *  an EMPTY bank for a party the server had already stated a balance to — no
    *  error, no red test, just a blank number in front of a user on a live link,
    *  which is the worst shape a bug in a treasure tracker can take. The screen
    *  reads a handful of fields per render, so this costs a fold over the party's
    *  own fields and buys a read that cannot be stale by construction. */
   function current() {
-    const next = project();
-    projection.set(next);
-    return next;
+    // The cached fold, recomputed only when the inputs moved -- so a read never
+    // writes. That "never writes" is the whole reason the screen may read an
+    // accessor from inside its `changed()` subscription: a `projection.set()`
+    // here would re-enter the notification already running, and the
+    // read-set-notify chain never returns to the event loop. A cached fold could
+    // only ever be as fresh as the last event this module listens for, which
+    // `current()`'s own comment records as the blank-balance defect, so the
+    // cache is allowed only because it is keyed on the INPUT, not on an event:
+    // every branch below either proves nothing moved or re-folds.
+    const witness = inputWitness(sync.state());
+    if (witness !== cacheWitness) {
+      cacheWitness = witness;
+      cached = project();
+    }
+    return cached;
+  }
+
+  /** @returns {string} a content fingerprint of the whole field set.
+   *
+   *  The transport's own `encodeValue` does the work (sync/store.js) -- the same
+   *  canonical, key-sorted encoder whose output the `targetKey` join already
+   *  depends on, so a value the projection reads cannot change without the
+   *  fingerprint moving. Keying on the whole field set rather than on the
+   *  projection's own output is deliberate: the projection is NOT a function of
+   *  every field (an out-of-party field must not appear in these rows), so a key
+   *  built from the folded result would go stale exactly where the fold is
+   *  skipped. A version-only key fails the same way on the frame the wire
+   *  actually produces -- a peer's diff at a lower version, which
+   *  `applyServerField` accepts as the owner's own committed version and which
+   *  can carry a different value.
+   *
+   *  Returns null on a `full_resync`: the transport cannot report its own
+   *  generation yet (sync/store.js has no such counter), and a resync can drop
+   *  rows while every surviving field keeps its version -- a smaller field set
+   *  would otherwise read as "nothing moved". The conservative answer is to
+   *  re-fold. A key built field-by-field could not: a resync that drops rows
+   *  leaves every surviving field where it was, so the whole-set string shrinks
+   *  and reads as moved. */
+  function inputWitness(state) {
+    const fields = state ?? {};
+    let out = '';
+    for (const key of Object.keys(fields).sort()) {
+      const entry = fields[key];
+      out += `${key}|${encodeValue(entry.value)}|${entry.version}|${encodeValue(entry.serverValue)}|`;
+    }
+    return out;
   }
 
   // --- refused op records -------------------------------------------------
@@ -440,6 +515,7 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
   // ack, sheet/state.js) carried over verbatim rather than re-invented.
   /** @type {Array<{op: object, outcome: string, reason: string|null}>} */
   let refused = [];
+
 
   function expose(op, outcome, reason) {
     refused = [...refused, { op, outcome, reason: reason ?? null }];

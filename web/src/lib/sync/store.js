@@ -54,8 +54,12 @@ function quote(text) {
   return `"${text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-/** @param {*} value @returns {string} */
-function encodeValue(value) {
+/** The canonical encoding `targetKey` is built from: key-sorted, so the same
+ *  value always yields the same string. Exported for a consumer that must
+ *  fingerprint a value it did not build (party/stash.js caches a fold keyed on
+ *  it) -- one encoder for both jobs, so the two can never disagree about when a
+ *  value changed. */
+export function encodeValue(value) {
   if (typeof value === 'string') return quote(value);
   if (value === null) return 'null';
   if (Array.isArray(value)) {
