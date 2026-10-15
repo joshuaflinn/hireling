@@ -1476,7 +1476,9 @@ fn validate_daily(value: &JsonValue) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result<(), String> {
+/// The write path's own bounds gate; the wire-contract suite pins the
+/// fixture's `effect_ops` through it (gh#90 F3), so it is crate-visible.
+pub(crate) fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result<(), String> {
     match target {
         FieldTarget::Vitals {
             character_id: _,
@@ -1558,7 +1560,15 @@ fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result<(), String
         // −50..=50. The database-dependent checks (roster membership,
         // ownership, corpus rows) live in the effect engine, where the rows
         // are.
-        FieldTarget::EffectNew { .. } => validate_effect_value(value, "create"),
+        FieldTarget::EffectNew { .. } => {
+            let op = value.get("op").and_then(JsonValue::as_str).unwrap_or("");
+            if op != "create" {
+                return Err(format!(
+                    "unknown effect op {op:?} on effect_new (create goes on effect_new; update and end on effect)"
+                ));
+            }
+            validate_effect_value(value, "create")
+        }
         FieldTarget::Effect { .. } => {
             let op = value.get("op").and_then(JsonValue::as_str).unwrap_or("");
             match op {

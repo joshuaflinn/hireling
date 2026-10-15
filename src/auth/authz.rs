@@ -42,10 +42,13 @@ pub struct Actor {
     pub role: Role,
 }
 
-/// The thing a request touches, with its current ownership fact.
+/// The thing a request touches, with its current authorization facts.
 ///
-/// Ownership is loaded fresh per request from the database, so an out-of-band
-/// reassignment takes effect on the next request (spec FR-16).
+/// Facts are loaded fresh per request from the database at the call site; the
+/// matrix performs no lookups (E3's ownership-loaded-fresh rule, spec FR-16).
+/// Party-scoped resources (E12 design D4) carry the deciding facts in the
+/// payload — a lookup key is not a deciding fact, so a bare party id would
+/// decide nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Resource {
     /// A character sheet; its owning account is its sole writer.
@@ -55,17 +58,27 @@ pub enum Resource {
     Effect { creator_sub: String },
     /// A `custom`-lane content row; its creating account is its sole writer.
     CustomRow { creator_sub: String },
-}
-
-impl Resource {
-    /// The `sub` that alone may write this resource.
-    #[must_use]
-    pub fn sole_writer(&self) -> &str {
-        match self {
-            Resource::Character { owner_sub } => owner_sub,
-            Resource::Effect { creator_sub } | Resource::CustomRow { creator_sub } => creator_sub,
-        }
-    }
+    /// A party stash write — add, qty, transfer, meta (E12 design D4; spec
+    /// FR-1). The shared loot list is the party's, not one owner's: any
+    /// account owning a character in the party writes it. The call site
+    /// loads membership fresh per message and passes the fact. Denials audit
+    /// as `forbidden_stash_write`.
+    Stash { actor_is_party_member: bool },
+    /// A party bank write — sell, manual adjustment (E12 design D4; spec
+    /// FR-7). Money moves are quartermaster-only: the payload is the `sub`
+    /// of the account owning the character named by
+    /// `parties.quartermaster_character_id`, and only that account passes.
+    /// `None` — the undesignated party — denies everyone (FR-5's
+    /// undesignated case). Denials audit as `forbidden_bank_write`.
+    Bank {
+        quartermaster_owner_sub: Option<String>,
+    },
+    /// A party settings write — the quartermaster designation field (E12
+    /// design D4). Per FR-5's settled flip rule (Clarify Log #6, the
+    /// owner-visible reading) any character owner may flip the designation;
+    /// the designated owner holds no exclusive lock on the toggle. Denials
+    /// audit as `forbidden_party_write`.
+    PartySettings { actor_is_party_member: bool },
 }
 
 /// What is being attempted.
@@ -88,7 +101,11 @@ pub enum Verdict {
 ///   writes; nothing gates reads (FR-13). Unauthenticated actors never reach
 ///   this function — they are rejected upstream as unauthenticated.
 /// - `Write` by the GM → deny, independent of resource (FR-12).
-/// - `Write` → allow only for the resource's sole writer (FR-8/9/11).
+/// - `Write` → per resource: sole-owner resources (`Character`, `Effect`,
+///   `CustomRow`) allow only their sole writer (FR-8/9/11); the party-scoped
+///   resources read the facts carried in their payload (E12 design D4) —
+///   stash and party settings allow any party member, bank allows only the
+///   designated quartermaster's owner and denies undesignated outright.
 ///
 /// Effect creation is not a [`Resource`] case: the creation endpoint checks
 /// the actor owns a character (FR-10) before constructing an effect.
@@ -99,10 +116,43 @@ pub fn authorize(actor: &Actor, action: Action, resource: &Resource) -> Verdict 
         Action::Write => {
             if actor.role == Role::Gm {
                 Verdict::Deny
-            } else if actor.sub == resource.sole_writer() {
-                Verdict::Allow
             } else {
-                Verdict::Deny
+                match resource {
+                    Resource::Character { owner_sub }
+                    | Resource::Effect {
+                        creator_sub: owner_sub,
+                    }
+                    | Resource::CustomRow {
+                        creator_sub: owner_sub,
+                    } => {
+                        if *owner_sub == actor.sub {
+                            Verdict::Allow
+                        } else {
+                            Verdict::Deny
+                        }
+                    }
+                    Resource::Stash {
+                        actor_is_party_member,
+                    }
+                    | Resource::PartySettings {
+                        actor_is_party_member,
+                    } => {
+                        if *actor_is_party_member {
+                            Verdict::Allow
+                        } else {
+                            Verdict::Deny
+                        }
+                    }
+                    Resource::Bank {
+                        quartermaster_owner_sub,
+                    } => {
+                        if quartermaster_owner_sub.as_deref() == Some(actor.sub.as_str()) {
+                            Verdict::Allow
+                        } else {
+                            Verdict::Deny
+                        }
+                    }
+                }
             }
         }
     }
