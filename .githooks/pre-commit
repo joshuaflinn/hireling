@@ -27,7 +27,7 @@ if [ ! -x "$REPO_ROOT/scripts/check_json_dup_keys.py" ] && [ ! -f "$REPO_ROOT/sc
 fi
 if command -v python3 >/dev/null 2>&1; then
     echo "JSON duplicate-key check..."
-    python3 "$REPO_ROOT/scripts/check_json_dup_keys.py" || fail "ERROR: duplicate JSON keys (see above)."
+    python3 "$REPO_ROOT/scripts/check_json_dup_keys.py" || fail "ERROR: JSON guardrail failed (see above)."
 else
     fail "ERROR: python3 not found — the JSON duplicate-key check (gh#49) cannot run. Install python3; do not bypass."
 fi
