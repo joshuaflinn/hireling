@@ -1,0 +1,16 @@
+[package]
+name = "diskops"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+# Std-only on purpose: `just disk-guard` shells this binary, and a
+# zero-dependency crate compiles in seconds even on a disk that is nearly
+# full — the exact state the guard exists to detect. No dependency may enter
+# this manifest; the decisions live in `src/lib.rs` as pure functions.
+
+[dependencies]
+
+[lints]
+workspace = true

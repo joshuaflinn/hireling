@@ -14,6 +14,7 @@ just dev       # build the frontend, run the backend (serves API + UI on :3000)
 just db        # start the throwaway dev Postgres on :5432
 just test      # tests (starts the throwaway Postgres first when docker exists)
 just gate      # the full local gate (same checks as CI)
+just disk-guard  # free-space floor: fails when the disk can't absorb one more build
 ```
 
 Every recipe is also a plain cargo/npm command — `just` is convenience, not
@@ -27,6 +28,7 @@ cargo fmt --all                                           # format
 cargo clippy --all-targets --all-features -- -D warnings  # lint
 cargo deny check                                          # audit dependencies
 docker compose up -d db                                   # dev Postgres
+cargo run --package diskops -- guard --floor-gib 10       # free-space floor (just disk-guard)
 python3 scripts/check_json_dup_keys.py                    # JSON duplicate-key guardrail (gh#49)
 ```
 
