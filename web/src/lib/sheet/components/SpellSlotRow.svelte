@@ -9,7 +9,7 @@
   const busy = $derived(offline || row.pending);
 </script>
 
-<div class="row" class:spent={row.used} class:pending={row.pending}>
+<div class="row srow" class:spent={row.used} class:pending={row.pending}>
   {#if editable}
     <button
       class="use"

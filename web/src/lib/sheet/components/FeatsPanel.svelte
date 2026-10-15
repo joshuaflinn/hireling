@@ -40,7 +40,7 @@
         <span class="r">{featsAt(level).length}</span>
       </div>
       {#each featsAt(level) as feat (feat.name + feat.category)}
-        <div class="row">
+        <div class="row frow2">
           <span class="nm">{feat.name}</span>
           {#if feat.category}<span class="chip">{feat.category}</span>{/if}
         </div>
@@ -50,7 +50,7 @@
     {/each}
   {:else}
     {#each specials as feature (feature)}
-      <div class="row"><span class="nm">{feature}</span></div>
+      <div class="row frow2"><span class="nm">{feature}</span></div>
     {:else}
       <p class="meta">No features recorded.</p>
     {/each}
@@ -58,7 +58,7 @@
   {#if !editable}
     <h3>Features</h3>
     {#each specials as feature (feature)}
-      <div class="row"><span class="nm">{feature}</span></div>
+      <div class="row frow2"><span class="nm">{feature}</span></div>
     {:else}
       <p class="meta">No features recorded.</p>
     {/each}

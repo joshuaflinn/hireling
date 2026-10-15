@@ -530,6 +530,18 @@ a {
   background: var(--panel2);
 }
 
+/* Row variants by child shape. The base .row grid is the prototype's 5-track
+   action row (check · glyph · name · q · tag); rows that omit the glyph
+   track would otherwise drop their name into the 20px/56px tracks and
+   ellipsize to one letter ("C…", "Detect…") — seen live 2026-10-15. */
+.row.srow {
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+}
+
+.row.frow2 {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .row .nm {
   white-space: nowrap;
   overflow: hidden;

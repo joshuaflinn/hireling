@@ -128,7 +128,7 @@
       <span class="t">Focus spells</span>
     </div>
     {#each focusSpells as spell (spell)}
-      <div class="row">
+      <div class="row srow">
         <span></span>
         <span class="nm">{spell}</span>
         <span></span>
@@ -157,7 +157,7 @@
           <span class="t">Custom spells</span>
         </div>
         {#each customNotPrepared as spell (spell.corpus_entry_id)}
-          <div class="row">
+          <div class="row srow">
             <span></span>
             <span class="nm">
               {spell.name}
@@ -178,7 +178,7 @@
           <span class="t">{list.rank === 0 ? 'Cantrips' : `${ordinal(list.rank)} rank`}</span>
         </div>
         {#each bookAt(list.rank) as spell (spell)}
-          <div class="row">
+          <div class="row srow">
             <span></span>
             <span class="nm">{spell}</span>
             {#if editable && !offline}
