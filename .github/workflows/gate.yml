@@ -175,6 +175,15 @@ jobs:
         env:
           CARGO_HOME: /home/runner/.cache/grizzly-gate/cargo
 
+      # The ship self-guard's own gate (gh#101): `just ship` must refuse a
+      # main checkout — the guard is the behavior, so the recipe itself is
+      # what runs, against a throwaway main checkout whose remote is a
+      # scratch bare repo (never origin). A recipe that silently loses the
+      # guard later is the same hole again; this reds the moment it does.
+      - name: ship-guard — ship refuses main
+        if: ${{ !cancelled() }}
+        run: just ship-guard
+
       # The guardrail guarding the guardrails (gh#151) — the same recipe
       # bench-side `just ci-local` runs, so bench and CI cannot drift apart:
       # every ci-local leg must have a CI home (an image mirror declared in
