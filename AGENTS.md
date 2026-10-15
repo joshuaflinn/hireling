@@ -423,7 +423,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   tests; everything else gets a curated end-to-end suite.
 - **A test for a spec'd behavior must exercise the production path that owns
   it.** Testing the module underneath that path proves the module, not the
-  behavior. Five instances of the same rule:
+  behavior. Six instances of the same rule:
   - *Observability* (audit, log, metric): send an HTTP request through the
     configured router for HTTP behavior, or call the public orchestration
     function for non-HTTP behavior; then assert the persisted record or
@@ -450,6 +450,19 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
     `threshold` — with different results. One fixture on one side passes
     against every wrong threshold on that side. See
     [Rules exactness](#rules-exactness) for the full rule, citations included.
+  - *A pinned wire contract* — a fixture naming the set a production path
+    accepts: assert the fixture against the gate that enforces it, never
+    against a literal restated in the test body. Feed each pinned name
+    through that gate and assert it is accepted; panic on a pinned name no
+    arm handles; and assert an outside name is refused on every target kind
+    the dispatch routes to, or the accept loop goes green against a gate
+    that accepts everything. That reaches a stale fixture and a dropped
+    name, never a gained one — the loop only sees names the fixture lists;
+    where the set is an enum, derive it off `EnumIter` and the gain is
+    caught too. The shipped forms, enum and hand-written match:
+    `the_pinned_vitals_fields_are_the_serde_wire_names_of_the_enum` and
+    `the_pinned_effect_ops_are_the_write_paths_accepted_set` in
+    `src/tests/sync/contract.rs`.
 - Log generously on the backend: major branches, request IDs.
 - Commit messages: imperative, one line, what + why if non-obvious.
 
