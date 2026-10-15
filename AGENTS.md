@@ -564,12 +564,27 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   assert anything about what blocks a merge. When a procedure doc states a
   ruleset rule, it states the rule operatively and cites a named ruleset
   version — `ruleset 24735400 v53013064` — never the live value.
-- **Sweep for reachability before you hand over.** Walk the spec's requirement
-  list and, for each one, name the production-path test that proves it. Where
-  the requirement landed in a library module, grep for a caller:
-  `grep -rn "<export_name>" src web/src`. Hits confined to the defining module
-  mean the requirement is unbuilt — a green unit test does not change that.
-  Report the sweep in the PR body alongside the gate output.
+- **Sweep for reachability before you hand over.** Walk the spec's
+  requirement list — the requirement list, never the module's export list —
+  and, for each one, name the production-path test that proves it and the
+  call site that reaches it. The unit of the census is the **named action
+  the requirement is implemented as**, whatever its shape: an exported
+  function, a method on an object a factory returns, a store action, a
+  handler a component is passed. A reachable factory says nothing about the
+  actions it returns, so counting the factory is not a sweep. Where the
+  requirement landed in a library module, grep for a caller of that action:
+  `grep -rn "<action_name>" src web/src`. Hits confined to the defining
+  module mean the requirement is unbuilt — a green unit test does not change
+  that. Report the sweep in the PR body alongside the gate output, one row
+  per requirement naming the action, its caller, and its production-path
+  test. PR #311 is the reason the unit is written down: its sweep counted
+  module exports, `createStashState` among them with callers in
+  `web/src/App.svelte`, and reported everything reachable — while
+  `adjustQty`, `editMeta` and `adjustBank`, the actions that factory
+  returns, had no caller anywhere in `web/src` at head `c7e7e3c`.
+  `adjustBank` is FR-7's quartermaster adjustment and carried nine test
+  references with no UI path to it. An export census that passes while three
+  spec'd actions are unreachable cannot fail the way the sweep was meant to.
 - Priority order is P0 → P1 → P2 as tagged in the PRD's functional requirements.
 - Feedback on the PRD itself goes to the PRD (via issue or PR against `docs/PRD.md`),
   not into code comments.
