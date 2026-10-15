@@ -1,0 +1,213 @@
+// Vendored from the pinned gate image by scripts/fetch_gate_file.py — do not
+// hand-edit. scripts/check_gate_vendored.py hashes everything below the marker
+// line and `just check-vendored` reds on drift.
+//
+// Source: etc/grizzly-gate/config/languages/node/eslint.config.mjs.tmpl in GATE_IMAGE (sha256:25c6193d3…), read from
+// .github/workflows/gate.yml — the digest is named once, there.
+// Rendering contract: the image ships this file as a `.tmpl`, NOT a live
+// `.mjs` — the harness copies it verbatim to `eslint.config.mjs` beside the
+// gate's own node_modules at run time (see the image's header below, ADR-033).
+// The `{config}` / `{tsconfig}` / `{skip_dirs}` placeholders live in the
+// adapter's manifest.toml, not here; this file reads its two runtime knobs
+// from process.env — GATE_TSCONFIG and GATE_SKIP_DIRS — which the justfile
+// `web-eslint` leg supplies to reproduce the image's adapter contract.
+//
+// Regenerate after a digest bump:
+//   python3 scripts/fetch_gate_file.py etc/grizzly-gate/config/languages/node/eslint.config.mjs.tmpl \
+//     --output web/gate-eslint.config.mjs.tmpl --manifest scripts/gate_vendored.tsv
+// === vendored-source-begin ===
+// Gate-owned ESLint flat config (authoritative; --config + --no-config-lookup so
+// the repo's eslint config is ignored). Resolves typescript-eslint, the React
+// plugins, and eslint-plugin-svelte from the toolchain installed into this dir's
+// node_modules at image build (see Dockerfile), so every plugin import has a
+// node_modules to find.
+//
+// Shipped as `eslint.config.mjs.tmpl`, NOT a live `.mjs`: the gate gates itself,
+// and a real `.mjs` in this config tree would be flagged by the honest-map walk
+// as undeclared node code (a `.tmpl` is not a detected extension). The harness
+// materializes it to `eslint.config.mjs` beside this dir's node_modules at run
+// time (so its bare plugin imports resolve) and removes it after the node checks
+// — see `materialize_eslint_config` in harness/src/main.rs and ADR-033.
+//
+// Layers, mirroring the residuum philosophy and reaching Rust/Python-grade
+// strictness for TypeScript:
+//   1. SECURITY/DISCIPLINE core — pure ESLint rules with no typescript-eslint
+//      equivalent, applied to *every* JS/TS file (no eval-class footguns, no
+//      debug leftovers, strict equality, no var, no param reassignment).
+//   2. JS CORRECTNESS — likely-bug rules applied to JS only; TypeScript gets the
+//      type-aware equivalents from layer 3 instead (applying the base rules to TS
+//      double-reports or false-positives without type info).
+//   3. TYPE-AWARE STRICTNESS for TS — strictTypeChecked + stylisticTypeChecked,
+//      the JS analog of clippy pedantic (no-floating-promises, no-misused-promises,
+//      no-unsafe-*, …). Needs a TypeScript program: the harness passes the wrapped
+//      repo tsconfig via GATE_TSCONFIG (gate owns the rules; the repo's tsconfig
+//      provides type/module resolution). A node project containing TS must declare
+//      its tsconfig — the harness fails closed otherwise — so GATE_TSCONFIG is
+//      always present when TS files exist. `no-console` is intentionally left off.
+//   4. REACT — rules-of-hooks (the real bug class) + exhaustive-deps + react
+//      recommended on `.jsx`/`.tsx`. `prop-types` is off (TS / tsc owns prop
+//      typing); the modern JSX runtime means `react-in-jsx-scope` is off too.
+//   5. SVELTE — eslint-plugin-svelte recommended on `.svelte` components, with
+//      the script parser set to typescript-eslint so `<script lang="ts">` parses.
+//      Type-aware checking of components is owned by the separate svelte-check
+//      step (against the same wrapped tsconfig), so this layer needs no TS program.
+import path from "node:path";
+import tseslint from "typescript-eslint";
+import react from "eslint-plugin-react";
+import reactHooks from "eslint-plugin-react-hooks";
+import svelte from "eslint-plugin-svelte";
+
+// Global ignores, single-sourced from the gate's Ops-owned skip_dirs (passed by
+// the harness as GATE_SKIP_DIRS). The honest-map walk skips these dirs as
+// non-first-party (deps/build artifacts); without this eslint would still lint
+// them, since ESLint 9 flat config only auto-ignores node_modules (not dist/
+// build/.svelte-kit/dot-dirs). A flat-config object with only `ignores` is a
+// global ignore; each dir name becomes an "anywhere, recursive" pattern.
+const skipDirs = (process.env.GATE_SKIP_DIRS ?? "")
+  .split(",")
+  .map((d) => d.trim())
+  .filter(Boolean);
+const ignoreBlock =
+  skipDirs.length > 0 ? [{ ignores: skipDirs.map((d) => `**/${d}/**`) }] : [];
+
+// Layer 1 — safe on every file (no typescript-eslint counterpart to conflict).
+const securityDisciplineRules = {
+  "no-eval": "error",
+  "no-new-func": "error",
+  "no-script-url": "error",
+  "no-debugger": "error",
+  "no-alert": "error",
+  eqeqeq: ["error", "always"],
+  "no-var": "error",
+  "prefer-const": "error",
+  "no-param-reassign": "error",
+  "no-template-curly-in-string": "error",
+  "no-implicit-globals": "error",
+};
+
+// Layer 2 — JS-only; TypeScript files get type-aware equivalents from layer 3.
+const jsCorrectnessRules = {
+  "no-undef": "error",
+  "no-unused-vars": "error",
+  "no-unreachable": "error",
+  "no-constant-condition": "error",
+  "no-dupe-keys": "error",
+  "no-dupe-args": "error",
+  "no-duplicate-case": "error",
+  "no-fallthrough": "error",
+  "no-cond-assign": ["error", "always"],
+  "no-self-compare": "error",
+  "use-isnan": "error",
+  "valid-typeof": "error",
+  "no-implied-eval": "error",
+  "no-empty": ["error", { allowEmptyCatch: false }],
+  "no-unused-expressions": "error",
+  "no-throw-literal": "error",
+  "require-await": "error",
+  "no-shadow": "error",
+};
+
+// Layer 3 is only wired when a TypeScript program is available. The harness
+// guarantees GATE_TSCONFIG for any node project containing TS, so its absence
+// means a JS-only project — no TS block needed (and no TS files to lint).
+const tsconfigPath = process.env.GATE_TSCONFIG;
+const tsBlocks = tsconfigPath
+  ? [
+      {
+        files: ["**/*.{ts,tsx,mts,cts}"],
+        extends: [
+          ...tseslint.configs.strictTypeChecked,
+          ...tseslint.configs.stylisticTypeChecked,
+        ],
+        languageOptions: {
+          parserOptions: {
+            project: [tsconfigPath],
+            tsconfigRootDir: path.dirname(tsconfigPath),
+          },
+        },
+        rules: { ...securityDisciplineRules },
+      },
+    ]
+  : [];
+
+// Layer 4 — React. Recommended correctness rules plus the hooks rules, scoped to
+// JSX/TSX. `rules-of-hooks` (conditionally-called hooks) and `exhaustive-deps`
+// (stale closures) are the genuine bug classes; both are errors. `prop-types` is
+// off because tsc/type-aware eslint already enforce prop typing, and the modern
+// automatic JSX runtime removes the need for React to be in scope.
+const reactBlock = {
+  files: ["**/*.{jsx,tsx}"],
+  plugins: { react, "react-hooks": reactHooks },
+  languageOptions: {
+    parserOptions: { ecmaFeatures: { jsx: true } },
+  },
+  settings: { react: { version: "detect" } },
+  rules: {
+    ...react.configs.flat.recommended.rules,
+    ...react.configs.flat["jsx-runtime"].rules,
+    "react/prop-types": "off",
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "error",
+  },
+};
+
+// Layer 5 — Svelte. The plugin's recommended flat config wires svelte-eslint-parser
+// and the component-correctness rules. Two overrides follow it (see ADR-041):
+//
+//   (a) `*.svelte` COMPONENTS — point the script-block sub-parser at typescript-
+//       eslint so `<script lang="ts">` parses, apply the security core, and tune
+//       two rules the recommended set gets wrong for Svelte 5:
+//         - `prefer-const` off, `svelte/prefer-const` on: bindable props
+//           (`let { open = $bindable(false), filters } = $props()`) force the
+//           whole destructure to `let`; core `prefer-const` can't see the
+//           framework-driven `$bindable` reassignment and would (wrongly) demand
+//           `const` on the sibling fields. `{ destructuring: "all" }` doesn't help
+//           either — ESLint sees NONE of them reassigned, so it still wants const
+//           on all. The rune-aware rule understands `$props`/`$bindable`.
+//         - `svelte/no-navigation-without-resolve` off: `resolve()` is for the
+//           app's own internal route manifest; the rule wrongly fires on plain
+//           external `<a href>` links, which have no code-level fix.
+//
+//   (b) `*.svelte.{js,ts}` RUNE MODULES (`$state`/`$derived`/… in a plain module)
+//       — these carry NO template syntax and are 100% ordinary JS/TS. The
+//       recommended set's `setup-for-svelte-script` block routes them to
+//       svelte-eslint-parser, which (with no TS sub-parser) errors "Unexpected
+//       token interface" on TypeScript, and even WITH a sub-parser mishandles
+//       type-only references (false `no-unused-vars` on a type used only in
+//       annotations). So route them straight to the typescript-eslint parser
+//       instead: correct parsing + no false positives, and they still pick up the
+//       type-aware `strictTypeChecked` rules and the security core from the TS
+//       block above (they match `**/*.ts`). Core `prefer-const` is correct here
+//       (a module's `$state` is reassigned in source; `$derived` is `const`), so
+//       no rune-aware swap is needed — that problem is component-only.
+const svelteBlock = [
+  ...svelte.configs.recommended,
+  {
+    files: ["**/*.svelte"],
+    languageOptions: {
+      parserOptions: { parser: tseslint.parser },
+    },
+    rules: {
+      ...securityDisciplineRules,
+      "prefer-const": "off",
+      "svelte/prefer-const": "error",
+      "svelte/no-navigation-without-resolve": "off",
+    },
+  },
+  {
+    files: ["**/*.svelte.{js,ts}"],
+    languageOptions: { parser: tseslint.parser },
+  },
+];
+
+export default tseslint.config(
+  ...ignoreBlock,
+  {
+    files: ["**/*.{js,mjs,cjs,jsx}"],
+    languageOptions: { ecmaVersion: "latest", sourceType: "module" },
+    rules: { ...jsCorrectnessRules, ...securityDisciplineRules },
+  },
+  ...tsBlocks,
+  reactBlock,
+  ...svelteBlock,
+);
