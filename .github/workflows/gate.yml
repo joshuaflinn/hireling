@@ -243,9 +243,19 @@ jobs:
       # vendored copy stops hashing to what scripts/gate_vendored.tsv records.
       # A digest bump that forgets to re-vendor reds here before the image
       # even runs.
+      #
+      # --allow-unvendored: CI checks out a git tree, and gate-semgrep-rules/
+      # is git-ignored, so the vendored rule directory is structurally absent
+      # here — the same fetch that populates it is the one that cannot reach
+      # the registry from a bare checkout any better than the bench can.
+      # Absence is red on a bench (where `just vendor-semgrep` can run) and
+      # opt-out tolerated here, because the image-side step below is what
+      # actually proves the rules are the pinned ones. `just scan-semgrep`
+      # does not run in CI at all: the image runs its own semgrep pass, which
+      # reads its own on-image rules and never looks at this directory.
       - name: check-vendored — vendored config matches its recorded hash
         if: ${{ !cancelled() }}
-        run: just check-vendored
+        run: just check-vendored --allow-unvendored
 
       # The other half of gh#314: the pinned digest must still carry the
       # bytes we vendored. The offline check above hashes the vendored copies

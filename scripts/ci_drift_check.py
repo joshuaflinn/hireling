@@ -52,6 +52,14 @@ WORKFLOW = Path(".github/workflows/gate.yml")
 # and a regex constant is no more a password than a verdict line is.)
 CHECK_NAME_RE = r"[a-z]+:[a-z0-9-]+"
 LEG_NAME_RE = r"[\w-]+"
+# A guard step body that runs exactly one leg on one line: `just <leg>`, then
+# optional non-pipe arguments (gh#320 runs `just check-vendored
+# --allow-unvendored`). The `(?![^\n]*\|)` lookahead rejects a shell-piped
+# `just a | tee` on the same line; `[^\n]` scopes both the lookahead and the
+# match to the line, so a `|` on a later line cannot poison this line's match
+# the way a DOTALL `.*` lookahead would (it would scan to end of file and drop
+# every earlier leg once one pipe appeared anywhere).
+GUARD_STEP_RE = r"^ *run: just ([\w-]+)(?![^\n]*\|)[^\n]*$"
 # A declaration row is pass, mirror-or-'-', reason — no more, no less.
 DECLARATION_FIELDS = 3
 # The image prints one verdict line per check: "[PASS] node:tsc".
@@ -67,6 +75,23 @@ IMAGE_STEP_RE = re.compile(r"^ *run: .*\bci_drift_check\.py +--image-log\b", re.
 SELF_TEST_TREE_JUSTFILE = "ci-local: alpha\n\nalpha:\n\ttrue\n"
 SELF_TEST_TREE_WORKFLOW = (
     "jobs:\n  gate:\n    steps:\n      - name: guard\n        run: just alpha\n"
+    "      - name: drift image side\n"
+    "        run: python3 scripts/ci_drift_check.py --image-log image.log\n"
+)
+# The same guard step, with an argument appended. The CI home of a leg is the
+# step; what the step passes to it is not a new leg and must not read as one.
+SELF_TEST_TREE_WORKFLOW_ARGED = (
+    "jobs:\n  gate:\n    steps:"
+    "\n      - name: guard\n        run: just alpha --allow-unvendored\n"
+    "      - name: drift image side\n"
+    "        run: python3 scripts/ci_drift_check.py --image-log image.log\n"
+)
+# A multi-line `run: |` block whose first line invokes the leg. A YAML literal
+# block is a different shape of `run:` value and this check does not read it,
+# so the leg must still read as ungated (fail closed) rather than be guessed.
+SELF_TEST_TREE_WORKFLOW_MULTILINE = (
+    "jobs:\n  gate:\n    steps:"
+    "\n      - name: guard\n        run: |\n          just alpha\n"
     "      - name: drift image side\n"
     "        run: python3 scripts/ci_drift_check.py --image-log image.log\n"
 )
@@ -139,9 +164,17 @@ def derive_repo_side() -> set[str]:
     A hand-kept literal certifies steps it never reads (MOR-142,
     MOR-130's fault class one storey up): delete a guard step and its leg
     drops out of this set, turning direction A red instead of printing
-    coverage over a hole. Matches only single-line `run: just <leg>`
-    steps, so any other spelling reads as ungated and fails closed. What
-    the derivation still cannot see: textual presence is not execution
+    coverage over a hole. Matches only a single-line `run: just <leg>`
+    step, optionally followed by arguments (`just check-vendored
+    --allow-unvendored`, gh#320): the CI home is the step, and what it
+    passes to the leg is not a second leg. Everything else reads as ungated
+    and fails closed — a multi-line `run: |` block (its body lines lack the
+    `run: ` prefix), a chained `just a && just b` (the leg name is not the
+    whole line), and a piped `just a | tee` (the lookahead sees the pipe).
+    This is a stdlib-only text match: `scripts/pyproject.toml` declares the
+    scripts zero-dependency, so no YAML parser is pulled in here.
+
+    What the derivation still cannot see: textual presence is not execution
     (Thrane, MOR-130) — a guard step with `if: false` stays in this set
     while no longer running on PRs. No parse closes that hole; the
     deliberate-break run is the cover.
@@ -149,7 +182,7 @@ def derive_repo_side() -> set[str]:
     if not WORKFLOW.is_file():
         fail(f"{WORKFLOW} not found — run from the repo root")
     text = WORKFLOW.read_text(encoding="utf-8")
-    return set(re.findall(r"^ *run: just ([\w-]+) *$", text, re.MULTILINE))
+    return set(re.findall(GUARD_STEP_RE, text, re.MULTILINE))
 
 
 def require_image_side_step() -> None:
@@ -459,6 +492,27 @@ def self_test() -> None:
             SELF_TEST_TREE_WORKFLOW_NO_IMAGE_STEP, encoding="utf-8"
         )
         run_case(tree, "d-image-step-deleted", [], expect_red=True)
+
+        # A-green: the guard step passes an argument to the leg. The leg is
+        # still gated; the argument is not a new leg (gh#320: CI runs
+        # `just check-vendored --allow-unvendored`). Alpha is unmirrored so
+        # the derived repo_side step is its only CI home — the arged form
+        # must still derive it, or direction A reds.
+        tree = make_tree("one:alpha\t-\texempt: gated by the guard step\n", None)
+        (tree / ".github" / "workflows" / "gate.yml").write_text(
+            SELF_TEST_TREE_WORKFLOW_ARGED, encoding="utf-8"
+        )
+        run_case(tree, "a-guard-step-arged", [], expect_red=False)
+
+        # A-red: the same leg invoked from a multi-line `run: |` block, a
+        # shape this derivation does not read. Fails closed: textual presence
+        # in an unread shape is not a derived CI home, so the unmirrored leg
+        # stays ungated and direction A reds.
+        tree = make_tree("one:alpha\t-\texempt: gated by the guard step\n", None)
+        (tree / ".github" / "workflows" / "gate.yml").write_text(
+            SELF_TEST_TREE_WORKFLOW_MULTILINE, encoding="utf-8"
+        )
+        run_case(tree, "a-guard-step-multiline", [], expect_red=True)
 
     print(f"ci-drift self-test: {len(ran)} cases, all pass")
 

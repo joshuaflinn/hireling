@@ -132,9 +132,9 @@ web-eslint: web-deps
 # must still hash to what scripts/gate_vendored.tsv records, and (CI-side,
 # --image-source) the pinned digest must still carry those bytes. The self-
 # test re-proves every red direction; the real check is the guardrail.
-check-vendored:
+check-vendored *args:
     python3 scripts/check_gate_vendored.py --self-test
-    python3 scripts/check_gate_vendored.py
+    python3 scripts/check_gate_vendored.py {{args}}
 
 # The prose boundary (E9, contracts/inert-html.md §3): `{@html}` is banned
 # for prose repo-wide — every markup-carrying string renders through the one
