@@ -26,7 +26,14 @@ use diskops::{
 fn main() -> ExitCode {
     // No `std::process::exit` — the workspace denies `clippy::exit` outside
     // `main.rs`, and an `ExitCode` return carries the same signal.
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    //
+    // nosemgrep: `rust.lang.security.args` fires on any binary that reads
+    // its own arguments (CWE-807). This binary only selects a subcommand and
+    // a floor override from argv; it makes no security decision from it. The
+    // floor is compared against a free-space measurement, and the reaper
+    // refuses removal while a live build runs regardless of argv. Same
+    // suppression the server binary carries at `src/main.rs:35`.
+    let args: Vec<String> = std::env::args().skip(1).collect(); // nosemgrep
     match dispatch(&args) {
         Ok(code) => code,
         Err(message) => {
