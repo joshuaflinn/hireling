@@ -187,7 +187,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   **If author text does land over a posted verdict, it is an author fault**
   — not a provisioning defect; the harness did nothing. Handling matches a
   branch collision: name it in the PR body, report it on the author's
-  tracking task. It does not deadlock the branch.
+  tracking task. No penalty attaches, and it does not deadlock the branch.
 
   **The reviewer re-binds under a post-accept round.** Its properties, all
   of them:
@@ -213,10 +213,17 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   committed at `01:50:08Z`, nineteen minutes after the verdict and eighteen
   after it was acted on; `b423b86` at `01:52:15Z`. PR comment `6182647981`
   at `01:58:54Z` then called the verdict withdrawn as unread. `git diff
-  a22443d b423b86` is 224 insertions / 125 deletions across
-  `src/book_value.rs`, `src/tests/book_value_importer.rs`, `src/tests/db.rs`,
-  so *Verdict carry-over* condition 2 fails outright and the accept never
-  reached the new head.
+  a22443d acb573e` is 206 insertions / 124 deletions across
+  `src/book_value.rs` and `src/tests/book_value_importer.rs` — the author's
+  own text, on a head a verdict already named — so *Verdict carry-over*
+  condition 2 fails on the knife-edge it names, and the accept never reached
+  the new head. `src/tests/db.rs` also differs between `a22443d` and
+  `b423b86`, but that is PR #228's `9abee78` and `6f0aa96` arriving with the
+  merge of `main` — the blob test condition 2 warns against, not the
+  author's. Attribution stays re-runnable on merged history with per-file
+  `git log --no-merges a22443d..b423b86 -- <path>` plus
+  `gh api repos/joshuaflinn/hireling/commits/<sha>/pulls`, where condition
+  1's `--not origin/main` form reads empty once both PRs are on `main`.
 
   The press rule is separate from the budget and unchanged: every announced
   round at a head has a verdict against it before the press, a narrower
