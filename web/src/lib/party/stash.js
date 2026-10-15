@@ -24,14 +24,35 @@
 // strictly-newer rule IS the merge-by-id rule (contract §3), so this module
 // adds no id special case — it sorts.
 
-import { writable, get } from 'svelte/store';
+import { writable } from 'svelte/store';
 
 import { encodeValue, targetKey } from '../sync/store.js';
-// The shared contract pin. It lives under tests/ because it is a gate, not
-// runtime code — but the production path runs through it too now, which is
-// the point: a frame must satisfy the fixture before it satisfies the socket.
-// `vite build` tree-shakes it out of the client bundle.
-import { assertWriteTarget, assertStashOp } from '../../../tests/helpers/wire-contract.js';
+// The shared contract pin, on the production path: a frame this module builds
+// must satisfy the contract before it satisfies the socket. It lives in `src/`
+// rather than under `tests/` because `web/tsconfig.json` includes only `src/**`
+// and svelte-check's language service reads no config below `web/`, so a test
+// helper that imports `node:fs` cannot be reached from here at all (its header
+// carries the full reason). The fixture stays the source of truth: the equality
+// between the literals here and `field-targets.json` is asserted in
+// `tests/helpers/wire-contract.js`, on a production path.
+import { assertWriteTarget, assertStashOp } from '../contract/wire-contract.js';
+
+/**
+ * One refused-op record: degraded-mode §4's "expose on the op record" — the
+ * shape the screen renders inline, self-clearing.
+ *
+ * @typedef {{op: Record<string, unknown>, outcome: string, reason: string|null}} OpRecord
+ *
+ * The targets the party surface routes on — wire-protocol §3's field table,
+ * restricted to what a stash screen folds. `field` is set on the party-settings
+ * target only. Declared above every use: a JSDoc typedef is visible to the text
+ * that FOLLOWS it, and `Projection` names this one, so declaring it lower in the
+ * file leaves `Projection` unresolved and the screen's `$state(null)` slot
+ * `never` — which reports as nine "property does not exist on type 'never'"
+ * errors on lines that are correct.
+ *
+ * @typedef {{kind: string, party_id?: number, item_name?: string, field?: string}} StashTarget
+ */
 
 /** @param {number} partyId @param {string} itemName */
 const stashTarget = (partyId, itemName) => ({ kind: 'stash', party_id: partyId, item_name: itemName });
@@ -61,14 +82,63 @@ const UNWIRED = ['transfer', 'sell'];
  * @property {string|null} notes
  * @property {number} version
  *
+ * @typedef {object} BankBalance
+ * @property {number} gp
+ * @property {number} sp
+ * @property {number} cp
+ *
+ * A sell price as the §3 frame carries it. `pp` is optional and is the only
+ * denomination the bank does not hold: `stash_sell_tx` converts it at credit
+ * time (1 pp = 10 gp, Player Core pg. 267 — the one conversion site, cited
+ * there). A seat may offer it; the read route's book value never does (D5).
+ *
+ * @typedef {{pp?: number, gp?: number, sp?: number, cp?: number}} SellPrice
+ *
+ * One committed claim row, in the wire shape `read_claim_row` emits
+ * (`src/sync/write.rs`). `id` rides the target, the rest rides the value;
+ * coins are null on item rows and set only on the bank rows (FR-4).
+ *
+ * @typedef {object} ClaimRow
+ * @property {number} id
+ * @property {string} item_name
+ * @property {number} quantity
+ * @property {string} origin
+ * @property {string} destination
+ * @property {string} actor_sub
+ * @property {string} created_at
+ * @property {number|null} coins_gp
+ * @property {number|null} coins_sp
+ * @property {number|null} coins_cp
+ *
+ * The whole folded view: every accessor's return, in one place. Exported so the
+ * screen can name the shape it mirrors into local state without restating any
+ * of these fields — a restated shape drifts from the store the first time an
+ * accessor changes, and `svelte-check` would only see the drift as `never`.
+ *
+ * @typedef {{
+ *   rows: StashRow[],
+ *   bank: BankBalance | null,
+ *   claims: ClaimRow[],
+ *   quartermasterId: number | null,
+ *   quartermasterVersion: number,
+ *   canWrite: boolean,
+ *   canDesignate: boolean,
+ *   canSell: boolean,
+ *   canTransfer: boolean,
+ *   notices: OpRecord[],
+ *   unwired: string[],
+ * }} Projection
+ *
  * @typedef {object} StashState
  * @property {() => StashRow[]} rows loot rows, name-sorted
- * @property {() => {gp: number, sp: number, cp: number} | null} bank the party
+ * @property {() => BankBalance | null} bank the party
  *   balance, or null when no movement has ever touched it (design D1: the row
  *   is not zero-minted, so "unknown" is the honest pre-state)
  * @property {() => number | null} quartermasterId
- * @property {() => Array<object>} claims claim rows, newest-first by row id
- * @property {() => Array<{op: object, outcome: string, reason: string|null}>} opErrors
+ * @property {() => number} quartermasterVersion the version this seat read, which
+ *   the designation write CASes on — same rule as `editMeta`'s row version
+ * @property {() => ClaimRow[]} claims claim rows, newest-first by row id
+ * @property {() => OpRecord[]} opErrors
  *   self-clearing refused-op records (degraded-mode §4)
  * @property {() => boolean} canWrite any write affordance at all for this seat
  * @property {() => boolean} canDesignate the quartermaster flip (FR-5: any owner)
@@ -79,16 +149,22 @@ const UNWIRED = ['transfer', 'sell'];
  * @property {(itemName: string, qtyDelta: number) => void} adjustQty
  * @property {(itemName: string, meta: {bulk?: number|null, notes?: string|null}) => void} editMeta
  * @property {(characterId: number|null) => void} setQuartermaster
- * @property {(coins: {gp: number, sp: number, cp: number}) => void} adjustBank
- * @property {(itemName: string, qty: number, characterId: number) => void} transfer
- * @property {(itemName: string, qty: number, coins: {gp: number, sp: number, cp: number}) => void} sell
+ * @property {(coins: BankBalance) => void} adjustBank
+ * @property {(itemName: string, qty: number, direction: 'in' | 'out', characterId: number) => void} transfer
+ * @property {(itemName: string, qty: number, price: SellPrice) => void} sell
  * @property {() => string[]} unwiredActions ops the pin says are not on the wire
- * @property {() => import('svelte/store').Readable<boolean>} changed fires the
- *   projection moved — what the screen re-reads itself off
+ * @property {() => import('svelte/store').Readable<Projection>} changed fires
+ *   when the projection moved — what the screen re-reads itself off
+ * @property {() => Projection} snapshot the whole folded view in the flat shape
+ *   the screen mirrors into local state. Lives HERE rather than in the component
+ *   so the field set has one owner: a screen that restated it would drift the
+ *   first time an accessor is added, and the drift would surface as `never`,
+ *   not as an error on the missing field.
  * @property {() => void} refresh re-project the merged map (event-driven; the
  *   screen never calls this, the sync subscription and tests do)
  * @property {() => void} destroy
  */
+
 
 /**
  * @param {{
@@ -131,8 +207,19 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
    */
   const lastCommitted = new Map();
 
+  // The refused-op records: degraded-mode §4, self-clearing (the sheet's own
+  // `opErrors` auto-clear rule, carried over verbatim rather than re-invented).
+  // Declared HERE, above the initial `project()` below, for the same reason the
+  // cache is: `project()` now returns these as part of the projection, so a
+  // declaration further down would be in that call's temporal dead zone — which
+  // is not a lint, it is a ReferenceError at module evaluation and every test in
+  // the party suite.
+  /** @type {OpRecord[]} */
+  let refused = [];
+
   // Declared above the initial projection: `project()` runs on this line and
-  // reads the cache, so a later `const` would be in its temporal dead zone.
+  // reads the cache and `refused`, so a later `const` or `let` would be in its
+  // temporal dead zone.
   const projection = writable(project());
 
   /** The one place the merged map is read. Pure: no store writes, so a test
@@ -162,6 +249,7 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
    * arrives on the party socket the session already reads.
    */
   /** Order-insensitive deep compare — the two targets' key ORDER is irrelevant. */
+  /** @param {*} a @param {*} b @returns {boolean} */
   function deepEqual(a, b) {
     if (a === b) return true;
     if (typeof a !== typeof b || a === null || b === null) return false;
@@ -173,10 +261,19 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
   }
 
 
+  /** One state entry as `sync.state()` reports it, with the target narrowed to
+   *  the kinds this party surface routes on (wire-protocol §3's table). */
+  /** One state entry, as `sync.state()` reports it, with the target narrowed to
+   *  the kinds this surface routes on (wire-protocol §3's field table). Declared
+   *  literally: `FieldState` is a JSDoc typedef inside `createStore()` and is not
+   *  reachable by `import()`, and `state()`'s own return type declares `target`
+   *  as `Record<string, *>`, so the narrowing belongs at the join. */
+  /** @typedef {{target: Record<string, *> & StashTarget, value: *, version: number, serverValue: *}} Entry */
+
   function readFields() {
-    /** @type {Map<string, {target: object, value: *, version: number}>} */
+    /** @type {Map<string, Entry>} */
     const server = new Map();
-    /** @type {Map<string, object>} */
+    /** @type {Map<string, Entry>} */
     const mine = new Map();
 
     // The join below is by STRING, and getting that string from one side only is
@@ -194,22 +291,28 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     // (order-insensitive), not their encodings, so a pending op is found whether
     // or not its literal happens to be written in sorted order.
     const stateEntries = Object.entries(sync.state());
-    /** @param {object} a @param {object} b */
+    /** The transport's state entry, narrowed to this surface's target kinds. */
+    /** @param {{target: *, value: *, version: number, serverValue?: *}} e */
+    const entryOf = (e) => /** @type {Entry} */ (e);
+    /** @param {Record<string, *>} a @param {Record<string, *>} b */
     const sameTarget = (a, b) => {
       const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
       for (const k of keys) if (!deepEqual(a[k], b[k])) return false;
       return true;
     };
     for (const op of sync.queue?.() ?? []) {
-      const [, entry] = stateEntries.find(([, e]) => sameTarget(e.target, op.target));
-      if (entry) mine.set(targetKey(entry.target), op);
+      const opTarget = /** @type {StashTarget} */ (op.target);
+      const found = stateEntries.find(([, e]) => sameTarget(entryOf(e).target, opTarget));
+      const entry = found ? /** @type {Entry} */ (found[1]) : null;
+      if (entry) mine.set(targetKey(entry.target), /** @type {Entry} */ (/** @type {unknown} */ (op)));
       // An op whose field the transport has never stated (a mint against a row
       // that does not exist yet) has no state key to join to. It is still mine,
       // so it is filed under its own encoding; nothing above can collide with it.
-      else mine.set(targetKey(op.target), op);
+      else mine.set(targetKey(op.target), /** @type {Entry} */ (/** @type {unknown} */ (op)));
     }
 
-    for (const [, entry] of stateEntries) {
+    for (const [, raw] of stateEntries) {
+      const entry = /** @type {Entry} */ (raw);
       const key = targetKey(entry.target);
       const op = mine.get(key);
       // The committed value comes from `entry.serverValue` — the transport's own
@@ -227,7 +330,7 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
       // both are "nothing yet" and the callers test for that on `version`.
       if (op && isDelta(op.value)) {
         // Pending additive echo: the committed base and my intent, kept apart.
-        server.set(key, { target: entry.target, value, version: entry.version });
+        server.set(key, { target: entry.target, value, version: entry.version, serverValue: value });
         mine.set(key, op);
       } else if (isDelta(value) || isDelta(shown)) {
         // The field's last statement is a DELTA, so it is not a balance and not
@@ -253,11 +356,12 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
           target: entry.target,
           value: last?.value ?? null,
           version: last?.version ?? 0,
+          serverValue: last?.value ?? null,
         });
       } else {
         // A committed statement, in the shape this field kind renders.
         lastCommitted.set(key, { value: shown, version: entry.version });
-        server.set(key, { target: entry.target, value: shown, version: entry.version });
+        server.set(key, { target: entry.target, value: shown, version: entry.version, serverValue: entry.serverValue });
       }
     }
     return { server, mine };
@@ -270,6 +374,7 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
    * than posting a debt, and the screen must not show -7 gp the server will never
    * accept.
    */
+  /** @param {BankBalance|null} base @param {{gp_delta?: number, sp_delta?: number, cp_delta?: number}} delta */
   function foldBalance(base, delta) {
     const from = base ?? { gp: 0, sp: 0, cp: 0 };
     return {
@@ -280,6 +385,7 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
   }
 
   /** Is this value an additive op frame rather than a balance or a row? */
+  /** @param {*} value */
   function isDelta(value) {
     return (
       value !== null && typeof value === 'object' && ('gp_delta' in value || 'qty_delta' in value)
@@ -287,6 +393,9 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
   }
 
   /** A rendered stash row, from either source. */
+  /** @param {{item_name: string, quantity: number, bulk?: number|null, notes?: string|null}} value
+   *  @param {number} version
+   *  @returns {StashRow} */
   function rowOf(value, version) {
     return {
       item_name: value.item_name,
@@ -297,14 +406,18 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     };
   }
 
+  /** @returns {Projection} */
   function project() {
     const { server, mine } = readFields();
-    /** @type {Array<object>} */
+    /** @type {StashRow[]} */
     const rows = [];
-    /** @type {Array<object>} */
+    /** @type {ClaimRow[]} */
     const claims = [];
+    /** @type {BankBalance | null} */
     let committedBank = null;
+    /** @type {BankBalance | null} */
     let bank = null;
+    /** @type {number | null} */
     let quartermasterId = null;
     let quartermasterVersion = 0;
 
@@ -317,15 +430,19 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
         // GONE — never a row at quantity 0, and never a row minted by a
         // tombstone for a name we never had.
         if (entry.version !== 0 && !isDelta(entry.value) && entry.value?.item_name != null) {
-          rows.push(rowOf(entry.value, entry.version));
+          rows.push(rowOf(/** @type {Omit<StashRow, 'version'>} */ (entry.value), entry.version));
         }
       } else if (target.kind === 'bank') {
         if (entry.version !== 0 && !isDelta(entry.value) && entry.value?.gp != null) {
-          committedBank = { gp: entry.value.gp, sp: entry.value.sp, cp: entry.value.cp };
+          /** @type {BankBalance & {gp?: number, sp?: number, cp?: number}} */
+          const coins = /** @type {BankBalance} */ (entry.value);
+          committedBank = { gp: coins.gp, sp: coins.sp, cp: coins.cp };
         }
       } else if (target.kind === 'party' && target.field === 'quartermaster') {
         if (entry.version === 0) continue;
-        quartermasterId = entry.value?.quartermaster_character_id ?? null;
+        quartermasterId =
+          /** @type {{quartermaster_character_id?: number} | null} */ (entry.value)?.quartermaster_character_id ??
+          null;
         quartermasterVersion = entry.version;
       } else if (target.kind === 'claim') {
         // Merge-by-id is the store's strictly-newer rule already (the id
@@ -333,7 +450,7 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
         // accepted (version 0) and one whose body is absent; append-only
         // means there is nothing else to do but order it.
         if (entry.value === null || entry.version === 0) continue;
-        claims.push(entry.value);
+        claims.push(/** @type {ClaimRow} */ (entry.value));
       }
     }
 
@@ -355,12 +472,14 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
         // shows no balance -- which is what the server will show too, since its
         // own ceiling guard refuses the overdraw.
         if (committedBank === null) continue;
-        bank = foldBalance(committedBank, op.value);
+        bank = foldBalance(committedBank, /** @type {{gp_delta?: number, sp_delta?: number, cp_delta?: number}} */ (op.value));
       } else if (target.kind === 'stash') {
         // FR-1 deletes a row at exactly zero, so a draw that lands on zero is
         // shown as the row disappearing rather than as a 0-quantity row.
-        const shown = rows.find((row) => row.item_name === target.item_name);
-        const next = Math.max(0, (shown?.quantity ?? 0) + (op.value.qty_delta ?? 0));
+        const name = /** @type {string} */ (target.item_name);
+        const shown = rows.find((row) => row.item_name === name);
+        const next =
+          Math.max(0, (shown?.quantity ?? 0) + (/** @type {{qty_delta?: number}} */ (op.value).qty_delta ?? 0));
         if (shown) {
           if (next === 0) rows.splice(rows.indexOf(shown), 1);
           else shown.quantity = next;
@@ -368,7 +487,7 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
           // A draw against a row the server has never stated. It renders, tagged
           // pending, because §4 says so — and it is the row the user is looking
           // at while the link is down.
-          rows.push(rowOf({ item_name: target.item_name, quantity: next }, 0));
+          rows.push(rowOf({ item_name: name, quantity: next }, 0));
         }
       }
     }
@@ -379,7 +498,7 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     for (const op of mine.values()) {
       if (op.target.kind !== 'stash_new') continue;
       if (rows.some((row) => row.item_name === op.value.item_name)) continue;
-      rows.push(rowOf(op.value, 0));
+      rows.push(rowOf(/** @type {Omit<StashRow, 'version' | 'bulk' | 'notes'> & Partial<Pick<StashRow, 'bulk' | 'notes'>>} */ (op.value), 0));
     }
 
     // With no draw in flight, the screen shows the server's balance and nothing
@@ -412,6 +531,14 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
       canSell: !isGm && mySub !== null && designatedOwner === mySub,
       // FR-3: transfers and claims are open to all roster owners.
       canTransfer: !isGm,
+      // Not folded from the merged map, but part of the same view: what this
+      // seat was refused (degraded-mode §4) and what the pin still has not
+      // shipped. Both belong to the projection rather than to `snapshot()` so
+      // the field set has ONE owner — a screen that restated it would drift the
+      // first time a field is added, and `svelte-check` would report the drift
+      // as `never` on lines that are correct.
+      notices: refused,
+      unwired: unwiredActions(),
     };
   }
 
@@ -431,7 +558,9 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
   // `ensureCurrent()` for how "moved" is proved. `refused` is part of the
   // projection too, but it moves only from this module's own event handler or a
   // user action, never during a notification, so a read of it cannot re-enter.
+  /** @type {string | null} */
   let cacheWitness = null;
+  /** @type {Projection} */
   let cached = project();
 
   /** The wire moved: recompute and notify. The only place this writable is
@@ -470,7 +599,13 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     // `current()`'s own comment records as the blank-balance defect, so the
     // cache is allowed only because it is keyed on the INPUT, not on an event:
     // every branch below either proves nothing moved or re-folds.
-    const witness = inputWitness(sync.state());
+    // `refused.length` rides the witness because `refused` is part of the
+    // projection now: a record is appended by this module's own event handler
+    // and cleared without any field moving, and a cache keyed on the wire alone
+    // would serve a stale `notices` array for the whole render. Length is
+    // enough — the array is append-or-clear, never mutate-in-place — and it is
+    // read, not written, so it cannot re-enter a notification.
+    const witness = `${inputWitness(sync.state())}#${refused.length}`;
     if (witness !== cacheWitness) {
       cacheWitness = witness;
       cached = project();
@@ -499,6 +634,8 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
    *  re-fold. A key built field-by-field could not: a resync that drops rows
    *  leaves every surviving field where it was, so the whole-set string shrinks
    *  and reads as moved. */
+  /** @param {Record<string, {target: *, value: *, version: number, serverValue?: *}>} state
+   *  @returns {string} */
   function inputWitness(state) {
     const fields = state ?? {};
     let out = '';
@@ -512,11 +649,11 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
   // --- refused op records -------------------------------------------------
   // degraded-mode §4: self-clearing. "Clears on the next applied field" is
   // the sheet's own rule (`opErrors` auto-clear on the field's next applied
-  // ack, sheet/state.js) carried over verbatim rather than re-invented.
-  /** @type {Array<{op: object, outcome: string, reason: string|null}>} */
-  let refused = [];
+  // ack, sheet/state.js) carried over verbatim rather than re-invented. The
+  // declaration itself lives above the initial `project()` — see the note there.
 
 
+  /** @param {Record<string, unknown>} op @param {string} outcome @param {string|null} [reason] */
   function expose(op, outcome, reason) {
     refused = [...refused, { op, outcome, reason: reason ?? null }];
   }
@@ -553,7 +690,7 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     // The same pin the contract suite runs its own frames through, now on the
     // production path: a frame this module builds must satisfy the fixture
     // before it satisfies the socket.
-    assertWriteTarget(target);
+    assertWriteTarget(/** @type {{kind: string, field?: string}} */ (target));
     if (target.kind === 'stash') assertStashOp(/** @type {{op: string}} */ (value));
     sync.write(target, value, baseVersion);
   }
@@ -564,6 +701,7 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     return UNWIRED.filter((name) => !isWired(name));
   }
 
+  /** @param {string} name */
   function isWired(name) {
     // Derived from the fixture via the helper's own gate: if the pin accepts
     // the op literal, the op is on the wire.
@@ -584,9 +722,16 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     /** The projection moved — the screen re-reads its own accessors off this. */
     changed: () => projection,
 
+    /** The flat view the screen renders. Every field is a plain accessor call,
+     *  so this is the accessors — not a second copy of the fold. */
+    snapshot() {
+      return current();
+    },
+
     rows: () => current().rows,
     bank: () => current().bank,
     claims: () => current().claims,
+    quartermasterVersion: () => current().quartermasterVersion,
     quartermasterId: () => current().quartermasterId,
     opErrors: () => refused,
     canWrite: () => current().canWrite,
@@ -676,13 +821,16 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
       // §3: `{pp?, gp?, sp?, cp?}`, every present denomination a non-negative
       // integer, at least one positive. The server re-validates; invalid input
       // never leaves this layer (the module's own write rule, D6).
-      const frame = { op: 'sell', qty: quantity, price: {} };
+      /** @type {SellPrice} */
+      const coins = {};
+      /** @type {{op: string, qty: number, price: SellPrice}} */
+      const frame = { op: 'sell', qty: quantity, price: coins };
       let positive = false;
-      for (const coin of ['pp', 'gp', 'sp', 'cp']) {
+      for (const coin of /** @type {const} */ (['pp', 'gp', 'sp', 'cp'])) {
         const amount = Number(price?.[coin] ?? 0);
         if (!Number.isInteger(amount) || amount < 0) return;
         if (amount > 0) positive = true;
-        if (amount > 0) frame.price[coin] = amount;
+        if (amount > 0) coins[coin] = amount;
       }
       if (!positive) return;
       post(stashTarget(partyId, itemName), frame);

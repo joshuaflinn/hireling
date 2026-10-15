@@ -35,6 +35,7 @@
   // same way the sheet is (party hub → screen → back), not a tab strip. Built
   // from the session's own sync so one socket serves both screens and the
   // stash's fan-out never needs a second connection.
+  /** @type {ReturnType<typeof createStashState> | null} */
   let stashState = $state(null);
 
   // Entry flow (E3 Story 1 AC1): probe the session on load. A visitor

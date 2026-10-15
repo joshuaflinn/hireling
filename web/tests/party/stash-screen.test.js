@@ -288,7 +288,9 @@ test('flipping the designation posts the party write and moves the sell affordan
 // --- sell: only the QM's owner sees it, and the two book-value states -----
 
 test('the sell action renders for the quartermaster\'s owner and nowhere else', async () => {
-  const qmSeat = mount({
+  // The return value is the sync harness; this test asserts the rendered
+  // affordance only, so the mount is driven for its effect on the DOM.
+  mount({
     qm: 7,
     rows: [{ item_name: 'Longsword', quantity: 3 }],
     you: { sub: 'dev-sub-a', role: 'player' },
@@ -323,7 +325,7 @@ test('the sell dialog prefills the book value when the corpus has one, and flags
   // Two fixtures, two different results (the house two-fixture rule): a name
   // the corpus resolves and one it does not. One fixture asserting one literal
   // would also pass against a dialog that hardcodes the price.
-  const priced = mount({
+  mount({
     qm: 7,
     rows: [{ item_name: 'Longsword', quantity: 3 }],
     you: { sub: 'dev-sub-a', role: 'player' },
@@ -476,7 +478,7 @@ test('a money claim row renders its coin amounts alongside the label', async () 
 // --- refused ops: non-blocking (degraded-mode §4) ------------------------
 
 test('a refused op renders its reason in the screen, non-blockingly', async () => {
-  const { sync } = mount({
+  mount({
     rows: [{ item_name: 'Torch', quantity: 1 }],
     you: { sub: 'dev-sub-a', role: 'player' },
   });

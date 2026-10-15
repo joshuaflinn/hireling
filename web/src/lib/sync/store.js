@@ -32,6 +32,20 @@
  */
 
 /**
+ * One field as `state()` reports it: the rendered value, the server's own last
+ * statement, the version both are gated on, and the server's own last statement
+ * separately. Top-level so a consumer that folds `state()` can name the entry
+ * type rather than reach for `any` — party/stash.js is that consumer.
+ *
+ * @typedef {Object} FieldState
+ * @property {Record<string, *>} target
+ * @property {*} value the field AS SHOWN — the pending echo while a write is in
+ *   flight, the server's statement otherwise
+ * @property {number} version
+ * @property {*} serverValue the server's last statement, surviving the echo
+ */
+
+/**
  * @typedef {Object} StoreEvent
  * @property {'changed'|'op_exposed'} type
  * @property {string} [key] targetKey of the touched field (`changed`)
@@ -59,16 +73,27 @@ function quote(text) {
  *  fingerprint a value it did not build (party/stash.js caches a fold keyed on
  *  it) -- one encoder for both jobs, so the two can never disagree about when a
  *  value changed. */
+/** @param {*} value @returns {string} */
 export function encodeValue(value) {
   if (typeof value === 'string') return quote(value);
   if (value === null) return 'null';
   if (Array.isArray(value)) {
-    return `[${value.map(encodeValue).join(',')}]`;
+    // `encodeValue` is annotated `(*) -> string` and its recursion accepts a
+    // nested array, so the elements have to be read as `*`. The cast sits on a
+    // named variable rather than inside the template string because semgrep's JS
+    // parser (rule `missing-template-string-indicator`, a blocking leg of
+    // `just scan-semgrep`) mis-parses a comment in an arrow's parameter list as
+    // the start of a template substitution and reports the line five times over.
+    /** @type {*[]} */
+    const items = value;
+    return `[${items.map((item) => encodeValue(item)).join(',')}]`;
   }
   if (typeof value === 'object') {
-    const parts = Object.keys(value)
+    /** @type {Record<string, *>} */
+    const obj = /** @type {Record<string, *>} */ (value);
+    const parts = Object.keys(obj)
       .sort()
-      .map((k) => `${quote(k)}:${encodeValue(value[k])}`);
+      .map((k) => `${quote(k)}:${encodeValue(obj[k])}`);
     return `{${parts.join(',')}}`;
   }
   // Numbers, booleans, undefined: bare atoms — unambiguous next to the
@@ -83,7 +108,7 @@ export function targetKey(target) {
 
 /**
  * @returns {{
- *   state: () => Record<string, {target: Record<string, *>, value: *, version: number}>,
+ *   state: () => Record<string, FieldState>,
  *   applyServerField: (target: Record<string, *>, value: *, version: number) => void,
  *   enqueueView: (viewOp: SyncOp) => void,
  *   ack: (opId: string, outcome: 'applied'|'superseded'|'already_applied'|'rejected'|'forbidden', serverVersion: number | null, serverValue: *) => void,
@@ -98,6 +123,8 @@ export function createStore() {
    * @property {*} serverValue
    * @property {number} serverVersion
    * @property {{ opId: string, value: * } | null} pending
+   * @property {number} [opCommittedVersion] version the last ADDITIVE ack
+   *   recorded for this seat's own write — see `applyServerField`
    */
   /** @type {Map<string, Field>} */
   const fields = new Map();
@@ -147,7 +174,7 @@ export function createStore() {
   return {
     /** Merged state: `{ [targetKey]: { target, value, version } }`. */
     state() {
-      /** @type {Record<string, {target: Record<string, *>, value: *, version: number}>} */
+      /** @type {Record<string, FieldState>} */
       const out = {};
       for (const [key, field] of fields) {
         out[key] = {

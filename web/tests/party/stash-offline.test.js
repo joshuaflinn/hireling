@@ -24,8 +24,6 @@
 
 import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
 import { render, screen, cleanup, within, fireEvent, waitFor } from '@testing-library/svelte';
 
 import StashScreen from '../../src/lib/party/StashScreen.svelte';
@@ -92,7 +90,7 @@ const ROSTER = [{ character: { id: 7, name: 'Flinn', owner: 'dev-sub-a' } }];
 // 1. Cold, empty, offline — through the mounted screen.
 // ---------------------------------------------------------------------------
 
-test('cold offline boot with an empty cache renders "Nothing in the stash", not a spinner', async () => {
+test('cold offline boot with an empty cache renders "Nothing in the stash", not a spinner', () => {
   // Three empties at once: no snapshot in IndexedDB, no server, no network.
   // The screen's only honest answer is the empty state.
   const stash = createStashState({ sync: fakeSync(), partyId: 1, you: PLAYER_A, roster: [] });
@@ -111,7 +109,7 @@ test('cold offline boot with an empty cache renders "Nothing in the stash", not 
   assert.match(screen.getByRole('region', { name: /claim history/i }).textContent, /no movements recorded/i);
 });
 
-test('the claim log is absent (never an empty header) and the add form still appears offline', async () => {
+test('the claim log is absent (never an empty header) and the add form still appears offline', () => {
   // The empty state is the one the epic's spec names for the stash itself:
   // "renders the 'Nothing in the stash' empty state, not a spinner" — and the
   // add form is still offered offline, because the write is queued rather than
@@ -128,7 +126,10 @@ test('the claim log is absent (never an empty header) and the add form still app
 // 2. Replay order across a disconnect.
 // ---------------------------------------------------------------------------
 
-test('two queue pushes made offline replay in push order with their client op ids', async () => {
+// Synchronous by construction: the queue is the transport's own held list and
+// `goOffline()` opens no socket, so nothing here awaits a promise — and a
+// `waitFor` would be worse than an `await` on a condition that cannot change.
+test('two queue pushes made offline replay in push order with their client op ids', () => {
   const h = harness();
   const stash = createStashState({ sync: h.sync, partyId: 1, you: PLAYER_A, roster: [] });
   h.goOffline();

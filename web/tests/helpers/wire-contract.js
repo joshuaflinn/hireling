@@ -22,7 +22,40 @@ const fixture = JSON.parse(
   readFileSync(resolve(process.cwd(), '../specs/007-party-sync/contracts/field-targets.json'), 'utf8'),
 );
 
-const kinds = fixture.targets;
+// Why this file cannot be imported from `src/`, and what replaced that import:
+// `web/tsconfig.json`'s include is `src/**` only, and svelte-check's language
+// service reads no config below `web/`, so ANY `node:fs` import that reaches the
+// client check graph is unresolvable — 2580 on four lines, and the reason a
+// production module here was red while the same text in a test was invisible.
+// So the pin's DATA lives in `src/lib/contract/wire-contract.js` as literals and
+// this file keeps the fixture-reading GATE: every literal over there is asserted
+// equal to the fixture here, on a production path, so the duplication cannot
+// drift quietly — the copy is checked against the source of truth rather than
+// trusted.
+const browserPin = await import('../../src/lib/contract/wire-contract.js');
+assert.deepEqual(
+  [...browserPin.stashOps].sort(),
+  [...fixture.stash_ops].sort(),
+  'src/lib/contract/wire-contract.js `stashOps` must equal the fixture\'s `stash_ops`',
+);
+assert.deepEqual(
+  [...browserPin.vitalsFields].sort(),
+  [...fixture.vitals_fields].sort(),
+  'src/lib/contract/wire-contract.js `vitalsFields` must equal the fixture\'s `vitals_fields`',
+);
+assert.deepEqual(
+  Object.fromEntries(
+    Object.entries(browserPin.targetFields).map(([k, v]) => [k, { fields: [...v.fields].sort() }]),
+  ),
+  Object.fromEntries(
+    Object.entries(fixture.targets).map(([k, v]) => [k, { fields: [...v.fields].sort() }]),
+  ),
+  'src/lib/contract/wire-contract.js `targetFields` must equal the fixture\'s `targets`',
+);
+
+// (`fixture.targets` has no local reader here any more: the target-kind gate
+//  moved to src/lib/contract/wire-contract.js and is pinned to the fixture by
+//  the `targetFields` equality assertion above.)
 const effectOps = new Set(fixture.effect_ops);
 // E12 §3: the stash row's `op` is the second enum-valued wire value. The
 // fixture pins the legal set (`qty`/`meta` on main today); this set pins the
@@ -41,42 +74,11 @@ if (vitalsFields.size === 0) {
   throw new Error('the contract fixture pins no vitals_fields — refusing to gate without it');
 }
 
-/** Assert one write frame's `target` against the pinned contract: the
- * `kind` must be one the server decodes, and the key set must match the
- * contract exactly — a missing or an extra sibling field both fail.
- * @param {{kind: string}} target the frame's `target` value */
-export function assertWriteTarget(target) {
-  assert.ok(target && typeof target === 'object', 'a write target is an object');
-  const entry = kinds[target.kind];
-  assert.ok(
-    entry,
-    `unknown write target kind "${target.kind}" — the pinned contract knows: ${Object.keys(kinds).join(', ')}`,
-  );
-  assert.deepEqual(
-    Object.keys(target).filter((key) => key !== 'kind').sort(), // the tag is checked above, not a sibling
-    [...entry.fields].sort(),
-    `the "${target.kind}" target's field set must match the pinned contract exactly`,
-  );
-  if (target.kind === 'vitals') {
-    assert.ok(
-      vitalsFields.has(target.field),
-      `unknown vitals field "${target.field}" — the pinned contract accepts: ${[...vitalsFields].join(', ')}`,
-    );
-  }
-}
-
-/** Assert a stash frame's `value.op` against the pinned op set — the same
- * gate `assertEffectOp` is, one kind over. `qty` is additive (§4: no version
- * predicate) and `meta` is absolute under CAS; both are legal today, and
- * anything else the client builds is a frame the server refuses.
- * @param {{op: string}} value the write frame's `value` */
-export function assertStashOp(value) {
-  assert.ok(value && typeof value === 'object', 'a stash write value is an object');
-  assert.ok(
-    stashOps.has(value.op),
-    `unknown stash op "${value.op}" — the pinned contract accepts: ${[...stashOps].join(', ')}`,
-  );
-}
+// `assertStashOp` and `assertWriteTarget`'s data are re-exported from the
+// browser-safe half rather than kept here: production code under `src/` must
+// reach the pin WITHOUT importing this file (see the header above), and the two
+// forms must be the same assertion, not a pair that can disagree.
+export { assertStashOp, assertWriteTarget } from '../../src/lib/contract/wire-contract.js';
 
 /** Assert an effect frame's `value.op` against the accepted op set (the
  * write path's bounds: create on `effect_new`, update/end on `effect`).

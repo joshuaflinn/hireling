@@ -24,9 +24,14 @@
   // so both match outcomes are testable without a network: a resolved
   // {gp,sp,cp} prefills the sell prompt, a null is the corpus saying it does
   // not know — which the dialog must show, not swallow into a silent zero.
+  /** @typedef {import('./stash.js').Projection} Projection */
+  /** @typedef {import('./stash.js').StashRow} StashRow */
+  /** @typedef {import('./stash.js').ClaimRow} ClaimRow */
+  /** @typedef {import('./stash.js').BankBalance} BankBalance */
+
   /** @type {{ stash: import('./stash.js').StashState,
    *   roster?: Array<{character: {id: number, name: string, owner: string}}>,
-   *   lookUpBookValue?: (name: string) => Promise<{gp: number, sp: number, cp: number} | null> }} */
+   *   lookUpBookValue?: (name: string) => Promise<BankBalance | null> }} */
   let {
     stash,
     roster = [],
@@ -39,7 +44,17 @@
   // svelte's `state_referenced_locally` warning is the compiler telling the
   // truth here, and a warning in the diff is a finding, not noise. The effect
   // also re-subscribes if the session ever swaps the store out from under it.
-  let projection = $state(null);
+  // The declared type rides a const, not the `$state` call itself: svelte-check's
+  // transform hands tsc `let x = $state(null)` with no annotation, so the slot
+  // infers `null` and every `projection?.rows` below reports "property does not
+  // exist on type 'never'". The const is the annotation; the binding is still a
+  // `$state` slot, so the `$derived` reads above stay reactive.
+  // The annotation is an inline cast on the initial value, not a JSDoc on the
+  // declaration: svelte-check's transform drops a leading `@type` on a `$state`
+  // line, so the slot infers `null` and every `projection?.rows` below reads as
+  // "property does not exist on type 'never'". This is the form `SheetView.svelte:72`
+  // already uses for the same job (`$state(/** @type {any[]} */ ([]))`).
+  let projection = $state(/** @type {Projection | null} */ (null));
   $effect(() => {
     const unsubscribe = stash.changed().subscribe(() => {
       // untrack: these reads run inside a store callback, not inside the
@@ -67,17 +82,7 @@
   const unwired = $derived(projection?.unwired ?? []);
 
   function readProjection() {
-    projection = {
-      rows: stash.rows(),
-      bank: stash.bank(),
-      claims: stash.claims(),
-      quartermasterId: stash.quartermasterId(),
-      canWrite: stash.canWrite(),
-      canSell: stash.canSell(),
-      canTransfer: stash.canTransfer(),
-      notices: stash.opErrors(),
-      unwired: stash.unwiredActions(),
-    };
+    projection = stash.snapshot();
   }
 
   // --- add form ----------------------------------------------------------
@@ -109,10 +114,16 @@
   /** §3's `direction` is part of the frame, so the dialog asks for it. */
   let dialogDirection = $state('out');
   let dialogError = $state('');
-  /** @type {{pp: string, gp: string, sp: string, cp: string} | null} */
+  // The entry the frame is built from. `pp` is a field the USER may name and
+  // the read route can never supply (design D5's book value is {gp,sp,cp}; the
+  // bank holds no pp, and `stash_sell_tx` converts at credit time — 1 pp =
+  // 10 gp, Player Core pg. 267, cited at that one conversion site), so it is
+  // optional here: the prefill omits it, and `submitDialog` defaults it.
+  /** @type {{pp?: string, gp: string, sp: string, cp: string} | null} */
   let saleCoins = $state(null);
   let bookValueKnown = $state(true);
 
+  /** @param {StashRow} item */
   function openTransfer(item) {
     dialog = { kind: 'transfer', item: item.item_name, quantity: item.quantity };
     dialogQty = '1';
@@ -121,6 +132,7 @@
     dialogError = '';
   }
 
+  /** @param {StashRow} item */
   async function openSell(item) {
     dialog = { kind: 'sell', item: item.item_name, quantity: item.quantity };
     dialogQty = String(item.quantity);
@@ -131,8 +143,11 @@
     // The dialog may have closed while the read was in flight.
     if (dialog?.kind !== 'sell' || dialog.item !== item.item_name) return;
     if (value) {
+      // No pp line: design D5's book value is a {gp,sp,cp} coin object, so
+      // there is nothing to prefill there and a platinum box the corpus can
+      // never fill would read as a missing value rather than a non-applicable
+      // one. A seat that sold something at platinum names it by hand.
       saleCoins = {
-        pp: String(value.pp ?? ''),
         gp: String(value.gp),
         sp: String(value.sp),
         cp: String(value.cp),
@@ -168,21 +183,34 @@
       // §3's frame carries the direction: `out` draws the stash down and names
       // the receiving character, `in` returns stock to the stash. The screen
       // asks which way; the store builds the frame.
-      stash.transfer(dialog.item, qty, dialogDirection, id);
-    } else {
+      stash.transfer(dialog.item, qty, /** @type {'in' | 'out'} */ (dialogDirection), id);
+    } else if (saleCoins) {
       // §3's price frame: `{pp?, gp?, sp?, cp?}` with at least one positive
       // denomination. pp is offered because the server converts it (1 pp =
       // 10 gp, the one conversion site); the store drops zero denominations.
+      // The `else if` is the binding guard: the inputs below only render inside
+      // the sell branch and only while this entry exists, and `bind:value` on a
+      // possibly-null object is exactly the crash `svelte-check` names.
+      const coins = saleCoins;
       stash.sell(dialog.item, qty, {
-        pp: Number(saleCoins?.pp || 0),
-        gp: Number(saleCoins?.gp || 0),
-        sp: Number(saleCoins?.sp || 0),
-        cp: Number(saleCoins?.cp || 0),
+        pp: Number(coins.pp || 0),
+        gp: Number(coins.gp || 0),
+        sp: Number(coins.sp || 0),
+        cp: Number(coins.cp || 0),
       });
     }
     closeDialog();
   }
 
+  /** A refused op is opaque to the store (`OpRecord.op` is whatever frame was
+   *  sent), so the notice names the frame by the one field that identifies it:
+   *  a value's `op` for the stash ops, else the target's `kind`. Declared here
+   *  rather than reached with optional chains on `unknown`. */
+  /** @param {Record<string, unknown>} op
+   *  @returns {{value?: {op?: string}, target?: {kind?: string}}} */
+  const noticeFrame = (op) => /** @type {any} */ (op);
+
+  /** @param {Event & {currentTarget: HTMLSelectElement}} event */
   function setDesignation(event) {
     const raw = event.currentTarget.value;
     stash.setQuartermaster(raw === '' ? null : Number(raw));
@@ -192,12 +220,15 @@
    *  is the ONLY conversion anywhere: the wire carries Bulk units (design D1's
    *  numeric(4,2)), `tenthsText` takes tenths. A second such step on the client
    *  is the second Bulk-math path D6 forbids. */
+  /** @param {number|null} bulk */
   const bulkText = (bulk) => (bulk === null ? '—' : tenthsText(Math.round(bulk * 10)));
 
   /** FR-4's vocabulary is frozen history riding the row — the screen labels,
    *  it never rewrites. `character:<name at event time>` is already the name. */
+  /** @param {string|null} value */
   const place = (value) => (value === null ? '—' : String(value).replace(/^character:/, ''));
 
+  /** @param {ClaimRow} row */
   const coinText = (row) => {
     const parts = [];
     if (row.coins_gp) parts.push(`${row.coins_gp} gp`);
@@ -206,6 +237,7 @@
     return parts.join(', ');
   };
 
+  /** @param {string|null|undefined} iso */
   const timeText = (iso) => (iso ? String(iso).slice(0, 16).replace('T', ' ') : '');
 </script>
 
@@ -238,7 +270,7 @@
     {#each notices as notice (notice.op.op_id)}
       <li class="notice">
         <strong>{notice.outcome}</strong>
-        {notice.op.value?.op ?? notice.op.target?.kind}
+        {noticeFrame(notice.op).value?.op ?? noticeFrame(notice.op).target?.kind}
         {notice.reason ?? '— the party refused it'}
       </li>
     {/each}
@@ -400,20 +432,31 @@
         {:else}
           <p class="no-book-value" role="status">No book value for this item — name your own price.</p>
         {/if}
-        <div class="coins">
-          <label>
-            Gold (gp)
-            <input type="number" min="0" step="1" bind:value={saleCoins.gp} aria-label="Gold coins" />
-          </label>
-          <label>
-            Silver (sp)
-            <input type="number" min="0" step="1" bind:value={saleCoins.sp} aria-label="Silver coins" />
-          </label>
-          <label>
-            Copper (cp)
-            <input type="number" min="0" step="1" bind:value={saleCoins.cp} aria-label="Copper coins" />
-          </label>
-        </div>
+        {#if saleCoins}
+          <!-- The block binds, so the entries below are the guard's own type:
+               `saleCoins` is non-null exactly while the sell dialog is open
+               (`openSell` sets it, `closeDialog` clears it with the dialog), and
+               a two-way bind on a possibly-null object is the crash the checker
+               names. -->
+          <div class="coins">
+            <label>
+              Platinum (pp)
+              <input type="number" min="0" step="1" bind:value={saleCoins.pp} aria-label="Platinum coins" />
+            </label>
+            <label>
+              Gold (gp)
+              <input type="number" min="0" step="1" bind:value={saleCoins.gp} aria-label="Gold coins" />
+            </label>
+            <label>
+              Silver (sp)
+              <input type="number" min="0" step="1" bind:value={saleCoins.sp} aria-label="Silver coins" />
+            </label>
+            <label>
+              Copper (cp)
+              <input type="number" min="0" step="1" bind:value={saleCoins.cp} aria-label="Copper coins" />
+            </label>
+          </div>
+        {/if}
       {/if}
 
       {#if dialogError}

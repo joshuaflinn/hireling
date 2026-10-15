@@ -18,7 +18,7 @@ import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
 import { createStashState } from '../../src/lib/party/stash.js';
-import { createStore, targetKey } from '../../src/lib/sync/store.js';
+import { createStore } from '../../src/lib/sync/store.js';
 
 const STASH_TARGET = (partyId, itemName) => ({ kind: 'stash', party_id: partyId, item_name: itemName });
 const BANK_TARGET = (partyId) => ({ kind: 'bank', party_id: partyId });
