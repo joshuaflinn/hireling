@@ -67,6 +67,25 @@ def test_escaped_key_duplicate_is_caught(tmp_path: Path) -> None:
     assert "duplicate key" in proc.stderr
 
 
+def test_invalid_json_fails_with_own_label(tmp_path: Path) -> None:
+    """Invalid JSON (no duplicate anywhere) reports its own summary, not dup."""
+    path = tmp_path / "invalid.json"
+    path.write_text('{\n  "a": 1,\n', encoding="utf-8")
+    proc = _run_cli([str(path)])
+    assert proc.returncode == 1, proc.stderr
+    assert "json guardrail check: 1 file(s) not valid JSON" in proc.stderr
+    assert "duplicate" not in proc.stderr
+
+
+def test_unreadable_file_fails_with_own_label(tmp_path: Path) -> None:
+    """A path that cannot be read reports "unreadable", never "duplicate"."""
+    path = tmp_path / "missing.json"  # never created: read_text raises OSError
+    proc = _run_cli([str(path)])
+    assert proc.returncode == 1, proc.stderr
+    assert "json guardrail check: 1 file(s) unreadable" in proc.stderr
+    assert "duplicate" not in proc.stderr
+
+
 def test_tracked_tree_is_clean() -> None:
     """No-arg mode scans the whole tracked JSON set and finds zero dups.
 
