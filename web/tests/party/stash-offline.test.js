@@ -22,11 +22,11 @@
 // No fake timers: the store's queue flush is promise-driven, and the suite
 // drives the transport state machine directly rather than racing a clock.
 
-import { afterEach, test, vi } from 'vitest';
+import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
-import { render, screen, cleanup, within, fireEvent } from '@testing-library/svelte';
+import { render, screen, cleanup, within, fireEvent, waitFor } from '@testing-library/svelte';
 
 import StashScreen from '../../src/lib/party/StashScreen.svelte';
 import { createStashState } from '../../src/lib/party/stash.js';
@@ -36,7 +36,8 @@ import { fakeClock, mockSockets, fakeStorage } from '../sync/fakes.js';
 
 /**
  * Every wait in this file is bounded, and the bound is stated rather than left
- * to the default. `vi.waitFor` retries until its assertion passes, and nothing
+ * to the default. `waitFor` (from @testing-library/svelte, the helper every
+ * suite on main already uses) retries until its assertion passes, and nothing
  * in this file's config stops it — an unbounded wait whose condition never
  * becomes true fails as a worker SIGABRT after twenty minutes of spinning
  * rather than as a failed assertion, which is a worse report than a red test.
@@ -175,7 +176,7 @@ test('an offline add then sell replays in the order the user did them', async ()
   // sentAll(): the tab opened no socket before this link, and after a reconnect
   // the newest socket is not where the earlier frames live.
   await h.goLive();
-  await vi.waitFor(() => {
+  await waitFor(() => {
     const writes = h.sentAll().filter((frame) => frame.t === 'write');
     assert.equal(writes.length, 2, 'both held frames ride the reconnect');
     assert.deepEqual(
@@ -195,7 +196,7 @@ test('reconnect replays the held queue once and once only', async () => {
   stash.addRow({ item_name: 'Twice', quantity: 1 });
 
   await h.goLive();
-  await vi.waitFor(
+  await waitFor(
     () => assert.equal(h.sent().length, 2, 'everything held goes out on the reconnect'),
     { timeout: TEST_WAIT_TIMEOUT },
   );
@@ -248,8 +249,8 @@ test('a write sitting in the queue does NOT produce an optimistic row', async ()
   // queue-length assertion below, which counts that replay).
   await h.goLive();
   h.deliver(STASH('Ghost'), { item_name: 'Ghost', quantity: 3, bulk: null, notes: null }, 11);
-  await vi.waitFor(() => assert.equal(stash.rows().length, 1, 'one row, from the server'), { timeout: TEST_WAIT_TIMEOUT });
-  await vi.waitFor(() => {
+  await waitFor(() => assert.equal(stash.rows().length, 1, 'one row, from the server'), { timeout: TEST_WAIT_TIMEOUT });
+  await waitFor(() => {
     const list = within(screen.getByRole('region', { name: /stash/i })).getAllByRole('listitem');
     assert.equal(list.length, 1, 'exactly one row on screen — never the guess plus the truth');
     assert.equal(list[0].getAttribute('aria-label'), 'Ghost');
@@ -296,7 +297,7 @@ test('the bank balance never moves on an optimistic entry — only on the fan-ou
   // order", and the ack's version was minted from that same sequence.
   await h.ackWrite(opId, 7);
   h.deliver(BANK(), { gp: 15, sp: 0, cp: 0 }, 8);
-  await vi.waitFor(() => assert.deepEqual(stash.bank(), { gp: 15, sp: 0, cp: 0 }), { timeout: TEST_WAIT_TIMEOUT });
+  await waitFor(() => assert.deepEqual(stash.bank(), { gp: 15, sp: 0, cp: 0 }), { timeout: TEST_WAIT_TIMEOUT });
 });
 
 // ---------------------------------------------------------------------------
@@ -314,7 +315,7 @@ test('a stale read on one field does not clobber a pending push on another', asy
   // The party's opening balance, read while connected — so there IS a balance
   // for a late response to be stale about.
   h.deliver(BANK(), { gp: 20, sp: 0, cp: 0 }, 30);
-  await vi.waitFor(() => assert.deepEqual(stash.bank(), { gp: 20, sp: 0, cp: 0 }), { timeout: TEST_WAIT_TIMEOUT });
+  await waitFor(() => assert.deepEqual(stash.bank(), { gp: 20, sp: 0, cp: 0 }), { timeout: TEST_WAIT_TIMEOUT });
 
   // Go offline and spend. The user's own action is queued, not applied.
   h.goOffline();
@@ -337,7 +338,7 @@ test('a stale read on one field does not clobber a pending push on another', asy
   // the link dropped), so "what replayed" is read off the session's frames, not
   // off the newest socket's count — which is 0 until the drain lands and is a
   // `sent()[0]` TypeError once it has never happened.
-  await vi.waitFor(() => {
+  await waitFor(() => {
     const writes = h.sentAll().filter((frame) => frame.t === 'write');
     assert.equal(writes.length, 1, 'the pending withdrawal still replays');
     assert.deepEqual(
@@ -351,7 +352,7 @@ test('a stale read on one field does not clobber a pending push on another', asy
   // The server's own word moves the balance once the write is settled.
   await h.ackWrite(opId, 32);
   h.deliver(BANK(), { gp: 15, sp: 0, cp: 0 }, 33);
-  await vi.waitFor(() => assert.deepEqual(stash.bank(), { gp: 15, sp: 0, cp: 0 }), { timeout: TEST_WAIT_TIMEOUT });
+  await waitFor(() => assert.deepEqual(stash.bank(), { gp: 15, sp: 0, cp: 0 }), { timeout: TEST_WAIT_TIMEOUT });
 });
 
 test('a pending quartermaster push is not clobbered by a stale designation read', async () => {
@@ -361,7 +362,7 @@ test('a pending quartermaster push is not clobbered by a stale designation read'
   const stash = createStashState({ sync: h.sync, partyId: 1, you: PLAYER_A, roster: [] });
 
   h.deliver(QM(), QM_VALUE(7), 40);
-  await vi.waitFor(() => assert.equal(stash.quartermasterId(), 7), { timeout: TEST_WAIT_TIMEOUT });
+  await waitFor(() => assert.equal(stash.quartermasterId(), 7), { timeout: TEST_WAIT_TIMEOUT });
 
   h.goOffline();
   stash.setQuartermaster(8); // "give it to Becky"
@@ -371,7 +372,7 @@ test('a pending quartermaster push is not clobbered by a stale designation read'
   assert.equal(h.queue().length, 1, 'the pending push survives the stale read');
 
   await h.goLive();
-  await vi.waitFor(() => assert.equal(h.sent().length, 1), { timeout: TEST_WAIT_TIMEOUT });
+  await waitFor(() => assert.equal(h.sent().length, 1), { timeout: TEST_WAIT_TIMEOUT });
   assert.deepEqual(
     h.sent()[0].value,
     { character_id: 8 },
@@ -400,7 +401,7 @@ test('the stash rides the party socket — the store is handed the party transpo
 
   const stash = createStashState({ sync: h.sync, partyId: 1, you: PLAYER_A, roster: [] });
   stash.addRow({ item_name: 'Rope', quantity: 2 });
-  await vi.waitFor(() => assert.ok(h.sentAll().some((frame) => frame.t === 'write')), { timeout: TEST_WAIT_TIMEOUT });
+  await waitFor(() => assert.ok(h.sentAll().some((frame) => frame.t === 'write')), { timeout: TEST_WAIT_TIMEOUT });
 
   assert.equal(h.sockets().length, before, 'the store opened no socket of its own');
   assert.equal(before, 1, 'the tab is on one connection — the session\'s');
@@ -585,7 +586,7 @@ function harness() {
       } else {
         clock.advance(RECONNECT_MS); // let the scheduled reconnect fire
       }
-      await vi.waitFor(() => {
+      await waitFor(() => {
         const s = socket();
         assert.ok(s && !s.closed, 'a live-or-opening socket exists');
       }, { timeout: TEST_WAIT_TIMEOUT });
@@ -595,7 +596,7 @@ function harness() {
       // phase markers, and only then does the link report `live` — the exact
       // ordering index.js composes against.
       s.message(SNAPSHOT_FRAME);
-      await vi.waitFor(() => assert.equal(sync.connectionState(), 'live'), { timeout: TEST_WAIT_TIMEOUT });
+      await waitFor(() => assert.equal(sync.connectionState(), 'live'), { timeout: TEST_WAIT_TIMEOUT });
       return s;
     },
     /** Drop the link the way the app does: the browser-offline transition,
@@ -620,7 +621,7 @@ function harness() {
      * asserts a post-write server value acks the write first.
      */
     async ackWrite(opId, version, serverValue) {
-      await vi.waitFor(() => {
+      await waitFor(() => {
         assert.ok(
           sentAll().some((frame) => frame.t === 'write' && frame.op_id === opId),
           `the write for ${opId} is on the wire before it can be acked`,
@@ -647,7 +648,7 @@ function harness() {
       // Wait on THIS op, not on "the queue is empty": when a batch is acked in
       // sequence, a bare queue-length assertion blames the wrong op for the
       // previous one's unsettled state.
-      await vi.waitFor(() => {
+      await waitFor(() => {
         assert.ok(
           queue().every((held) => held.op_id !== opId),
           `${opId} left the queue once the server settled it`,

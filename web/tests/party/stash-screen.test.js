@@ -15,7 +15,7 @@
 
 import { afterEach, test, vi } from 'vitest';
 import assert from 'node:assert/strict';
-import { render, screen, cleanup, fireEvent, within } from '@testing-library/svelte';
+import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/svelte';
 
 /**
  * Drive a real <select> to a chosen option. `fireEvent.selectOptions` does not
@@ -157,7 +157,7 @@ test('the loot list renders name, quantity, Bulk and note through the sheet\'s o
     // The wire carries bulk in Bulk units (design D1's numeric(4,2) column).
     rows: [{ item_name: 'Longsword', quantity: 2, bulk: 1.3, notes: 'runed' }],
   });
-  await vi.waitFor(() => {
+  await waitFor(() => {
     const region = screen.getByRole('region', { name: /stash/i });
     assert.match(region.textContent, /Longsword/);
     assert.match(region.textContent, /runed/);
@@ -177,17 +177,17 @@ test('a stash row at quantity zero never renders — the row is deleted at zero 
   const { sync } = mount({ rows: [{ item_name: 'Torch', quantity: 5 }] });
   const torchRow = () => screen.queryByRole('listitem', { name: /Torch/i });
 
-  await vi.waitFor(() => assert.ok(torchRow(), 'the row is present before the draw'));
+  await waitFor(() => assert.ok(torchRow(), 'the row is present before the draw'));
   sync.deliver(STASH(1, 'Torch'), null, 999); // the removal diff
 
-  await vi.waitFor(() => assert.equal(torchRow(), null, 'the row is gone, not zeroed'));
+  await waitFor(() => assert.equal(torchRow(), null, 'the row is gone, not zeroed'));
 });
 
 // --- the bank header ------------------------------------------------------
 
 test('the bank header shows the balance, and its honest unknown state when no movement has ever happened', async () => {
   const withBank = mount({ bank: { gp: 12, sp: 3, cp: 40 } });
-  await vi.waitFor(() => {
+  await waitFor(() => {
     const header = within(withBank.getByRole('region', { name: /bank/i }));
     // All three denominations render — a header that showed only gp would
     // pass a single-value assertion.
@@ -201,7 +201,7 @@ test('the bank header shows the balance, and its honest unknown state when no mo
   // it does not know yet.
   cleanup();
   const noBank = mount({});
-  await vi.waitFor(() => {
+  await waitFor(() => {
     const bankRegion = noBank.getByRole('region', { name: /bank/i });
     const header = within(bankRegion);
     // Two assertions that hold together: the honest wording is present, and no
@@ -228,13 +228,13 @@ test('the designation toggle is enabled for ANY character owner, including the d
   // designated character. One fixture cannot tell "enabled for any owner" from
   // "enabled for the designated owner" — the strict reading the spec rejects.
   const designated = mount({ qm: 7, roster: [FLINN, BECKY], you: { sub: 'dev-sub-a', role: 'player' } });
-  await vi.waitFor(() => {
+  await waitFor(() => {
     assert.equal(toggleOf(designated).disabled, false, 'the designated owner may re-seat their own');
   });
 
   cleanup();
   const other = mount({ qm: 7, roster: [FLINN, BECKY], you: { sub: 'dev-sub-b', role: 'player' } });
-  await vi.waitFor(() => {
+  await waitFor(() => {
     assert.equal(toggleOf(other).disabled, false, 'any other owner may take it too');
   });
 });
@@ -242,7 +242,7 @@ test('the designation toggle is enabled for ANY character owner, including the d
 test('the designation toggle is absent for the GM seat — FR-11, zero write affordances', async () => {
   const { container } = mount({ qm: 7, you: { sub: 'dev-sub-gm', role: 'gm' } });
 
-  await vi.waitFor(() => {
+  await waitFor(() => {
     const region = screen.getByRole('region', { name: /stash/i });
     const { buttons, inputs } = writeControlsIn(region);
     assert.deepEqual(
@@ -278,7 +278,7 @@ test('flipping the designation posts the party write and moves the sell affordan
   // Now the fan-out: the designation moves off me, so Sell must disappear on
   // THIS seat with no reload — the whole point of the field being live-synced.
   sync.deliver(PARTY(1), { quartermaster_character_id: 8 }, 500);
-  await vi.waitFor(() => {
+  await waitFor(() => {
     const region = screen.getByRole('region', { name: /stash/i });
     const sells = [...region.querySelectorAll('button')].filter((b) => /sell/i.test(b.textContent));
     assert.deepEqual(sells, [], 'the sell affordance is gone once I am not the QM');
@@ -294,7 +294,7 @@ test('the sell action renders for the quartermaster\'s owner and nowhere else', 
     you: { sub: 'dev-sub-a', role: 'player' },
     roster: [FLINN, BECKY],
   });
-  await vi.waitFor(() => {
+  await waitFor(() => {
     const region = screen.getByRole('region', { name: /stash/i });
     assert.ok(
       [...region.querySelectorAll('button')].some((b) => /sell/i.test(b.textContent)),
@@ -309,7 +309,7 @@ test('the sell action renders for the quartermaster\'s owner and nowhere else', 
     you: { sub: 'dev-sub-b', role: 'player' }, // Becky's owner: not the QM
     roster: [FLINN, BECKY],
   });
-  await vi.waitFor(() => {
+  await waitFor(() => {
     const region = screen.getByRole('region', { name: /stash/i });
     assert.deepEqual(
       [...region.querySelectorAll('button')].filter((b) => /sell/i.test(b.textContent)),
@@ -335,7 +335,7 @@ test('the sell dialog prefills the book value when the corpus has one, and flags
   await fireEvent.click(sellButton);
 
   const dialog = await screen.findByRole('dialog');
-  await vi.waitFor(() => {
+  await waitFor(() => {
     const gp = within(dialog).getByLabelText(/gp/i);
     assert.equal(gp.value, '3', 'the corpus price is the prompt default (D5: the default, never the constraint)');
     assert.doesNotMatch(dialog.textContent, /no book value/i);
@@ -353,7 +353,7 @@ test('the sell dialog prefills the book value when the corpus has one, and flags
   await fireEvent.click(otherSell);
 
   const dialog2 = await screen.findByRole('dialog');
-  await vi.waitFor(() => {
+  await waitFor(() => {
     assert.match(dialog2.textContent, /no book value/i, 'the flagged state is visible, not a silent zero');
     assert.equal(within(dialog2).getByLabelText(/gp/i).value, '', 'and the prompt is blank, not prefilled with a guess');
   });
@@ -423,7 +423,7 @@ test('submitting a transfer to a roster character is bounded, and refuses an ove
     'an impossible quantity never leaves the state layer — the frame is not posted',
   );
   // ...and the user is told, rather than watching a button do nothing.
-  await vi.waitFor(() => {
+  await waitFor(() => {
     assert.match(dialog.textContent, /only 4|at most 4|cannot exceed/i);
   });
 });
@@ -440,7 +440,7 @@ test('the claim log renders newest-first with the FR-4 vocabulary', async () => 
   });
 
   const log = await screen.findByRole('log');
-  await vi.waitFor(() => {
+  await waitFor(() => {
     const entries = [...log.querySelectorAll('li')].map((li) => li.textContent);
     assert.ok(entries.length >= 3, `three rows render, got ${entries.length}`);
     assert.match(entries[0], /Torch/, 'id 3 leads — newest-first by row id, not arrival order');
@@ -467,7 +467,7 @@ test('a money claim row renders its coin amounts alongside the label', async () 
   });
 
   const log = await screen.findByRole('log');
-  await vi.waitFor(() => {
+  await waitFor(() => {
     assert.match(log.textContent, /bank adjustment/);
     assert.match(log.textContent, /25/, 'the signed coin amount rides the money row (D1 coins extension)');
   });
@@ -492,7 +492,7 @@ test('a refused op renders its reason in the screen, non-blockingly', async () =
   // L3 has not wired `transfer`, so the store refuses locally; once it lands
   // this same drive posts a frame. Either way the user is told. Assert the
   // unblocking reason OR the server's reason — both are the honest state.
-  await vi.waitFor(() => {
+  await waitFor(() => {
     const region = screen.getByRole('region', { name: /stash/i });
     assert.match(
       region.textContent + dialog.textContent,
@@ -524,7 +524,7 @@ test('the add form posts a mint, and an empty name never reaches the wire', asyn
   await fireEvent.input(screen.getByLabelText(/^quantity/i), { target: { value: '2' } });
   await fireEvent.click(screen.getByRole('button', { name: /add/i }));
 
-  await vi.waitFor(() => {
+  await waitFor(() => {
     const mint = sync.writes.find((op) => op.target.kind === 'stash_new');
     assert.ok(mint, 'the mint rides the wire');
     assert.equal(mint.value.item_name, 'Hempen Rope');
