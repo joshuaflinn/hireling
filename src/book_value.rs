@@ -88,18 +88,33 @@ pub async fn resolve(
         )
             .into_response();
     };
+    lookup(&auth.pool, &name).await.into_response()
+}
+
+/// The corpus half of the route: the stored-path lookup and D5 reduction for
+/// one name, as the response body the handler answers with. The authz and
+/// 400 branches above it are the handler's; this is the half whose correctness
+/// is a belief about the importer's stored shape — so it is reachable without
+/// an HTTP session and is driven from a corpus row the real importer wrote
+/// (`tests/book_value_importer.rs`), not only from rows this suite hand-built.
+///
+/// `pub(crate)`: the joint test above lives at crate root under the cargo
+/// integration-test convention, which cannot see a private item. The HTTP
+/// surface stays the route's — `resolve` is this function's only caller, and
+/// the module itself stays private to the crate.
+pub(crate) async fn lookup(pool: &sqlx::PgPool, name: &str) -> Response {
     let rows: Vec<Option<JsonValue>> = sqlx::query_scalar(
         "SELECT data->'upstream'->'system'->'price'->'value' \
          FROM corpus_entries WHERE kind = 'item' AND lower(name) = lower($1)",
     )
     .bind(name)
-    .fetch_all(&auth.pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_else(|error| {
         // The lookup is a prompt-time convenience (D5: the confirmed value
         // is what the QM entered) — a failed lookup degrades to "no book
         // value", loudly logged.
-        tracing::error!(error = %error, party_id, "book-value query failed");
+        tracing::error!(error = %error, "book-value query failed");
         Vec::new()
     });
     match resolve_price(rows) {
@@ -111,3 +126,7 @@ pub async fn resolve(
 #[cfg(test)]
 #[path = "tests/book_value.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tests/book_value_importer.rs"]
+mod importer_tests;
