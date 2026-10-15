@@ -111,10 +111,8 @@ def collect_restore_entries(lines: list[str]) -> list[tuple[int, str]]:
     return blocks[0]
 
 
-def check(text: str) -> None:
-    """Parse the workflow text and require every label to agree."""
-    lines = text.splitlines()
-
+def _single_runs_on(lines: list[str]) -> str:
+    """Return the job's runs-on label, failing closed on none or several."""
     runs_on_lines = [line for line in lines if RUNS_ON_RE.match(line)]
     if not runs_on_lines:
         fail(f"{WORKFLOW}: no `runs-on:` line found")
@@ -123,8 +121,14 @@ def check(text: str) -> None:
             f"{WORKFLOW}: {len(runs_on_lines)} `runs-on:` lines — expected"
             " exactly one"
         )
-    runner_label = RUNS_ON_RE.match(runs_on_lines[0]).group(1)
+    match = RUNS_ON_RE.match(runs_on_lines[0])
+    if match is None:  # unreachable: the line matched to get here
+        fail(f"{WORKFLOW}: runs-on line failed to re-match — shape changed mid-parse")
+    return match.group(1)
 
+
+def _single_key_line(lines: list[str]) -> tuple[int, str]:
+    """Return (lineno, value) of the one cache key line, failing closed."""
     key_hits: list[tuple[int, str]] = []
     for lineno, line in enumerate(lines, 1):
         match = KEY_LINE_RE.match(line)
@@ -137,7 +141,14 @@ def check(text: str) -> None:
         )
     if len(key_hits) > 1:
         fail(f"{WORKFLOW}: {len(key_hits)} cache `key:` lines — expected exactly one")
-    key_lineno, key_value = key_hits[0]
+    return key_hits[0]
+
+
+def check(text: str) -> None:
+    """Parse the workflow text and require every label to agree."""
+    lines = text.splitlines()
+    runner_label = _single_runs_on(lines)
+    key_lineno, key_value = _single_key_line(lines)
 
     entries = collect_restore_entries(lines)
     if not entries:
@@ -149,8 +160,8 @@ def check(text: str) -> None:
     key_label = embedded_label(key_value)
     if key_label is None:
         fail(
-            f"{WORKFLOW}:{key_lineno}: cache key has no off the shape"
-            f" `{CACHE_PREFIX}<label>` — refusing to guess the label"
+            f"{WORKFLOW}:{key_lineno}: cache key label is off-shape —"
+            f" expected `{CACHE_PREFIX}<label>`, refusing to guess"
         )
     if key_label != runner_label:
         problems.append(f"key line {key_lineno} embeds '{key_label}'")
@@ -160,8 +171,8 @@ def check(text: str) -> None:
         label = embedded_label(entry)
         if label is None:
             fail(
-                f"{WORKFLOW}:{lineno}: restore-keys entry has no off the shape"
-                f" `{CACHE_PREFIX}<label>` — refusing to guess the label"
+                f"{WORKFLOW}:{lineno}: restore-keys entry label is off-shape —"
+                f" expected `{CACHE_PREFIX}<label>`, refusing to guess"
             )
         entry_labels.append(label)
         if label != runner_label:
@@ -205,7 +216,10 @@ def main() -> None:
 # trees, through the same CLI the justfile and the workflow invoke —
 # subprocess with cwd set, exactly how production calls it.
 
-SELF_TEST_KEY = "          key: grizzly-gate-{label}-${{{{ env.GATE_IMAGE }}}}-${{{{ hashFiles('Cargo.lock') }}}}"
+SELF_TEST_KEY = (
+    "          key: grizzly-gate-{label}-${{{{ env.GATE_IMAGE }}}}-"
+    "${{{{ hashFiles('Cargo.lock') }}}}"
+)
 SELF_TEST_RESTORE_1 = "            grizzly-gate-{label}-${{{{ env.GATE_IMAGE }}}}-"
 SELF_TEST_RESTORE_2 = "            grizzly-gate-{label}-"
 
@@ -257,17 +271,6 @@ def _self_test_case(
         sys.exit(1)
 
 
-def _run_case(
-    script: Path, root: Path, ran: list[str], name: str, text: str, *, expect_red: bool
-) -> None:
-    """Write a synthetic workflow tree and run one CLI case."""
-    tree = root / name
-    (tree / ".github" / "workflows").mkdir(parents=True)
-    (tree / ".github" / "workflows" / "gate.yml").write_text(text, encoding="utf-8")
-    ran.append(name)
-    _self_test_case(script, tree, name, expect_red=expect_red)
-
-
 def self_test() -> None:
     """Re-prove every red direction plus the green, on synthetic trees."""
     script = Path(__file__).resolve()
@@ -276,11 +279,18 @@ def self_test() -> None:
     with tempfile.TemporaryDirectory(prefix="runner-label-selftest-") as tmp:
         root = Path(tmp)
 
+        def run_case(name: str, text: str, *, expect_red: bool) -> None:
+            """Write a synthetic workflow tree and run one CLI case."""
+            tree = root / name
+            (tree / ".github" / "workflows").mkdir(parents=True)
+            (tree / ".github" / "workflows" / "gate.yml").write_text(
+                text, encoding="utf-8"
+            )
+            ran.append(name)
+            _self_test_case(script, tree, name, expect_red=expect_red)
+
         # Green: all four labels agree.
-        _run_case(
-            script,
-            root,
-            ran,
+        run_case(
             "green",
             _synthetic_workflow("ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04"),
             expect_red=False,
@@ -288,40 +298,28 @@ def self_test() -> None:
 
         # Red: the key label disagrees with runs-on (the PR #319 round-2
         # failure mode — runs-on moved, the key stayed).
-        _run_case(
-            script,
-            root,
-            ran,
+        run_case(
             "red-key-label",
             _synthetic_workflow("ubuntu-22.04", "ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04"),
             expect_red=True,
         )
 
         # Red: the first restore-keys label disagrees.
-        _run_case(
-            script,
-            root,
-            ran,
+        run_case(
             "red-restore-1",
             _synthetic_workflow("ubuntu-24.04", "ubuntu-24.04", "ubuntu-22.04", "ubuntu-24.04"),
             expect_red=True,
         )
 
         # Red: the last restore-keys label disagrees.
-        _run_case(
-            script,
-            root,
-            ran,
+        run_case(
             "red-restore-2",
             _synthetic_workflow("ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04", "ubuntu-22.04"),
             expect_red=True,
         )
 
         # Red: no runs-on line at all.
-        _run_case(
-            script,
-            root,
-            ran,
+        run_case(
             "red-missing-runs-on",
             _synthetic_workflow("ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04")
             .replace("    runs-on: ubuntu-24.04\n", ""),
@@ -329,10 +327,7 @@ def self_test() -> None:
         )
 
         # Red: no cache key line (the prefix is gone).
-        _run_case(
-            script,
-            root,
-            ran,
+        run_case(
             "red-missing-key",
             _synthetic_workflow("ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04")
             .replace(SELF_TEST_KEY.format(label="ubuntu-24.04") + "\n", ""),
@@ -340,10 +335,7 @@ def self_test() -> None:
         )
 
         # Red: the restore-keys block is gone.
-        _run_case(
-            script,
-            root,
-            ran,
+        run_case(
             "red-missing-restore-keys",
             _synthetic_workflow("ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04")
             .replace(
@@ -358,10 +350,7 @@ def self_test() -> None:
         )
 
         # Red: the key line loses the grizzly-gate- prefix (off-shape).
-        _run_case(
-            script,
-            root,
-            ran,
+        run_case(
             "red-key-offshape",
             _synthetic_workflow("ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04")
             .replace(
