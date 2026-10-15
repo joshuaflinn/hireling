@@ -1197,12 +1197,12 @@ async fn a_non_member_party_write_is_forbidden_and_audited() {
         return;
     };
     let (party_id, character_id) = seed_member(&pool, "sub-auth-party").await;
-    // Designate a quartermaster and pass the live version as the CAS base:
-    // `quartermaster_flip` applies only where `quartermaster_version` matches
-    // (NOT NULL DEFAULT nextval, never 0). With no designation — or a stale
-    // base — a leaked flip loses on the version predicate instead of authz and
-    // leaves `Some(character_id)` either way, so the "nothing touched"
-    // assertion could never fail.
+    // Designate a quartermaster and pass the live version as the CAS base.
+    // Both are load-bearing, for different reasons: with no designation the
+    // field is `None` before and after, and with a stale base a leaked flip
+    // loses on `quartermaster_version` (NOT NULL DEFAULT nextval, never 0)
+    // instead of on authz and leaves `Some(character_id)`. Either way the
+    // "nothing touched" assertion could never fail.
     designate_quartermaster(&pool, party_id, character_id).await;
     testing::seed_account(&pool, "sub-outsider-party", "player").await;
     let base = quartermaster(&pool, party_id).await.1;
@@ -1814,6 +1814,45 @@ async fn a_transfer_that_would_overflow_the_character_delta_refuses_whole() {
         claim_count(&pool, party_id, "Rope").await,
         0,
         "claim row rolled back"
+    );
+
+    // The other side of the ceiling: a character delta landing exactly on
+    // i32::MAX applies ((i32::MAX - 1) + 1 = i32::MAX) — the boundary is
+    // inclusive. Re-seed one below the ceiling; the stash still holds 2, so
+    // one `out` reaches the character at the ceiling and applies.
+    sqlx::query(
+        "UPDATE character_inventory_live SET qty_delta = $1 \
+         WHERE character_id = $2 AND item_name = 'Rope'",
+    )
+    .bind(i32::MAX - 1)
+    .bind(counterparty)
+    .execute(&pool)
+    .await
+    .expect("re-seed character delta one below the ceiling");
+
+    let exact_frame = stash_transfer(party_id, "Rope", "out", 1, counterparty);
+    let exact = apply_write(
+        &pool,
+        &player("sub-transfer-char-overflow"),
+        party_id,
+        op(
+            "transfer-char-exact-ceiling",
+            exact_frame.target,
+            0,
+            exact_frame.value,
+        ),
+    )
+    .await
+    .expect("exact ceiling transfer runs");
+    assert_eq!(
+        exact.outcome,
+        Outcome::Applied,
+        "a character delta landing exactly on i32::MAX applies"
+    );
+    assert_eq!(
+        character_inv_delta(&pool, counterparty, "Rope").await,
+        Some(i32::MAX),
+        "character delta sits at the i32::MAX ceiling"
     );
     testing::drop_test_db(pool, "stash_transfer_char_overflow").await;
 }

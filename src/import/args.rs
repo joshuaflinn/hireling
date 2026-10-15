@@ -29,7 +29,7 @@ pub enum Command {
     },
 }
 
-/// Parse operator arguments (argv without argv[0]).
+/// Parse operator arguments (argv without `argv[0]`).
 ///
 /// # Errors
 ///
