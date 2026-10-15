@@ -1093,11 +1093,15 @@ async fn a_non_member_party_write_is_forbidden_and_audited() {
         return;
     };
     let (party_id, character_id) = seed_member(&pool, "sub-auth-party").await;
-    // Designate a quartermaster so the flip-to-None below has something it
-    // would clear if it leaked through: with no designation, a forbidden
-    // write leaves `None` either way and this test could never fail.
+    // Designate a quartermaster and pass the live version as the CAS base:
+    // `quartermaster_flip` applies only where `quartermaster_version` matches
+    // (NOT NULL DEFAULT nextval, never 0). With no designation — or a stale
+    // base — a leaked flip loses on the version predicate instead of authz and
+    // leaves `Some(character_id)` either way, so the "nothing touched"
+    // assertion could never fail.
     designate_quartermaster(&pool, party_id, character_id).await;
     testing::seed_account(&pool, "sub-outsider-party", "player").await;
+    let base = quartermaster(&pool, party_id).await.1;
 
     let result = apply_write(
         &pool,
@@ -1106,7 +1110,7 @@ async fn a_non_member_party_write_is_forbidden_and_audited() {
         op(
             "party-outsider",
             quartermaster_flip(party_id, None).target,
-            0,
+            base,
             quartermaster_flip(party_id, None).value,
         ),
     )
