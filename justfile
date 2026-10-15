@@ -165,28 +165,60 @@ web-css-guard: web-deps
     fi
     echo "web-css-guard ok: no unused-selector warnings in the build"
 
-# The gate image's scan:semgrep pass, replicated bench-side over the web
-# tree with the registry rules it has enforced there (calibrated by fire
-# against runs 37850972131 and 37981907115: missing-template-string-
-# indicator on the emitted-worker template; package-dependencies-check
-# on web/package.json — exact versions only, which the tree already
-# kept; and 38080211231: html-in-template-string, the run that red-flagged
-# the vetted anchor literal in inert-html.js while ci-local was green).
-# The image's full rule set is wider; a digest bump that moves it
-# updates this invocation in the same PR. Needs the semgrep CLI on PATH
-# (`pipx install semgrep`) — a scan that skips is not a scan, so a
-# missing CLI fails loudly instead.
+# The gate image's scan:semgrep pass, mirrored over the repo root with the
+# image's OWN rule directory (gh#320). gate-semgrep-rules/ is vendored verbatim
+# from the pinned digest's etc/grizzly-gate/config/util/semgrep/rules/ by
+# scripts/fetch_gate_file.py (directory mode) and git-ignored; `just
+# vendor-semgrep` re-creates it and `just check-vendored` hashes it. The
+# invocation below reproduces the image's own scan contract from
+# etc/grizzly-gate/config/util/semgrep/manifest.toml: same --exclude set
+# (plus gate-semgrep-rules itself, so the vendored rules are not scanned by
+# the vendored rules), same --exclude-rule (the check_id is derived from the
+# --config path, so the vendored path prefixes it), same --json --error
+# --quiet. `--metrics=off` is a bench-only knob (the image runs offline).
+# Needs the semgrep CLI on PATH (`pipx install semgrep`) and the vendored
+# tree — a scan that skips is not a scan, so a missing CLI or tree fails
+# loudly. scripts/semgrep_fail_closed.py then reads the JSON and reds on any
+# warn/PartialParsing entry, the blind-spot class gh#332 names.
 scan-semgrep:
     #!/usr/bin/env bash
+    set -euo pipefail
+    cd "$(git rev-parse --show-toplevel)"
     if ! command -v semgrep >/dev/null 2>&1; then
         echo "scan-semgrep: semgrep CLI not found — install it (pipx install semgrep) or run the pinned gate image (CONTRIBUTOR.md)" >&2
         exit 1
     fi
-    SEMGREP_SEND_METRICS=off semgrep scan --metrics=off --error \
-        --config https://semgrep.dev/r/javascript.lang.correctness.missing-template-string-indicator \
-        --config https://semgrep.dev/r/json.npm.security.package-dependencies-check \
-        --config https://semgrep.dev/r/javascript.lang.security.html-in-template-string \
-        web
+    if [ ! -d gate-semgrep-rules ]; then
+        echo "scan-semgrep: gate-semgrep-rules/ not vendored — run 'just vendor-semgrep'" >&2
+        exit 1
+    fi
+    semgrep_json="$(mktemp)"
+    trap 'rm -f "$semgrep_json"' EXIT
+    set +e
+    SEMGREP_SEND_METRICS=off semgrep scan --metrics=off --json --error --quiet \
+        --exclude=dist --exclude=build --exclude=.svelte-kit --exclude=gate-semgrep-rules \
+        --exclude-rule=gate-semgrep-rules.python.lang.correctness.common-mistakes.string-concat-in-list \
+        --config gate-semgrep-rules \
+        . > "$semgrep_json"
+    rc=$?
+    set -e
+    if [ "$rc" -ge 2 ]; then
+        echo "scan-semgrep: semgrep exited $rc (failed to run, not findings) — see output above" >&2
+        exit "$rc"
+    fi
+    python3 scripts/semgrep_fail_closed.py "$semgrep_json"
+    exit "$rc"
+
+# Vendor the image's semgrep rule directory (gh#320) — the same
+# scripts/fetch_gate_file.py mechanism that vendors the eslint config, in
+# directory mode (trailing slash on IMAGE_PATH). Re-run after a digest bump
+# or when check-vendored reds on the directory row's tree digest. The tree
+# is git-ignored; `just scan-semgrep` reads it and `just check-vendored`
+# hashes it, so it is reproduced by the same authority the gate runs, never
+# by hand.
+vendor-semgrep:
+    python3 scripts/fetch_gate_file.py etc/grizzly-gate/config/util/semgrep/rules/ \
+        --output gate-semgrep-rules --manifest scripts/gate_vendored.tsv
 
 # Vite dev server for frontend-only iteration (proxies nothing; use `just dev`
 # for the real full-stack path).
