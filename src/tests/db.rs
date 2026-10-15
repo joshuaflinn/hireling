@@ -1541,8 +1541,14 @@ fn skip_branch_fails_closed_when_the_url_was_requested() {
 /// cause is not the test — it is `connect_maintenance`'s
 /// `acquire_timeout(2s)`: against a port that REJECTs, sqlx's pool loops
 /// connect attempts for the whole acquire budget before surfacing
-/// `PoolTimedOut` ("pool timed out while waiting for an open connection"),
-/// so the cost is structural and no test-side change shrinks it. Recorded
+/// `PoolTimedOut` ("pool timed out while waiting for an open connection").
+/// A paused clock (`start_paused = true`, as
+/// `probe_unrequested_and_dead_skips_loud` uses) drops this to ~0s with
+/// the same `PoolTimedOut` panic — it is not taken here for the reason the
+/// gh#127 note above gives: on a host that DROPs rather than REJECTs
+/// :59999, the connect parks on I/O readiness, auto-advance never fires,
+/// and the test hangs instead of failing. The 2.00s is the price of that
+/// safety, not an unavoidable cost. Recorded
 /// for the same reason as the gh#127 notes above: the cost is real,
 /// invisible in the test body, and the next reader should not re-time it
 /// by surprise.
