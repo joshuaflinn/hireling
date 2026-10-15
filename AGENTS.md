@@ -369,15 +369,16 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   - *A pinned wire contract* — a fixture naming the set a production path
     accepts: assert the fixture against the gate that enforces it, never
     against a literal restated in the test body. Feed each pinned name
-    through the validator or dispatch that owns the set and assert it is
-    accepted; then assert a name outside the set is refused on every target
-    kind the dispatch routes to, because without that arm the accept loop
-    goes green against a validator that accepts everything. A restated
-    literal passes when the write path drops an accepted name and passes
-    when it gains one — the two changes the pin exists to catch. The shipped
-    form is `the_pinned_effect_ops_are_the_write_paths_accepted_set` in
-    `src/tests/sync/contract.rs`; gh#90 F3 is the first instance of the
-    literal form, PR #236 the recurrence.
+    through that gate and assert it is accepted; panic on a pinned name no
+    arm handles; and assert an outside name is refused on every target kind
+    the dispatch routes to, or the accept loop goes green against a gate
+    that accepts everything. That reaches a stale fixture and a dropped
+    name, never a gained one — the loop only sees names the fixture lists;
+    where the set is an enum, derive it off `EnumIter` and the gain is
+    caught too. The shipped forms, enum and hand-written match:
+    `the_pinned_vitals_fields_are_the_serde_wire_names_of_the_enum` and
+    `the_pinned_effect_ops_are_the_write_paths_accepted_set` in
+    `src/tests/sync/contract.rs`.
 - Log generously on the backend: major branches, request IDs.
 - Commit messages: imperative, one line, what + why if non-obvious.
 
