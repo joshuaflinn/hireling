@@ -213,6 +213,9 @@
   {/snippet}
 
   {#if tab === 'all' || tab === 'equipped'}
+    {#if topItems.some(visible)}
+      <h3 class="chead"><span class="cnm">Carried</span><span class="ccount">{topItems.filter(visible).length}</span></h3>
+    {/if}
     {#each topItems.filter(visible) as item (item.name)}{@render itemRow(item, false)}{/each}
     {#each containers.filter((c) => tab === 'all' || c.equipped || inside(c.name).some(visible)) as c (c.name)}
       {@const sum = containerBulk(c.name)}
@@ -271,7 +274,11 @@
   {/if}
 
   <div class="bulk">
-    Carrying <b>{tenthsText(totalTenths)}</b> · <span class:enc>encumbered</span> above <b>{limits.encumbered}</b> · max <b>{limits.max}</b>
+    Total carried: <b>{tenthsText(totalTenths)}</b>
+    <span style="color:var(--dim)">(includes carried and worn gear; extradimensional contents excluded)</span>
+    <div class="limits">
+      <span class:enc>encumbered</span> above <b>{limits.encumbered}</b> · max <b>{limits.max}</b>
+    </div>
     <div class="meter"><i class:over={enc} style:width="{pct}%"></i></div>
   </div>
 </section>
@@ -401,6 +408,11 @@
   }
   .chead .eqcb {
     margin-right: 6px;
+  }
+  .limits {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
   }
   .meter {
     height: 6px;

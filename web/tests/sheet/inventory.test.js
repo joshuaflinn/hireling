@@ -62,7 +62,11 @@ test('the inventory renders groups, rollups, chips, coins, and the total', () =>
   });
   assert.match(container.innerHTML, /Backpack/, 'container group header');
   assert.match(container.innerHTML, /extradimensional/, "the sack's exclusion is labeled");
-  assert.match(container.innerHTML, /Carried/, 'the top-level group');
+  // specs/015 slice 8: containers are their own headed groups and the
+  // tabs (Dave's) sit above them; "Carried" heads loose top-level items
+  // only, and this fixture's sole top-level row is the Backpack container.
+  assert.match(container.innerHTML, /All Equipment/, "Dave's inventory tabs");
+  assert.match(container.innerHTML, /Giant body's sack/, 'a container with no equipment row still renders');
   assert.match(container.innerHTML, /Total carried: <b>/, 'the rollup total');
   assert.match(container.innerHTML, /trade/, 'trait chips render from the corpus map');
   assert.match(container.innerHTML, /GP/, 'coin bar');
