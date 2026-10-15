@@ -126,7 +126,7 @@ pub async fn effects(
 }
 
 /// `GET /api/characters/{character_id}/derived` — one character's
-/// [`EngineOutput`] as the sheet's bootstrap. Party-readable: the requester
+/// [`hireling_engine::model::EngineOutput`] as the sheet's bootstrap. Party-readable: the requester
 /// must sit in the character's own party (or be the GM).
 pub async fn derived(
     State(auth): State<Arc<AuthState>>,

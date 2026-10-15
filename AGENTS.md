@@ -250,6 +250,36 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   **A review object's `commit_id` is not evidence of what was reviewed.** The
   head a verdict is bound to is the head its text names. A push can move the
   stamp; it cannot rewrite the prose.
+
+  **No announcement before the gate concludes.** The reviewer's announcement
+  names the `gate` check-run's conclusion at the head under review, and the
+  conclusion is `success` or `failure`: `queued` and `in_progress` are not
+  conclusions, and `cancelled`, `timed_out`, `skipped`, `stale` and `neutral`
+  are conclusions that certify nothing. If the gate has not concluded to
+  `success` or `failure`, the reviewer does not announce: it waits and
+  re-reads, and the idempotence clause above ("read the record before you
+  write it") already covers that re-read, so a waiting reviewer does not open
+  a duplicate round. Where no usable conclusion arrives, the reviewer does
+  not announce, notes it on the PR, and reports it on the review task — the
+  same handling as a provisioning defect.
+  The author's seat marker is unchanged and does not wait — seating is a
+  marker, not a certificate read, and making authors block on a gate they
+  cannot speed up adds latency and fixes nothing; the seat task already
+  carries the gate check-run id, which is what lets the reviewer read it. An
+  `in_progress` gate read as if it were a conclusion is the same fault class
+  as reading check-runs at the wrong head, and it fails the same two
+  dangerous ways: a round announced before a red concludes can accept a head
+  nobody gated, and one announced before a green concludes can bounce an
+  engineer on nothing. PR #317 is the instance: the seat marker went up at
+  `2026-10-15T20:20:31Z` and round 1 was announced at `20:21:38Z` (review
+  `5539383360`); check-run `116649603910` (`gate`) at head
+  `6c8f04fb4cd733dcf35fd014ede0510b9d8760de` was still `in_progress` and did
+  not conclude until `20:26:05Z` — `failure`, `gate FAILED: 2/16` (review
+  `5539498644`) — so for about four and a half minutes an announced round
+  faced a head with no readable certificate, and the rule as written did not
+  forbid it. No fault landed: the author gated on the bench and disclosed it,
+  the reviewer caught both red legs by hand, and the verdict is correct —
+  this closes a rule gap on the announcing side, not a fault assignment.
 - **Review rounds — two author-text rounds, then a verdict.** The budget
   counts rounds that review changed author text. Two of those, then a
   verdict — accept-with-follow-up-issues or reject-with-a-plan. There is no
