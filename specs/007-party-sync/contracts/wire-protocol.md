@@ -75,8 +75,8 @@ per `degraded-mode.md`, and the op ledger makes that safe).
 | `effect` | `effect_id` (globally unique — identity PK) | appears in `snapshot`/`diff` as `{name, source_character_id, targets[], modifiers[], duration_note, active}` (+ `tracked_manually` since E8); write frames **realized by E8** (below) | `effects.version` (whole row) |
 | `effect_new` | `party_id` (E8 create only) | no diff value — the create mints the row; every diff addresses the new `effect` id | n/a (identity PK mint) |
 | `stash_new` | `party_id` (E12 mint only) | `{item_name, quantity>0, bulk?, notes?}` — no diff value: the mint creates the row, every later diff addresses the `stash` name; a duplicate exact name is `rejected` with FR-1's reason (the unique constraint is the structural identity), and the apply creates the row plus its `outside → stash` claim row | mint (identity — no CAS) |
-| `stash` | `party_id`, `item_name` (byte-exact — the `inv` keying rule) | `{op:"qty", qty_delta}` (additive — §4) or `{op:"meta", bulk?, notes?}` (absolute, CAS on the row version); lane L3 adds `transfer`/`sell` to the accepted set; appears in `snapshot`/`diff` as `{item_name, quantity, bulk, notes}` — a `qty` draw to exactly zero deletes the row and fans a removal diff `value:null` (§4) | the row's `version` |
-| `bank` | `party_id` | `{gp_delta, sp_delta, cp_delta}` — signed, additive (§4); per-denomination non-negative enforced, refusal is `rejected` whole; appears in `snapshot`/`diff` as `{gp, sp, cp}` | the balance row's `version` |
+| `stash` | `party_id`, `item_name` (byte-exact — the `inv` keying rule) | `{op:"qty", qty_delta}` (additive — §4), `{op:"meta", bulk?, notes?}` (absolute, CAS on the row version), `{op:"transfer", direction:"in"\|"out", qty>0, character_id}` (additive, one claim row, both sides move), or `{op:"sell", qty>0, price:{pp?,gp?,sp?,cp?} with at least one positive denomination}` (additive draw + bank credit + one `stash → bank` claim row; pp converts to gp at 1 pp = 10 gp); appears in `snapshot`/`diff` as `{item_name, quantity, bulk, notes}` — a draw to exactly zero deletes the row and fans a removal diff `value:null` (§4) | the row's `version` |
+| `bank` | `party_id` | `{gp_delta, sp_delta, cp_delta}` — signed, additive (§4); per-denomination non-negative enforced, refusal is `rejected` whole; every movement appends one `bank adjustment` claim row (coins = the signed amounts, direction by sign); appears in `snapshot`/`diff` as `{gp, sp, cp}` | the balance row's `version` |
 | `party` | `party_id`, `field`: `quartermaster` | `{character_id: integer\|null}` — absolute write under CAS; the character must be roster; appears in `snapshot`/`diff` as `{quartermaster_character_id}` | `quartermaster_version` |
 | `claim` | `claim_id` | read-only — appears in `snapshot`/`diff` as the whole row `{item_name, quantity, origin, destination, actor_sub, created_at, coins_gp?, coins_sp?, coins_cp?}` (coins NULL on item rows); no write frames: the log is append-only (E12 FR-2.4), appends ride the diff mechanism keyed by the monotonic row id | the row id (merge-by-id — the id in the version slot makes the strictly-newer rule and the id rule the same predicate) |
 
@@ -97,18 +97,21 @@ anchoring rule). Item identity is exact-name; anything fuzzier is E5's.
 - **Write = CAS on `base_version`**: applied if the field is still at
   `base_version`; `superseded` if it moved. The writer's own ack is
   authoritative for its op; a matching `diff` may arrive before or after it.
-- **Additive applies (E12)**: `stash` `qty` and `bank` writes are additive
-  deltas. The server ignores `base_version` for them (the frame still
-  carries it — uniform shape) and applies the delta under the row lock,
-  serialized by arrival order. `superseded` is unreachable for additive
-  writes — their outcomes are `applied` / `already_applied` / `rejected` /
-  `forbidden` only. CAS remains for the absolute fields (`stash` `meta`,
-  `party`). An impossible delta (underflow, overdraft) is `rejected` whole
-  with a human-readable reason; nothing partial applies, no claim row. A
-  `stash` `qty` draw that lands exactly on zero deletes the row (FR-1) and
-  fans a **removal diff** — `value:null` on the `stash` target with a fresh
-  sequence version — so every seat drops the row under the strictly-newer
-  rule.
+- **Additive applies (E12)**: `stash` `qty`/`transfer`/`sell`, the sell's
+  bank credit, and `bank` writes are additive deltas. The server ignores
+  `base_version` for them (the frame still carries it — uniform shape) and
+  applies the delta under the row lock, serialized by arrival order.
+  `superseded` is unreachable for additive writes — their outcomes are
+  `applied` / `already_applied` / `rejected` / `forbidden` only. CAS
+  remains for the absolute fields (`stash` `meta`, `party`). An impossible
+  delta (underflow, overdraft) is `rejected` whole with a human-readable
+  reason; nothing partial applies. The compound ops (`transfer`, `sell`)
+  and the `bank` adjust each append exactly one claim row in the same
+  transaction — a refusal rolls the claim row back with the field changes,
+  so a refused movement leaves no claim row. A `stash` draw that lands
+  exactly on zero deletes the row (FR-1) and fans a **removal diff** —
+  `value:null` on the `stash` target with a fresh sequence version — so
+  every seat drops the row under the strictly-newer rule.
 - **Version-slot number spaces (E12)**: claim row ids and
   `field_version_seq` values are distinct number spaces that share the wire
   version slot (a claim diff carries the row id in that slot — merge-by-id).
@@ -201,3 +204,11 @@ anchoring rule). Item identity is exact-name; anything fuzzier is E5's.
   `forbidden_bank_write` / `forbidden_party_write`, the GM's under the
   existing `forbidden_gm_write`. Outcomes are E7's five; the mechanism is
   unchanged. Close-code reservations below are unchanged.
+- **E12 — REALIZED (2026-10-15, lane L3)**: the compound ops joined the
+  stash write path — §3's `transfer` and `sell` value shapes (additive, one
+  claim row each, pp→gp conversion at 1 pp = 10 gp cited in `write.rs` off
+  Player Core pg. 267) and the `bank` adjust's `bank adjustment` claim row
+  (FR-4: every movement appends exactly one row; FR-9: one transaction).
+  The sell routes through the Bank resource (QM-only, D4) — a non-QM
+  member's sell denies under `forbidden_bank_write`, not the stash's member
+  gate. Outcomes are E7's five; the mechanism is unchanged.
