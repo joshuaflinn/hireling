@@ -429,11 +429,29 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
         // arrives as a null value, and FR-1's delete-at-zero means the row is
         // GONE — never a row at quantity 0, and never a row minted by a
         // tombstone for a name we never had.
-        if (entry.version !== 0 && !isDelta(entry.value) && entry.value?.item_name != null) {
+        //
+        // `== null` is not available here even though it is the idiomatic test
+        // for "null or undefined": the gate image's eslint config enforces
+        // `eqeqeq: ["error", "always"]`, which admits no `==` at all. The repo
+        // replica (`web/gate-eslint.config.mjs`) does not carry that rule, so
+        // `just ci-local` stays green over exactly this class — which is why the
+        // two spellings below name both nullish cases explicitly instead.
+        if (
+          entry.version !== 0 &&
+          !isDelta(entry.value) &&
+          entry.value?.item_name !== null &&
+          entry.value?.item_name !== undefined
+        ) {
           rows.push(rowOf(/** @type {Omit<StashRow, 'version'>} */ (entry.value), entry.version));
         }
       } else if (target.kind === 'bank') {
-        if (entry.version !== 0 && !isDelta(entry.value) && entry.value?.gp != null) {
+        // Same `eqeqeq` constraint as the stash branch above — no `== null`.
+        if (
+          entry.version !== 0 &&
+          !isDelta(entry.value) &&
+          entry.value?.gp !== null &&
+          entry.value?.gp !== undefined
+        ) {
           /** @type {BankBalance & {gp?: number, sp?: number, cp?: number}} */
           const coins = /** @type {BankBalance} */ (entry.value);
           committedBank = { gp: coins.gp, sp: coins.sp, cp: coins.cp };
