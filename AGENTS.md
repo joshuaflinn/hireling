@@ -91,13 +91,29 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   is open when it is announced on the PR and closed when the verdict at
   that head is posted to it — never off tracker task state, which the
   press seat cannot see at the PR.
-- **A review round announces itself on the PR before it reads the diff.** A
-  review comment (`gh pr review <n> --comment -F -`) naming the head SHA under
-  review, the questions the round is asking, and the review task. One `gh`
-  call, and the
+- **The reviewer announces the round on the PR before reading the diff — and
+  only the reviewer.** A review comment (`gh pr review <n> --comment -F -`)
+  naming the head SHA under review, the questions the round is asking, and the
+  review task. One `gh` call, and the
   open-round signal lives where a presser already reads — no board access
   required, because this file governs any agent in this repo, not one
   harness.
+
+  **The author seats the round; the author does not announce it.** Seating is
+  a plain PR comment — one line, `review-seat: PR #<n> round <N> head <sha>`,
+  via `gh pr comment` — plus a review task carrying the head, the gate
+  check-run id, and the author's questions. That marker is not an
+  announcement: an author never calls `gh pr review` to open a round, and a
+  seat task never states that the round "is announced". The author's questions
+  are the round's proposal, not its scope; scope is set by the seat that read
+  the diff, and the reviewer is free to widen them. PR #247 is the reason: it
+  carried author announcements at 05:39:40Z (review 5528645993, three
+  questions) and 05:56:27Z (5528801267), so each head held two announcements,
+  and the timeline stayed readable only because the reviewer caught both by
+  hand — widening round 1 to five questions, one of which was the gate read,
+  and adopting round 2 in prose. Where an author announcement exists anyway,
+  the reviewer's is the round: it names which author text it adopts or widens,
+  and the verdict binds to it.
 
   **A head gets exactly one open round.** A second round against a head that
   already carries an announced round with no verdict is not opened: the
