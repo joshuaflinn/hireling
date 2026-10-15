@@ -94,15 +94,14 @@ pub async fn resolve(
 /// The corpus half of the route: the stored-path lookup and D5 reduction for
 /// one name, as the response body the handler answers with. The authz and
 /// 400 branches above it are the handler's; this is the half whose correctness
-/// is a belief about the importer's stored shape — so it is reachable without
-/// an HTTP session and is driven from a corpus row the real importer wrote
-/// (`tests/book_value_importer.rs`), not only from rows this suite hand-built.
-///
-/// `pub(crate)`: the joint test above lives at crate root under the cargo
-/// integration-test convention, which cannot see a private item. The HTTP
-/// surface stays the route's — `resolve` is this function's only caller, and
-/// the module itself stays private to the crate.
-pub(crate) async fn lookup(pool: &sqlx::PgPool, name: &str) -> Response {
+/// is a belief about the importer's stored shape — so it is driven from a
+/// corpus row the real importer wrote, not only from rows this suite
+/// hand-built. The joint test reaches it through `resolve`'s HTTP surface
+/// rather than calling here (`tests/book_value_importer.rs`); this stays
+/// private to the module so that stays true — a session-less call into the
+/// lookup does not compile, and the authz half above cannot be stepped around.
+/// Grep before widening it.
+async fn lookup(pool: &sqlx::PgPool, name: &str) -> Response {
     let rows: Vec<Option<JsonValue>> = sqlx::query_scalar(
         "SELECT data->'upstream'->'system'->'price'->'value' \
          FROM corpus_entries WHERE kind = 'item' AND lower(name) = lower($1)",
