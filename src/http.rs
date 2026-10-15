@@ -102,6 +102,15 @@ pub(crate) const API_ROUTES: &[ApiRoute] = &[
         path: "/api/parties/{party_id}/effects",
         writes: false,
     },
+    // E12's book-value read (plan Task 5, spec FR-6): the sell prompt's
+    // corpus price lookup. Party-readable like every `/parties` read; it
+    // reports prices and writes nothing — the conversion lives at the sell
+    // apply, not here.
+    ApiRoute {
+        method: "GET",
+        path: "/api/parties/{party_id}/items/book-value",
+        writes: false,
+    },
     // E9's custom-content rows (contracts/custom-rows-rest.md): the list
     // read is party-readable; the create and the creator-only edit are the
     // module's two write surfaces, each carrying its own authorization rule
@@ -169,6 +178,10 @@ pub fn router(auth: Arc<AuthState>, static_dir: &Path, sync: crate::sync::SyncSt
         .route(
             "/parties/{party_id}/effects",
             get(crate::engine_host::rest::effects),
+        )
+        .route(
+            "/parties/{party_id}/items/book-value",
+            get(crate::book_value::resolve),
         )
         .route(
             "/parties/{party_id}/custom",
