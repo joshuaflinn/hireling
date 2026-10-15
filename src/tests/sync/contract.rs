@@ -12,7 +12,7 @@
 use serde_json::Value;
 use strum::IntoEnumIterator;
 
-use crate::sync::protocol::{FieldTarget, VitalsField};
+use crate::sync::protocol::{FieldTarget, PartyField, VitalsField};
 use crate::sync::write::validate_bounds;
 
 /// The fixture this suite pins, relative to the crate manifest (repo root).
@@ -68,6 +68,17 @@ fn every_field_target_variant_is_pinned_to_the_contract_fixture() {
         },
         FieldTarget::Effect { effect_id: 41 },
         FieldTarget::EffectNew { party_id: 1 },
+        FieldTarget::StashNew { party_id: 1 },
+        FieldTarget::Stash {
+            party_id: 1,
+            item_name: "Rope".to_owned(),
+        },
+        FieldTarget::Bank { party_id: 1 },
+        FieldTarget::Party {
+            party_id: 1,
+            field: PartyField::Quartermaster,
+        },
+        FieldTarget::Claim { claim_id: 42 },
     ];
 
     let mut pinned_kinds: Vec<&str> = Vec::new();
@@ -89,6 +100,11 @@ fn every_field_target_variant_is_pinned_to_the_contract_fixture() {
             FieldTarget::Inv { .. } => "inv",
             FieldTarget::Effect { .. } => "effect",
             FieldTarget::EffectNew { .. } => "effect_new",
+            FieldTarget::StashNew { .. } => "stash_new",
+            FieldTarget::Stash { .. } => "stash",
+            FieldTarget::Bank { .. } => "bank",
+            FieldTarget::Party { .. } => "party",
+            FieldTarget::Claim { .. } => "claim",
         };
         pinned_kinds.push(key);
 
@@ -172,6 +188,61 @@ fn the_pinned_vitals_fields_are_the_serde_wire_names_of_the_enum() {
         pinned, wire_names,
         "the fixture's vitals_fields must be exactly the serde wire names of \
          VitalsField — a renamed or added variant is a client-facing contract change"
+    );
+}
+
+#[test]
+fn the_pinned_stash_ops_are_the_write_paths_accepted_set() {
+    let fixture = fixture();
+    let ops: Vec<&str> = fixture
+        .get("stash_ops")
+        .and_then(Value::as_array)
+        .expect("the fixture pins the accepted stash ops")
+        .iter()
+        .map(|op| op.as_str().expect("op names are strings"))
+        .collect();
+
+    // Each pinned op name must be accepted by the write path's own bounds
+    // validator on the stash target the dispatch routes it to — the
+    // fixture's list is production-reachable, not a restated literal
+    // (gh#90 F3). The payloads are the minimum each bounds arm accepts.
+    for op in ops {
+        let value = match op {
+            "qty" => serde_json::json!({"op": "qty", "qty_delta": 1}),
+            "meta" => serde_json::json!({"op": "meta", "notes": "x"}),
+            other => panic!(
+                "the fixture pins stash op {other:?}, which no arm of the \
+                 write path accepts — update the fixture with the write path, \
+                 never ahead of it"
+            ),
+        };
+        assert!(
+            validate_bounds(
+                &FieldTarget::Stash {
+                    party_id: 1,
+                    item_name: "Rope".to_owned(),
+                },
+                &value,
+            )
+            .is_ok(),
+            "the write path's bounds validator must accept the pinned op \
+             {op:?} — the accepted set moved and the fixture is stale"
+        );
+    }
+
+    // The deny arm: an unpinned name is rejected, so the loop above cannot
+    // go green against a validator that accepts everything — and lane L3
+    // cannot land `transfer`/`sell` without the fixture growing.
+    assert!(
+        validate_bounds(
+            &FieldTarget::Stash {
+                party_id: 1,
+                item_name: "Rope".to_owned(),
+            },
+            &serde_json::json!({"op": "transfer"}),
+        )
+        .is_err(),
+        "an op name outside the pinned set must be rejected by the bounds validator"
     );
 }
 

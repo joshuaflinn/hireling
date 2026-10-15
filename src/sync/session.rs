@@ -355,7 +355,7 @@ async fn handle_write(
         base_version,
         value: value.clone(),
     };
-    let result = match apply_write(ctx.pool, &writer, party_id, op).await {
+    let mut result = match apply_write(ctx.pool, &writer, party_id, op).await {
         Ok(result) => result,
         Err(err) => {
             // Database failure: no ack. The client's queue retries per
@@ -376,24 +376,32 @@ async fn handle_write(
     // awaits — so a stalled writer's outbound sink cannot hold the party's
     // committed diff hostage (spec FR-3, scenario 2). Only then is the ack
     // attempted; a stalled or vanished writer delays (worst case forever)
-    // only its own ack, never the party's view. Effect ops replace the
-    // default (target, op.value) echo with the write path's RESOLVED row —
-    // a corpus-condition create fans out the applied signed modifiers, and
-    // a create's address is the new effect id (E8).
-    if result.outcome == Outcome::Applied
-        && let Some(version) = result.version
-    {
-        let (field, value) = result.broadcast.unwrap_or((target.clone(), value));
-        ctx.registry.broadcast(
-            party_id,
-            &ServerFrame::Diff {
-                field,
-                value,
-                version,
-                actor_sub: actor.sub.clone(),
-                op_id: Some(op_id.clone()),
-            },
-        );
+    // only its own ack, never the party's view. A write path that fills
+    // `broadcast` replaces the default echo with its RESOLVED rows — an
+    // effect op's resolved row (E8), and the E12 party writes' row shapes;
+    // a mint carries SEVERAL diffs, each with its own version (a stash_new
+    // fans the stash row and its claim append, D7).
+    if result.outcome == Outcome::Applied {
+        let diffs = if result.broadcast.is_empty() {
+            match result.version {
+                Some(version) => vec![(target.clone(), value, version)],
+                None => Vec::new(),
+            }
+        } else {
+            std::mem::take(&mut result.broadcast)
+        };
+        for (field, diff_value, version) in diffs {
+            ctx.registry.broadcast(
+                party_id,
+                &ServerFrame::Diff {
+                    field,
+                    value: diff_value,
+                    version,
+                    actor_sub: actor.sub.clone(),
+                    op_id: Some(op_id.clone()),
+                },
+            );
+        }
         // The derived consequence fans out AFTER the diff that caused it —
         // TCP-ordered per connection, so every client applies the effect
         // change and its math in sequence (design §bump). One recompute per

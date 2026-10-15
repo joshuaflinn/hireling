@@ -124,6 +124,18 @@ pub fn field_label(target: &crate::sync::protocol::FieldTarget) -> String {
         crate::sync::protocol::FieldTarget::EffectNew { party_id } => {
             format!("effect_new:{party_id}")
         }
+        crate::sync::protocol::FieldTarget::StashNew { party_id } => {
+            format!("stash_new:{party_id}")
+        }
+        crate::sync::protocol::FieldTarget::Stash {
+            party_id,
+            item_name,
+        } => format!("stash:{party_id}:{item_name}"),
+        crate::sync::protocol::FieldTarget::Bank { party_id } => format!("bank:{party_id}"),
+        crate::sync::protocol::FieldTarget::Party { party_id, field } => {
+            format!("party:{}:{party_id}", field.as_str())
+        }
+        crate::sync::protocol::FieldTarget::Claim { claim_id } => format!("claim:{claim_id}"),
     }
 }
 
