@@ -1159,11 +1159,11 @@ test('a stash row fold guards the i32 ceiling on both sides too', () => {
   const stash4 = createStashState({ sync: rowCeiling, partyId: 1 });
   rowCeiling.deliver(STASH_TARGET(1, 'Coin'), ROW('Coin', 2_147_483_647), 90);
   stash4.adjustQty('Coin', -1);
-  assert.deepEqual(quantities(rowCeiling.rows()), { Coin: 2_147_483_646 }, 'one below the row ceiling moves');
+  assert.deepEqual(quantities(stash4.rows()), { Coin: 2_147_483_646 }, 'one below the row ceiling moves');
   stash4.adjustQty('Coin', 1);
-  assert.deepEqual(quantities(rowCeiling.rows()), { Coin: 2_147_483_647 }, 'landing exactly on it is inside the guard');
+  assert.deepEqual(quantities(stash4.rows()), { Coin: 2_147_483_647 }, 'landing exactly on it is inside the guard');
   stash4.adjustQty('Coin', 1);
-  assert.deepEqual(quantities(rowCeiling.rows()), { Coin: 2_147_483_647 }, 'one past it is refused, so the row stays at MAX');
+  assert.deepEqual(quantities(stash4.rows()), { Coin: 2_147_483_647 }, 'one past it is refused, so the row stays at MAX');
 });
 
 // --- round-2 finding 2: a refusal removes ONE op, not the queue behind it ---
