@@ -522,7 +522,7 @@ test('invalid compound input never reaches the wire', () => {
   stash.transfer('Longsword', 0, 'out', 7); // qty must be >= 1
   stash.transfer('Longsword', 1.5, 'out', 7); // integer only
   stash.transfer('Longsword', 1, 'sideways', 7); // direction is in|out
-  stash.transfer('Longsword', 1, 'out', 0); // character_id must be an int
+  stash.transfer('Longsword', 1, 'out', 'nope'); // character_id must be an int
   stash.sell('Longsword', 1, {}); // price must have a positive denomination
   stash.sell('Longsword', 1, { gp: -1 }); // negative denomination
   stash.sell('Longsword', 0, { gp: 1 }); // qty must be >= 1
