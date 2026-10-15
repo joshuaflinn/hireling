@@ -289,7 +289,11 @@ jobs:
               args+=(--image-source "$image_path=$out")
             fi
           done < <(grep -v '^#' scripts/gate_vendored.tsv)
-          python3 scripts/check_gate_vendored.py --require-image-sources "${args[@]}"
+          # --allow-unvendored: same reason as the offline step above — the
+          # git-ignored rule directory is structurally absent from a CI
+          # checkout, and this step's job is to prove the image still carries
+          # the pinned bytes (check_image_sources), not the local tree.
+          python3 scripts/check_gate_vendored.py --allow-unvendored --require-image-sources "${args[@]}"
 
       # GIT_CONFIG_*/safe.directory: the cache restore extracts as the runner
       # user, so cached git state (cargo-deny's advisory DB, any future git
