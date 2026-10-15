@@ -827,13 +827,14 @@ async fn apply_party_write(
                 *target_party_id,
                 item_name,
                 op.base_version,
+                actor,
                 &op.value,
             )
             .await
         }
         FieldTarget::Bank {
             party_id: target_party_id,
-        } => bank_tx(&mut tx, *target_party_id, &op.value).await,
+        } => bank_tx(&mut tx, *target_party_id, actor, &op.value).await,
         FieldTarget::Party {
             party_id: target_party_id,
             field: PartyField::Quartermaster,
@@ -952,73 +953,39 @@ async fn party_write_matrix_denial(
     op: &ClientOp,
 ) -> anyhow::Result<Option<WriteResult>> {
     match &op.target {
-        FieldTarget::StashNew { .. } | FieldTarget::Stash { .. } => {
-            let member = is_party_member(pool, actor, party_id).await?;
-            if authorize(
-                actor,
-                Action::Write,
-                &Resource::Stash {
-                    actor_is_party_member: member,
-                },
-            ) == Verdict::Deny
-            {
-                return record_party_denial(
+        FieldTarget::StashNew { .. } => {
+            deny_non_member(pool, actor, party_id, op, AuditEvent::ForbiddenStashWrite).await
+        }
+        FieldTarget::Stash { .. } => {
+            // The sell op moves coin into the party bank, so it routes
+            // through the Bank resource (D4): QM-only, regardless of stash
+            // membership. The other stash ops stay on the member gate.
+            let is_sell = op.value.get("op").and_then(JsonValue::as_str) == Some("sell");
+            if is_sell {
+                deny_non_quartermaster_owner(
                     pool,
                     actor,
+                    party_id,
                     op,
-                    "not a member of this party".to_owned(),
-                    AuditEvent::ForbiddenStashWrite,
+                    "only the quartermaster's owner may sell the stash",
                 )
                 .await
-                .map(Some);
+            } else {
+                deny_non_member(pool, actor, party_id, op, AuditEvent::ForbiddenStashWrite).await
             }
         }
         FieldTarget::Bank { .. } => {
-            let owner = quartermaster_owner(pool, party_id).await?;
-            if authorize(
+            deny_non_quartermaster_owner(
+                pool,
                 actor,
-                Action::Write,
-                &Resource::Bank {
-                    quartermaster_owner_sub: owner.clone(),
-                },
-            ) == Verdict::Deny
-            {
-                let reason = if owner.is_none() {
-                    "no quartermaster is designated"
-                } else {
-                    "only the quartermaster's owner may move the bank"
-                };
-                return record_party_denial(
-                    pool,
-                    actor,
-                    op,
-                    reason.to_owned(),
-                    AuditEvent::ForbiddenBankWrite,
-                )
-                .await
-                .map(Some);
-            }
+                party_id,
+                op,
+                "only the quartermaster's owner may move the bank",
+            )
+            .await
         }
         FieldTarget::Party { .. } => {
-            let member = is_party_member(pool, actor, party_id).await?;
-            if authorize(
-                actor,
-                Action::Write,
-                &Resource::PartySettings {
-                    actor_is_party_member: member,
-                },
-            ) == Verdict::Deny
-            {
-                return record_party_denial(
-                    pool,
-                    actor,
-                    op,
-                    "not a member of this party".to_owned(),
-                    AuditEvent::ForbiddenPartyWrite,
-                )
-                .await
-                .map(Some);
-            }
+            deny_non_member(pool, actor, party_id, op, AuditEvent::ForbiddenPartyWrite).await
         }
         // Covered by the scope match above.
         FieldTarget::Claim { .. }
@@ -1026,17 +993,69 @@ async fn party_write_matrix_denial(
         | FieldTarget::Slot { .. }
         | FieldTarget::Inv { .. }
         | FieldTarget::Effect { .. }
-        | FieldTarget::EffectNew { .. } => {
-            return record_denial(
-                pool,
-                actor,
-                op,
-                Outcome::Rejected,
-                "unknown target".to_owned(),
-            )
+        | FieldTarget::EffectNew { .. } => record_denial(
+            pool,
+            actor,
+            op,
+            Outcome::Rejected,
+            "unknown target".to_owned(),
+        )
+        .await
+        .map(Some),
+    }
+}
+
+/// The member gate (D4): stash and party-settings surfaces open to any
+/// character owner of the party. The GM case is pre-gated by the role check,
+/// so a non-GM actor's verdict is the membership bit; a non-member audits
+/// under `event`.
+async fn deny_non_member(
+    pool: &PgPool,
+    actor: &Actor,
+    party_id: i64,
+    op: &ClientOp,
+    event: AuditEvent,
+) -> anyhow::Result<Option<WriteResult>> {
+    if !is_party_member(pool, actor, party_id).await? {
+        return record_party_denial(
+            pool,
+            actor,
+            op,
+            "not a member of this party".to_owned(),
+            event,
+        )
+        .await
+        .map(Some);
+    }
+    Ok(None)
+}
+
+/// The bank gate (D4): sell and manual adjustment are QM-only. `denied_reason`
+/// names the surface; the denial audits under `forbidden_bank_write`.
+async fn deny_non_quartermaster_owner(
+    pool: &PgPool,
+    actor: &Actor,
+    party_id: i64,
+    op: &ClientOp,
+    denied_reason: &str,
+) -> anyhow::Result<Option<WriteResult>> {
+    let owner = quartermaster_owner(pool, party_id).await?;
+    if authorize(
+        actor,
+        Action::Write,
+        &Resource::Bank {
+            quartermaster_owner_sub: owner.clone(),
+        },
+    ) == Verdict::Deny
+    {
+        let reason = if owner.is_none() {
+            "no quartermaster is designated".to_owned()
+        } else {
+            denied_reason.to_owned()
+        };
+        return record_party_denial(pool, actor, op, reason, AuditEvent::ForbiddenBankWrite)
             .await
             .map(Some);
-        }
     }
     Ok(None)
 }
@@ -1180,35 +1199,53 @@ async fn stash_tx(
     party_id: i64,
     item_name: &str,
     base_version: i64,
+    actor: &Actor,
     value: &JsonValue,
 ) -> anyhow::Result<PartyApply> {
     let op = value.get("op").and_then(JsonValue::as_str).unwrap_or("");
     match op {
         "qty" => stash_qty_tx(tx, party_id, item_name, value).await,
         "meta" => stash_meta_tx(tx, party_id, item_name, base_version, value).await,
-        // Bounds admits only qty and meta (Task 3 adds transfer/sell).
+        "transfer" => stash_transfer_tx(tx, party_id, item_name, actor, value).await,
+        "sell" => stash_sell_tx(tx, party_id, item_name, actor, value).await,
         _ => Ok(PartyApply::rejected(format!(
-            "unknown stash op {op:?} (qty and meta are the wired ops)"
+            "unknown stash op {op:?} (qty, meta, transfer, and sell are the wired ops)"
         ))),
     }
 }
 
-/// The additive qty arm (D2): no version predicate — a stale base still
-/// applies, serialized by the row lock. An impossible draw refuses with a
-/// pre-formatted reason instead of erroring the driver; a draw that lands
-/// exactly on zero deletes the row (FR-1) and fans a removal diff.
-async fn stash_qty_tx(
+/// The outcome of one additive stash delta: the row moved, the row hit zero
+/// (deleted — FR-1), or the draw refused (unknown row / below-zero /
+/// overflow). Shared by the `qty` op, the transfer's stash side, and the
+/// sell's draw, so the underflow/overflow semantics have one owner.
+enum StashDeltaOutcome {
+    Applied {
+        quantity: i32,
+        bulk: Option<f64>,
+        notes: String,
+        version: i64,
+    },
+    Deleted {
+        version: i64,
+    },
+    Refused {
+        reason: String,
+    },
+}
+
+/// One additive stash delta (`qty_delta` signed). The quantity guard carries
+/// the shipped CHECK's semantics (> 0) plus the column's ceiling; the
+/// predicate sums in bigint so an out-of-range delta refuses instead of
+/// raising 22003 and erroring the driver — the SET never evaluates a
+/// filtered-out row, and a matched row's sum is already within [1, `i32::MAX`],
+/// so the int4 arithmetic there is safe. A draw landing exactly on zero
+/// deletes the row (FR-1) with a fresh tombstone version.
+async fn apply_stash_delta(
     tx: &mut Transaction<'_, Postgres>,
     party_id: i64,
     item_name: &str,
-    value: &JsonValue,
-) -> anyhow::Result<PartyApply> {
-    let qty_delta = as_i32(value.get("qty_delta").unwrap_or(&JsonValue::Null));
-    // The quantity guard carries the shipped CHECK's semantics (> 0) plus
-    // the column's ceiling. The predicate sums in bigint so an out-of-range
-    // delta refuses instead of raising 22003 and erroring the driver — the
-    // SET never evaluates a filtered-out row, and a matched row's sum is
-    // already within [1, i32::MAX], so the int4 arithmetic there is safe.
+    qty_delta: i32,
+) -> anyhow::Result<StashDeltaOutcome> {
     let ceiling = i64::from(i32::MAX);
     let updated: Option<(i32, Option<f64>, String, i64)> = sqlx::query_as(
         "UPDATE party_stash SET quantity = quantity + $1, \
@@ -1223,9 +1260,87 @@ async fn stash_qty_tx(
     .bind(ceiling)
     .fetch_optional(&mut **tx)
     .await
-    .context("additive stash qty")?;
+    .context("additive stash delta")?;
     if let Some((quantity, bulk, notes, version)) = updated {
-        return Ok(PartyApply {
+        return Ok(StashDeltaOutcome::Applied {
+            quantity,
+            bulk,
+            notes,
+            version,
+        });
+    }
+
+    let deleted: Option<i64> = sqlx::query_scalar(
+        "DELETE FROM party_stash WHERE party_id = $1 AND item_name = $2 \
+           AND quantity::bigint + $3 = 0 RETURNING version",
+    )
+    .bind(party_id)
+    .bind(item_name)
+    .bind(qty_delta)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("stash delta delete-at-zero")?;
+    if deleted.is_some() {
+        let version: i64 = sqlx::query_scalar("SELECT nextval('field_version_seq')")
+            .fetch_one(&mut **tx)
+            .await
+            .context("stash removal tombstone version")?;
+        return Ok(StashDeltaOutcome::Deleted { version });
+    }
+
+    // Missing row vs refused draw: read the row to tell them apart
+    // (contract §4: unknown target is `rejected`).
+    let existing: Option<i32> = sqlx::query_scalar(
+        "SELECT quantity FROM party_stash WHERE party_id = $1 AND item_name = $2",
+    )
+    .bind(party_id)
+    .bind(item_name)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("stash row read")?;
+    Ok(match existing {
+        None => StashDeltaOutcome::Refused {
+            reason: "unknown target".to_owned(),
+        },
+        Some(current) => {
+            let target = i64::from(current) + i64::from(qty_delta);
+            if target < 0 {
+                StashDeltaOutcome::Refused {
+                    reason: format!(
+                        "that draw would drive \"{item_name}\" below zero \
+                         ({current} in the stash, {qty_delta} asked)"
+                    ),
+                }
+            } else {
+                StashDeltaOutcome::Refused {
+                    reason: format!(
+                        "that draw would overflow \"{item_name}\"'s quantity \
+                         ({current} in the stash, {qty_delta} asked)"
+                    ),
+                }
+            }
+        }
+    })
+}
+
+/// The additive qty arm (D2): no version predicate — a stale base still
+/// applies, serialized by the row lock. An impossible draw refuses with a
+/// pre-formatted reason instead of erroring the driver; a draw that lands
+/// exactly on zero deletes the row (FR-1) and fans a removal diff.
+async fn stash_qty_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    party_id: i64,
+    item_name: &str,
+    value: &JsonValue,
+) -> anyhow::Result<PartyApply> {
+    let qty_delta = as_i32(value.get("qty_delta").unwrap_or(&JsonValue::Null)).unwrap_or_default();
+    match apply_stash_delta(tx, party_id, item_name, qty_delta).await? {
+        StashDeltaOutcome::Applied {
+            quantity,
+            bulk,
+            notes,
+            version,
+        } => Ok(PartyApply {
             outcome: Outcome::Applied,
             version: Some(version),
             winning_version: None,
@@ -1243,29 +1358,8 @@ async fn stash_qty_tx(
                 }),
                 version,
             )],
-        });
-    }
-
-    // A draw that lands exactly on zero empties the row (FR-1: delete at
-    // zero, never retained). The removal diff is a tombstone — `value:null`
-    // on the stash target — carrying a fresh sequence version so every seat
-    // drops the row under the strictly-newer rule (wire-protocol §4).
-    let deleted: Option<i64> = sqlx::query_scalar(
-        "DELETE FROM party_stash WHERE party_id = $1 AND item_name = $2 \
-           AND quantity::bigint + $3 = 0 RETURNING version",
-    )
-    .bind(party_id)
-    .bind(item_name)
-    .bind(qty_delta)
-    .fetch_optional(&mut **tx)
-    .await
-    .context("stash qty delete-at-zero")?;
-    if deleted.is_some() {
-        let version: i64 = sqlx::query_scalar("SELECT nextval('field_version_seq')")
-            .fetch_one(&mut **tx)
-            .await
-            .context("stash removal tombstone version")?;
-        return Ok(PartyApply {
+        }),
+        StashDeltaOutcome::Deleted { version } => Ok(PartyApply {
             outcome: Outcome::Applied,
             version: Some(version),
             winning_version: None,
@@ -1278,38 +1372,9 @@ async fn stash_qty_tx(
                 JsonValue::Null,
                 version,
             )],
-        });
+        }),
+        StashDeltaOutcome::Refused { reason } => Ok(PartyApply::rejected(reason)),
     }
-
-    // Missing row vs refused draw: read the row to tell them apart
-    // (contract §4: unknown target is `rejected`).
-    let existing: Option<i32> = sqlx::query_scalar(
-        "SELECT quantity FROM party_stash WHERE party_id = $1 AND item_name = $2",
-    )
-    .bind(party_id)
-    .bind(item_name)
-    .fetch_optional(&mut **tx)
-    .await
-    .context("stash row read")?;
-    Ok(match existing {
-        None => PartyApply::rejected("unknown target".to_owned()),
-        Some(current) => {
-            let target = i64::from(current) + i64::from(qty_delta.unwrap_or_default());
-            if target < 0 {
-                PartyApply::rejected(format!(
-                    "that draw would drive \"{item_name}\" below zero \
-                     ({current} in the stash, {delta} asked)",
-                    delta = qty_delta.unwrap_or_default()
-                ))
-            } else {
-                PartyApply::rejected(format!(
-                    "that draw would overflow \"{item_name}\"'s quantity \
-                     ({current} in the stash, {delta} asked)",
-                    delta = qty_delta.unwrap_or_default()
-                ))
-            }
-        }
-    })
 }
 
 /// The CAS meta arm (D2, FR-2.2): the provided keys are set, the row
@@ -1411,20 +1476,298 @@ async fn stash_meta_tx(
     })
 }
 
-/// The bank's additive apply (D2): one version unit, signed per-denomination
-/// deltas, the shipped CHECKs' semantics enforced in the predicate so an
-/// impossible apply refuses with a pre-formatted reason instead of erroring
-/// the driver. The predicates sum in bigint so an out-of-range delta refuses
-/// (never raises 22003). The balance row mints with the party's first
-/// movement.
-async fn bank_tx(
+/// The transfer arm (D3, FR-3): one transaction moving `qty` of the named
+/// item between the stash and a roster character's inventory, either
+/// direction, with exactly one claim row. Both sides are additive — the
+/// stash delta and the character's `qty_delta` sum, serialized by the row
+/// locks; a draw that overdraws the stash refuses whole (nothing partial, no
+/// claim row). `direction:"out"` = stash → character; `"in"` = character →
+/// stash. The claim label freezes the counterparty's display name at event
+/// time (FR-4): `character:<base_sheet.identity.name>`, empty when unnamed
+/// — degraded display, never a wrong name (recompute's `party_source_names`).
+/// The character side is the one sanctioned non-owner inventory write (D4);
+/// accountability rides the claim row's actor, not ownership.
+async fn stash_transfer_tx(
     tx: &mut Transaction<'_, Postgres>,
     party_id: i64,
+    item_name: &str,
+    actor: &Actor,
     value: &JsonValue,
 ) -> anyhow::Result<PartyApply> {
-    let gp_delta = as_i32(value.get("gp_delta").unwrap_or(&JsonValue::Null));
-    let sp_delta = as_i32(value.get("sp_delta").unwrap_or(&JsonValue::Null));
-    let cp_delta = as_i32(value.get("cp_delta").unwrap_or(&JsonValue::Null));
+    let direction = value
+        .get("direction")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("");
+    let qty = as_i32(value.get("qty").unwrap_or(&JsonValue::Null)).unwrap_or_default();
+    let Some(character_id) = value.get("character_id").and_then(JsonValue::as_i64) else {
+        return Ok(PartyApply::rejected(
+            "transfer needs an integer character_id".to_owned(),
+        ));
+    };
+
+    // The counterparty must be a roster character; its display name freezes
+    // into the claim label now (FR-4) — a later rename never rewrites rows.
+    let name: Option<String> = sqlx::query_scalar(
+        "SELECT base_sheet->'identity'->>'name' FROM characters \
+         WHERE id = $1 AND party_id = $2",
+    )
+    .bind(character_id)
+    .bind(party_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("transfer counterparty lookup")?;
+    let Some(name) = name else {
+        return Ok(PartyApply::rejected(format!(
+            "character {character_id} is not a roster character of this party"
+        )));
+    };
+
+    // FR-9's order: the claim row appends before the field changes; a
+    // refusal in either field change rolls it back whole with the rest.
+    let (origin, destination) = match direction {
+        "out" => ("stash".to_owned(), format!("character:{name}")),
+        "in" => (format!("character:{name}"), "stash".to_owned()),
+        _ => {
+            return Ok(PartyApply::rejected(
+                "transfer.direction must be \"in\" or \"out\"".to_owned(),
+            ));
+        }
+    };
+    let claim_id: i64 = sqlx::query_scalar(
+        "INSERT INTO claim_history (party_id, item_name, quantity, origin, destination, actor_sub) \
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    )
+    .bind(party_id)
+    .bind(item_name)
+    .bind(qty)
+    .bind(&origin)
+    .bind(&destination)
+    .bind(&actor.sub)
+    .fetch_one(&mut **tx)
+    .await
+    .context("transfer claim row")?;
+
+    let stash_delta = if direction == "out" { -qty } else { qty };
+    let (stash_diff, stash_version) =
+        match apply_stash_delta(tx, party_id, item_name, stash_delta).await? {
+            StashDeltaOutcome::Applied {
+                quantity,
+                bulk,
+                notes,
+                version,
+            } => (
+                serde_json::json!({
+                    "item_name": item_name,
+                    "quantity": quantity,
+                    "bulk": bulk,
+                    "notes": notes,
+                }),
+                version,
+            ),
+            StashDeltaOutcome::Deleted { version } => (JsonValue::Null, version),
+            StashDeltaOutcome::Refused { reason } => return Ok(PartyApply::rejected(reason)),
+        };
+
+    // The character side: additive on the stored delta, minting the row when
+    // absent (D3 — no baseline read, no read-modify-write; E7's `cas_inv`
+    // ruling governs the column).
+    let character_delta = if direction == "out" { qty } else { -qty };
+    let character_diff =
+        apply_inventory_delta(tx, character_id, item_name, character_delta).await?;
+
+    let claim_value = read_claim_row(&mut **tx, claim_id).await?;
+    Ok(PartyApply {
+        outcome: Outcome::Applied,
+        version: Some(stash_version),
+        winning_version: None,
+        reason: None,
+        diffs: vec![
+            (
+                FieldTarget::Stash {
+                    party_id,
+                    item_name: item_name.to_owned(),
+                },
+                stash_diff,
+                stash_version,
+            ),
+            character_diff,
+            (FieldTarget::Claim { claim_id }, claim_value, claim_id),
+        ],
+    })
+}
+
+/// One additive `character_inventory_live.qty_delta` adjust, minting the row
+/// when absent — the transfer's character side (D3). Additive on the stored
+/// delta, no baseline read, no read-modify-write (E7's `cas_inv` ruling
+/// governs the column); the transfer op is the sanctioned non-owner writer
+/// (D4). Returns the resolved diff.
+async fn apply_inventory_delta(
+    tx: &mut Transaction<'_, Postgres>,
+    character_id: i64,
+    item_name: &str,
+    qty_delta: i32,
+) -> anyhow::Result<(FieldTarget, JsonValue, i64)> {
+    let (delta, version): (i32, i64) = sqlx::query_as(
+        "INSERT INTO character_inventory_live (character_id, item_name, qty_delta, version) \
+         VALUES ($1, $2, $3, nextval('field_version_seq')) \
+         ON CONFLICT (character_id, item_name) DO UPDATE \
+           SET qty_delta = character_inventory_live.qty_delta + EXCLUDED.qty_delta, \
+               version = nextval('field_version_seq'), updated_at = now() \
+         RETURNING qty_delta, version",
+    )
+    .bind(character_id)
+    .bind(item_name)
+    .bind(qty_delta)
+    .fetch_one(&mut **tx)
+    .await
+    .context("character inventory delta")?;
+    Ok((
+        FieldTarget::Inv {
+            character_id,
+            item_name: item_name.to_owned(),
+        },
+        serde_json::json!({"qty_delta": delta}),
+        version,
+    ))
+}
+
+/// The sell arm (D3, FR-6): one transaction removing `qty` from the stash
+/// row (deleted at zero), crediting the sale value to the party bank, and
+/// appending one claim row (`stash → bank`, coins = the confirmed value).
+/// QM-only — the matrix routes the sell through the Bank resource (D4). The
+/// price is `{pp?, gp?, sp?, cp?}` with at least one positive denomination;
+/// the bank holds gp/sp/cp only, so pp credits its gp equivalent at the
+/// `PF2e` rate, the one conversion site in the codebase (FR-6 quotes none):
+///
+/// > "A platinum piece is worth 10 gold pieces, 100 silver pieces, or 1,000
+/// > copper pieces." — Pathfinder Player Core pg. 267 (Coins and Currency)
+/// >
+/// > 1 pp = 10 gp.
+///
+/// A full-quantity sell deletes the row; a partial one reduces it. Overdraw
+/// refuses whole (no bank credit, no claim row).
+async fn stash_sell_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    party_id: i64,
+    item_name: &str,
+    actor: &Actor,
+    value: &JsonValue,
+) -> anyhow::Result<PartyApply> {
+    let qty = as_i32(value.get("qty").unwrap_or(&JsonValue::Null)).unwrap_or_default();
+    let price = MoneyValue::from_json(value.get("price").unwrap_or(&JsonValue::Null));
+    // 1 pp = 10 gp — the one conversion site (FR-6); see the doc comment.
+    // Computed in i64 so an unrepresentable gp equivalent refuses here,
+    // before the claim row, instead of overflowing the int column.
+    let gp_total = i64::from(price.gp.unwrap_or(0)) + i64::from(price.pp.unwrap_or(0)) * 10;
+    let Ok(gp_total) = i32::try_from(gp_total) else {
+        return Ok(PartyApply::rejected(
+            "the sale value's gp equivalent overflows the bank's gp column".to_owned(),
+        ));
+    };
+    let sp = price.sp.unwrap_or(0);
+    let cp = price.cp.unwrap_or(0);
+
+    // FR-9's order: the claim row appends before the field changes, so a
+    // refusal rolls it back whole. The money row carries the converted,
+    // positive denominations (D1.3); `quantity` is the meaningless 1 the
+    // schema's CHECK demands, and the item label is the sold item's name.
+    let claim_id: i64 = sqlx::query_scalar(
+        "INSERT INTO claim_history (party_id, item_name, quantity, origin, destination, actor_sub, \
+         coins_gp, coins_sp, coins_cp) \
+         VALUES ($1, $2, 1, 'stash', 'bank', $3, $4, $5, $6) RETURNING id",
+    )
+    .bind(party_id)
+    .bind(item_name)
+    .bind(&actor.sub)
+    .bind(gp_total)
+    .bind(sp)
+    .bind(cp)
+    .fetch_one(&mut **tx)
+    .await
+    .context("sell claim row")?;
+
+    let (stash_diff, stash_version) = match apply_stash_delta(tx, party_id, item_name, -qty).await?
+    {
+        StashDeltaOutcome::Applied {
+            quantity,
+            bulk,
+            notes,
+            version,
+        } => (
+            serde_json::json!({
+                "item_name": item_name,
+                "quantity": quantity,
+                "bulk": bulk,
+                "notes": notes,
+            }),
+            version,
+        ),
+        StashDeltaOutcome::Deleted { version } => (JsonValue::Null, version),
+        StashDeltaOutcome::Refused { reason } => return Ok(PartyApply::rejected(reason)),
+    };
+
+    let bank_diff = match apply_bank_delta(tx, party_id, gp_total, sp, cp).await? {
+        BankDeltaOutcome::Applied {
+            gp,
+            sp,
+            cp,
+            version,
+        } => (
+            FieldTarget::Bank { party_id },
+            serde_json::json!({"gp": gp, "sp": sp, "cp": cp}),
+            version,
+        ),
+        BankDeltaOutcome::Refused { reason } => return Ok(PartyApply::rejected(reason)),
+    };
+
+    let claim_value = read_claim_row(&mut **tx, claim_id).await?;
+    Ok(PartyApply {
+        outcome: Outcome::Applied,
+        version: Some(stash_version),
+        winning_version: None,
+        reason: None,
+        diffs: vec![
+            (
+                FieldTarget::Stash {
+                    party_id,
+                    item_name: item_name.to_owned(),
+                },
+                stash_diff,
+                stash_version,
+            ),
+            bank_diff,
+            (FieldTarget::Claim { claim_id }, claim_value, claim_id),
+        ],
+    })
+}
+
+/// The outcome of one additive bank delta: the balance moved, or the apply
+/// refused (a denomination below zero / past the ceiling). Shared by the
+/// `bank` adjust and the sell's credit.
+enum BankDeltaOutcome {
+    Applied {
+        gp: i32,
+        sp: i32,
+        cp: i32,
+        version: i64,
+    },
+    Refused {
+        reason: String,
+    },
+}
+
+/// One additive bank delta (signed per denomination). The shipped CHECKs'
+/// semantics are enforced in the predicate so an impossible apply refuses
+/// with a pre-formatted reason instead of erroring the driver; the
+/// predicates sum in bigint so an out-of-range delta refuses (never raises
+/// 22003). The balance row mints with the party's first movement.
+async fn apply_bank_delta(
+    tx: &mut Transaction<'_, Postgres>,
+    party_id: i64,
+    gp_delta: i32,
+    sp_delta: i32,
+    cp_delta: i32,
+) -> anyhow::Result<BankDeltaOutcome> {
     sqlx::query("INSERT INTO party_bank (party_id) VALUES ($1) ON CONFLICT (party_id) DO NOTHING")
         .bind(party_id)
         .execute(&mut **tx)
@@ -1457,9 +1800,9 @@ async fn bank_tx(
                 .await
                 .context("bank row read")?;
         let denominations = [
-            ("gp", gp, gp_delta.unwrap_or_default()),
-            ("sp", sp, sp_delta.unwrap_or_default()),
-            ("cp", cp, cp_delta.unwrap_or_default()),
+            ("gp", gp, gp_delta),
+            ("sp", sp, sp_delta),
+            ("cp", cp, cp_delta),
         ];
         let reason = match denominations
             .iter()
@@ -1470,19 +1813,81 @@ async fn bank_tx(
             ),
             None => "that adjustment would overflow the balance".to_owned(),
         };
-        return Ok(PartyApply::rejected(reason));
+        return Ok(BankDeltaOutcome::Refused { reason });
     };
-    Ok(PartyApply {
-        outcome: Outcome::Applied,
-        version: Some(version),
-        winning_version: None,
-        reason: None,
-        diffs: vec![(
-            FieldTarget::Bank { party_id },
-            serde_json::json!({"gp": gp, "sp": sp, "cp": cp}),
-            version,
-        )],
+    Ok(BankDeltaOutcome::Applied {
+        gp,
+        sp,
+        cp,
+        version,
     })
+}
+
+/// The bank's additive adjust (D2, FR-7): signed per-denomination deltas and
+/// exactly one claim row in the same transaction (FR-9). The claim row's
+/// coins carry the signed amounts (D1.3); the origin/destination reads the
+/// movement's direction by sign — a withdrawal is `bank → outside`, a
+/// deposit `outside → bank` (a zero-net adjustment takes the deposit label)
+/// — and `item_name` carries the fixed `bank adjustment` label (D1.3 — no
+/// note field). A refusal rolls the claim row back whole with the balance.
+async fn bank_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    party_id: i64,
+    actor: &Actor,
+    value: &JsonValue,
+) -> anyhow::Result<PartyApply> {
+    let gp_delta = as_i32(value.get("gp_delta").unwrap_or(&JsonValue::Null)).unwrap_or_default();
+    let sp_delta = as_i32(value.get("sp_delta").unwrap_or(&JsonValue::Null)).unwrap_or_default();
+    let cp_delta = as_i32(value.get("cp_delta").unwrap_or(&JsonValue::Null)).unwrap_or_default();
+
+    // FR-9's order: the claim row appends before the balance change, so a
+    // refusal rolls it back whole. Direction by the net sign.
+    let (origin, destination) = if gp_delta < 0 || sp_delta < 0 || cp_delta < 0 {
+        ("bank".to_owned(), "outside".to_owned())
+    } else {
+        ("outside".to_owned(), "bank".to_owned())
+    };
+    let claim_id: i64 = sqlx::query_scalar(
+        "INSERT INTO claim_history (party_id, item_name, quantity, origin, destination, actor_sub, \
+         coins_gp, coins_sp, coins_cp) \
+         VALUES ($1, 'bank adjustment', 1, $2, $3, $4, $5, $6, $7) RETURNING id",
+    )
+    .bind(party_id)
+    .bind(&origin)
+    .bind(&destination)
+    .bind(&actor.sub)
+    .bind(gp_delta)
+    .bind(sp_delta)
+    .bind(cp_delta)
+    .fetch_one(&mut **tx)
+    .await
+    .context("bank adjustment claim row")?;
+
+    match apply_bank_delta(tx, party_id, gp_delta, sp_delta, cp_delta).await? {
+        BankDeltaOutcome::Applied {
+            gp,
+            sp,
+            cp,
+            version,
+        } => {
+            let claim_value = read_claim_row(&mut **tx, claim_id).await?;
+            Ok(PartyApply {
+                outcome: Outcome::Applied,
+                version: Some(version),
+                winning_version: None,
+                reason: None,
+                diffs: vec![
+                    (
+                        FieldTarget::Bank { party_id },
+                        serde_json::json!({"gp": gp, "sp": sp, "cp": cp}),
+                        version,
+                    ),
+                    (FieldTarget::Claim { claim_id }, claim_value, claim_id),
+                ],
+            })
+        }
+        BankDeltaOutcome::Refused { reason } => Ok(PartyApply::rejected(reason)),
+    }
 }
 
 /// The quartermaster designation: an absolute write under CAS on
@@ -2601,11 +3006,83 @@ fn validate_stash(value: &JsonValue) -> Result<(), String> {
             }
             Ok(())
         }
+        Some("transfer") => {
+            if object.len() != 4
+                || !object.contains_key("direction")
+                || !object.contains_key("qty")
+                || !object.contains_key("character_id")
+            {
+                return Err(
+                    "stash transfer value must be exactly {op, direction, qty, character_id}"
+                        .to_owned(),
+                );
+            }
+            match object.get("direction").and_then(JsonValue::as_str) {
+                Some("in" | "out") => {}
+                _ => return Err("transfer.direction must be \"in\" or \"out\"".to_owned()),
+            }
+            match object
+                .get("qty")
+                .and_then(JsonValue::as_i64)
+                .and_then(|quantity| i32::try_from(quantity).ok())
+            {
+                Some(quantity) if quantity >= 1 => {}
+                _ => return Err("transfer.qty must be an integer \u{2265} 1".to_owned()),
+            }
+            match object.get("character_id").and_then(JsonValue::as_i64) {
+                Some(_) => Ok(()),
+                None => Err("transfer.character_id must be an integer".to_owned()),
+            }
+        }
+        Some("sell") => {
+            if object.len() != 3 || !object.contains_key("qty") || !object.contains_key("price") {
+                return Err("stash sell value must be exactly {op, qty, price}".to_owned());
+            }
+            match object
+                .get("qty")
+                .and_then(JsonValue::as_i64)
+                .and_then(|quantity| i32::try_from(quantity).ok())
+            {
+                Some(quantity) if quantity >= 1 => {}
+                _ => return Err("sell.qty must be an integer \u{2265} 1".to_owned()),
+            }
+            validate_sell_price(object.get("price"))
+        }
         Some(other) => Err(format!(
-            "unknown stash op {other:?} (qty and meta are the wired ops)"
+            "unknown stash op {other:?} (qty, meta, transfer, and sell are the wired ops)"
         )),
         None => Err("stash value needs an op".to_owned()),
     }
+}
+
+/// The sell price (FR-6): `{pp?, gp?, sp?, cp?}`, every present denomination
+/// a non-negative i32-range integer, at least one positive. The bank holds
+/// gp/sp/cp only; pp converts to gp at apply time (the one conversion site).
+fn validate_sell_price(value: Option<&JsonValue>) -> Result<(), String> {
+    let Some(object) = value.and_then(JsonValue::as_object) else {
+        return Err("sell.price must be an object {pp?, gp?, sp?, cp?}".to_owned());
+    };
+    for key in object.keys() {
+        if !matches!(key.as_str(), "pp" | "gp" | "sp" | "cp") {
+            return Err(format!("sell.price: unknown key {key:?}"));
+        }
+    }
+    let mut any_positive = false;
+    for key in ["pp", "gp", "sp", "cp"] {
+        match object.get(key).and_then(JsonValue::as_i64) {
+            Some(amount) if (0..=i64::from(i32::MAX)).contains(&amount) => {
+                any_positive |= amount > 0;
+            }
+            Some(_) => {
+                return Err(format!("sell.price.{key} must be an integer \u{2265} 0"));
+            }
+            None => {}
+        }
+    }
+    if !any_positive {
+        return Err("sell.price needs at least one positive denomination".to_owned());
+    }
+    Ok(())
 }
 
 /// `party_stash.bulk` is numeric(6,1): 0..=99999.9, absent/null = negligible
@@ -2981,8 +3458,8 @@ mod bounds_tests {
     }
 
     #[test]
-    fn party_target_bounds_reject_and_accept_exactly() {
-        // E12's party targets (design D2).
+    fn stash_target_bounds_reject_and_accept_exactly() {
+        // E12's stash targets (design D2).
         let mint = |value| validate_bounds(&FieldTarget::StashNew { party_id: 1 }, &value);
         assert!(mint(json!({"item_name": "Rope", "quantity": 1})).is_ok());
         assert!(
@@ -3039,12 +3516,42 @@ mod bounds_tests {
             "needs at least one field"
         );
         assert!(stash(json!({"op": "meta", "bulk": -1})).is_err());
+        // Transfer (D3): exactly {op, direction, qty, character_id}.
+        assert!(
+            stash(json!({"op": "transfer", "direction": "out", "qty": 1, "character_id": 7}))
+                .is_ok()
+        );
+        assert!(
+            stash(json!({"op": "transfer", "direction": "in", "qty": 1, "character_id": 7}))
+                .is_ok()
+        );
+        assert!(
+            stash(json!({"op": "transfer", "direction": "sideways", "qty": 1, "character_id": 7}))
+                .is_err()
+        );
+        assert!(
+            stash(json!({"op": "transfer", "direction": "out", "qty": 0, "character_id": 7}))
+                .is_err()
+        );
+        assert!(stash(json!({"op": "transfer", "direction": "out", "qty": 1})).is_err());
+        // Sell (D3): exactly {op, qty, price}; price may be any one of the
+        // four denominations but at least one must be positive.
+        assert!(stash(json!({"op": "sell", "qty": 1, "price": {"gp": 10}})).is_ok());
+        assert!(stash(json!({"op": "sell", "qty": 1, "price": {"pp": 1}})).is_ok());
+        assert!(stash(json!({"op": "sell", "qty": 1, "price": {"sp": 5, "cp": 3}})).is_ok());
         assert!(
             stash(json!({"op": "sell", "qty": 1})).is_err(),
-            "sell is lane L3, not wired yet"
+            "sell needs a price"
         );
+        assert!(stash(json!({"op": "sell", "qty": 1, "price": {}})).is_err());
+        assert!(stash(json!({"op": "sell", "qty": 1, "price": {"gp": 0}})).is_err());
+        assert!(stash(json!({"op": "sell", "qty": 1, "price": {"gp": -1}})).is_err());
+        assert!(stash(json!({"op": "sell", "qty": 1, "price": {"platinum": 1}})).is_err());
         assert!(stash(json!({"extra": 1})).is_err());
+    }
 
+    #[test]
+    fn bank_and_party_target_bounds_reject_and_accept_exactly() {
         let bank = |value| validate_bounds(&FieldTarget::Bank { party_id: 1 }, &value);
         assert!(
             bank(json!({"gp_delta": 1, "sp_delta": -2, "cp_delta": 0})).is_ok(),

@@ -44,6 +44,6 @@
     }
   },
   "effect_ops": ["create", "update", "end"],
-  "stash_ops": ["qty", "meta"],
+  "stash_ops": ["qty", "meta", "transfer", "sell"],
   "vitals_fields": ["hp", "temp_hp", "money", "level_adjust", "focus_current", "hero_points", "daily", "shield_raised"]
 }

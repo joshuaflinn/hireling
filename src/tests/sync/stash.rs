@@ -214,6 +214,110 @@ async fn first_bank_credit(pool: &sqlx::PgPool, party_id: i64, character_sub: &s
     assert_eq!(result.outcome, Outcome::Applied);
 }
 
+/// A transfer op: `direction:"out"` = stash → character, `"in"` = the
+/// reverse. The addressed target is the stash row; the counterparty rides
+/// `character_id` in the value.
+fn stash_transfer(
+    party_id: i64,
+    name: &str,
+    direction: &str,
+    qty: i64,
+    character_id: i64,
+) -> FieldTargetWithValue {
+    FieldTargetWithValue {
+        target: FieldTarget::Stash {
+            party_id,
+            item_name: name.to_owned(),
+        },
+        value: json!({
+            "op": "transfer",
+            "direction": direction,
+            "qty": qty,
+            "character_id": character_id
+        }),
+    }
+}
+
+/// A sell op: `price` is a coin object with any non-empty subset of
+/// `{pp, gp, sp, cp}` — at least one positive denomination required.
+fn stash_sell(party_id: i64, name: &str, qty: i64, price: JsonValue) -> FieldTargetWithValue {
+    let mut value = serde_json::Map::new();
+    value.insert("op".to_owned(), json!("sell"));
+    value.insert("qty".to_owned(), json!(qty));
+    value.insert("price".to_owned(), price);
+    FieldTargetWithValue {
+        target: FieldTarget::Stash {
+            party_id,
+            item_name: name.to_owned(),
+        },
+        value: JsonValue::Object(value),
+    }
+}
+
+/// The character-side live inventory delta for one item (NULL = no row, so
+/// the character carries the base-sheet quantity unchanged).
+async fn character_inv_delta(
+    pool: &sqlx::PgPool,
+    character_id: i64,
+    item_name: &str,
+) -> Option<i32> {
+    sqlx::query_scalar(
+        "SELECT qty_delta FROM character_inventory_live \
+         WHERE character_id = $1 AND item_name = $2",
+    )
+    .bind(character_id)
+    .bind(item_name)
+    .fetch_optional(pool)
+    .await
+    .expect("character inventory delta read")
+}
+
+/// One claim row's movement record, read back for assertions.
+struct ClaimSnapshot {
+    origin: String,
+    destination: String,
+    coins_gp: Option<i32>,
+    coins_sp: Option<i32>,
+    coins_cp: Option<i32>,
+    quantity: i32,
+    actor_sub: String,
+}
+
+/// The newest claim row for one item label.
+async fn latest_claim(pool: &sqlx::PgPool, party_id: i64, item_name: &str) -> ClaimSnapshot {
+    let row = sqlx::query(
+        "SELECT origin, destination, coins_gp, coins_sp, coins_cp, quantity, actor_sub \
+         FROM claim_history WHERE party_id = $1 AND item_name = $2 \
+         ORDER BY id DESC LIMIT 1",
+    )
+    .bind(party_id)
+    .bind(item_name)
+    .fetch_one(pool)
+    .await
+    .expect("latest claim row");
+    ClaimSnapshot {
+        origin: row.get("origin"),
+        destination: row.get("destination"),
+        coins_gp: row.get("coins_gp"),
+        coins_sp: row.get("coins_sp"),
+        coins_cp: row.get("coins_cp"),
+        quantity: row.get("quantity"),
+        actor_sub: row.get("actor_sub"),
+    }
+}
+
+/// A fresh pool to the same throwaway database — the R2 "restart" is a new
+/// process's connection pool over the same durable Postgres, so the
+/// `client_ops` ledger must carry the replay answer across it.
+async fn reopen_pool(pool: &sqlx::PgPool) -> sqlx::PgPool {
+    let options = (*pool.connect_options()).clone();
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .connect_with(options)
+        .await
+        .expect("reopen pool to the same test database")
+}
+
 // --- The additive class: stale-base writes apply, never supersede ----------
 
 #[tokio::test]
@@ -691,8 +795,8 @@ async fn a_bank_delta_driving_a_denomination_negative_refuses_whole() {
     assert_eq!(bank_row(&pool, party_id).await.0, 10, "balance unchanged");
     assert_eq!(
         claim_count(&pool, party_id, "bank adjustment").await,
-        0,
-        "no claim row"
+        1,
+        "the refused withdraw added no claim row (the first credit's row stands)"
     );
     testing::drop_test_db(pool, "stash_bank_underflow").await;
 }
@@ -1397,4 +1501,962 @@ async fn a_party_write_addressing_another_party_is_forbidden() {
     .expect("cross-party mint runs");
     assert_eq!(mint_result.outcome, Outcome::Forbidden);
     testing::drop_test_db(pool, "stash_party_scope").await;
+}
+
+// --- Task 3: compound ops (transfer, sell) on the party write path ---------
+
+/// Seed a roster character with a real display name (the FR-4 claim label
+/// freezes `base_sheet.identity.name` at event time); returns
+/// (`party_id`, `character_id`).
+async fn seed_named_member(pool: &sqlx::PgPool, sub: &str, name: &str) -> (i64, i64) {
+    testing::seed_account(pool, sub, "player").await;
+    let party_id: i64 = sqlx::query_scalar("SELECT id FROM parties ORDER BY id LIMIT 1")
+        .fetch_one(pool)
+        .await
+        .expect("POC party");
+    let character_id: i64 = sqlx::query_scalar(
+        "INSERT INTO characters (party_id, owner_sub, payload_raw, base_sheet) \
+         VALUES ($1, $2, '{}', jsonb_build_object('identity', jsonb_build_object('name', $3))) \
+         RETURNING id",
+    )
+    .bind(party_id)
+    .bind(sub)
+    .bind(name)
+    .fetch_one(pool)
+    .await
+    .expect("seed named member");
+    sqlx::query("INSERT INTO character_vitals (character_id) VALUES ($1)")
+        .bind(character_id)
+        .execute(pool)
+        .await
+        .expect("seed vitals");
+    (party_id, character_id)
+}
+
+#[tokio::test]
+async fn a_transfer_out_moves_stash_and_character_together_with_one_claim() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, _writer) = seed_member(&pool, "sub-transfer-out").await;
+    let (_, counterparty) = seed_named_member(&pool, "sub-transfer-out-other", "Borin").await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Rope', 4)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let frame = stash_transfer(party_id, "Rope", "out", 2, counterparty);
+    let result = apply_write(
+        &pool,
+        &player("sub-transfer-out"),
+        party_id,
+        op("transfer-out", frame.target, 0, frame.value),
+    )
+    .await
+    .expect("transfer out applies");
+    assert_eq!(result.outcome, Outcome::Applied);
+
+    assert_eq!(
+        stash_row(&pool, party_id, "Rope")
+            .await
+            .expect("row stands")
+            .0,
+        2,
+        "stash draws 2"
+    );
+    assert_eq!(
+        character_inv_delta(&pool, counterparty, "Rope").await,
+        Some(2),
+        "the character gains 2"
+    );
+    assert_eq!(
+        claim_count(&pool, party_id, "Rope").await,
+        1,
+        "one claim row"
+    );
+    let claim = latest_claim(&pool, party_id, "Rope").await;
+    assert_eq!(claim.origin, "stash");
+    assert_eq!(
+        claim.destination, "character:Borin",
+        "label freezes the name"
+    );
+    assert_eq!(
+        (claim.coins_gp, claim.coins_sp, claim.coins_cp),
+        (None, None, None),
+        "item row, not money"
+    );
+    assert_eq!(claim.quantity, 2, "the moved quantity rides the claim row");
+    assert_eq!(
+        claim.actor_sub, "sub-transfer-out",
+        "the actor is the writer"
+    );
+    testing::drop_test_db(pool, "stash_transfer_out").await;
+}
+
+#[tokio::test]
+async fn a_transfer_in_moves_character_to_stash_with_one_claim() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, _writer) = seed_member(&pool, "sub-transfer-in").await;
+    let (_, counterparty) = seed_named_member(&pool, "sub-transfer-in-other", "Borin").await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Rope', 2)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let frame = stash_transfer(party_id, "Rope", "in", 2, counterparty);
+    let result = apply_write(
+        &pool,
+        &player("sub-transfer-in"),
+        party_id,
+        op("transfer-in", frame.target, 0, frame.value),
+    )
+    .await
+    .expect("transfer in applies");
+    assert_eq!(result.outcome, Outcome::Applied);
+
+    assert_eq!(
+        stash_row(&pool, party_id, "Rope")
+            .await
+            .expect("row stands")
+            .0,
+        4,
+        "stash gains 2"
+    );
+    assert_eq!(
+        character_inv_delta(&pool, counterparty, "Rope").await,
+        Some(-2),
+        "the character gives 2 (minted negative delta)"
+    );
+    assert_eq!(
+        claim_count(&pool, party_id, "Rope").await,
+        1,
+        "one claim row"
+    );
+    let claim = latest_claim(&pool, party_id, "Rope").await;
+    assert_eq!(claim.origin, "character:Borin");
+    assert_eq!(claim.destination, "stash");
+    assert_eq!(claim.quantity, 2);
+    testing::drop_test_db(pool, "stash_transfer_in").await;
+}
+
+/// SC-2's honest poisoned-transaction shape: the claim row is appended
+/// first (FR-9's order), the stash draw then refuses the overdraw, and the
+/// whole transaction rolls back — the claim row with it. Zero partial state.
+#[tokio::test]
+async fn a_transfer_overdraw_refuses_whole_and_rolls_back_the_claim_row() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, _writer) = seed_member(&pool, "sub-transfer-over").await;
+    let (_, counterparty) = seed_named_member(&pool, "sub-transfer-over-other", "Borin").await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Rope', 1)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let frame = stash_transfer(party_id, "Rope", "out", 2, counterparty);
+    let result = apply_write(
+        &pool,
+        &player("sub-transfer-over"),
+        party_id,
+        op("transfer-overdraw", frame.target, 0, frame.value),
+    )
+    .await
+    .expect("overdraw transfer runs");
+    assert_eq!(result.outcome, Outcome::Rejected);
+    let reason = result.reason.expect("reason");
+    assert!(
+        reason.contains("below zero"),
+        "names the overdraw: {reason}"
+    );
+    assert_eq!(
+        stash_row(&pool, party_id, "Rope")
+            .await
+            .expect("row stands")
+            .0,
+        1,
+        "stash unchanged"
+    );
+    assert_eq!(
+        character_inv_delta(&pool, counterparty, "Rope").await,
+        None,
+        "no character row was minted — the delta rolled back"
+    );
+    assert_eq!(
+        claim_count(&pool, party_id, "Rope").await,
+        0,
+        "claim row rolled back"
+    );
+    testing::drop_test_db(pool, "stash_transfer_overdraw").await;
+}
+
+#[tokio::test]
+async fn a_transfer_to_a_non_roster_character_is_rejected() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, _writer) = seed_member(&pool, "sub-transfer-roster").await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Rope', 4)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+    let other_party: i64 =
+        sqlx::query_scalar("INSERT INTO parties (name) VALUES ('transfer foreign') RETURNING id")
+            .fetch_one(&pool)
+            .await
+            .expect("second party");
+    testing::seed_account(&pool, "sub-transfer-roster-other", "player").await;
+    let foreign: i64 = sqlx::query_scalar(
+        "INSERT INTO characters (party_id, owner_sub, payload_raw, base_sheet) \
+         VALUES ($1, 'sub-transfer-roster-other', '{}', '{}') RETURNING id",
+    )
+    .bind(other_party)
+    .fetch_one(&pool)
+    .await
+    .expect("foreign character");
+
+    let frame = stash_transfer(party_id, "Rope", "out", 2, foreign);
+    let result = apply_write(
+        &pool,
+        &player("sub-transfer-roster"),
+        party_id,
+        op("transfer-foreign", frame.target, 0, frame.value),
+    )
+    .await
+    .expect("foreign transfer runs");
+    assert_eq!(result.outcome, Outcome::Rejected);
+    let reason = result.reason.expect("reason");
+    assert!(
+        reason.contains("not a roster character"),
+        "names the fault: {reason}"
+    );
+    assert_eq!(
+        stash_row(&pool, party_id, "Rope")
+            .await
+            .expect("row stands")
+            .0,
+        4,
+        "stash unchanged"
+    );
+    assert_eq!(
+        claim_count(&pool, party_id, "Rope").await,
+        0,
+        "no claim row"
+    );
+    testing::drop_test_db(pool, "stash_transfer_foreign").await;
+}
+
+#[tokio::test]
+async fn a_sell_reduces_the_stash_credits_the_bank_and_logs_one_claim() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, qm) = seed_member(&pool, "sub-sell-a").await;
+    designate_quartermaster(&pool, party_id, qm).await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Sword', 3)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let frame = stash_sell(party_id, "Sword", 2, json!({"gp": 28, "sp": 3}));
+    let result = apply_write(
+        &pool,
+        &player("sub-sell-a"),
+        party_id,
+        op("sell-partial", frame.target, 0, frame.value),
+    )
+    .await
+    .expect("partial sell applies");
+    assert_eq!(result.outcome, Outcome::Applied);
+
+    assert_eq!(
+        stash_row(&pool, party_id, "Sword")
+            .await
+            .expect("row stands")
+            .0,
+        1,
+        "partial sell reduces, not deletes"
+    );
+    let (gp, sp, cp, _version) = bank_row(&pool, party_id).await;
+    assert_eq!((gp, sp, cp), (28, 3, 0), "bank credited");
+    assert_eq!(
+        claim_count(&pool, party_id, "Sword").await,
+        1,
+        "one claim row"
+    );
+    let claim = latest_claim(&pool, party_id, "Sword").await;
+    assert_eq!(
+        (claim.origin.as_str(), claim.destination.as_str()),
+        ("stash", "bank")
+    );
+    assert_eq!(
+        (claim.coins_gp, claim.coins_sp, claim.coins_cp),
+        (Some(28), Some(3), Some(0)),
+        "signed coins recorded"
+    );
+    assert_eq!(claim.quantity, 1, "money row quantity is the meaningless 1");
+    assert_eq!(claim.actor_sub, "sub-sell-a");
+    testing::drop_test_db(pool, "stash_sell_partial").await;
+}
+
+#[tokio::test]
+async fn a_sell_of_the_whole_row_deletes_it_at_zero() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, qm) = seed_member(&pool, "sub-sell-full").await;
+    designate_quartermaster(&pool, party_id, qm).await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Sword', 2)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let frame = stash_sell(party_id, "Sword", 2, json!({"gp": 56}));
+    let result = apply_write(
+        &pool,
+        &player("sub-sell-full"),
+        party_id,
+        op("sell-full", frame.target, 0, frame.value),
+    )
+    .await
+    .expect("full sell applies");
+    assert_eq!(result.outcome, Outcome::Applied);
+    assert_eq!(
+        stash_row(&pool, party_id, "Sword").await,
+        None,
+        "row deleted at zero"
+    );
+    assert_eq!(bank_row(&pool, party_id).await.0, 56, "bank credited");
+    assert_eq!(
+        claim_count(&pool, party_id, "Sword").await,
+        1,
+        "one claim row"
+    );
+    testing::drop_test_db(pool, "stash_sell_full").await;
+}
+
+#[tokio::test]
+async fn a_sell_with_a_pp_price_credits_the_gp_equivalent() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, qm) = seed_member(&pool, "sub-sell-pp").await;
+    designate_quartermaster(&pool, party_id, qm).await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Gem', 1)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let frame = stash_sell(party_id, "Gem", 1, json!({"pp": 2}));
+    let result = apply_write(
+        &pool,
+        &player("sub-sell-pp"),
+        party_id,
+        op("sell-pp", frame.target, 0, frame.value),
+    )
+    .await
+    .expect("pp sell applies");
+    assert_eq!(result.outcome, Outcome::Applied);
+    assert_eq!(
+        bank_row(&pool, party_id).await.0,
+        20,
+        "2 pp credits 20 gp (1 pp = 10 gp, Player Core pg. 267)"
+    );
+    let claim = latest_claim(&pool, party_id, "Gem").await;
+    assert_eq!(
+        (claim.coins_gp, claim.coins_sp, claim.coins_cp),
+        (Some(20), Some(0), Some(0)),
+        "converted coins in the claim row"
+    );
+    testing::drop_test_db(pool, "stash_sell_pp").await;
+}
+
+#[tokio::test]
+async fn a_sell_overdraw_refuses_whole_without_bank_credit_or_claim() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, qm) = seed_member(&pool, "sub-sell-over").await;
+    designate_quartermaster(&pool, party_id, qm).await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Sword', 1)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let frame = stash_sell(party_id, "Sword", 2, json!({"gp": 56}));
+    let result = apply_write(
+        &pool,
+        &player("sub-sell-over"),
+        party_id,
+        op("sell-overdraw", frame.target, 0, frame.value),
+    )
+    .await
+    .expect("overdraw sell runs");
+    assert_eq!(result.outcome, Outcome::Rejected);
+    let reason = result.reason.expect("reason");
+    assert!(
+        reason.contains("below zero"),
+        "names the overdraw: {reason}"
+    );
+    assert_eq!(
+        stash_row(&pool, party_id, "Sword")
+            .await
+            .expect("row stands")
+            .0,
+        1,
+        "stash unchanged"
+    );
+    let bank: Option<i32> = sqlx::query_scalar("SELECT gp FROM party_bank WHERE party_id = $1")
+        .bind(party_id)
+        .fetch_optional(&pool)
+        .await
+        .expect("bank read");
+    assert_eq!(
+        bank, None,
+        "no bank row was minted — the overdraw refused before the credit"
+    );
+    assert_eq!(
+        claim_count(&pool, party_id, "Sword").await,
+        0,
+        "no claim row"
+    );
+    testing::drop_test_db(pool, "stash_sell_overdraw").await;
+}
+
+#[tokio::test]
+async fn a_sell_price_must_carry_at_least_one_positive_denomination() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, qm) = seed_member(&pool, "sub-sell-price").await;
+    designate_quartermaster(&pool, party_id, qm).await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Sword', 2)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    for (op_id, price, expected) in [
+        ("sell-empty-price", json!({}), "needs at least one positive"),
+        (
+            "sell-zero-price",
+            json!({"gp": 0}),
+            "needs at least one positive",
+        ),
+        (
+            "sell-negative-price",
+            json!({"gp": -1}),
+            "must be an integer \u{2265} 0",
+        ),
+    ] {
+        let frame = stash_sell(party_id, "Sword", 1, price);
+        let result = apply_write(
+            &pool,
+            &player("sub-sell-price"),
+            party_id,
+            op(op_id, frame.target, 0, frame.value),
+        )
+        .await
+        .expect("bad-price sell runs");
+        assert_eq!(result.outcome, Outcome::Rejected, "{op_id}");
+        let reason = result.reason.expect("reason");
+        assert!(reason.contains(expected), "{op_id}: {reason}");
+    }
+    assert_eq!(
+        stash_row(&pool, party_id, "Sword")
+            .await
+            .expect("row stands")
+            .0,
+        2,
+        "stash unchanged"
+    );
+    assert_eq!(
+        claim_count(&pool, party_id, "Sword").await,
+        0,
+        "no claim row"
+    );
+    testing::drop_test_db(pool, "stash_sell_price").await;
+}
+
+/// D4's split: the sell op routes through the Bank resource, so a non-QM
+/// member is denied even though the stash itself is open to all members.
+/// Non-vacuous: a real QM is designated and a real balance/row is seeded,
+/// so the denial's "nothing touched" assertion means something.
+#[tokio::test]
+async fn a_non_quartermaster_member_is_refused_at_sell_and_bank_audited() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, qm) = seed_member(&pool, "sub-sell-qm").await;
+    let (_, _other) = seed_member(&pool, "sub-sell-other").await;
+    designate_quartermaster(&pool, party_id, qm).await;
+    first_bank_credit(&pool, party_id, "sub-sell-qm").await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Sword', 3)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let sell_frame = stash_sell(party_id, "Sword", 1, json!({"gp": 10}));
+    let sell = apply_write(
+        &pool,
+        &player("sub-sell-other"),
+        party_id,
+        op("sell-non-qm", sell_frame.target, 0, sell_frame.value),
+    )
+    .await
+    .expect("non-qm sell runs");
+    let bank_frame = bank_delta(party_id, 1, 0, 0);
+    let bank = apply_write(
+        &pool,
+        &player("sub-sell-other"),
+        party_id,
+        op("bank-non-qm", bank_frame.target, 0, bank_frame.value),
+    )
+    .await
+    .expect("non-qm bank runs");
+
+    assert_eq!(sell.outcome, Outcome::Forbidden);
+    assert_eq!(
+        sell.reason.as_deref(),
+        Some("only the quartermaster's owner may sell the stash")
+    );
+    assert_eq!(bank.outcome, Outcome::Forbidden);
+    assert_eq!(
+        bank.reason.as_deref(),
+        Some("only the quartermaster's owner may move the bank")
+    );
+
+    assert_eq!(
+        stash_row(&pool, party_id, "Sword")
+            .await
+            .expect("row stands")
+            .0,
+        3,
+        "stash untouched"
+    );
+    let (gp, sp, cp, _version) = bank_row(&pool, party_id).await;
+    assert_eq!(
+        (gp, sp, cp),
+        (10, 5, 1),
+        "bank untouched by the denied writes"
+    );
+    let audits = testing::audit_rows(&pool).await;
+    let forbidden_bank = audits
+        .iter()
+        .filter(|(e, _actor, _t, outcome)| e == "forbidden_bank_write" && outcome == "denied")
+        .count();
+    assert_eq!(
+        forbidden_bank, 2,
+        "both denials audit under the bank value: {audits:?}"
+    );
+    testing::drop_test_db(pool, "stash_sell_authz").await;
+}
+
+#[tokio::test]
+async fn a_bank_adjustment_appends_a_signed_claim_row() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, qm) = seed_member(&pool, "sub-bank-adj").await;
+    designate_quartermaster(&pool, party_id, qm).await;
+
+    let deposit = bank_delta(party_id, 12, 3, 4);
+    let deposit_result = apply_write(
+        &pool,
+        &player("sub-bank-adj"),
+        party_id,
+        op("bank-deposit", deposit.target, 0, deposit.value),
+    )
+    .await
+    .expect("deposit applies");
+    assert_eq!(deposit_result.outcome, Outcome::Applied);
+    let deposit_claim = latest_claim(&pool, party_id, "bank adjustment").await;
+    assert_eq!(
+        (
+            deposit_claim.origin.as_str(),
+            deposit_claim.destination.as_str()
+        ),
+        ("outside", "bank")
+    );
+    assert_eq!(
+        (
+            deposit_claim.coins_gp,
+            deposit_claim.coins_sp,
+            deposit_claim.coins_cp
+        ),
+        (Some(12), Some(3), Some(4)),
+        "positive signed coins"
+    );
+    assert_eq!(deposit_claim.quantity, 1);
+
+    let withdraw = bank_delta(party_id, -2, 0, 0);
+    let withdraw_result = apply_write(
+        &pool,
+        &player("sub-bank-adj"),
+        party_id,
+        op("bank-withdraw", withdraw.target, 0, withdraw.value),
+    )
+    .await
+    .expect("withdraw applies");
+    assert_eq!(withdraw_result.outcome, Outcome::Applied);
+    let withdraw_claim = latest_claim(&pool, party_id, "bank adjustment").await;
+    assert_eq!(
+        (
+            withdraw_claim.origin.as_str(),
+            withdraw_claim.destination.as_str()
+        ),
+        ("bank", "outside")
+    );
+    assert_eq!(
+        (
+            withdraw_claim.coins_gp,
+            withdraw_claim.coins_sp,
+            withdraw_claim.coins_cp
+        ),
+        (Some(-2), Some(0), Some(0)),
+        "negative signed coins"
+    );
+    assert_eq!(withdraw_claim.quantity, 1);
+    let bank = bank_row(&pool, party_id).await;
+    assert_eq!((bank.0, bank.1, bank.2), (10, 3, 4), "balance settled");
+    assert_eq!(
+        claim_count(&pool, party_id, "bank adjustment").await,
+        2,
+        "two claim rows"
+    );
+    testing::drop_test_db(pool, "stash_bank_adjust").await;
+}
+
+// --- Task 4: idempotence block R1–R6 ---------------------------------------
+
+/// R1 — ack-lost: the same transfer frame resent answers `already_applied`
+/// and every touched surface holds the single-application value (stash qty,
+/// counterparty character delta, claim count — the double-apply would show
+/// first in the character-side delta).
+#[tokio::test]
+async fn an_ack_lost_transfer_replays_exactly_once() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, _writer) = seed_member(&pool, "sub-r1").await;
+    let (_, counterparty) = seed_named_member(&pool, "sub-r1-other", "Borin").await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Rope', 4)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let frame = stash_transfer(party_id, "Rope", "out", 2, counterparty);
+    let first = apply_write(
+        &pool,
+        &player("sub-r1"),
+        party_id,
+        op("r1-transfer", frame.target.clone(), 0, frame.value.clone()),
+    )
+    .await
+    .expect("first transfer applies");
+    assert_eq!(first.outcome, Outcome::Applied);
+
+    let replay = apply_write(
+        &pool,
+        &player("sub-r1"),
+        party_id,
+        op("r1-transfer", frame.target, 0, frame.value),
+    )
+    .await
+    .expect("replay runs");
+    assert_eq!(replay.outcome, Outcome::AlreadyApplied);
+    assert_eq!(
+        stash_row(&pool, party_id, "Rope")
+            .await
+            .expect("row stands")
+            .0,
+        2,
+        "stash single-applied"
+    );
+    assert_eq!(
+        character_inv_delta(&pool, counterparty, "Rope").await,
+        Some(2),
+        "character single-applied"
+    );
+    assert_eq!(
+        claim_count(&pool, party_id, "Rope").await,
+        1,
+        "one claim row"
+    );
+    testing::drop_test_db(pool, "stash_r1_ack_lost").await;
+}
+
+/// R2 — post-restart: a fresh pool to the same durable Postgres answers the
+/// replay `already_applied`; the ledger survives the process boundary.
+#[tokio::test]
+async fn a_sell_replays_exactly_once_across_a_restart() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, qm) = seed_member(&pool, "sub-r2").await;
+    designate_quartermaster(&pool, party_id, qm).await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Sword', 2)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let frame = stash_sell(party_id, "Sword", 1, json!({"gp": 28}));
+    let first = apply_write(
+        &pool,
+        &player("sub-r2"),
+        party_id,
+        op("r2-sell", frame.target.clone(), 0, frame.value.clone()),
+    )
+    .await
+    .expect("first sell applies");
+    assert_eq!(first.outcome, Outcome::Applied);
+
+    let fresh = reopen_pool(&pool).await;
+    let replay = apply_write(
+        &fresh,
+        &player("sub-r2"),
+        party_id,
+        op("r2-sell", frame.target, 0, frame.value),
+    )
+    .await
+    .expect("post-restart replay runs");
+    assert_eq!(replay.outcome, Outcome::AlreadyApplied);
+    assert_eq!(
+        stash_row(&fresh, party_id, "Sword")
+            .await
+            .expect("row stands")
+            .0,
+        1,
+        "stash single-applied"
+    );
+    assert_eq!(
+        bank_row(&fresh, party_id).await.0,
+        28,
+        "bank single-credited"
+    );
+    assert_eq!(
+        claim_count(&fresh, party_id, "Sword").await,
+        1,
+        "one claim row"
+    );
+    testing::drop_test_db(fresh, "stash_r2_restart").await;
+}
+
+/// R3 — double-tap: two submissions of the same op id apply exactly once.
+#[tokio::test]
+async fn a_double_tapped_sell_applies_once() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, qm) = seed_member(&pool, "sub-r3").await;
+    designate_quartermaster(&pool, party_id, qm).await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Sword', 2)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let frame = stash_sell(party_id, "Sword", 1, json!({"gp": 28}));
+    let first = apply_write(
+        &pool,
+        &player("sub-r3"),
+        party_id,
+        op("r3-sell", frame.target.clone(), 0, frame.value.clone()),
+    )
+    .await
+    .expect("first tap applies");
+    let second = apply_write(
+        &pool,
+        &player("sub-r3"),
+        party_id,
+        op("r3-sell", frame.target, 0, frame.value),
+    )
+    .await
+    .expect("second tap runs");
+
+    assert_eq!(first.outcome, Outcome::Applied);
+    assert_eq!(second.outcome, Outcome::AlreadyApplied);
+    assert_eq!(bank_row(&pool, party_id).await.0, 28, "credited once");
+    assert_eq!(
+        claim_count(&pool, party_id, "Sword").await,
+        1,
+        "one claim row"
+    );
+    testing::drop_test_db(pool, "stash_r3_double_tap").await;
+}
+
+/// R4 — id reuse with a different body: refused, nothing committed, the
+/// original application stands.
+#[tokio::test]
+async fn an_op_id_reused_for_a_different_sell_is_rejected() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, qm) = seed_member(&pool, "sub-r4").await;
+    designate_quartermaster(&pool, party_id, qm).await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Sword', 3)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let frame = stash_sell(party_id, "Sword", 1, json!({"gp": 28}));
+    let first = apply_write(
+        &pool,
+        &player("sub-r4"),
+        party_id,
+        op("r4-sell", frame.target.clone(), 0, frame.value),
+    )
+    .await
+    .expect("first sell applies");
+    assert_eq!(first.outcome, Outcome::Applied);
+
+    // Same op id, different body (quantity 2 and a different price).
+    let reused_frame = stash_sell(party_id, "Sword", 2, json!({"gp": 99}));
+    let reuse = apply_write(
+        &pool,
+        &player("sub-r4"),
+        party_id,
+        op("r4-sell", reused_frame.target, 0, reused_frame.value),
+    )
+    .await
+    .expect("reused-id sell runs");
+    assert_eq!(reuse.outcome, Outcome::Rejected);
+    assert_eq!(
+        reuse.reason.as_deref(),
+        Some("op_id was already used for a different request")
+    );
+    assert_eq!(
+        stash_row(&pool, party_id, "Sword")
+            .await
+            .expect("row stands")
+            .0,
+        2,
+        "original application stands (3 - 1)"
+    );
+    assert_eq!(bank_row(&pool, party_id).await.0, 28, "no second credit");
+    assert_eq!(
+        claim_count(&pool, party_id, "Sword").await,
+        1,
+        "one claim row"
+    );
+    testing::drop_test_db(pool, "stash_r4_id_reuse").await;
+}
+
+/// R5 — changed world: a queued sell from another seat replays against a row
+/// already sold to zero; refused whole, no bank credit, no claim row.
+#[tokio::test]
+async fn a_queued_sell_against_a_row_sold_to_zero_is_refused_whole() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, qm) = seed_member(&pool, "sub-r5").await;
+    designate_quartermaster(&pool, party_id, qm).await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Sword', 5)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let first_frame = stash_sell(party_id, "Sword", 5, json!({"gp": 140}));
+    let first = apply_write(
+        &pool,
+        &player("sub-r5"),
+        party_id,
+        op("r5-sell-whole", first_frame.target, 0, first_frame.value),
+    )
+    .await
+    .expect("whole sell applies");
+    assert_eq!(first.outcome, Outcome::Applied);
+    assert_eq!(
+        stash_row(&pool, party_id, "Sword").await,
+        None,
+        "row sold to zero"
+    );
+
+    let queued_frame = stash_sell(party_id, "Sword", 2, json!({"gp": 56}));
+    let queued = apply_write(
+        &pool,
+        &player("sub-r5"),
+        party_id,
+        op("r5-sell-queued", queued_frame.target, 0, queued_frame.value),
+    )
+    .await
+    .expect("queued sell runs");
+    assert_eq!(queued.outcome, Outcome::Rejected);
+    let reason = queued.reason.expect("reason");
+    assert!(
+        reason.contains("unknown target"),
+        "names the missing row: {reason}"
+    );
+    assert_eq!(bank_row(&pool, party_id).await.0, 140, "no second credit");
+    assert_eq!(
+        claim_count(&pool, party_id, "Sword").await,
+        1,
+        "one claim row — none for the refusal"
+    );
+    testing::drop_test_db(pool, "stash_r5_changed_world").await;
+}
+
+/// R6 — concurrent sells of the same quantity: two different op ids both
+/// targeting the same quantity; exactly one applies, the other is refused
+/// (R5's rule), the bank credits once, one claim row for the applied op.
+#[tokio::test]
+async fn two_concurrent_sells_of_the_same_quantity_apply_exactly_once() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, qm) = seed_member(&pool, "sub-r6").await;
+    designate_quartermaster(&pool, party_id, qm).await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Sword', 3)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let frame = stash_sell(party_id, "Sword", 3, json!({"gp": 84}));
+    let first = apply_write(
+        &pool,
+        &player("sub-r6"),
+        party_id,
+        op("r6-sell-a", frame.target.clone(), 0, frame.value.clone()),
+    )
+    .await
+    .expect("first sell applies");
+    let second = apply_write(
+        &pool,
+        &player("sub-r6"),
+        party_id,
+        op("r6-sell-b", frame.target, 0, frame.value),
+    )
+    .await
+    .expect("second sell runs");
+
+    assert_eq!(first.outcome, Outcome::Applied);
+    assert_eq!(second.outcome, Outcome::Rejected);
+    assert_eq!(
+        stash_row(&pool, party_id, "Sword").await,
+        None,
+        "sold to zero once"
+    );
+    assert_eq!(bank_row(&pool, party_id).await.0, 84, "credited once");
+    assert_eq!(
+        claim_count(&pool, party_id, "Sword").await,
+        1,
+        "one claim row"
+    );
+    testing::drop_test_db(pool, "stash_r6_concurrent").await;
 }
