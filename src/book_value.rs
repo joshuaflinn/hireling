@@ -97,10 +97,15 @@ pub async fn resolve(
 /// is a belief about the importer's stored shape — so it is driven from a
 /// corpus row the real importer wrote, not only from rows this suite
 /// hand-built. The joint test reaches it through `resolve`'s HTTP surface
-/// rather than calling here (`tests/book_value_importer.rs`); this stays
-/// private to the module so that stays true — a session-less call into the
-/// lookup does not compile, and the authz half above cannot be stepped around.
-/// Grep before widening it.
+/// rather than calling here (`tests/book_value_importer.rs`), which is why this
+/// stays private: it keeps that suite on the route. Treat the privacy as
+/// locality, not as a security control — this module's children can reach
+/// `super::lookup` (Rust privacy runs downward from an ancestor, and
+/// `tests/book_value_importer.rs` is one), so nothing here prevents a
+/// session-less call. What guards the authz half is its own test, not this
+/// visibility: `tests/book_value.rs`, test
+/// `a_non_member_is_forbidden_with_the_e3_payload`. Grep for callers before
+/// widening this.
 async fn lookup(pool: &sqlx::PgPool, name: &str) -> Response {
     let rows: Vec<Option<JsonValue>> = sqlx::query_scalar(
         "SELECT data->'upstream'->'system'->'price'->'value' \
