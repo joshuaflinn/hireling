@@ -21,7 +21,15 @@ env:
 
 jobs:
   gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    # Pinned label, not ubuntu-latest: this job does real work on the runner
+    # host outside the pinned gate image — host-side cargo under a rustup
+    # auto-install, setup-node + npm ci, a sudo install of the just musl
+    # binary, docker run, a postgres:16-alpine service container, and the
+    # hardcoded /home/runner/.cache/grizzly-gate cache path. The gate is this
+    # repo's certificate; its host image moves only by a reviewed one-line PR,
+    # never by ubuntu-latest riding a major OS migration into a red that
+    # reads as a code defect.
     # The database-backed suite runs for real here. gh#125: the gate image
     # ships no Postgres, so every DB provision in every run before this
     # service existed burned sqlx's 30s acquire_timeout against a refused
@@ -49,7 +57,7 @@ jobs:
           --health-timeout 2s
           --health-retries 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # grizzly-gate, standalone checker mode — the gate is the first reviewer.
       # Pinned by digest (bearflinn/grizzly-gate:4ba8fc3). Bump deliberately, in
@@ -71,18 +79,21 @@ jobs:
       # First run on a fresh branch is still warm: caches saved on the base
       # branch are readable from pull_request runs.
       #
-      # Keys: exact key on lockfile + toolchain + image digest; restore falls
-      # back to the same image, then to any prior gate tree. Stale artifacts
+      # Keys: exact key on runner label + lockfile + toolchain + image digest;
+      # restore falls back to the same image, then to any prior gate tree. The
+      # runner label is in the key because runner.os is "Linux" on every
+      # Ubuntu — a runner-image change under runner.os alone would restore a
+      # cache built on the old image under an unchanged key. Stale artifacts
       # are safe — cargo fingerprints invalidate on compiler/toolchain change
       # and rebuild what moved.
       - name: Restore gate cargo cache
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /home/runner/.cache/grizzly-gate
-          key: grizzly-gate-${{ runner.os }}-${{ env.GATE_IMAGE }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('rust-toolchain.toml') }}
+          key: grizzly-gate-${{ runner.label }}-${{ env.GATE_IMAGE }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('rust-toolchain.toml') }}
           restore-keys: |
-            grizzly-gate-${{ runner.os }}-${{ env.GATE_IMAGE }}-
-            grizzly-gate-${{ runner.os }}-
+            grizzly-gate-${{ runner.label }}-${{ env.GATE_IMAGE }}-
+            grizzly-gate-${{ runner.label }}-
 
       # Repo-side guardrails, run before the image below. The gate image owns
       # 16 passes; `just ci-local` (see justfile) carries legs it has never
