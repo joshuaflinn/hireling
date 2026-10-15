@@ -463,6 +463,16 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   branch an ancestor of `origin/main` and tree clean means merged, nothing
   in it can be lost, and any agent may remove such a sibling on sight.
   Never `worktree remove --force`; a dirty tree belongs to its owner.
+  A provisioned `MOR-<n>` branch pointer is not durable between runs. The
+  harness re-points it to current `origin/main` when a new run in the lineage
+  starts — `MOR-482`'s reflog carries four `reset: moving to <sha>` entries
+  before any commit landed on it, and PR #277 binds agents, not the harness.
+  Push every commit to `origin/MOR-<n>` in the same heartbeat you make it; an
+  unpushed commit survives only in one local disk's reflog. If that push
+  would need `--force`, the branch has already moved under you — stop and
+  escalate it as a provisioning defect, same handling as a branch collision.
+  Do not force-push, and do not rebase to make the push fast-forward; that is
+  the move PR #277 bans.
 - **The tree check is not only a pickup check.** A foreign path can appear
   in your tree *mid-task* — after pickup, while a review verdict is live —
   and it gets the same handling as a branch collision. Do not clean it:
