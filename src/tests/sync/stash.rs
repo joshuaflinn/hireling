@@ -655,6 +655,32 @@ async fn a_qty_delta_at_the_int4_ceiling_is_rejected_not_an_error() {
         1,
         "quantity unchanged"
     );
+
+    // The other side of the ceiling: a delta landing exactly on i32::MAX
+    // applies (1 + (i32::MAX - 1) = i32::MAX) — the boundary is inclusive.
+    let exact = apply_write(
+        &pool,
+        &player("sub-overflow-a"),
+        party_id,
+        op(
+            "qty-exact-ceiling",
+            stash_qty(party_id, "Rope", 0).target,
+            0,
+            stash_qty(party_id, "Rope", i64::from(i32::MAX - 1)).value,
+        ),
+    )
+    .await
+    .expect("exact ceiling delta runs");
+    assert_eq!(
+        exact.outcome,
+        Outcome::Applied,
+        "a delta landing exactly on i32::MAX applies"
+    );
+    assert_eq!(
+        stash_row(&pool, party_id, "Rope").await.expect("row").0,
+        i32::MAX,
+        "quantity sits at the i32::MAX ceiling"
+    );
     testing::drop_test_db(pool, "stash_qty_overflow").await;
 }
 
@@ -729,6 +755,32 @@ async fn a_bank_delta_at_the_int4_ceiling_is_rejected_not_an_error() {
     let reason = result.reason.expect("reason");
     assert!(reason.contains("overflow"), "names the fault: {reason}");
     assert_eq!(bank_row(&pool, party_id).await.0, 10, "balance unchanged");
+
+    // The other side of the ceiling: a gp delta landing exactly on i32::MAX
+    // applies (10 + (i32::MAX - 10) = i32::MAX) — the boundary is inclusive.
+    let exact = apply_write(
+        &pool,
+        &player("sub-overflow-b"),
+        party_id,
+        op(
+            "bank-exact-ceiling",
+            bank_delta(party_id, 0, 0, 0).target,
+            seeded.3,
+            bank_delta(party_id, i64::from(i32::MAX - 10), 0, 0).value,
+        ),
+    )
+    .await
+    .expect("exact ceiling delta runs");
+    assert_eq!(
+        exact.outcome,
+        Outcome::Applied,
+        "a gp delta landing exactly on i32::MAX applies"
+    );
+    assert_eq!(
+        bank_row(&pool, party_id).await.0,
+        i32::MAX,
+        "gp sits at the i32::MAX ceiling"
+    );
     testing::drop_test_db(pool, "stash_bank_overflow").await;
 }
 
@@ -1040,8 +1092,16 @@ async fn a_non_member_party_write_is_forbidden_and_audited() {
     let Some(pool) = testing::test_pool().await else {
         return;
     };
-    let (party_id, _character_id) = seed_member(&pool, "sub-auth-party").await;
+    let (party_id, character_id) = seed_member(&pool, "sub-auth-party").await;
+    // Designate a quartermaster and pass the live version as the CAS base:
+    // `quartermaster_flip` applies only where `quartermaster_version` matches
+    // (NOT NULL DEFAULT nextval, never 0). With no designation — or a stale
+    // base — a leaked flip loses on the version predicate instead of authz and
+    // leaves `Some(character_id)` either way, so the "nothing touched"
+    // assertion could never fail.
+    designate_quartermaster(&pool, party_id, character_id).await;
     testing::seed_account(&pool, "sub-outsider-party", "player").await;
+    let base = quartermaster(&pool, party_id).await.1;
 
     let result = apply_write(
         &pool,
@@ -1050,7 +1110,7 @@ async fn a_non_member_party_write_is_forbidden_and_audited() {
         op(
             "party-outsider",
             quartermaster_flip(party_id, None).target,
-            0,
+            base,
             quartermaster_flip(party_id, None).value,
         ),
     )
@@ -1059,7 +1119,7 @@ async fn a_non_member_party_write_is_forbidden_and_audited() {
     assert_eq!(result.outcome, Outcome::Forbidden);
     assert_eq!(
         quartermaster(&pool, party_id).await.0,
-        None,
+        Some(character_id),
         "nothing touched"
     );
     let audits = testing::audit_rows(&pool).await;
