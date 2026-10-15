@@ -512,7 +512,7 @@ fn normalize_caster(block: &Value) -> Caster {
     }
 }
 
-/// `perDay` (int[11]) normalized to exactly 11 non-negative entries —
+/// `perDay` (`int[11]`) normalized to exactly 11 non-negative entries —
 /// rank 0–10 is both the export's contract and the slot table's CHECK.
 fn normalize_per_day(block: &Value) -> Vec<i64> {
     let mut per_day = vec![0_i64; 11];

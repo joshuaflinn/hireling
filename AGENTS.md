@@ -250,6 +250,36 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   **A review object's `commit_id` is not evidence of what was reviewed.** The
   head a verdict is bound to is the head its text names. A push can move the
   stamp; it cannot rewrite the prose.
+
+  **No announcement before the gate concludes.** The reviewer's announcement
+  names the `gate` check-run's conclusion at the head under review, and the
+  conclusion is `success` or `failure`: `queued` and `in_progress` are not
+  conclusions, and `cancelled`, `timed_out`, `skipped`, `stale` and `neutral`
+  are conclusions that certify nothing. If the gate has not concluded to
+  `success` or `failure`, the reviewer does not announce: it waits and
+  re-reads, and the idempotence clause above ("read the record before you
+  write it") already covers that re-read, so a waiting reviewer does not open
+  a duplicate round. Where no usable conclusion arrives, the reviewer does
+  not announce, notes it on the PR, and reports it on the review task — the
+  same handling as a provisioning defect.
+  The author's seat marker is unchanged and does not wait — seating is a
+  marker, not a certificate read, and making authors block on a gate they
+  cannot speed up adds latency and fixes nothing; the seat task already
+  carries the gate check-run id, which is what lets the reviewer read it. An
+  `in_progress` gate read as if it were a conclusion is the same fault class
+  as reading check-runs at the wrong head, and it fails the same two
+  dangerous ways: a round announced before a red concludes can accept a head
+  nobody gated, and one announced before a green concludes can bounce an
+  engineer on nothing. PR #317 is the instance: the seat marker went up at
+  `2026-10-15T20:20:31Z` and round 1 was announced at `20:21:38Z` (review
+  `5539383360`); check-run `116649603910` (`gate`) at head
+  `6c8f04fb4cd733dcf35fd014ede0510b9d8760de` was still `in_progress` and did
+  not conclude until `20:26:05Z` — `failure`, `gate FAILED: 2/16` (review
+  `5539498644`) — so for about four and a half minutes an announced round
+  faced a head with no readable certificate, and the rule as written did not
+  forbid it. No fault landed: the author gated on the bench and disclosed it,
+  the reviewer caught both red legs by hand, and the verdict is correct —
+  this closes a rule gap on the announcing side, not a fault assignment.
 - **Review rounds — two author-text rounds, then a verdict.** The budget
   counts rounds that review changed author text. Two of those, then a
   verdict — accept-with-follow-up-issues or reject-with-a-plan. There is no
@@ -564,12 +594,45 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   assert anything about what blocks a merge. When a procedure doc states a
   ruleset rule, it states the rule operatively and cites a named ruleset
   version — `ruleset 24735400 v53013064` — never the live value.
-- **Sweep for reachability before you hand over.** Walk the spec's requirement
-  list and, for each one, name the production-path test that proves it. Where
-  the requirement landed in a library module, grep for a caller:
-  `grep -rn "<export_name>" src web/src`. Hits confined to the defining module
-  mean the requirement is unbuilt — a green unit test does not change that.
-  Report the sweep in the PR body alongside the gate output.
+- **Sweep for reachability before you hand over.** Walk the spec's
+  requirement list — the requirement list, never the module's export list —
+  and, for each one, name the production-path test that proves it and the
+  call site that reaches it. The unit of the census is the **named action
+  the requirement is implemented as**, whatever its shape: an exported
+  function, a method on an object a factory returns, a store action, a
+  handler a component is passed. A reachable factory says nothing about the
+  actions it returns, so counting the factory is not a sweep. Where the
+  requirement landed in a library module, grep for a caller of that action:
+  `grep -rn "<action_name>" src web/src`. Hits confined to the defining
+  module and its tests mean the requirement is unbuilt — a green unit test
+  does not change that. Report the sweep in the PR body alongside the gate
+  output, one row per requirement naming the action, its caller, and its
+  production-path test. PR #311 is the reason the unit is written down: its
+  sweep counted module exports, `createStashState` among them with callers
+  in `web/src/App.svelte`, and reported everything reachable — while
+  `adjustQty`, `editMeta` and `adjustBank`, the actions that factory
+  returns, had no caller anywhere in `web/src` at head `c7e7e3c`.
+  `adjustBank` is `specs/014-shared-inventory` FR-7's party bank and
+  carried nine test references with no UI path to it. An export census that
+  passes while three spec'd actions are unreachable cannot fail the way the
+  sweep was meant to.
+
+  **The sweep walks what the diff removes, not only what it adds.** Read the
+  deleted lines for call sites
+  (`git diff <base>...<head> -- src web/src | grep '^-' | grep -v '^---'` — a
+  git pathspec is root-relative, so `-- src` alone matches nothing under
+  `web/`, and the `--- a/<path>` headers read as deleted lines), and for
+  every symbol whose last production call the diff deletes, run the same
+  `grep -rn "<symbol>" src web/src`. Hits confined to the defining module
+  and its tests mean the diff made that symbol unbuilt — report it, the same
+  as an unbuilt requirement. PR #250 is the reason: its sweep was clean over
+  every symbol the PR added, while replacing two `authorize(...)` calls with
+  a hand-rolled membership `if` deleted the only production callers of
+  `Resource::Stash` and `Resource::PartySettings`, so two of
+  `specs/014-shared-inventory` design D4's three
+  authz-matrix rows went dead in production with `gate` `success` at head
+  `275b2c1` (check-run `116275069010`) and `src/auth/tests/authz.rs` still
+  testing code nothing called.
 - Priority order is P0 → P1 → P2 as tagged in the PRD's functional requirements.
 - Feedback on the PRD itself goes to the PRD (via issue or PR against `docs/PRD.md`),
   not into code comments.
