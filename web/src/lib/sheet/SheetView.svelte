@@ -11,6 +11,7 @@
   import StatsPane from './components/StatsPane.svelte';
   import MagicPane from './components/MagicPane.svelte';
   import CompanionsPanel from './components/CompanionsPanel.svelte';
+  import SummonsPanel from './components/SummonsPanel.svelte';
   import InventoryPanel from './components/InventoryPanel.svelte';
   import FeatsPanel from './components/FeatsPanel.svelte';
   import EffectsStrip from './components/EffectsStrip.svelte';
@@ -21,6 +22,7 @@
   import EffectsComposer from './components/EffectsComposer.svelte';
   import ReferencePanel from '../corpus/ReferencePanel.svelte';
   import DetailTip from '../corpus/DetailTip.svelte';
+  import NotesPanel from './components/NotesPanel.svelte';
   import { signed } from '../engine/format.js';
 
   /** @type {{ character: any, accountSub?: string, editable?: boolean,
@@ -122,6 +124,7 @@
     heroPoints,
     heroMax,
     daily,
+    sheetUi,
     shieldRaised,
     slots,
     qtyMap,
@@ -226,6 +229,19 @@
       mod: sk.total,
       rank: sk.rank,
     })),
+  );
+
+  /** Every spell the character can cast or prepare (for summon lookups). */
+  const knownSpellNames = $derived([
+    ...new Set(
+      (character.base_sheet?.spellcasters ?? []).flatMap((/** @type {any} */ c) =>
+        (c.known ?? []).flatMap((/** @type {any} */ k) => k.spells ?? []),
+      ),
+    ),
+  ]);
+  /** Highest slot rank the character has (summon cap). */
+  const maxSlotRank = $derived(
+    Math.max(1, ...($slots ?? []).map((/** @type {any} */ s) => s.rank)),
   );
 
   function subline() {
@@ -367,6 +383,14 @@
         {#snippet companionsSlot()}
           {#if $view}
             <CompanionsPanel baseSheet={character.base_sheet} view={$view} />
+            <SummonsPanel
+              knownSpells={knownSpellNames}
+              maxRank={maxSlotRank}
+              sheetUi={$sheetUi.value}
+              {editable}
+              offline={$offline}
+              onwrite={(/** @type {any} */ next) => sheet.writeSheetUi(next)}
+            />
           {:else}
             <p class="meta" role="status">Character numbers still loading…</p>
           {/if}
@@ -390,6 +414,12 @@
     </div>
     <div class="col">
       <ReferencePanel strikes={refStrikes} skills={refSkills} perception={$view?.derived?.perception?.total ?? null} />
+      <NotesPanel
+        sheetUi={$sheetUi.value}
+        {editable}
+        characterId={character.character.id}
+        onwrite={(/** @type {any} */ next) => sheet.writeSheetUi(next)}
+      />
     </div>
   </div>
 </div>

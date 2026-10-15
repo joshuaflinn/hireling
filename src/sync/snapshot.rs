@@ -47,7 +47,8 @@ async fn vitals_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<Snaps
                 v.focus_current, v.focus_version, \
                 v.hero_points, v.hero_points_version, \
                 v.daily, v.daily_version, \
-                v.shield_raised, v.shield_raised_version \
+                v.shield_raised, v.shield_raised_version, \
+                v.sheet_ui, v.sheet_ui_version \
          FROM characters c JOIN character_vitals v ON v.character_id = c.id \
          WHERE c.party_id = $1 ORDER BY c.id",
     )
@@ -92,6 +93,11 @@ async fn vitals_fields(pool: &PgPool, party_id: i64) -> anyhow::Result<Vec<Snaps
                 VitalsField::ShieldRaised,
                 json!(row.get::<Option<bool>, _>("shield_raised")),
                 "shield_raised_version",
+            ),
+            (
+                VitalsField::SheetUi,
+                row.get::<JsonValue, _>("sheet_ui"),
+                "sheet_ui_version",
             ),
         ] {
             fields.push(SnapshotField {

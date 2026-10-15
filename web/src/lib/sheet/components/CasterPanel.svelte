@@ -13,7 +13,7 @@
 
   /** @type {{ caster: any, slots: any[], numbers: any, cantripRank: number | null,
     editable?: boolean, offline?: boolean, known?: any[], focusSpells?: string[],
-    opErrors?: any[], customSpells?: any[],
+    opErrors?: any[], customSpells?: any[], curriculum?: Record<number, string[]> | null,
     oncast?: (row: any, used: boolean) => void,
     onprepare?: (row: any, spell: string) => void,
     onreset?: () => void, onaddcustom?: () => void }} */
@@ -28,6 +28,7 @@
     focusSpells = [],
     opErrors = [],
     customSpells = [],
+    curriculum = null,
     oncast,
     onprepare,
     onreset,
@@ -79,6 +80,18 @@
     );
   }
 
+  // Curriculum (Player Core p. 192, the wizard's school): one extra cantrip
+  // and one extra slot of each castable rank, curriculum spells only — the
+  // LAST slot index of each rank is that slot (Dave's convention).
+  const curAt = (/** @type {number} */ rank) => curriculum?.[rank] ?? null;
+  const isCurrSpell = (/** @type {string | null} */ name) =>
+    !!name && !!curriculum && Object.values(curriculum).some((list) => list.includes(name));
+  const isCurrSlot = (/** @type {any} */ row) => {
+    if (!curAt(row.rank)) return false;
+    const at = slotsAt(row.rank);
+    return at.length > 0 && at[at.length - 1].slot_index === row.slot_index;
+  };
+
   /** The inline rejection for one slot row, if any (spec §6). */
   const rowError = (/** @type {any} */ row) =>
     opErrors.find(
@@ -107,12 +120,15 @@
   {#each ranks as rank (rank)}
     <div class="rank-h">
       <span class="t">{rank === 0 ? 'Cantrips' : `${ordinal(rank)} rank`}</span>
-      <span class="s">{rank === 0 && cantripRank !== null ? `heightened to rank ${cantripRank}` : ''}</span>
+      <span class="s">{rank === 0 && cantripRank !== null ? `heightened to rank ${cantripRank}` : ''}{#if curAt(rank)}{rank === 0 && cantripRank !== null ? ' · ' : ''}1 curriculum slot ({curAt(rank)?.join(', ')}){/if}</span>
       <span class="r">{slotsAt(rank).filter((slot) => !slot.used).length}/{slotsAt(rank).length} open</span>
     </div>
     {#each slotsAt(rank) as row (row.slot_index)}
       <SpellSlotRow
         {row}
+        currSlot={isCurrSlot(row)}
+        currSpell={isCurrSpell(row.prepared_spell)}
+        currWarn={isCurrSlot(row) && !!row.prepared_spell && !curAt(row.rank)?.includes(row.prepared_spell)}
         {editable}
         {offline}
         oncast={(used) => oncast?.(row, used)}

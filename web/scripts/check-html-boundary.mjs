@@ -20,6 +20,7 @@ const SANCTIONED = new Set([
   // Reference column render Foundry pack prose — through adoptHTML only.
   'lib/corpus/DetailTip.svelte',
   'lib/corpus/ReferencePanel.svelte',
+  'lib/sheet/components/NotesPanel.svelte',
 ]);
 
 /** @param {string} dir @returns {string[]} */

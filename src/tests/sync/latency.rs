@@ -50,6 +50,7 @@ fn version_column(field: VitalsField) -> &'static str {
         VitalsField::HeroPoints => "hero_points_version",
         VitalsField::Daily => "daily_version",
         VitalsField::ShieldRaised => "shield_raised_version",
+        VitalsField::SheetUi => "sheet_ui_version",
     }
 }
 
@@ -158,6 +159,7 @@ async fn send_target(
             json!({"staff_charge_rank": 0, "staff_spent": 0, "drain_used": false})
         }
         VitalsField::ShieldRaised => json!(n % 2 == 0),
+        VitalsField::SheetUi => json!({"notes": [], "minions": [], "layout": null}),
     };
     let op_id = format!("op-{character_id}-{}-{n}", field.as_str());
     let base = latest.get(idx).copied().unwrap_or(0);
