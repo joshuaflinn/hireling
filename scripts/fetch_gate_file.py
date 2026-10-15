@@ -316,6 +316,52 @@ def directory_digest(entries: dict[str, bytes]) -> str:
     return hashlib.sha256(lines.encode("utf-8")).hexdigest()
 
 
+def _whiteout_target(name: str) -> str | None:
+    """Return the path a `.wh.` member deletes, or None for a normal name."""
+    if "/" not in name:
+        return None
+    head, tail = name.rsplit("/", 1)
+    if not tail.startswith(".wh."):
+        return None
+    return f"{head}/{tail[len('.wh.'):]}"
+
+
+def _apply_whiteout(tree: dict[str, bytes], deleted: str, prefix: str) -> None:
+    """Delete `deleted` from `tree` when it lives under `prefix`."""
+    if deleted.startswith(prefix):
+        rel = deleted[len(prefix):]
+        if rel:
+            tree.pop(rel, None)
+
+
+def _apply_layer(
+    tree: dict[str, bytes],
+    archive: tarfile.TarFile,
+    prefix: str,
+    dir_prefix: str,
+) -> None:
+    """Merge one layer's members into `tree`, honouring OCI whiteouts."""
+    for member in archive.getmembers():
+        name = member.name.removeprefix("./").removeprefix("/")
+        deleted = _whiteout_target(name)
+        if deleted is not None:
+            _apply_whiteout(tree, deleted, prefix)
+            continue
+        if not name.startswith(prefix):
+            continue
+        rel = name[len(prefix):]
+        if not rel:
+            continue
+        if member.isdir():
+            continue
+        if not member.isfile():
+            fail(f"path '{name}' under '{dir_prefix}' is not a regular file")
+        extracted = archive.extractfile(member)
+        if extracted is None:
+            fail(f"path '{name}' could not be read")
+        tree[rel] = extracted.read()
+
+
 def search_directory(
     digest: str,
     dir_prefix: str,
@@ -344,32 +390,7 @@ def search_directory(
             fail(f"layer without digest: {layer!r}")
         blob = blob_getter(layer_digest)
         with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as archive:
-            for member in archive.getmembers():
-                name = member.name.removeprefix("./").removeprefix("/")
-                if "/" in name:
-                    head, tail = name.rsplit("/", 1)
-                    if tail.startswith(".wh."):
-                        target = f"{head}/{tail[len('.wh.'):]}"
-                        if target.startswith(prefix):
-                            rel = target[len(prefix):]
-                            if rel:
-                                tree.pop(rel, None)
-                        continue
-                if not name.startswith(prefix):
-                    continue
-                rel = name[len(prefix):]
-                if not rel:
-                    continue
-                if member.isdir():
-                    continue
-                if not member.isfile():
-                    fail(
-                        f"path '{name}' under '{dir_prefix}' is not a regular file"
-                    )
-                extracted = archive.extractfile(member)
-                if extracted is None:
-                    fail(f"path '{name}' could not be read")
-                tree[rel] = extracted.read()
+            _apply_layer(tree, archive, prefix, dir_prefix)
     if not tree:
         fail(f"directory '{dir_prefix}' is empty or not found in image {digest}")
     return tree
@@ -652,14 +673,21 @@ def _self_test_directory_cases(ran: list[str], digest64: str) -> None:
     digest_a = directory_digest(tree)
     reordered = {key: tree[key] for key in reversed(list(tree))}
     _check(ran, "dir-digest-order-independent", condition=directory_digest(reordered) == digest_a)
-    _check(ran, "dir-digest-64-hex", condition=len(digest_a) == 64 and all(c in "0123456789abcdef" for c in digest_a))
+    _check(
+        ran,
+        "dir-digest-64-hex",
+        condition=(
+            len(digest_a) == SHA256_HEX_LEN
+            and all(c in "0123456789abcdef" for c in digest_a)
+        ),
+    )
 
     def refuse(entries: dict[str, bytes]) -> bool:
         layer = _make_layer(entries)
         with contextlib.redirect_stderr(io.StringIO()):
             try:
                 search_directory(
-                    digest64, "etc/gate/rules/", [{"digest": "sha256:x"}], lambda d: layer
+                    digest64, "etc/gate/rules/", [{"digest": "sha256:x"}], lambda _: layer
                 )
             except SystemExit:
                 return True
@@ -680,7 +708,7 @@ def _self_test_directory_cases(ran: list[str], digest64: str) -> None:
                     digest64,
                     "etc/gate/rules/",
                     [{"digest": "sha256:x"}],
-                    lambda d: buf.getvalue(),
+                    lambda _: buf.getvalue(),
                 )
             except SystemExit:
                 return True
@@ -715,8 +743,8 @@ def _self_test() -> None:
     print(f"fetch-gate-file self-test: {len(ran)} checks, all pass")
 
 
-def main() -> None:
-    """Parse arguments and vend the named path out of the pinned image."""
+def _parse_args() -> argparse.Namespace:
+    """Build the argument parser and return the parsed arguments."""
     parser = argparse.ArgumentParser(
         description="extract a named path from the pinned gate image"
     )
@@ -741,52 +769,54 @@ def main() -> None:
         help="workflow file to read GATE_IMAGE from (default: .github/workflows/gate.yml)",
     )
     parser.add_argument("--self-test", action="store_true", help="re-prove the pure paths and exit")
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    if args.self_test:
-        _self_test()
-        return
 
+def _resolve_image_ref(args: argparse.Namespace) -> ImageRef:
+    """Validate the arguments and parse the pinned image ref out of the workflow."""
     if not args.image_path:
         fail("IMAGE_PATH is required (or pass --self-test)")
     if args.manifest and not args.output:
         fail("--manifest requires --output (the vendored path the hash belongs to)")
-
     if not args.digest_file.is_file():
         fail(f"digest file {args.digest_file} not found — run from the repo root")
     ref_text = read_gate_image_ref(args.digest_file.read_text(encoding="utf-8"))
     if not ref_text:
         fail(f"no GATE_IMAGE line in {args.digest_file}")
-    ref = parse_image_ref(ref_text)
+    return parse_image_ref(ref_text)
 
-    if args.image_path.endswith("/"):
-        tree = extract_directory(ref, args.image_path)
-        digest = directory_digest(tree)
-        if args.hash:
-            print(digest)
-            return
-        if args.output:
-            write_tree(args.output, tree)
-            if args.manifest:
-                upsert_manifest(
-                    args.manifest,
-                    args.image_path,
-                    str(args.output).rstrip("/") + "/",
-                    digest,
-                )
-            print(
-                f"vendored {args.image_path} -> {args.output}/"
-                f" ({len(tree)} files, sha256 {digest[:16]}…)"
+
+def _vend_directory(args: argparse.Namespace, ref: ImageRef) -> None:
+    """Vend a directory IMAGE_PATH (trailing slash) and record its digest."""
+    tree = extract_directory(ref, args.image_path)
+    digest = directory_digest(tree)
+    if args.hash:
+        print(digest)
+        return
+    if args.output:
+        write_tree(args.output, tree)
+        if args.manifest:
+            upsert_manifest(
+                args.manifest,
+                args.image_path,
+                str(args.output).rstrip("/") + "/",
+                digest,
             )
-            return
-        fail(
-            "a directory IMAGE_PATH (trailing slash) needs --output or --hash —"
-            " a tree cannot stream to stdout"
+        print(
+            f"vendored {args.image_path} -> {args.output}/"
+            f" ({len(tree)} files, sha256 {digest[:16]}…)"
         )
+        return
+    fail(
+        "a directory IMAGE_PATH (trailing slash) needs --output or --hash —"
+        " a tree cannot stream to stdout"
+    )
 
+
+def _vend_file(args: argparse.Namespace, ref: ImageRef) -> None:
+    """Vend a single file, record its digest, or stream the raw bytes."""
     source = extract_from_image(ref, args.image_path)
     digest = hashlib.sha256(source).hexdigest()
-
     if args.hash:
         print(digest)
         return
@@ -807,6 +837,19 @@ def main() -> None:
     # No --output/--hash: emit the raw bytes, the same shape the original
     # extraction used for inspection.
     sys.stdout.buffer.write(source)
+
+
+def main() -> None:
+    """Parse arguments and vend the named path out of the pinned image."""
+    args = _parse_args()
+    if args.self_test:
+        _self_test()
+        return
+    ref = _resolve_image_ref(args)
+    if args.image_path.endswith("/"):
+        _vend_directory(args, ref)
+    else:
+        _vend_file(args, ref)
 
 
 if __name__ == "__main__":

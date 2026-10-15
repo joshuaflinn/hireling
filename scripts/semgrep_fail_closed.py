@@ -26,7 +26,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 
 def fail(message: str) -> NoReturn:
@@ -35,7 +35,7 @@ def fail(message: str) -> NoReturn:
     sys.exit(1)
 
 
-def parse_doc(data: bytes) -> dict:
+def parse_doc(data: bytes) -> dict[str, Any]:
     """Parse semgrep's JSON output, failing closed on anything unreadable."""
     try:
         text = data.decode("utf-8")
@@ -53,7 +53,7 @@ def parse_doc(data: bytes) -> dict:
     return doc
 
 
-def blind_spot_entries(errors: list) -> list:
+def blind_spot_entries(errors: list[Any]) -> list[Any]:
     """Return the errors[] entries this guard reds on (warn / PartialParsing)."""
     out = []
     for entry in errors:
@@ -109,10 +109,7 @@ def main() -> None:
     if args.self_test:
         self_test()
         return
-    if args.json_file:
-        data = Path(args.json_file).read_bytes()
-    else:
-        data = sys.stdin.buffer.read()
+    data = Path(args.json_file).read_bytes() if args.json_file else sys.stdin.buffer.read()
     check(data)
 
 
@@ -146,7 +143,7 @@ def _self_test_case(
         sys.exit(1)
 
 
-def _doc(results: list, errors: list) -> bytes:
+def _doc(results: list[Any], errors: list[Any]) -> bytes:
     """Encode a minimal semgrep-shaped JSON document."""
     return json.dumps(
         {"results": results, "errors": errors, "paths": {"scanned": ["a.py"]}}

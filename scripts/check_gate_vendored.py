@@ -11,10 +11,14 @@ Two directions, both failing closed:
    the `// === vendored-source-begin ===` marker — the image's own source,
    verbatim — so a hand edit above the marker (a provenance comment) is fine
    and a hand edit below it reds. Directory rows (both fields end in `/`)
-   hash the canonical tree digest of the vendored directory; an absent
-   directory is tolerated with a notice — `just scan-semgrep` itself fails
-   loudly when the tree is not vendored, so this leg does not silently pass
-   over a hole — while a present-but-wrong tree reds.
+   hash the canonical tree digest of the vendored directory. An absent
+   directory reds: it is git-ignored, so nothing but `just vendor-semgrep`
+   writes it, and the tree is the provenance `just scan-semgrep` depends on
+   — a hand-made copy left stale reads green here while the scan runs
+   against the wrong rules. `--allow-unvendored` is the only opt-out, and it
+   says so in the output; it exists for a machine that cannot reach the
+   registry (CONTRIBUTOR.md), because the vendor step and the drift check are
+   the same fetch. A present-but-wrong tree reds either way.
 
 2. --image-source KEY=PATH (CI-side): the image itself still carries those
    bytes. The gate workflow extracts the file (or, for a directory row, the
@@ -58,6 +62,11 @@ SHA256_HEX_LEN = 64
 # mismatch is a marker the check cannot find — which fails closed, but the
 # fix is to re-align the two literals, not to patch around the red.
 MARKER = b"// === vendored-source-begin ===\n"
+
+# Set from --allow-unvendored in main(). A module flag rather than a parameter
+# because check_offline is the only reader and the self-test drives it through
+# the CLI, so the flag has to arrive the way a caller would send it.
+_ALLOW_UNVENDORED = False
 
 
 def fail(message: str) -> NoReturn:
@@ -114,7 +123,7 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def is_directory_row(image_path: str, vendored_path: str) -> bool:
-    """A directory row is signalled by a trailing slash on BOTH fields."""
+    """Return True when both fields end in a slash (a directory row)."""
     return image_path.endswith("/") and vendored_path.endswith("/")
 
 
@@ -170,11 +179,22 @@ def check_offline(rows: list[tuple[str, str, str]]) -> None:
         if is_directory_row(image_path, vendored_path):
             vendored_dir = Path(vendored_path)
             if not vendored_dir.exists():
-                print(
-                    f"vendored-drift check: note: {vendored_path} not vendored —"
-                    " tolerated here; `just scan-semgrep` fails loudly until it is"
+                if _ALLOW_UNVENDORED:
+                    print(
+                        f"vendored-drift check: note: {vendored_path} not vendored"
+                        " — tolerated because --allow-unvendored says the registry"
+                        " is unreachable here; 'just scan-semgrep' fails loudly"
+                        " until 'just vendor-semgrep' can run"
+                    )
+                    continue
+                fail(
+                    f"vendored directory {vendored_path} is absent — run 'just"
+                    " vendor-semgrep'. The tree is git-ignored, so an absent one"
+                    " means it was never fetched on this machine, and a hand-made"
+                    " copy would read green here while 'just scan-semgrep'"
+                    " scanned the wrong rules. --allow-unvendored opts out (a"
+                    " machine that cannot reach the registry; CONTRIBUTOR.md)."
                 )
-                continue
             actual = directory_digest(vendored_dir)
         else:
             actual = sha256_bytes(vendored_body(Path(vendored_path)))
@@ -232,6 +252,14 @@ def main() -> None:
         help="image path key and the file extracted from the pinned image (repeatable)",
     )
     parser.add_argument(
+        "--allow-unvendored",
+        action="store_true",
+        help=(
+            "tolerate an absent vendored directory (registry unreachable;"
+            " scan-semgrep still fails)"
+        ),
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="re-prove every red direction against synthetic trees and exit",
@@ -246,6 +274,8 @@ def main() -> None:
         self_test()
         return
 
+    global _ALLOW_UNVENDORED  # noqa: PLW0603 -- the CLI flag is the only writer
+    _ALLOW_UNVENDORED = args.allow_unvendored
     rows = load_manifest()
     check_offline(rows)
 
@@ -466,7 +496,7 @@ def _image_source_self_test(
 
 
 def _tree_digest(files: dict[str, bytes]) -> str:
-    """The canonical directory digest the manifest records (test fixture)."""
+    """Compute the canonical directory digest the manifest records (test fixture)."""
     lines = "".join(f"{rel}\t{sha256_bytes(files[rel])}\n" for rel in sorted(files))
     return sha256_bytes(lines.encode("utf-8"))
 
@@ -498,10 +528,16 @@ def _directory_offline_self_test(script: Path, ran: list[str], root: Path) -> Pa
     )
     _run_self_test_case(script, ran, green, [], expect_red=False)
 
-    # Green: the directory is absent (not vendored) — tolerated with a notice.
-    tree = _make_directory_self_test_tree(root, "dir-absent-tolerated", {"a.yaml": b"one\n"})
+    # Red: the directory is absent (never vendored) — the tree is provenance,
+    # so absence is a hole, not a notice. Green only with the explicit opt-out.
+    tree = _make_directory_self_test_tree(root, "dir-absent-red", {"a.yaml": b"one\n"})
     shutil.rmtree(tree / "gate-semgrep-rules")
-    _run_self_test_case(script, ran, tree, [], expect_red=False)
+    _run_self_test_case(script, ran, tree, [], expect_red=True)
+
+    # Green: absent, but the caller declared the registry unreachable.
+    tree = _make_directory_self_test_tree(root, "dir-absent-opt-out", {"a.yaml": b"one\n"})
+    shutil.rmtree(tree / "gate-semgrep-rules")
+    _run_self_test_case(script, ran, tree, ["--allow-unvendored"], expect_red=False)
 
     # Red: a file inside the directory drifted.
     tree = _make_directory_self_test_tree(root, "dir-body-drift", {"a.yaml": b"one\n"})
