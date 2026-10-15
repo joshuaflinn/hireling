@@ -89,7 +89,8 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   correct in their own scope and jointly unreadable at the press. While a round is
   open, the press waits, and it reads that state off the PR — the round
   is open when it is announced on the PR and closed when the verdict at
-  that head is posted to it — never off tracker task state, which the
+  that head is posted to it, or when the reviewer withdraws the round —
+  never off tracker task state, which the
   press seat cannot see at the PR.
 
   **The author holds the head while a round is open.** Between the
@@ -102,10 +103,15 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
 
   **An author who must move the head asks the reviewer to withdraw the
   round.** A plain PR comment saying so; the reviewer closes the round with a
-  review comment naming the head and stating that no verdict was reached. A
-  withdrawn round read text the author retracted, so it does not count against
-  the budget. Only the reviewer closes a round — an author never retires one
-  by pushing over it.
+  review comment (`gh pr review <n> --comment -F -`) naming the head and
+  stating that no verdict was reached — the round's terminal record, distinct
+  from the procedural `gh pr comment` that withdraws a duplicate *announcement*
+  under *When a duplicate round is already announced*. A withdrawn round read
+  text the author retracted, so it does not count against the budget. Only the
+  reviewer closes a round — an author never retires one by pushing over it.
+  Once per PR — a second withdrawal ask on the same PR is not granted by the
+  reviewer; the PR goes to Thrane, and whether it proceeds is a decision about
+  the task.
 - **The reviewer announces the round on the PR before reading the diff — and
   only the reviewer.** A review comment (`gh pr review <n> --comment -F -`)
   naming the head SHA under review, the questions the round is asking, and the
