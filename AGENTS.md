@@ -345,7 +345,13 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   commit staging neither `.rs` nor `.toml` exits at
   `.githooks/pre-commit:40-42` before those legs run, so it is legal and
   green with the foreign path still in the tree — commit your own paths by
-  name and escalate anyway. Where the legs *do* run and the foreign text
+  name and escalate anyway. One leg does run before that exit: the JSON
+  duplicate-key check at `.githooks/pre-commit:28-33` reads every tracked
+  `*.json` from the working tree (`scripts/check_json_dup_keys.py:204,219`)
+  and rejects invalid as well as duplicate-keyed JSON (`:228-230`), so a
+  foreign tracked `.json` left mid-edit fails even a docs-only commit — no
+  legal commit there either, same handling: stop and escalate. Where the
+  legs *do* run and the foreign text
   does not compile and you will not adopt it, there is no legal commit —
   `--no-verify` is forbidden and the hook legs fail on the tree — so stop
   and escalate it as a provisioning
