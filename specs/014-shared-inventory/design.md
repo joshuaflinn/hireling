@@ -302,7 +302,7 @@ record).
 Backend: `migrations/<date>e12_shared_inventory_activation{,.down}.sql`;
 `src/sync/protocol.rs` (targets + wire shapes); `src/sync/write.rs`
 (apply arms, compound ops); `src/sync/snapshot.rs` (sections);
-`src/sync/registry.rs` (fan-out kinds); `src/auth/authz.rs`;
+`src/sync/session.rs` (fan-out kinds); `src/auth/authz.rs`;
 `src/book_value.rs` (new top-level module — the book-value route
 handler; declared `pub mod book_value;` in `src/lib.rs`, one line;
 test-loaded per the tree's standing pattern — `#[cfg(test)]
