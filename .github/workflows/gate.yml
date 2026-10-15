@@ -165,6 +165,7 @@ jobs:
       - name: disk-guard — free-space floor
         if: ${{ !cancelled() }}
         run: just disk-guard
+        env:
           CARGO_HOME: /home/runner/.cache/grizzly-gate/cargo
 
       - name: web-test — vitest suite
