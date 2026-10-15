@@ -1195,7 +1195,8 @@ async fn stash_tx(
 
 /// The additive qty arm (D2): no version predicate — a stale base still
 /// applies, serialized by the row lock. An impossible draw refuses with a
-/// pre-formatted reason instead of erroring the driver.
+/// pre-formatted reason instead of erroring the driver; a draw that lands
+/// exactly on zero deletes the row (FR-1) and fans a removal diff.
 async fn stash_qty_tx(
     tx: &mut Transaction<'_, Postgres>,
     party_id: i64,
@@ -1204,71 +1205,110 @@ async fn stash_qty_tx(
 ) -> anyhow::Result<PartyApply> {
     let qty_delta = as_i32(value.get("qty_delta").unwrap_or(&JsonValue::Null));
     // The quantity guard carries the shipped CHECK's semantics (> 0) plus
-    // the column's ceiling, so an impossible apply refuses instead of
-    // erroring the driver.
+    // the column's ceiling. The predicate sums in bigint so an out-of-range
+    // delta refuses instead of raising 22003 and erroring the driver — the
+    // SET never evaluates a filtered-out row, and a matched row's sum is
+    // already within [1, i32::MAX], so the int4 arithmetic there is safe.
+    let ceiling = i64::from(i32::MAX);
     let updated: Option<(i32, Option<f64>, String, i64)> = sqlx::query_as(
         "UPDATE party_stash SET quantity = quantity + $1, \
          version = nextval('field_version_seq'), updated_at = now() \
          WHERE party_id = $2 AND item_name = $3 \
-           AND quantity + $1 > 0 AND quantity + $1 <= $4 \
+           AND quantity::bigint + $1 BETWEEN 1 AND $4 \
          RETURNING quantity, bulk::float8 AS bulk, notes, version",
     )
     .bind(qty_delta)
     .bind(party_id)
     .bind(item_name)
-    .bind(i32::MAX)
+    .bind(ceiling)
     .fetch_optional(&mut **tx)
     .await
     .context("additive stash qty")?;
-    let Some((quantity, bulk, notes, version)) = updated else {
-        // Missing row vs refused draw: read the row to tell them apart
-        // (contract §4: unknown target is `rejected`).
-        let existing: Option<i32> = sqlx::query_scalar(
-            "SELECT quantity FROM party_stash WHERE party_id = $1 AND item_name = $2",
-        )
-        .bind(party_id)
-        .bind(item_name)
-        .fetch_optional(&mut **tx)
-        .await
-        .context("stash row read")?;
-        return Ok(match existing {
-            None => PartyApply::rejected("unknown target".to_owned()),
-            Some(current) => {
-                let target = i64::from(current) + i64::from(qty_delta.unwrap_or_default());
-                if target <= 0 {
-                    PartyApply::rejected(format!(
-                        "that draw would drive \"{item_name}\" below zero \
-                         ({current} in the stash, {delta} asked)",
-                        delta = qty_delta.unwrap_or_default()
-                    ))
-                } else {
-                    PartyApply::rejected(format!(
-                        "that draw would overflow \"{item_name}\"'s quantity \
-                         ({current} in the stash, {delta} asked)",
-                        delta = qty_delta.unwrap_or_default()
-                    ))
-                }
-            }
+    if let Some((quantity, bulk, notes, version)) = updated {
+        return Ok(PartyApply {
+            outcome: Outcome::Applied,
+            version: Some(version),
+            winning_version: None,
+            reason: None,
+            diffs: vec![(
+                FieldTarget::Stash {
+                    party_id,
+                    item_name: item_name.to_owned(),
+                },
+                serde_json::json!({
+                    "item_name": item_name,
+                    "quantity": quantity,
+                    "bulk": bulk,
+                    "notes": notes,
+                }),
+                version,
+            )],
         });
-    };
-    Ok(PartyApply {
-        outcome: Outcome::Applied,
-        version: Some(version),
-        winning_version: None,
-        reason: None,
-        diffs: vec![(
-            FieldTarget::Stash {
-                party_id,
-                item_name: item_name.to_owned(),
-            },
-            serde_json::json!({
-                "item_name": item_name,
-                "quantity": quantity,
-                "bulk": bulk,
-                "notes": notes,
-            }),
-            version,
-        )],
+    }
+
+    // A draw that lands exactly on zero empties the row (FR-1: delete at
+    // zero, never retained). The removal diff is a tombstone — `value:null`
+    // on the stash target — carrying a fresh sequence version so every seat
+    // drops the row under the strictly-newer rule (wire-protocol §4).
+    let deleted: Option<i64> = sqlx::query_scalar(
+        "DELETE FROM party_stash WHERE party_id = $1 AND item_name = $2 \
+           AND quantity::bigint + $3 = 0 RETURNING version",
+    )
+    .bind(party_id)
+    .bind(item_name)
+    .bind(qty_delta)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("stash qty delete-at-zero")?;
+    if deleted.is_some() {
+        let version: i64 = sqlx::query_scalar("SELECT nextval('field_version_seq')")
+            .fetch_one(&mut **tx)
+            .await
+            .context("stash removal tombstone version")?;
+        return Ok(PartyApply {
+            outcome: Outcome::Applied,
+            version: Some(version),
+            winning_version: None,
+            reason: None,
+            diffs: vec![(
+                FieldTarget::Stash {
+                    party_id,
+                    item_name: item_name.to_owned(),
+                },
+                JsonValue::Null,
+                version,
+            )],
+        });
+    }
+
+    // Missing row vs refused draw: read the row to tell them apart
+    // (contract §4: unknown target is `rejected`).
+    let existing: Option<i32> = sqlx::query_scalar(
+        "SELECT quantity FROM party_stash WHERE party_id = $1 AND item_name = $2",
+    )
+    .bind(party_id)
+    .bind(item_name)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("stash row read")?;
+    Ok(match existing {
+        None => PartyApply::rejected("unknown target".to_owned()),
+        Some(current) => {
+            let target = i64::from(current) + i64::from(qty_delta.unwrap_or_default());
+            if target < 0 {
+                PartyApply::rejected(format!(
+                    "that draw would drive \"{item_name}\" below zero \
+                     ({current} in the stash, {delta} asked)",
+                    delta = qty_delta.unwrap_or_default()
+                ))
+            } else {
+                PartyApply::rejected(format!(
+                    "that draw would overflow \"{item_name}\"'s quantity \
+                     ({current} in the stash, {delta} asked)",
+                    delta = qty_delta.unwrap_or_default()
+                ))
+            }
+        }
     })
 }
 
@@ -1374,7 +1414,9 @@ async fn stash_meta_tx(
 /// The bank's additive apply (D2): one version unit, signed per-denomination
 /// deltas, the shipped CHECKs' semantics enforced in the predicate so an
 /// impossible apply refuses with a pre-formatted reason instead of erroring
-/// the driver. The balance row mints with the party's first movement.
+/// the driver. The predicates sum in bigint so an out-of-range delta refuses
+/// (never raises 22003). The balance row mints with the party's first
+/// movement.
 async fn bank_tx(
     tx: &mut Transaction<'_, Postgres>,
     party_id: i64,
@@ -1394,15 +1436,16 @@ async fn bank_tx(
         "UPDATE party_bank SET gp = gp + $1, sp = sp + $2, cp = cp + $3, \
          version = nextval('field_version_seq'), updated_at = now() \
          WHERE party_id = $4 \
-           AND gp + $1 >= 0 AND sp + $2 >= 0 AND cp + $3 >= 0 \
-           AND gp + $1 <= $5 AND sp + $2 <= $5 AND cp + $3 <= $5 \
+           AND gp::bigint + $1 BETWEEN 0 AND $5 \
+           AND sp::bigint + $2 BETWEEN 0 AND $5 \
+           AND cp::bigint + $3 BETWEEN 0 AND $5 \
          RETURNING gp, sp, cp, version",
     )
     .bind(gp_delta)
     .bind(sp_delta)
     .bind(cp_delta)
     .bind(party_id)
-    .bind(i32::MAX)
+    .bind(i64::from(i32::MAX))
     .fetch_optional(&mut **tx)
     .await
     .context("additive bank apply")?;

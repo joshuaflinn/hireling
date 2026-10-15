@@ -529,6 +529,136 @@ async fn a_qty_on_an_unknown_row_is_rejected() {
 }
 
 #[tokio::test]
+async fn a_qty_draw_to_exactly_zero_deletes_the_row_and_fans_a_removal_diff() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, _character_id) = seed_member(&pool, "sub-zero-a").await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Rope', 3)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+    let seeded = stash_row(&pool, party_id, "Rope")
+        .await
+        .expect("seeded row");
+
+    // The boundary pair (house rule): -(quantity) applies-and-removes,
+    // -(quantity + 1) refuses (FR-1: a zero-quantity row is deleted, not
+    // retained).
+    let removal = apply_write(
+        &pool,
+        &player("sub-zero-a"),
+        party_id,
+        op(
+            "qty-zero",
+            stash_qty(party_id, "Rope", 0).target,
+            seeded.3,
+            stash_qty(party_id, "Rope", -3).value,
+        ),
+    )
+    .await
+    .expect("draw-to-zero runs");
+
+    assert_eq!(removal.outcome, Outcome::Applied);
+    assert_eq!(
+        stash_row_count(&pool, party_id, "Rope").await,
+        0,
+        "the row is deleted, not retained at zero"
+    );
+    // The removal fans a tombstone diff: value null on the stash target,
+    // a fresh version so every seat drops the row under the strictly-newer
+    // rule.
+    let (target, value, version) = removal
+        .broadcast
+        .first()
+        .expect("the removal fans one diff");
+    assert!(
+        matches!(target, FieldTarget::Stash { item_name, .. } if item_name.as_str() == "Rope"),
+        "the diff addresses the removed row: {target:?}"
+    );
+    assert!(
+        value.is_null(),
+        "the removal diff value is null (tombstone): {value:?}"
+    );
+    assert!(
+        *version > seeded.3,
+        "the tombstone version is strictly newer than the row's"
+    );
+
+    // The other side of the boundary: -(quantity + 1) still refuses whole.
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Chain', 2)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed second row");
+    let below = apply_write(
+        &pool,
+        &player("sub-zero-a"),
+        party_id,
+        op(
+            "qty-below",
+            stash_qty(party_id, "Chain", 0).target,
+            0,
+            stash_qty(party_id, "Chain", -3).value,
+        ),
+    )
+    .await
+    .expect("draw-below-zero runs");
+    assert_eq!(below.outcome, Outcome::Rejected, "-(quantity + 1) refuses");
+    let reason = below.reason.expect("reason");
+    assert!(reason.contains("below zero"), "names the fault: {reason}");
+    assert_eq!(
+        stash_row_count(&pool, party_id, "Chain").await,
+        1,
+        "the row is unchanged"
+    );
+
+    testing::drop_test_db(pool, "stash_qty_delete_at_zero").await;
+}
+
+#[tokio::test]
+async fn a_qty_delta_at_the_int4_ceiling_is_rejected_not_an_error() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, _character_id) = seed_member(&pool, "sub-overflow-a").await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Rope', 1)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    let result = apply_write(
+        &pool,
+        &player("sub-overflow-a"),
+        party_id,
+        op(
+            "qty-overflow",
+            stash_qty(party_id, "Rope", 0).target,
+            0,
+            stash_qty(party_id, "Rope", i64::from(i32::MAX)).value,
+        ),
+    )
+    .await
+    .expect("ceiling delta runs");
+
+    assert_eq!(
+        result.outcome,
+        Outcome::Rejected,
+        "an i32::MAX delta refuses, not a driver error"
+    );
+    let reason = result.reason.expect("reason");
+    assert!(reason.contains("overflow"), "names the fault: {reason}");
+    assert_eq!(
+        stash_row(&pool, party_id, "Rope").await.expect("row").0,
+        1,
+        "quantity unchanged"
+    );
+    testing::drop_test_db(pool, "stash_qty_overflow").await;
+}
+
+#[tokio::test]
 async fn a_bank_delta_driving_a_denomination_negative_refuses_whole() {
     let Some(pool) = testing::test_pool().await else {
         return;
@@ -565,6 +695,41 @@ async fn a_bank_delta_driving_a_denomination_negative_refuses_whole() {
         "no claim row"
     );
     testing::drop_test_db(pool, "stash_bank_underflow").await;
+}
+
+#[tokio::test]
+async fn a_bank_delta_at_the_int4_ceiling_is_rejected_not_an_error() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, character_id) = seed_member(&pool, "sub-overflow-b").await;
+    designate_quartermaster(&pool, party_id, character_id).await;
+    first_bank_credit(&pool, party_id, "sub-overflow-b").await;
+    let seeded = bank_row(&pool, party_id).await;
+
+    let result = apply_write(
+        &pool,
+        &player("sub-overflow-b"),
+        party_id,
+        op(
+            "bank-overflow",
+            bank_delta(party_id, 0, 0, 0).target,
+            seeded.3,
+            bank_delta(party_id, i64::from(i32::MAX), 0, 0).value,
+        ),
+    )
+    .await
+    .expect("ceiling delta runs");
+
+    assert_eq!(
+        result.outcome,
+        Outcome::Rejected,
+        "an i32::MAX delta refuses, not a driver error"
+    );
+    let reason = result.reason.expect("reason");
+    assert!(reason.contains("overflow"), "names the fault: {reason}");
+    assert_eq!(bank_row(&pool, party_id).await.0, 10, "balance unchanged");
+    testing::drop_test_db(pool, "stash_bank_overflow").await;
 }
 
 // --- stash_new: the mint, its refusal, its boundaries ----------------------
@@ -868,6 +1033,45 @@ async fn a_non_member_stash_write_is_forbidden_and_audited() {
         "the refusal is audited under the new value: {audits:?}"
     );
     testing::drop_test_db(pool, "stash_authz_nonmember").await;
+}
+
+#[tokio::test]
+async fn a_non_member_party_write_is_forbidden_and_audited() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, _character_id) = seed_member(&pool, "sub-auth-party").await;
+    testing::seed_account(&pool, "sub-outsider-party", "player").await;
+
+    let result = apply_write(
+        &pool,
+        &player("sub-outsider-party"),
+        party_id,
+        op(
+            "party-outsider",
+            quartermaster_flip(party_id, None).target,
+            0,
+            quartermaster_flip(party_id, None).value,
+        ),
+    )
+    .await
+    .expect("denial runs");
+    assert_eq!(result.outcome, Outcome::Forbidden);
+    assert_eq!(
+        quartermaster(&pool, party_id).await.0,
+        None,
+        "nothing touched"
+    );
+    let audits = testing::audit_rows(&pool).await;
+    assert!(
+        audits.iter().any(|(event, actor, _target, outcome)| {
+            event == "forbidden_party_write"
+                && actor.as_deref() == Some("sub-outsider-party")
+                && outcome == "denied"
+        }),
+        "the refusal is audited under the new value: {audits:?}"
+    );
+    testing::drop_test_db(pool, "stash_authz_party_nonmember").await;
 }
 
 #[tokio::test]

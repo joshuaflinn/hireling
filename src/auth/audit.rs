@@ -21,7 +21,7 @@ pub enum AuditEvent {
     /// 20260924000009 — the raised CHECK finding (design §5.2).
     CharacterImport,
     /// A party stash write denial (E12 D1.4/D4; migration
-    /// `20260924000001_e12_shared_inventory_activation`) — non-member on
+    /// `20261014000001_e12_shared_inventory_activation`) — non-member on
     /// stash add/qty/meta/transfer.
     ForbiddenStashWrite,
     /// A party bank write denial (E12) — non-quartermaster, undesignated,

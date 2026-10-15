@@ -75,9 +75,9 @@ per `degraded-mode.md`, and the op ledger makes that safe).
 | `effect` | `effect_id` (globally unique — identity PK) | appears in `snapshot`/`diff` as `{name, source_character_id, targets[], modifiers[], duration_note, active}` (+ `tracked_manually` since E8); write frames **realized by E8** (below) | `effects.version` (whole row) |
 | `effect_new` | `party_id` (E8 create only) | no diff value — the create mints the row; every diff addresses the new `effect` id | n/a (identity PK mint) |
 | `stash_new` | `party_id` (E12 mint only) | `{item_name, quantity>0, bulk?, notes?}` — no diff value: the mint creates the row, every later diff addresses the `stash` name; a duplicate exact name is `rejected` with FR-1's reason (the unique constraint is the structural identity), and the apply creates the row plus its `outside → stash` claim row | mint (identity — no CAS) |
-| `stash` | `party_id`, `item_name` (byte-exact — the `inv` keying rule) | `{op:"qty", qty_delta}` (additive — §4) or `{op:"meta", bulk?, notes?}` (absolute, CAS on the row version); lane L3 adds `transfer`/`sell` to the accepted set | the row's `version` |
-| `bank` | `party_id` | `{gp_delta, sp_delta, cp_delta}` — signed, additive (§4); per-denomination non-negative enforced, refusal is `rejected` whole | the balance row's `version` |
-| `party` | `party_id`, `field`: `quartermaster` | `{character_id: integer\|null}` — absolute write under CAS; the character must be roster | `quartermaster_version` |
+| `stash` | `party_id`, `item_name` (byte-exact — the `inv` keying rule) | `{op:"qty", qty_delta}` (additive — §4) or `{op:"meta", bulk?, notes?}` (absolute, CAS on the row version); lane L3 adds `transfer`/`sell` to the accepted set; appears in `snapshot`/`diff` as `{item_name, quantity, bulk, notes}` — a `qty` draw to exactly zero deletes the row and fans a removal diff `value:null` (§4) | the row's `version` |
+| `bank` | `party_id` | `{gp_delta, sp_delta, cp_delta}` — signed, additive (§4); per-denomination non-negative enforced, refusal is `rejected` whole; appears in `snapshot`/`diff` as `{gp, sp, cp}` | the balance row's `version` |
+| `party` | `party_id`, `field`: `quartermaster` | `{character_id: integer\|null}` — absolute write under CAS; the character must be roster; appears in `snapshot`/`diff` as `{quartermaster_character_id}` | `quartermaster_version` |
 | `claim` | `claim_id` | read-only — appears in `snapshot`/`diff` as the whole row `{item_name, quantity, origin, destination, actor_sub, created_at, coins_gp?, coins_sp?, coins_cp?}` (coins NULL on item rows); no write frames: the log is append-only (E12 FR-2.4), appends ride the diff mechanism keyed by the monotonic row id | the row id (merge-by-id — the id in the version slot makes the strictly-newer rule and the id rule the same predicate) |
 
 `character_id` names the row's owner explicitly: a party snapshot spans every
@@ -104,7 +104,16 @@ anchoring rule). Item identity is exact-name; anything fuzzier is E5's.
   writes — their outcomes are `applied` / `already_applied` / `rejected` /
   `forbidden` only. CAS remains for the absolute fields (`stash` `meta`,
   `party`). An impossible delta (underflow, overdraft) is `rejected` whole
-  with a human-readable reason; nothing partial applies, no claim row.
+  with a human-readable reason; nothing partial applies, no claim row. A
+  `stash` `qty` draw that lands exactly on zero deletes the row (FR-1) and
+  fans a **removal diff** — `value:null` on the `stash` target with a fresh
+  sequence version — so every seat drops the row under the strictly-newer
+  rule.
+- **Version-slot number spaces (E12)**: claim row ids and
+  `field_version_seq` values are distinct number spaces that share the wire
+  version slot (a claim diff carries the row id in that slot — merge-by-id).
+  Nothing compares versions across targets today, and nothing may: a global
+  version cursor that compared them would silently break claim merges.
 - **Idempotency**: `op_id` is the dedupe key. Same `op_id` twice → second
   gets `already_applied` with the original's version, no re-write, no
   re-broadcast. Durable across server restart (the `client_ops` ledger).

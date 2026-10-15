@@ -201,11 +201,48 @@ fn the_pinned_stash_ops_are_the_write_paths_accepted_set() {
         .iter()
         .map(|op| op.as_str().expect("op names are strings"))
         .collect();
-    assert_eq!(
-        ops,
-        ["qty", "meta"],
-        "the accepted set is the write path's bounds table: qty and meta — \
-         src/sync/write.rs stash_tx (lane L3 adds transfer and sell)"
+
+    // Each pinned op name must be accepted by the write path's own bounds
+    // validator on the stash target the dispatch routes it to — the
+    // fixture's list is production-reachable, not a restated literal
+    // (gh#90 F3). The payloads are the minimum each bounds arm accepts.
+    for op in ops {
+        let value = match op {
+            "qty" => serde_json::json!({"op": "qty", "qty_delta": 1}),
+            "meta" => serde_json::json!({"op": "meta", "notes": "x"}),
+            other => panic!(
+                "the fixture pins stash op {other:?}, which no arm of the \
+                 write path accepts — update the fixture with the write path, \
+                 never ahead of it"
+            ),
+        };
+        assert!(
+            validate_bounds(
+                &FieldTarget::Stash {
+                    party_id: 1,
+                    item_name: "Rope".to_owned(),
+                },
+                &value,
+            )
+            .is_ok(),
+            "the write path's bounds validator must accept the pinned op \
+             {op:?} — the accepted set moved and the fixture is stale"
+        );
+    }
+
+    // The deny arm: an unpinned name is rejected, so the loop above cannot
+    // go green against a validator that accepts everything — and lane L3
+    // cannot land `transfer`/`sell` without the fixture growing.
+    assert!(
+        validate_bounds(
+            &FieldTarget::Stash {
+                party_id: 1,
+                item_name: "Rope".to_owned(),
+            },
+            &serde_json::json!({"op": "transfer"}),
+        )
+        .is_err(),
+        "an op name outside the pinned set must be rejected by the bounds validator"
     );
 }
 
