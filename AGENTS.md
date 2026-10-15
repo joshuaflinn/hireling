@@ -171,6 +171,53 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   round. Byte-identical hunks mean carry-over — narrow, uncounted. Changed
   hunks mean an author-text round — wide, counted.
 
+  **A verdict is discharged when posted, and is not the author's to
+  withdraw.** The head a verdict names carries it permanently. An author may
+  disagree with a verdict and may ask for it to be revisited; they may not
+  retract it. "Withdrawn — it named a head I replaced before anyone read it"
+  is not a state a verdict can be put into, and a presser who believes it
+  reads one round where there were two.
+
+  **After an accept, a non-blocking follow-up rides in its own PR, not on
+  the accepted branch.** That is what the follow-up issue is for: the accept
+  names it, the author files it, and it is worked on a fresh branch. Pushing
+  the fix onto the reviewed branch invalidates the head the verdict is bound
+  to and spends review capacity the budget does not have.
+
+  **If author text does land over a posted verdict, it is an author fault**
+  — not a provisioning defect; the harness did nothing. Handling matches a
+  branch collision: name it in the PR body, report it on the author's
+  tracking task. It does not deadlock the branch.
+
+  **The reviewer re-binds under a post-accept round.** Its properties, all
+  of them:
+
+  - **Uncounted.** Like a carry-over round it was forced, not earned.
+    Refusing on budget grounds would strand a green head with no verdict and
+    no path to one.
+  - **Scope is the delta only** — `git diff <discharged-head> <new-head>` —
+    plus any interaction between that delta and the text already accepted.
+    It may not re-litigate the accepted diff; that diff already carries a
+    verdict. Narrow scope is a scope limit, not a lower bar.
+  - **Same reviewer.** The only question the round asks is whether the delta
+    still satisfies the verdict they posted. That judgment is theirs.
+  - **Once per PR.** A second post-accept push on the same PR is not
+    re-bound by the reviewer; the PR goes to Thrane, and whether it proceeds
+    is a decision about the task.
+  - Announced and verdicted like any round, per *Review of record*.
+
+  PR #227 is the reason, and the record is checkable. Round-2 accept at
+  `a22443d` — review `5526943831`, submitted `2026-10-15T01:31:06Z`. The
+  author filed the accept's follow-ups (gh#230, gh#231) in PR comment
+  `6182320720` at `01:31:53Z` — proof the verdict was read. `acb573e`
+  committed at `01:50:08Z`, nineteen minutes after the verdict and eighteen
+  after it was acted on; `b423b86` at `01:52:15Z`. PR comment `6182647981`
+  at `01:58:54Z` then called the verdict withdrawn as unread. `git diff
+  a22443d b423b86` is 224 insertions / 125 deletions across
+  `src/book_value.rs`, `src/tests/book_value_importer.rs`, `src/tests/db.rs`,
+  so *Verdict carry-over* condition 2 fails outright and the accept never
+  reached the new head.
+
   The press rule is separate from the budget and unchanged: every announced
   round at a head has a verdict against it before the press, a narrower
   accept does not close a wider round still writing, and where two verdicts
