@@ -212,29 +212,47 @@ def iter_tracked_json(repo_root: Path) -> Iterator[str]:
 
 
 def check_files(paths: Sequence[str]) -> int:
-    """Check explicit paths (relative to cwd). Return process exit code."""
-    failures = 0
+    """Check explicit paths (relative to cwd). Return process exit code.
+
+    Three distinct faults share one gate: unreadable, duplicate key, and
+    not-valid JSON. Counted and summarized separately so each failure line
+    names its own fault — the verdict (non-zero -> fail) is unchanged.
+    """
+    unreadable = 0
+    duplicates = 0
+    invalid = 0
     for path in paths:
         try:
             text = Path(path).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as err:
             print(f"ERROR: {path}: cannot read ({err})", file=sys.stderr)
-            failures += 1
+            unreadable += 1
             continue
         try:
             strict_load(text)
         except DuplicateKeyError as err:
-            failures += _report_duplicate(path, text, err.key)
+            duplicates += _report_duplicate(path, text, err.key)
         except ValueError as err:
             print(f"ERROR: {path}: not valid JSON ({err})", file=sys.stderr)
-            failures += 1
-    if failures:
-        print(
-            f"json duplicate-key check: {failures} file(s) with duplicate keys",
-            file=sys.stderr,
-        )
+            invalid += 1
+    if duplicates or invalid or unreadable:
+        if duplicates:
+            print(
+                f"json guardrail check: {duplicates} file(s) with duplicate keys",
+                file=sys.stderr,
+            )
+        if invalid:
+            print(
+                f"json guardrail check: {invalid} file(s) not valid JSON",
+                file=sys.stderr,
+            )
+        if unreadable:
+            print(
+                f"json guardrail check: {unreadable} file(s) unreadable",
+                file=sys.stderr,
+            )
         return 1
-    print(f"json duplicate-key check: {len(paths)} file(s), clean")
+    print(f"json guardrail check: {len(paths)} file(s), clean")
     return 0
 
 
@@ -406,7 +424,7 @@ def main(argv: Sequence[str]) -> int:
         # from the root, but the gate's pytest may invoke from anywhere.
         paths = [str(repo_root / rel) for rel in iter_tracked_json(repo_root=repo_root)]
     if not paths:
-        print("json duplicate-key check: no JSON files found, clean")
+        print("json guardrail check: no JSON files found, clean")
         return 0
     return check_files(paths)
 
