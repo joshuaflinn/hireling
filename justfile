@@ -80,16 +80,46 @@ web-check: web-deps
 web-tsc: web-deps
     cd web && ./node_modules/.bin/tsc --noEmit -p tsconfig.json
 
-# The gate image's node:eslint pass, replicated bench-side. The image
-# lints with --no-config-lookup and its own flat config — ES builtins
-# only, no browser/node env — so every platform global must be declared
-# in-file (/* global */ header; convention: web/src/lib/sync/index.js).
-# The replica config is web/gate-eslint.config.mjs, calibrated
-# one-for-one against gate run 37850972131 (44 findings before the
-# header fixes, clean after, nothing extra). A gate-image digest bump
-# that moves the rule set updates that config in the same PR.
+# The gate image's node:eslint pass, replicated bench-side over the image's
+# OWN flat config — not a hand-typed replica. web/gate-eslint.config.mjs is
+# vendored verbatim from the pinned digest (etc/grizzly-gate/config/
+# languages/node/eslint.config.mjs.tmpl) by scripts/fetch_gate_file.py, and
+# scripts/check_gate_vendored.py reds when it drifts (`just check-vendored`).
+# The image lints with --no-config-lookup and ES builtins only (no browser/
+# node env), so platform globals must still be declared in-file
+# (/* global */ header; convention: web/src/lib/sync/index.js).
+#
+# The vendored config reads two runtime knobs from process.env; this leg
+# supplies them to reproduce the image's adapter contract (see the config's
+# own header, ADR-033):
+#   GATE_TSCONFIG  — the repo's tsconfig, absolute (the image passes its
+#                    wrapped tsconfig: same strictness — web/tsconfig.json
+#                    is strict:true — plus skip_dirs unioned into exclude).
+#   GATE_SKIP_DIRS — the image's Ops-owned skip_dirs, read off the pinned
+#                    digest's config/detect.toml (the honest-map walk skips
+#                    the same names).
+# The toolchain is pinned identically to the image (read off the digest's
+# config-blob ARGs): eslint 9.39.4, typescript-eslint 8.62.0, react
+# 7.37.5, react-hooks 7.1.1, svelte-plugin 3.20.0 — same discipline as
+# web-tsc's TypeScript pin.
+#
+# Two constructional differences from the image, both written exemptions:
+# (a) the image's eslint config lives OUTSIDE the scanned tree and cannot
+# lint itself; the vendored copy lives at web/, so this leg ignores it with
+# --ignore-pattern gate-eslint.config.mjs (the image needs no such flag);
+# (b) the image lints the whole project with -f json; the bench lints the
+# same files (`.`) but drops the json formatter so findings are human-
+# readable. The rule set, the file set and the env knobs are identical.
 web-eslint: web-deps
-    cd web && ./node_modules/.bin/eslint --no-config-lookup --config gate-eslint.config.mjs src tests scripts plugins vite.config.js
+    cd web && GATE_TSCONFIG="$(pwd)/tsconfig.json" GATE_SKIP_DIRS="node_modules,target,vendor,.venv,venv,__pycache__,.mypy_cache,.pytest_cache,.ruff_cache,.cargo,.gradle,.tox,dist,build,.svelte-kit" ./node_modules/.bin/eslint --no-config-lookup --no-error-on-unmatched-pattern --ignore-pattern gate-eslint.config.mjs --config gate-eslint.config.mjs .
+
+# The drift check over the vendored gate config (gh#314): the vendored file
+# must still hash to what scripts/gate_vendored.tsv records, and (CI-side,
+# --image-source) the pinned digest must still carry those bytes. The self-
+# test re-proves every red direction; the real check is the guardrail.
+check-vendored:
+    python3 scripts/check_gate_vendored.py --self-test
+    python3 scripts/check_gate_vendored.py
 
 # The prose boundary (E9, contracts/inert-html.md §3): `{@html}` is banned
 # for prose repo-wide — every markup-carrying string renders through the one
@@ -337,7 +367,7 @@ ci-drift:
 # Repo-side legs — no image pass runs these; CI gates them as guard steps
 # in the gate job of .github/workflows/gate.yml, ahead of the image run:
 # disk-guard, json-keys, boundary, web-test, web-css-guard,
-# web-html-boundary, and ci-drift itself. That job's drift-check step runs
+# web-html-boundary, check-vendored, and ci-drift itself. That job's drift-check step runs
 # this same ci-drift recipe, so a new leg lands together with its CI home
 # or the gate goes red — bench and CI run one check, not two that can drift.
 #
@@ -348,7 +378,7 @@ ci-drift:
 # prints only when every leg passed, so a piped run reads green only when
 # it is green. Note what it is not: the exit status is still the thing to
 # check, and a reader who ignores both is still reading one leg's output.
-ci-local: disk-guard json-keys fmt-check lint test deny boundary web-check web-tsc web-test web-css-guard web-html-boundary web-eslint scan-semgrep ship-guard ci-drift
+ci-local: disk-guard json-keys fmt-check lint test deny boundary web-check web-tsc web-test web-css-guard web-html-boundary web-eslint check-vendored scan-semgrep ship-guard ci-drift
     @echo "ci-local: every leg above passed"
 
 # Alias — same gate, the name the spec calls it by.

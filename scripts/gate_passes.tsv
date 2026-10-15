@@ -23,7 +23,7 @@ rust:test	test	mirrors just test: cargo test --workspace, DB-backed suites inclu
 rust:deny	deny	mirrors just deny: cargo deny check
 node:svelte-check	web-check	mirrors just web-check: svelte-check --tsconfig ./tsconfig.json in web/, reading web/'s pinned TypeScript (6.0.3, matching the image digest)
 node:tsc	web-tsc	mirrors just web-tsc: tsc --noEmit -p tsconfig.json in web/; added gh#151 — the pass that bit while ci-local stayed green
-node:eslint	web-eslint	mirrors just web-eslint: gate-eslint.config.mjs, calibrated one-for-one against the image's --no-config-lookup rule set
+node:eslint	web-eslint	mirrors just web-eslint: web/gate-eslint.config.mjs vendored verbatim from the pinned digest (etc/grizzly-gate/config/languages/node/eslint.config.mjs.tmpl) by scripts/fetch_gate_file.py; the toolchain is pinned to the image's (eslint 9.39.4, typescript-eslint 8.62.0, react 7.37.5, react-hooks 7.1.1, svelte-plugin 3.20.0), and `just check-vendored` reds on drift
 scan:semgrep	scan-semgrep	mirrors just scan-semgrep: the registry rules the image enforces on the web tree, calibrated by fire
 node:deps	-	provisioning pass: the image's own npm ci inside web/ for its later passes. The repo-checkable content (package.json vs package-lock.json agreement, enforced by npm ci strictness) runs in CI as the Install node dependencies step before any guard leg. Bench-side install self-sufficiency is gh#142 (PR #145), a different fault; if that lands a deps leg, this row gains its mirror there.
 python:deps	-	provisioning pass: scripts/pyproject.toml is a deliberate zero-dependency marker for the gate's python adapter ("the gate's deps check then installs nothing but pytest"); nothing repo-owned to install bench-side.
