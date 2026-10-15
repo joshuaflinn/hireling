@@ -339,7 +339,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   tests; everything else gets a curated end-to-end suite.
 - **A test for a spec'd behavior must exercise the production path that owns
   it.** Testing the module underneath that path proves the module, not the
-  behavior. Five instances of the same rule:
+  behavior. Six instances of the same rule:
   - *Observability* (audit, log, metric): send an HTTP request through the
     configured router for HTTP behavior, or call the public orchestration
     function for non-HTTP behavior; then assert the persisted record or
@@ -366,6 +366,18 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
     `threshold` — with different results. One fixture on one side passes
     against every wrong threshold on that side. See
     [Rules exactness](#rules-exactness) for the full rule, citations included.
+  - *A pinned wire contract* — a fixture naming the set a production path
+    accepts: assert the fixture against the gate that enforces it, never
+    against a literal restated in the test body. Feed each pinned name
+    through the validator or dispatch that owns the set and assert it is
+    accepted; then assert a name outside the set is refused on every target
+    kind the dispatch routes to, because without that arm the accept loop
+    goes green against a validator that accepts everything. A restated
+    literal passes when the write path drops an accepted name and passes
+    when it gains one — the two changes the pin exists to catch. The shipped
+    form is `the_pinned_effect_ops_are_the_write_paths_accepted_set` in
+    `src/tests/sync/contract.rs`; gh#90 F3 is the first instance of the
+    literal form, PR #236 the recurrence.
 - Log generously on the backend: major branches, request IDs.
 - Commit messages: imperative, one line, what + why if non-obvious.
 
