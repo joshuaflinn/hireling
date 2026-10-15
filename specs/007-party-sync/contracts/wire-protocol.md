@@ -204,7 +204,7 @@ anchoring rule). Item identity is exact-name; anything fuzzier is E5's.
   `forbidden_bank_write` / `forbidden_party_write`, the GM's under the
   existing `forbidden_gm_write`. Outcomes are E7's five; the mechanism is
   unchanged. Close-code reservations below are unchanged.
-- **E12 — REALIZED (2026-10-16, lane L3)**: the compound ops joined the
+- **E12 — REALIZED (2026-10-15, lane L3)**: the compound ops joined the
   stash write path — §3's `transfer` and `sell` value shapes (additive, one
   claim row each, pp→gp conversion at 1 pp = 10 gp cited in `write.rs` off
   Player Core pg. 267) and the `bank` adjust's `bank adjustment` claim row

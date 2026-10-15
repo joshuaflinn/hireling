@@ -1696,6 +1696,69 @@ async fn a_transfer_overdraw_refuses_whole_and_rolls_back_the_claim_row() {
 }
 
 #[tokio::test]
+async fn a_transfer_that_would_overflow_the_character_delta_refuses_whole() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, _writer) = seed_member(&pool, "sub-transfer-char-overflow").await;
+    let (_, counterparty) =
+        seed_named_member(&pool, "sub-transfer-char-overflow-other", "Borin").await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Rope', 2)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+    // The character side already sits at the int4 ceiling: one more delta
+    // would raise 22003 if unguarded. Seed directly — a transfer alone can
+    // never reach it.
+    sqlx::query(
+        "INSERT INTO character_inventory_live (character_id, item_name, qty_delta) \
+         VALUES ($1, 'Rope', $2)",
+    )
+    .bind(counterparty)
+    .bind(i32::MAX)
+    .execute(&pool)
+    .await
+    .expect("seed character delta at ceiling");
+
+    let frame = stash_transfer(party_id, "Rope", "out", 1, counterparty);
+    let result = apply_write(
+        &pool,
+        &player("sub-transfer-char-overflow"),
+        party_id,
+        op("transfer-char-overflow", frame.target, 0, frame.value),
+    )
+    .await
+    .expect("overflowing transfer runs");
+    assert_eq!(
+        result.outcome,
+        Outcome::Rejected,
+        "an int4 overflow refuses, not a driver error"
+    );
+    let reason = result.reason.expect("reason");
+    assert!(reason.contains("overflow"), "names the fault: {reason}");
+    assert_eq!(
+        stash_row(&pool, party_id, "Rope")
+            .await
+            .expect("row stands")
+            .0,
+        2,
+        "stash unchanged — the draw rolled back with the refusal"
+    );
+    assert_eq!(
+        character_inv_delta(&pool, counterparty, "Rope").await,
+        Some(i32::MAX),
+        "character delta unchanged"
+    );
+    assert_eq!(
+        claim_count(&pool, party_id, "Rope").await,
+        0,
+        "claim row rolled back"
+    );
+    testing::drop_test_db(pool, "stash_transfer_char_overflow").await;
+}
+
+#[tokio::test]
 async fn a_transfer_to_a_non_roster_character_is_rejected() {
     let Some(pool) = testing::test_pool().await else {
         return;
@@ -1850,33 +1913,45 @@ async fn a_sell_with_a_pp_price_credits_the_gp_equivalent() {
     };
     let (party_id, qm) = seed_member(&pool, "sub-sell-pp").await;
     designate_quartermaster(&pool, party_id, qm).await;
-    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Gem', 1)")
-        .bind(party_id)
-        .execute(&pool)
-        .await
-        .expect("seed stash row");
+    // Two fixtures differing in the gp addend: pp alone pins the rate,
+    // pp + gp pins the sum — a defect that reads pp and ignores gp passes
+    // the first case and fails the second (the house two-fixture rule on
+    // the one rules-sourced number in the change).
+    let mut bank_gp = 0;
+    for (item, price, expected_gp) in [
+        ("Gem", json!({"pp": 2}), 20),
+        ("Pearl", json!({"pp": 2, "gp": 3}), 23),
+    ] {
+        sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, $2, 1)")
+            .bind(party_id)
+            .bind(item)
+            .execute(&pool)
+            .await
+            .expect("seed stash row");
 
-    let frame = stash_sell(party_id, "Gem", 1, json!({"pp": 2}));
-    let result = apply_write(
-        &pool,
-        &player("sub-sell-pp"),
-        party_id,
-        op("sell-pp", frame.target, 0, frame.value),
-    )
-    .await
-    .expect("pp sell applies");
-    assert_eq!(result.outcome, Outcome::Applied);
-    assert_eq!(
-        bank_row(&pool, party_id).await.0,
-        20,
-        "2 pp credits 20 gp (1 pp = 10 gp, Player Core pg. 267)"
-    );
-    let claim = latest_claim(&pool, party_id, "Gem").await;
-    assert_eq!(
-        (claim.coins_gp, claim.coins_sp, claim.coins_cp),
-        (Some(20), Some(0), Some(0)),
-        "converted coins in the claim row"
-    );
+        let frame = stash_sell(party_id, item, 1, price);
+        let result = apply_write(
+            &pool,
+            &player("sub-sell-pp"),
+            party_id,
+            op(&format!("sell-{item}"), frame.target, 0, frame.value),
+        )
+        .await
+        .expect("pp sell applies");
+        assert_eq!(result.outcome, Outcome::Applied, "{item}");
+        bank_gp += expected_gp;
+        assert_eq!(
+            bank_row(&pool, party_id).await.0,
+            bank_gp,
+            "{item}: 1 pp = 10 gp, summed with gp (Player Core pg. 267)"
+        );
+        let claim = latest_claim(&pool, party_id, item).await;
+        assert_eq!(
+            (claim.coins_gp, claim.coins_sp, claim.coins_cp),
+            (Some(expected_gp), Some(0), Some(0)),
+            "{item}: converted coins in the claim row"
+        );
+    }
     testing::drop_test_db(pool, "stash_sell_pp").await;
 }
 
@@ -1931,6 +2006,55 @@ async fn a_sell_overdraw_refuses_whole_without_bank_credit_or_claim() {
         "no claim row"
     );
     testing::drop_test_db(pool, "stash_sell_overdraw").await;
+}
+
+#[tokio::test]
+async fn a_sell_price_whose_gp_equivalent_overflows_refuses_without_claim_or_bank_row() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, qm) = seed_member(&pool, "sub-sell-overflow").await;
+    designate_quartermaster(&pool, party_id, qm).await;
+    sqlx::query("INSERT INTO party_stash (party_id, item_name, quantity) VALUES ($1, 'Gem', 1)")
+        .bind(party_id)
+        .execute(&pool)
+        .await
+        .expect("seed stash row");
+
+    // 300_000_000 pp = 3e9 gp, past the bank's int4 gp column — the one
+    // pp→gp conversion site refuses before the claim row, never raising 22003.
+    let frame = stash_sell(party_id, "Gem", 1, json!({"pp": 300_000_000}));
+    let result = apply_write(
+        &pool,
+        &player("sub-sell-overflow"),
+        party_id,
+        op("sell-overflow", frame.target, 0, frame.value),
+    )
+    .await
+    .expect("overflow sell runs");
+    assert_eq!(
+        result.outcome,
+        Outcome::Rejected,
+        "an overflowing gp equivalent refuses, not a driver error"
+    );
+    let reason = result.reason.expect("reason");
+    assert!(reason.contains("overflow"), "names the fault: {reason}");
+    assert_eq!(
+        stash_row(&pool, party_id, "Gem")
+            .await
+            .expect("row stands")
+            .0,
+        1,
+        "stash unchanged"
+    );
+    let bank: Option<i32> = sqlx::query_scalar("SELECT gp FROM party_bank WHERE party_id = $1")
+        .bind(party_id)
+        .fetch_optional(&pool)
+        .await
+        .expect("bank read");
+    assert_eq!(bank, None, "no bank row was minted");
+    assert_eq!(claim_count(&pool, party_id, "Gem").await, 0, "no claim row");
+    testing::drop_test_db(pool, "stash_sell_overflow").await;
 }
 
 #[tokio::test]

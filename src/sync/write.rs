@@ -954,7 +954,17 @@ async fn party_write_matrix_denial(
 ) -> anyhow::Result<Option<WriteResult>> {
     match &op.target {
         FieldTarget::StashNew { .. } => {
-            deny_non_member(pool, actor, party_id, op, AuditEvent::ForbiddenStashWrite).await
+            deny_non_member(
+                pool,
+                actor,
+                party_id,
+                op,
+                AuditEvent::ForbiddenStashWrite,
+                |member| Resource::Stash {
+                    actor_is_party_member: member,
+                },
+            )
+            .await
         }
         FieldTarget::Stash { .. } => {
             // The sell op moves coin into the party bank, so it routes
@@ -971,7 +981,17 @@ async fn party_write_matrix_denial(
                 )
                 .await
             } else {
-                deny_non_member(pool, actor, party_id, op, AuditEvent::ForbiddenStashWrite).await
+                deny_non_member(
+                    pool,
+                    actor,
+                    party_id,
+                    op,
+                    AuditEvent::ForbiddenStashWrite,
+                    |member| Resource::Stash {
+                        actor_is_party_member: member,
+                    },
+                )
+                .await
             }
         }
         FieldTarget::Bank { .. } => {
@@ -985,7 +1005,17 @@ async fn party_write_matrix_denial(
             .await
         }
         FieldTarget::Party { .. } => {
-            deny_non_member(pool, actor, party_id, op, AuditEvent::ForbiddenPartyWrite).await
+            deny_non_member(
+                pool,
+                actor,
+                party_id,
+                op,
+                AuditEvent::ForbiddenPartyWrite,
+                |member| Resource::PartySettings {
+                    actor_is_party_member: member,
+                },
+            )
+            .await
         }
         // Covered by the scope match above.
         FieldTarget::Claim { .. }
@@ -1008,15 +1038,20 @@ async fn party_write_matrix_denial(
 /// The member gate (D4): stash and party-settings surfaces open to any
 /// character owner of the party. The GM case is pre-gated by the role check,
 /// so a non-GM actor's verdict is the membership bit; a non-member audits
-/// under `event`.
+/// under `event`. `resource` rebuilds the concrete [`Resource`] variant once
+/// the membership fact is loaded, so the gate answers through [`authorize`]
+/// and the matrix row it targets stays a live production path.
 async fn deny_non_member(
     pool: &PgPool,
     actor: &Actor,
     party_id: i64,
     op: &ClientOp,
     event: AuditEvent,
+    resource: fn(bool) -> Resource,
 ) -> anyhow::Result<Option<WriteResult>> {
-    if !is_party_member(pool, actor, party_id).await? {
+    let actor_is_party_member = is_party_member(pool, actor, party_id).await?;
+    let resource = resource(actor_is_party_member);
+    if authorize(actor, Action::Write, &resource) == Verdict::Deny {
         return record_party_denial(
             pool,
             actor,
@@ -1476,6 +1511,28 @@ async fn stash_meta_tx(
     })
 }
 
+/// The transfer counterparty's frozen display name (FR-4), or `None` when
+/// the id is not a roster character of the party. The outer `Option` is row
+/// presence (not a roster character → refused by the caller); the inner is
+/// column nullity (an unnamed identity → ""), the same `unwrap_or_default()`
+/// decode recompute's `party_source_names` uses.
+async fn transfer_counterparty_name(
+    tx: &mut Transaction<'_, Postgres>,
+    character_id: i64,
+    party_id: i64,
+) -> anyhow::Result<Option<String>> {
+    let name: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT base_sheet->'identity'->>'name' FROM characters \
+         WHERE id = $1 AND party_id = $2",
+    )
+    .bind(character_id)
+    .bind(party_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("transfer counterparty lookup")?;
+    Ok(name.map(Option::unwrap_or_default))
+}
+
 /// The transfer arm (D3, FR-3): one transaction moving `qty` of the named
 /// item between the stash and a roster character's inventory, either
 /// direction, with exactly one claim row. Both sides are additive — the
@@ -1507,16 +1564,7 @@ async fn stash_transfer_tx(
 
     // The counterparty must be a roster character; its display name freezes
     // into the claim label now (FR-4) — a later rename never rewrites rows.
-    let name: Option<String> = sqlx::query_scalar(
-        "SELECT base_sheet->'identity'->>'name' FROM characters \
-         WHERE id = $1 AND party_id = $2",
-    )
-    .bind(character_id)
-    .bind(party_id)
-    .fetch_optional(&mut **tx)
-    .await
-    .context("transfer counterparty lookup")?;
-    let Some(name) = name else {
+    let Some(name) = transfer_counterparty_name(tx, character_id, party_id).await? else {
         return Ok(PartyApply::rejected(format!(
             "character {character_id} is not a roster character of this party"
         )));
@@ -1573,7 +1621,10 @@ async fn stash_transfer_tx(
     // ruling governs the column).
     let character_delta = if direction == "out" { qty } else { -qty };
     let character_diff =
-        apply_inventory_delta(tx, character_id, item_name, character_delta).await?;
+        match apply_inventory_delta(tx, character_id, item_name, character_delta).await? {
+            Ok(diff) => diff,
+            Err(reason) => return Ok(PartyApply::rejected(reason)),
+        };
 
     let claim_value = read_claim_row(&mut **tx, claim_id).await?;
     Ok(PartyApply {
@@ -1600,35 +1651,59 @@ async fn stash_transfer_tx(
 /// when absent — the transfer's character side (D3). Additive on the stored
 /// delta, no baseline read, no read-modify-write (E7's `cas_inv` ruling
 /// governs the column); the transfer op is the sanctioned non-owner writer
-/// (D4). Returns the resolved diff.
+/// (D4). The conflict update's predicate sums in bigint and bounds the
+/// result to int4, so an overflowing transfer refuses instead of raising
+/// 22003 and erroring the driver — the same guard the stash and bank deltas
+/// carry. The outer `Result` is the driver/I-O failure; the inner is the
+/// applied diff or the refusal reason the caller maps to a rejection.
 async fn apply_inventory_delta(
     tx: &mut Transaction<'_, Postgres>,
     character_id: i64,
     item_name: &str,
     qty_delta: i32,
-) -> anyhow::Result<(FieldTarget, JsonValue, i64)> {
-    let (delta, version): (i32, i64) = sqlx::query_as(
+) -> anyhow::Result<Result<(FieldTarget, JsonValue, i64), String>> {
+    let updated: Option<(i32, i64)> = sqlx::query_as(
         "INSERT INTO character_inventory_live (character_id, item_name, qty_delta, version) \
          VALUES ($1, $2, $3, nextval('field_version_seq')) \
          ON CONFLICT (character_id, item_name) DO UPDATE \
            SET qty_delta = character_inventory_live.qty_delta + EXCLUDED.qty_delta, \
                version = nextval('field_version_seq'), updated_at = now() \
+         WHERE character_inventory_live.qty_delta::bigint + EXCLUDED.qty_delta \
+             BETWEEN $4 AND $5 \
          RETURNING qty_delta, version",
     )
     .bind(character_id)
     .bind(item_name)
     .bind(qty_delta)
-    .fetch_one(&mut **tx)
+    .bind(i64::from(i32::MIN))
+    .bind(i64::from(i32::MAX))
+    .fetch_optional(&mut **tx)
     .await
     .context("character inventory delta")?;
-    Ok((
+
+    let Some((delta, version)) = updated else {
+        let current: i32 = sqlx::query_scalar(
+            "SELECT qty_delta FROM character_inventory_live \
+             WHERE character_id = $1 AND item_name = $2",
+        )
+        .bind(character_id)
+        .bind(item_name)
+        .fetch_one(&mut **tx)
+        .await
+        .context("character inventory delta read")?;
+        return Ok(Err(format!(
+            "that transfer would overflow the character's stored \
+             \"{item_name}\" delta ({current} stored, {qty_delta} asked)"
+        )));
+    };
+    Ok(Ok((
         FieldTarget::Inv {
             character_id,
             item_name: item_name.to_owned(),
         },
         serde_json::json!({"qty_delta": delta}),
         version,
-    ))
+    )))
 }
 
 /// The sell arm (D3, FR-6): one transaction removing `qty` from the stash
@@ -1841,7 +1916,8 @@ async fn bank_tx(
     let cp_delta = as_i32(value.get("cp_delta").unwrap_or(&JsonValue::Null)).unwrap_or_default();
 
     // FR-9's order: the claim row appends before the balance change, so a
-    // refusal rolls it back whole. Direction by the net sign.
+    // refusal rolls it back whole. Direction by the sign: any negative
+    // denomination labels the whole movement a withdrawal (bank → outside).
     let (origin, destination) = if gp_delta < 0 || sp_delta < 0 || cp_delta < 0 {
         ("bank".to_owned(), "outside".to_owned())
     } else {
