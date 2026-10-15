@@ -365,12 +365,26 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   workspace: `<project>/MOR-<n>`, a sibling worktree on branch `MOR-<n>` cut
   from `origin/main`. That branch is the PR branch; the run's own harness
   prompt forbids switching or re-pointing it, so keep all commits on it.
-  Inside that tree the HEAD stays on `MOR-<n>` for the run's whole life — `git checkout`/`git switch` onto another branch, and `git rebase` of the provisioned branch, are both out; a rebase moves the branch under the seats sharing the tree, and the force-push that would make it reachable is already forbidden above. The consequence is named, not guessed: a concurrent seat in that same tree fails `workspace_validation_failed: expected branch MOR-<n>`, which reads to it as a provisioning defect (gh#149 is the structural cause — one worktree per issue *lineage*, so sibling seats share one HEAD — and PR #271, the gh#267 instance, lost one heartbeat, no text).
+  Inside that tree the HEAD stays on `MOR-<n>` for the run's whole life —
+  `git checkout`/`git switch` onto another branch and `git rebase` of the
+  provisioned branch are both out; a rebase moves the branch under the
+  seats sharing the tree, and the force-push that would make it reachable
+  is already forbidden above. A detached read is the one exception to that
+  pin — the gate worktree recipe takes `--detach` in a separate worktree
+  and takes no commits. The consequence: a concurrent seat in that same
+  tree fails
+  `workspace_validation_failed` (`git_worktree_branch_incoherence`), which
+  reads to it as a provisioning defect. gh#149 is the structural cause —
+  one worktree per issue *lineage*, so sibling seats share one HEAD — and
+  PR #271, the gh#267 instance, cost a concurrent seat one heartbeat, no
+  text.
   Never cut your own worktree for your own task — verify where you are with
-  `git rev-parse --show-toplevel` and work there — with one exception, a
-  branch collision. The keep-all-commits instruction carries a premise: the
-  provisioned branch is *this* task's PR branch, 1:1. Check the premise at
-  pickup (`git branch --show-current`, then `gh pr list --head <branch>
+  `git rev-parse --show-toplevel` and work there — with one exception: any
+  work that is not this task's — a side fix, another issue's docs change, a
+  hotfix, a branch collision. The keep-all-commits instruction carries a
+  premise: the provisioned branch is *this* task's PR branch, 1:1. Check
+  the premise at pickup (`git branch --show-current`, then `gh pr list
+  --head <branch>
   --state open`, then `git status --short`): if the branch is already
   another open PR's head, if it carries another task's commits, or if the
   tree holds modified or untracked paths this task will not touch, the
@@ -386,7 +400,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   never a `MOR-<n>` name, that namespace is harness-owned and carries the
   stricter removal rule — note the collision and its evidence in the PR
   body, and report it on your tracking task. It is a provisioning defect,
-  not an engineer error. The hand-cut remedy's trigger is wider than a branch collision — *any* work that is not this task's, a side fix, another issue's docs change, a hotfix, gets a sibling `hireling-<n>-<slug>` worktree cut fresh from `origin/main`, per Hard rule 3; the remedy is already written, only its trigger was too narrow. A detached read is the one exception, and it is already in the file — the gate worktree recipe takes `--detach` and takes no commits. The shared `hireling`
+  not an engineer error. The shared `hireling`
   checkout is reference only: read from it, never run in it, and let it
   drift behind `origin/main`. Hand-cut worktrees — a human in a clone, a
   hotfix, a branch collision — go in sibling directories, never run scratch
