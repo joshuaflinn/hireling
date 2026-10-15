@@ -86,8 +86,8 @@ jobs:
 
       # Repo-side guardrails, run before the image below. The gate image owns
       # 16 passes; `just ci-local` (see justfile) carries legs it has never
-      # run — web-test, web-css-guard, web-html-boundary, json-keys,
-      # boundary. They ride this job because the main-gate ruleset requires
+      # run — disk-guard, web-test, web-css-guard, web-html-boundary,
+      # json-keys, boundary. They ride this job because the main-gate ruleset requires
       # exactly one status
       # context, `gate` — a second job would publish an unrequired context
       # that could sit red while the merge button stays live. Every guard
@@ -128,9 +128,11 @@ jobs:
       # verified below before the binary lands — a replaced or re-tagged
       # asset fails this step instead of executing. The fetch retries: a
       # transient CDN failure must not redden the required gate on code
-      # nobody touched. Nothing here warms a Rust toolchain: the boundary
-      # step's host-side cargo gets the rust-toolchain.toml pin from
-      # rustup's auto-install on its first invocation. Bump deliberately:
+      # nobody touched. Nothing here warms a Rust toolchain: the disk-guard
+      # step's host-side cargo — the first host cargo invocation, since it
+      # is the first ci-local leg — gets the rust-toolchain.toml pin from
+      # rustup's auto-install on its first invocation, and boundary below
+      # reuses it. Bump deliberately:
       # version and sha256 move together, both read from upstream's
       # release assets at pin time.
       - name: Install just
@@ -149,6 +151,22 @@ jobs:
           tar --extract --gzip --file just.tar.gz just
           sudo install --mode 0755 just /usr/local/bin/just
           just --version
+
+      # Free-space floor, the first ci-local leg (justfile): fail before the
+      # expensive legs when the runner cannot absorb another build. The
+      # runner has ~14G and the gate cache already occupies part of it, so
+      # the floor is 3 (not the bench default 10) via DISK_FLOOR_GB. The
+      # decision lives in diskops, a std-only zero-dep crate, so this
+      # compiles in seconds — and it is the first host-side cargo
+      # invocation, warming the rust-toolchain.toml pin before boundary
+      # below needs it. CARGO_HOME points at the restored gate cache, same
+      # as boundary.
+      - name: disk-guard — free-space floor
+        if: ${{ !cancelled() }}
+        run: just disk-guard
+        env:
+          DISK_FLOOR_GB: "3"
+          CARGO_HOME: /home/runner/.cache/grizzly-gate/cargo
 
       - name: web-test — vitest suite
         if: ${{ !cancelled() }}
