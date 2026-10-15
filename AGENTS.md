@@ -44,8 +44,10 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
    issue where one exists (`feat/12-buff-engine`), govern branches cut by
    hand outside a provisioned workspace — a human in a clone, a hotfix off
    the shared checkout. Never commit to `main`.
-   Never force-push shared branches — a branch is shared from the moment a
-   review round is announced against it; who cut it is irrelevant, because a
+   Never force-push shared branches — a branch is shared from the moment
+   anything but you can read a head off it: in practice from its first push
+   to `origin`, and beyond argument once a PR is open against it or a review
+   round is announced against it. Who cut it is irrelevant, because a
    reviewer and a press seat read heads off that ref. PR #277 is the reason:
    its author hand-cut `docs/275-head-pinned`, force-pushed it at 11:51:01Z
    (`head_ref_force_pushed`, erasing `279e9600` back to `5c73ddc`), and
@@ -266,13 +268,13 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   to and spends review capacity the budget does not have. Once an accept is
   posted, an earlier direction to fix something in-PR is superseded — the
   item becomes a follow-up on a fresh branch, because an accept binds to a
-  head and a direction issued when no head was protected cannot authorise
-  moving one. PR #277 is the instance: comment `6191002802` (11:29:40Z)
-  told the author to close the enumeration in-PR; the round-2 accept
-  `5532580105` (11:46:33Z, head `5c73ddc`) routed the same fix to a fresh
-  branch — the accept wins.
+  head — structurally, not by seniority — and a direction issued when no
+  head was protected cannot authorise moving one. PR #277 is the instance:
+  comment `6191002802` (11:29:40Z) told the author to close the enumeration
+  in-PR; the round-2 accept `5532580105` (11:46:33Z, head `5c73ddc`)
+  routed the same fix to a fresh branch — the accept wins.
 
-  **If author text does land over a posted verdict, it is an author fault**
+  **If author text does land over a posted accept, it is an author fault**
   — not a provisioning defect; the harness did nothing. Handling matches a
   branch collision: name it in the PR body, report it on the author's
   tracking task. No penalty attaches, and it does not deadlock the branch.
@@ -426,9 +428,8 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   checkout is reference only: read from it, never run in it, and let it
   drift behind `origin/main`. Hand-cut worktrees — a side fix, another
   issue's docs change, a hotfix, a branch collision — go in sibling
-  directories, never run scratch
-  dirs (those get cleaned). Removal has a hard edge: a sibling named for an
-  *open* task
+  directories, never run scratch dirs (those get cleaned). Removal has a
+  hard edge: a sibling named for an *open* task
   (`MOR-<n>`) can be clean and an ancestor of `origin/main` and still be a
   live harness-owned workspace — never remove one unless that task is
   closed. Hand-cut `hireling-*` siblings keep the old staleness test:
