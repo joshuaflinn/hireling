@@ -10,8 +10,9 @@
 //! unfulfilled-expectation error under `-D warnings`.
 
 use super::{
-    DEFAULT_FLOOR_GIB, FreeSpace, GIB, ReapDecision, SiblingKind, SkipReason, below_floor,
-    classify_sibling, decide, format_gib, is_cargo_like, parse_df, parse_floor_gib,
+    DEFAULT_FLOOR_GIB, FreeSpace, GIB, GuardOutcome, ReapDecision, SiblingKind, SkipReason,
+    below_floor, classify_sibling, decide, format_gib, guard_outcome, is_live_build_process,
+    parse_df, parse_floor_gib,
 };
 
 const FLOOR_BYTES: u64 = DEFAULT_FLOOR_GIB * GIB;
@@ -75,6 +76,17 @@ fn decide_reaps_merged_clean_worktree() {
         decide("hireling-488-stash-web", true, true, false),
         ReapDecision::Reap,
         "a clean worktree merged into origin/main is reapable"
+    );
+}
+
+#[test]
+fn decide_skips_worktree_with_live_build() {
+    assert_eq!(
+        decide("hireling-488-stash-web", true, true, true),
+        ReapDecision::Skip {
+            reason: SkipReason::LiveBuild
+        },
+        "a live build inside a clean merged worktree must survive the sweep"
     );
 }
 
@@ -154,18 +166,46 @@ fn decide_skips_unknown_name() {
 }
 
 #[test]
-fn is_cargo_like_matches_build_processes() {
+fn is_live_build_process_matches_build_processes() {
     assert!(
-        is_cargo_like("cargo run --package diskops -- reap"),
+        is_live_build_process("cargo run --package diskops -- reap"),
         "a cargo invocation is a build"
     );
     assert!(
-        is_cargo_like("/home/flinn/.cargo/bin/rustc --edition 2024"),
+        is_live_build_process("/home/flinn/.cargo/bin/rustc --edition 2024"),
         "a full-path rustc invocation is a build"
     );
     assert!(
-        !is_cargo_like("just reap"),
+        is_live_build_process("npm --prefix web ci"),
+        "the detached-gate recipe's npm install is a live build"
+    );
+    assert!(
+        is_live_build_process("/usr/bin/node vite build"),
+        "a node toolchain process is a live build"
+    );
+    assert!(
+        !is_live_build_process("just reap"),
         "the reaper's own just wrapper is not a build"
+    );
+}
+
+#[test]
+fn guard_outcome_refuses_below_floor() {
+    let outcome = guard_outcome(FLOOR_BYTES - 1, FLOOR_BYTES, DEFAULT_FLOOR_GIB, "/");
+    assert!(
+        matches!(&outcome, GuardOutcome::Refuse { message }
+            if message.contains("need 10G") && message.contains("run 'just reap'")),
+        "one byte below the floor must refuse, naming the floor and the remedy: {outcome:?}"
+    );
+}
+
+#[test]
+fn guard_outcome_proceeds_at_floor() {
+    let outcome = guard_outcome(FLOOR_BYTES, FLOOR_BYTES, DEFAULT_FLOOR_GIB, "/");
+    assert!(
+        matches!(&outcome, GuardOutcome::Proceed { message }
+            if message.starts_with("disk-guard ok:") && message.contains("floor 10G")),
+        "exactly at the floor must pass: {outcome:?}"
     );
 }
 

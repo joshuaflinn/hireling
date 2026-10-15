@@ -15,8 +15,9 @@ pub const GIB: u64 = 1024 * 1024 * 1024;
 /// Why 10: a full `target-gate-*` build measured 2.2G in-tree and up to 3.7G
 /// behind an external `CARGO_TARGET_DIR`, so 10G is roughly three builds of
 /// headroom on a bench that also holds checkouts, `node_modules`, and the
-/// shared Postgres volume. CI overrides lower (`DISK_FLOOR_GB=3` in
-/// gate.yml): a hosted runner starts near 14G free and cannot spare ten.
+/// shared Postgres volume. CI runs the same default: a hosted runner logged
+/// `disk-guard ok: 75.4G free on /` with the gate cache already restored, so
+/// no override is needed.
 pub const DEFAULT_FLOOR_GIB: u64 = 10;
 
 /// Whether `free_bytes` is below the floor — the guard's refusal condition.
@@ -86,9 +87,12 @@ pub enum ReapDecision {
 ///
 /// `is_ancestor` reports whether the worktree's HEAD is an ancestor of
 /// `origin/main`; `is_clean` whether its tree is clean; `live_build` whether
-/// a cargo/rustc process outside this invocation is running. Only
-/// `hireling-*` names consult the git state; only `target-*` names consult
-/// the live-build state.
+/// a build process outside this invocation is running. Only `hireling-*`
+/// names consult the git state; `target-*` and `hireling-*` names consult
+/// the live-build state — a clean, merged worktree can still hold a live
+/// build (the detached-gate recipe runs `npm ci` and `just ci-local` inside
+/// one), and git's own `worktree remove` refuses only tracked and
+/// non-ignored untracked files, not ignored build output.
 #[must_use]
 pub fn decide(name: &str, is_ancestor: bool, is_clean: bool, live_build: bool) -> ReapDecision {
     match classify_sibling(name) {
@@ -102,7 +106,11 @@ pub fn decide(name: &str, is_ancestor: bool, is_clean: bool, live_build: bool) -
             }
         }
         SiblingKind::Hireling => {
-            if !is_clean {
+            if live_build {
+                ReapDecision::Skip {
+                    reason: SkipReason::LiveBuild,
+                }
+            } else if !is_clean {
                 ReapDecision::Skip {
                     reason: SkipReason::DirtyTree,
                 }
@@ -132,22 +140,27 @@ pub fn skip_reason_text(reason: SkipReason) -> &'static str {
     match reason {
         SkipReason::HarnessOwned => "harness-owned MOR-<n> sibling",
         SkipReason::ReferenceCheckout => "shared reference checkout",
-        SkipReason::LiveBuild => "live cargo/rustc build may be writing it",
+        SkipReason::LiveBuild => "live build process may be writing it",
         SkipReason::DirtyTree => "dirty tree — another seat's work",
         SkipReason::NotMerged => "branch not an ancestor of origin/main",
         SkipReason::NotReapable => "not a reapable name",
     }
 }
 
-/// Whether a process command line indicates a cargo/rustc build.
+/// Whether a process command line indicates a build that may be writing a
+/// sibling — `cargo`, `rustc`, `npm`, or `node`. `npm`/`node` are in the set
+/// because the detached-gate recipe runs `npm --prefix web ci` inside a
+/// worktree, and that is as much a live build as the Rust toolchain.
 ///
 /// A substring match, deliberately at least as broad as the manual
 /// `ps -eo pid,cmd | grep -E 'cargo|rustc'` sweep it replaces. Broad is the
 /// safe direction: a false positive only makes the reaper refuse, never
 /// delete something a build is writing.
 #[must_use]
-pub fn is_cargo_like(cmdline: &str) -> bool {
-    cmdline.contains("cargo") || cmdline.contains("rustc")
+pub fn is_live_build_process(cmdline: &str) -> bool {
+    ["cargo", "rustc", "npm", "node"]
+        .iter()
+        .any(|tool| cmdline.contains(tool))
 }
 
 /// One filesystem's free space as `df -P -B1 <path>` reports it.
@@ -210,6 +223,47 @@ pub fn format_gib(bytes: u64) -> String {
     // count near `u64::MAX` cannot overflow the multiplication.
     let tenths = (u128::from(bytes) * 10 + u128::from(GIB) / 2) / u128::from(GIB);
     format!("{}.{}G", tenths / 10, tenths % 10)
+}
+
+/// The disk guard's verdict for one reading, mapped to an exit code by the
+/// shell: [`GuardOutcome::Refuse`] exits non-zero, [`GuardOutcome::Proceed`]
+/// exits zero. The exact human line rides along so the message is asserted
+/// on both sides of the threshold, not inferred from `below_floor`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GuardOutcome {
+    /// Free space is below the floor — the shell must refuse.
+    Refuse { message: String },
+    /// Free space is at or above the floor — the shell must proceed.
+    Proceed { message: String },
+}
+
+/// Decide the guard's outcome from a free-space reading.
+#[must_use]
+pub fn guard_outcome(
+    free_bytes: u64,
+    floor_bytes: u64,
+    floor_gib: u64,
+    mount: &str,
+) -> GuardOutcome {
+    if below_floor(free_bytes, floor_bytes) {
+        GuardOutcome::Refuse {
+            message: format!(
+                "error: {} free on {}, need {}G — run 'just reap'",
+                format_gib(free_bytes),
+                mount,
+                floor_gib
+            ),
+        }
+    } else {
+        GuardOutcome::Proceed {
+            message: format!(
+                "disk-guard ok: {} free on {}, floor {}G",
+                format_gib(free_bytes),
+                mount,
+                floor_gib
+            ),
+        }
+    }
 }
 
 #[cfg(test)]

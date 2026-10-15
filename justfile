@@ -282,8 +282,8 @@ json-keys:
 # dir runs 2.2–3.7G (`du -sh` on this bench) — so the floor leaves headroom
 # for one build plus the checkouts, node_modules and git objects that share
 # the filesystem, without crying wolf on every bench holding a little
-# history. CI overrides to 3 (see .github/workflows/gate.yml) because a
-# runner's ~14G cannot spare 10G.
+# history. CI runs the same default: the runner logged 75.4G free with the
+# gate cache already restored, so no override is needed.
 disk-floor-gb := env_var_or_default("DISK_FLOOR_GB", "10")
 
 # Free-space guard: fail fast, before the expensive ci-local legs, when the

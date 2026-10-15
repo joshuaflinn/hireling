@@ -12,15 +12,15 @@
 //!   floor, naming the condition, the number, and the remedy.
 //! - `reap [--list|--prune] [--parent <dir>]` — list or remove reapable
 //!   sibling `target-*` dirs and stale `hireling-*` worktrees, refusing any
-//!   while a live cargo/rustc build is running.
+//!   while a live build (cargo/rustc/npm/node) is running.
 
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use diskops::{
-    DEFAULT_FLOOR_GIB, FreeSpace, GIB, ReapDecision, SiblingKind, below_floor, classify_sibling,
-    decide, format_gib, is_cargo_like, parse_df, parse_floor_gib, skip_reason_text,
+    DEFAULT_FLOOR_GIB, FreeSpace, GIB, GuardOutcome, ReapDecision, SiblingKind, classify_sibling,
+    decide, format_gib, guard_outcome, is_live_build_process, parse_df, parse_floor_gib,
+    skip_reason_text,
 };
 
 fn main() -> ExitCode {
@@ -82,32 +82,27 @@ fn guard(args: &[String]) -> Result<ExitCode, String> {
 
     // The filesystem that matters is the one holding the build output:
     // CARGO_TARGET_DIR when a seat points it elsewhere, else the worktree.
+    // A CARGO_TARGET_DIR that does not yet exist (the detached-gate recipe
+    // points at `../target-gate-<n>` before `just ci-local` creates it)
+    // still names a filesystem — walk to the nearest existing ancestor.
     let target = std::env::var_os("CARGO_TARGET_DIR");
-    let path: OsString = match target {
-        Some(dir) => dir,
+    let path: PathBuf = match target {
+        Some(dir) => nearest_existing_ancestor(Path::new(&dir)),
         None => std::env::current_dir()
-            .map(PathBuf::into_os_string)
             .map_err(|error| format!("cannot read the current directory: {error}"))?,
     };
 
     let FreeSpace { available, mount } = df_avail(&path)?;
 
-    if below_floor(available, floor_bytes) {
-        eprintln!(
-            "error: {} free on {}, need {}G — run 'just reap'",
-            format_gib(available),
-            mount,
-            floor_gib
-        );
-        Ok(ExitCode::FAILURE)
-    } else {
-        println!(
-            "disk-guard ok: {} free on {}, floor {}G",
-            format_gib(available),
-            mount,
-            floor_gib
-        );
-        Ok(ExitCode::SUCCESS)
+    match guard_outcome(available, floor_bytes, floor_gib, &mount) {
+        GuardOutcome::Refuse { message } => {
+            eprintln!("{message}");
+            Ok(ExitCode::FAILURE)
+        }
+        GuardOutcome::Proceed { message } => {
+            println!("{message}");
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 
@@ -181,11 +176,10 @@ fn reap(args: &[String]) -> Result<ExitCode, String> {
             false
         };
         let live = match kind {
-            SiblingKind::Target => *live_build.get_or_insert_with(live_build_present),
-            SiblingKind::Hireling
-            | SiblingKind::Mor
-            | SiblingKind::Reference
-            | SiblingKind::Other => false,
+            SiblingKind::Target | SiblingKind::Hireling => {
+                *live_build.get_or_insert_with(live_build_present)
+            }
+            SiblingKind::Mor | SiblingKind::Reference | SiblingKind::Other => false,
         };
         let decision = decide(&name, is_ancestor, is_clean, live);
         plan.push((name, path, decision));
@@ -243,8 +237,24 @@ fn reap(args: &[String]) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// `df` can only report a filesystem for a path that exists. A
+/// `CARGO_TARGET_DIR` that does not yet exist would make `df` exit
+/// non-zero, so walk up to the nearest existing ancestor — the filesystem
+/// is the same either way.
+fn nearest_existing_ancestor(path: &Path) -> PathBuf {
+    let mut current = path.to_path_buf();
+    loop {
+        if current.exists() {
+            return current;
+        }
+        if !current.pop() {
+            return PathBuf::from("/");
+        }
+    }
+}
+
 /// Run `df -P -B1 <path>` and hand the data row to the library parser.
-fn df_avail(path: &OsString) -> Result<FreeSpace, String> {
+fn df_avail(path: &Path) -> Result<FreeSpace, String> {
     let output = Command::new("df")
         .args(["-P", "-B1"])
         .arg(path)
@@ -263,8 +273,8 @@ fn df_avail(path: &OsString) -> Result<FreeSpace, String> {
     parse_df(&stdout)
 }
 
-/// Whether a cargo/rustc process outside this invocation's ancestry is
-/// running. Fail-closed: an unreadable `ps` reads as "live".
+/// Whether a build process (cargo/rustc/npm/node) outside this invocation's
+/// ancestry is running. Fail-closed: an unreadable `ps` reads as "live".
 fn live_build_present() -> bool {
     let excluded = ancestor_pids();
     let Ok(output) = Command::new("ps").args(["-eo", "pid=,cmd="]).output() else {
@@ -284,7 +294,7 @@ fn live_build_present() -> bool {
         {
             return false;
         }
-        is_cargo_like(line)
+        is_live_build_process(line)
     })
 }
 

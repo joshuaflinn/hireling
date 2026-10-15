@@ -87,9 +87,9 @@ jobs:
       # Repo-side guardrails, run before the image below. The gate image owns
       # 16 passes; `just ci-local` (see justfile) carries legs it has never
       # run — disk-guard, web-test, web-css-guard, web-html-boundary,
-      # json-keys, boundary. They ride this job because the main-gate ruleset requires
-      # exactly one status
-      # context, `gate` — a second job would publish an unrequired context
+      # json-keys, boundary. They ride this job because the main-gate ruleset
+      # requires exactly one status context, `gate` — a second job would
+      # publish an unrequired context
       # that could sit red while the merge button stays live. Every guard
       # step and the image run below carry if: ${{ !cancelled() }}: one red
       # run must list every failure it has (a json-keys red must not hide a
@@ -154,18 +154,17 @@ jobs:
 
       # Free-space floor, the first ci-local leg (justfile): fail before the
       # expensive legs when the runner cannot absorb another build. The
-      # runner has ~14G and the gate cache already occupies part of it, so
-      # the floor is 3 (not the bench default 10) via DISK_FLOOR_GB. The
-      # decision lives in diskops, a std-only zero-dep crate, so this
-      # compiles in seconds — and it is the first host-side cargo
-      # invocation, warming the rust-toolchain.toml pin before boundary
-      # below needs it. CARGO_HOME points at the restored gate cache, same
-      # as boundary.
+      # runner has ample headroom — the green run at 9487e3a logged
+      # "disk-guard ok: 75.4G free on /" with the gate cache already
+      # restored (gh run view 38742381851 --log | grep 'free on') — so CI
+      # runs the bench's 10G default, no override. The decision lives in
+      # diskops, a std-only zero-dep crate, so this compiles in seconds —
+      # and it is the first host-side cargo invocation, warming the
+      # rust-toolchain.toml pin before boundary below needs it. CARGO_HOME
+      # points at the restored gate cache, same as boundary.
       - name: disk-guard — free-space floor
         if: ${{ !cancelled() }}
         run: just disk-guard
-        env:
-          DISK_FLOOR_GB: "3"
           CARGO_HOME: /home/runner/.cache/grizzly-gate/cargo
 
       - name: web-test — vitest suite
