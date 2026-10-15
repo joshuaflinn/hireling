@@ -72,7 +72,7 @@ pub async fn run() -> anyhow::Result<()> {
 /// license archive, and license verdict subcommands are operator jobs —
 /// they run once against a target database and exit.
 ///
-/// `args` excludes argv[0] and must be UTF-8 (the binary collects it via
+/// `args` excludes `argv[0]` and must be UTF-8 (the binary collects it via
 /// [`std::env::args`], which enforces that).
 ///
 /// # Errors
