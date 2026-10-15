@@ -1,0 +1,6 @@
+# Vendored gate-file manifest. One row per vendored file, three
+# tab-separated fields: <image-path> <vendored-path> <sha256>
+# (sha256 of the image's raw bytes, i.e. everything below the
+# marker line in the vendored file). Written by
+# scripts/fetch_gate_file.py; read by scripts/check_gate_vendored.py.
+etc/grizzly-gate/config/languages/node/eslint.config.mjs.tmpl	web/gate-eslint.config.mjs.tmpl	f157de2eaa4b6f55ec73135f329d0a88e4d99c3747f7b3043e6ab975b723a2d5
