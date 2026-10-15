@@ -12,10 +12,11 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    DEFAULT_FLOOR_GIB, FreeSpace, GIB, GuardOutcome, ProcessObservation, ReapDecision, SiblingKind,
-    SkipReason, argv_names_path, below_floor, classify_sibling, decide, exhausted_walk_anchor,
-    format_gib, guard_outcome, is_live_build_process, nearest_existing_ancestor, parse_df,
-    parse_floor_gib, path_is_within, process_blocks_dir, skip_reason_text,
+    DEFAULT_FLOOR_GIB, FreeSpace, GIB, GuardOutcome, LiveStatus, ProcessObservation, ReapDecision,
+    RemovalsOutcome, SiblingKind, SkipReason, apply_removals, argv_names_path, below_floor,
+    classify_sibling, decide, exhausted_walk_anchor, format_gib, guard_outcome,
+    is_live_build_process, nearest_existing_ancestor, normalize_path, parse_df, parse_floor_gib,
+    path_is_within, process_liveness, skip_reason_text,
 };
 
 const FLOOR_BYTES: u64 = DEFAULT_FLOOR_GIB * GIB;
@@ -238,7 +239,7 @@ fn classify_sibling_names_the_reapable_and_excluded_sets() {
 #[test]
 fn decide_skips_mor_regardless_of_liveness() {
     assert_eq!(
-        decide("MOR-482", true, true, true),
+        decide("MOR-482", true, true, LiveStatus::Live),
         ReapDecision::Skip {
             reason: SkipReason::HarnessOwned
         },
@@ -249,7 +250,7 @@ fn decide_skips_mor_regardless_of_liveness() {
 #[test]
 fn decide_skips_the_shared_checkout_regardless_of_liveness() {
     assert_eq!(
-        decide("hireling", false, false, true),
+        decide("hireling", false, false, LiveStatus::Live),
         ReapDecision::Skip {
             reason: SkipReason::ReferenceCheckout
         },
@@ -260,7 +261,7 @@ fn decide_skips_the_shared_checkout_regardless_of_liveness() {
 #[test]
 fn decide_skips_a_dirty_worktree() {
     assert_eq!(
-        decide("hireling-old", true, false, false),
+        decide("hireling-old", true, false, LiveStatus::Idle),
         ReapDecision::Skip {
             reason: SkipReason::DirtyTree
         },
@@ -271,7 +272,7 @@ fn decide_skips_a_dirty_worktree() {
 #[test]
 fn decide_skips_an_unmerged_worktree() {
     assert_eq!(
-        decide("hireling-old", false, true, false),
+        decide("hireling-old", false, true, LiveStatus::Idle),
         ReapDecision::Skip {
             reason: SkipReason::NotMerged
         },
@@ -282,7 +283,7 @@ fn decide_skips_an_unmerged_worktree() {
 #[test]
 fn decide_reaps_a_clean_merged_worktree() {
     assert_eq!(
-        decide("hireling-old", true, true, false),
+        decide("hireling-old", true, true, LiveStatus::Idle),
         ReapDecision::Reap,
         "a clean, merged, idle hand-cut worktree passes the staleness test and is reaped"
     );
@@ -291,7 +292,7 @@ fn decide_reaps_a_clean_merged_worktree() {
 #[test]
 fn decide_reaps_an_idle_target() {
     assert_eq!(
-        decide("target-gate-42", false, false, false),
+        decide("target-gate-42", false, false, LiveStatus::Idle),
         ReapDecision::Reap,
         "an idle target dir is reaped"
     );
@@ -300,7 +301,7 @@ fn decide_reaps_an_idle_target() {
 #[test]
 fn decide_skips_a_target_with_a_live_build() {
     assert_eq!(
-        decide("target-gate-42", false, false, true),
+        decide("target-gate-42", false, false, LiveStatus::Live),
         ReapDecision::Skip {
             reason: SkipReason::LiveBuild
         },
@@ -311,7 +312,7 @@ fn decide_skips_a_target_with_a_live_build() {
 #[test]
 fn decide_skips_unknown_names() {
     assert_eq!(
-        decide("docs", true, true, false),
+        decide("docs", true, true, LiveStatus::Idle),
         ReapDecision::Skip {
             reason: SkipReason::NotReapable
         },
@@ -325,6 +326,7 @@ fn skip_reason_text_covers_every_reason() {
         SkipReason::HarnessOwned,
         SkipReason::ReferenceCheckout,
         SkipReason::LiveBuild,
+        SkipReason::Unobservable,
         SkipReason::DirtyTree,
         SkipReason::NotMerged,
         SkipReason::NotReapable,
@@ -357,7 +359,7 @@ fn is_live_build_process_matches_build_tokens_only() {
 }
 
 #[test]
-fn process_blocks_dir_attributes_inside_cwd_as_live() {
+fn process_liveness_attributes_inside_cwd_as_live() {
     let inside = ProcessObservation {
         cmdline: "node /home/flinn/.nvm/versions/node/v20/bin/vitest".to_owned(),
         argv: vec![
@@ -367,16 +369,19 @@ fn process_blocks_dir_attributes_inside_cwd_as_live() {
         cwd: Some(PathBuf::from(
             "/home/flinn/projects/hireling-488-stash-web/web",
         )),
+        env_target_dir: None,
+        env_readable: true,
     };
     let candidate = Path::new("/home/flinn/projects/hireling-488-stash-web");
-    assert!(
-        process_blocks_dir(&inside, candidate),
+    assert_eq!(
+        process_liveness(&inside, candidate),
+        LiveStatus::Live,
         "a vitest whose cwd is inside the sibling blocks it (AC2 inside)"
     );
 }
 
 #[test]
-fn process_blocks_dir_attributes_outside_cwd_as_idle() {
+fn process_liveness_attributes_outside_cwd_as_idle() {
     let outside = ProcessObservation {
         cmdline: "/home/flinn/.paperclip/installs/npm/.../node_modules/@embedded-postgres/linux-x64/native/bin/postgres -D /home/flinn/.paperclip/instances/default/db".to_owned(),
         argv: vec![
@@ -385,29 +390,35 @@ fn process_blocks_dir_attributes_outside_cwd_as_idle() {
             "/home/flinn/.paperclip/instances/default/db".to_owned(),
         ],
         cwd: Some(PathBuf::from("/home/flinn/.paperclip/instances/default/db")),
+        env_target_dir: None,
+        env_readable: true,
     };
     let candidate = Path::new("/home/flinn/projects/hireling-488-stash-web");
-    assert!(
-        !process_blocks_dir(&outside, candidate),
+    assert_eq!(
+        process_liveness(&outside, candidate),
+        LiveStatus::Idle,
         "embedded Postgres matches the npm/node tokens in its install path but its cwd is outside the sibling, so it does not block (AC2 outside)"
     );
 }
 
 #[test]
-fn process_blocks_dir_blocks_when_cwd_is_unreadable() {
+fn process_liveness_marks_unreadable_cwd_as_unobservable() {
     let unreadable = ProcessObservation {
         cmdline: "cargo build".to_owned(),
         argv: vec!["cargo".to_owned(), "build".to_owned()],
         cwd: None,
+        env_target_dir: None,
+        env_readable: true,
     };
-    assert!(
-        process_blocks_dir(&unreadable, Path::new("/parent/target-gate-7")),
-        "an unreadable cwd for a build-token process reads as live, never idle (fail-closed)"
+    assert_eq!(
+        process_liveness(&unreadable, Path::new("/parent/target-gate-7")),
+        LiveStatus::Unobservable,
+        "an unreadable cwd for a build-token process reads as live, never idle — reported as unobservable, not as a confirmed live build (F3)"
     );
 }
 
 #[test]
-fn process_blocks_dir_blocks_when_argv_names_the_candidate() {
+fn process_liveness_blocks_when_argv_names_the_candidate() {
     let building_elsewhere = ProcessObservation {
         cmdline: "cargo build --target-dir /parent/target-gate-42".to_owned(),
         argv: vec![
@@ -417,27 +428,146 @@ fn process_blocks_dir_blocks_when_argv_names_the_candidate() {
             "/parent/target-gate-42".to_owned(),
         ],
         cwd: Some(PathBuf::from("/parent/hireling-gate-42")),
+        env_target_dir: None,
+        env_readable: true,
     };
-    assert!(
-        process_blocks_dir(&building_elsewhere, Path::new("/parent/target-gate-42")),
+    assert_eq!(
+        process_liveness(&building_elsewhere, Path::new("/parent/target-gate-42")),
+        LiveStatus::Live,
         "a cargo whose argv names the candidate blocks it even with a cwd elsewhere"
     );
-    assert!(
-        !process_blocks_dir(&building_elsewhere, Path::new("/parent/target-gate-99")),
+    assert_eq!(
+        process_liveness(&building_elsewhere, Path::new("/parent/target-gate-99")),
+        LiveStatus::Idle,
         "the same cargo does not block a different, unrelated target dir"
     );
 }
 
 #[test]
-fn process_blocks_dir_ignores_non_build_tokens_even_when_inside() {
+fn process_liveness_ignores_non_build_tokens_even_when_inside() {
     let git_inside = ProcessObservation {
         cmdline: "git status".to_owned(),
         argv: vec!["git".to_owned(), "status".to_owned()],
         cwd: Some(PathBuf::from("/parent/target-gate-7")),
+        env_target_dir: None,
+        env_readable: true,
     };
-    assert!(
-        !process_blocks_dir(&git_inside, Path::new("/parent/target-gate-7")),
+    assert_eq!(
+        process_liveness(&git_inside, Path::new("/parent/target-gate-7")),
+        LiveStatus::Idle,
         "a non-build process with its cwd inside the candidate does not block it"
+    );
+}
+
+#[test]
+fn process_liveness_blocks_when_env_names_the_candidate() {
+    // The shape the repo's detached-gate recipe actually produces: cargo's
+    // cwd is the detached worktree, argv carries no path under the target
+    // dir, and CARGO_TARGET_DIR (with its literal `..`) names it in the
+    // environment (F1).
+    let cargo_with_env = ProcessObservation {
+        cmdline: "cargo build --package hireling".to_owned(),
+        argv: vec![
+            "cargo".to_owned(),
+            "build".to_owned(),
+            "--package".to_owned(),
+            "hireling".to_owned(),
+        ],
+        cwd: Some(PathBuf::from("/parent/hireling-gate-42")),
+        env_target_dir: Some(PathBuf::from("/parent/hireling-gate-42/../target-gate-42")),
+        env_readable: true,
+    };
+    assert_eq!(
+        process_liveness(&cargo_with_env, Path::new("/parent/target-gate-42")),
+        LiveStatus::Live,
+        "a cargo whose environment names the candidate (with a literal ..) blocks it even with cwd and argv elsewhere (F1)"
+    );
+    assert_eq!(
+        process_liveness(&cargo_with_env, Path::new("/parent/target-gate-99")),
+        LiveStatus::Idle,
+        "the same cargo does not block a different, unrelated target dir"
+    );
+}
+
+#[test]
+fn process_liveness_marks_unreadable_env_as_unobservable() {
+    let env_unreadable = ProcessObservation {
+        cmdline: "cargo build".to_owned(),
+        argv: vec!["cargo".to_owned(), "build".to_owned()],
+        cwd: Some(PathBuf::from("/parent/hireling-gate-42")),
+        env_target_dir: None,
+        env_readable: false,
+    };
+    assert_eq!(
+        process_liveness(&env_unreadable, Path::new("/parent/target-gate-42")),
+        LiveStatus::Unobservable,
+        "a build-token process whose environment cannot be read is fail-closed to live (F1)"
+    );
+}
+
+#[test]
+fn decide_skips_a_target_when_liveness_is_unobservable() {
+    assert_eq!(
+        decide("target-gate-42", false, false, LiveStatus::Unobservable),
+        ReapDecision::Skip {
+            reason: SkipReason::Unobservable
+        },
+        "an unobservable candidate is skipped with the unobservable reason, not the live-build reason (F3)"
+    );
+}
+
+#[test]
+fn normalize_path_resolves_dot_and_dotdot() {
+    assert_eq!(
+        normalize_path(Path::new("/parent/hireling-gate-42/../target-gate-42")),
+        PathBuf::from("/parent/target-gate-42"),
+        "the detached-gate recipe's CARGO_TARGET_DIR normalizes to the canonical candidate"
+    );
+    assert_eq!(
+        normalize_path(Path::new("/a/b/./c")),
+        PathBuf::from("/a/b/c"),
+        "a dot component drops out"
+    );
+    assert_eq!(
+        normalize_path(Path::new("/..")),
+        PathBuf::from("/"),
+        "the root absorbs a dotdot"
+    );
+    assert_eq!(
+        normalize_path(Path::new("../target-gate-42")),
+        PathBuf::from("../target-gate-42"),
+        "a leading dotdot on a relative path is kept"
+    );
+}
+
+#[test]
+fn apply_removals_continues_past_a_failed_removal() {
+    let entries = vec![
+        (
+            "target-aaa".to_owned(),
+            PathBuf::from("/parent/target-aaa"),
+            SiblingKind::Target,
+        ),
+        (
+            "target-zzz".to_owned(),
+            PathBuf::from("/parent/target-zzz"),
+            SiblingKind::Target,
+        ),
+    ];
+    let outcome = apply_removals(&entries, |_path, name, _kind| {
+        if name == "target-aaa" {
+            Err("cannot remove target-aaa: Permission denied (os error 13)".to_owned())
+        } else {
+            Ok(())
+        }
+    });
+    assert_eq!(
+        outcome,
+        RemovalsOutcome {
+            removed: 1,
+            failures: vec!["cannot remove target-aaa: Permission denied (os error 13)".to_owned()],
+        },
+        "one failed removal must not abandon the sweep — the second candidate is still removed (F2)"
     );
 }
 

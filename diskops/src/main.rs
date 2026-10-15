@@ -12,9 +12,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use diskops::{
-    DEFAULT_FLOOR_GIB, FreeSpace, GIB, GuardOutcome, ProcessObservation, ReapDecision, SiblingKind,
-    classify_sibling, decide, format_gib, guard_outcome, nearest_existing_ancestor, parse_df,
-    parse_floor_gib, process_blocks_dir, skip_reason_text,
+    DEFAULT_FLOOR_GIB, FreeSpace, GIB, GuardOutcome, LiveStatus, ProcessObservation, ReapDecision,
+    SiblingKind, apply_removals, classify_sibling, decide, format_gib, guard_outcome,
+    nearest_existing_ancestor, parse_df, parse_floor_gib, process_liveness, skip_reason_text,
 };
 
 fn main() -> ExitCode {
@@ -127,7 +127,7 @@ fn reap(args: &[String]) -> Result<ExitCode, String> {
     let parent_path = reap_parent(parent.as_deref())?;
     let observations = read_processes()?;
     let plan = build_plan(&parent_path, &observations)?;
-    report_and_remove(&plan, prune)
+    Ok(report_and_remove(&plan, prune))
 }
 
 /// Parse `reap` options: `--prune` (remove) vs `--list`/default (dry-run),
@@ -180,10 +180,10 @@ fn reap_parent(parent: Option<&Path>) -> Result<PathBuf, String> {
 fn build_plan(
     parent: &Path,
     observations: &[ProcessObservation],
-) -> Result<Vec<(String, PathBuf, ReapDecision)>, String> {
+) -> Result<Vec<(String, PathBuf, SiblingKind, ReapDecision)>, String> {
     let entries = std::fs::read_dir(parent)
         .map_err(|error| format!("cannot read {}: {error}", parent.display()))?;
-    let mut plan: Vec<(String, PathBuf, ReapDecision)> = Vec::new();
+    let mut plan: Vec<(String, PathBuf, SiblingKind, ReapDecision)> = Vec::new();
     for entry in entries {
         let entry = entry
             .map_err(|error| format!("cannot read an entry in {}: {error}", parent.display()))?;
@@ -199,11 +199,13 @@ fn build_plan(
         };
         let path = parent.join(&name);
         let kind = classify_sibling(&name);
-        let live = match kind {
+        let liveness = match kind {
             SiblingKind::Target | SiblingKind::Hireling => observations
                 .iter()
-                .any(|observation| process_blocks_dir(observation, &path)),
-            SiblingKind::Mor | SiblingKind::Reference | SiblingKind::Other => false,
+                .fold(LiveStatus::Idle, |acc, observation| {
+                    acc.merge(process_liveness(observation, &path))
+                }),
+            SiblingKind::Mor | SiblingKind::Reference | SiblingKind::Other => LiveStatus::Idle,
         };
         let is_ancestor = if kind == SiblingKind::Hireling {
             git_head_is_ancestor(&path)
@@ -215,8 +217,8 @@ fn build_plan(
         } else {
             false
         };
-        let decision = decide(&name, is_ancestor, is_clean, live);
-        plan.push((name, path, decision));
+        let decision = decide(&name, is_ancestor, is_clean, liveness);
+        plan.push((name, path, kind, decision));
     }
     plan.sort_by(|left, right| left.0.cmp(&right.0));
     Ok(plan)
@@ -225,54 +227,94 @@ fn build_plan(
 /// Print the plan and, in `--prune` mode, carry out the removals. Never
 /// `git worktree remove --force` — a dirty tree is the owner's.
 fn report_and_remove(
-    plan: &[(String, PathBuf, ReapDecision)],
+    plan: &[(String, PathBuf, SiblingKind, ReapDecision)],
     prune: bool,
-) -> Result<ExitCode, String> {
+) -> ExitCode {
     if prune {
         println!("reap: removing");
     } else {
         println!("reap: dry-run — nothing removed (pass --prune to remove)");
     }
+
     let mut reclaimed_bytes: u64 = 0;
     let mut unmeasured: u64 = 0;
-    let mut count: u64 = 0;
-    for (name, path, decision) in plan {
+    let mut candidates: u64 = 0;
+    let mut reapable: Vec<(String, PathBuf, SiblingKind)> = Vec::new();
+    for (name, path, kind, decision) in plan {
         match decision {
             ReapDecision::Reap => {
-                let size = dir_size_bytes(path);
-                match size {
-                    Some(bytes) => reclaimed_bytes += bytes,
-                    None => unmeasured += 1,
-                }
-                let size_text = size.map_or_else(|| "?".to_owned(), format_gib);
-                if prune {
-                    remove_dir(path, name)?;
-                    println!("removed {name} ({size_text})");
-                } else {
+                candidates += 1;
+                reapable.push((name.clone(), path.clone(), *kind));
+                if !prune {
+                    let size = dir_size_bytes(path);
+                    match size {
+                        Some(bytes) => reclaimed_bytes += bytes,
+                        None => unmeasured += 1,
+                    }
+                    let size_text = size.map_or_else(|| "?".to_owned(), format_gib);
                     println!("would remove {name} ({size_text})");
                 }
-                count += 1;
             }
             ReapDecision::Skip { reason } => {
                 println!("skip {name} ({})", skip_reason_text(*reason));
             }
         }
     }
-    let total = if unmeasured == 0 {
-        format_gib(reclaimed_bytes)
-    } else {
-        format!(
-            "{}+ ({} dirs unmeasured)",
-            format_gib(reclaimed_bytes),
-            unmeasured
-        )
-    };
+
     if prune {
-        println!("reclaimed {total} ({count} dirs removed)");
+        // Collect removals instead of `?`-propagating: one failed candidate
+        // must not abandon the sweep (F2).
+        let applied = apply_removals(&reapable, |path, name, kind| {
+            let size = dir_size_bytes(path);
+            let size_text = size.map_or_else(|| "?".to_owned(), format_gib);
+            match remove_dir(path, name, kind) {
+                Ok(()) => {
+                    println!("removed {name} ({size_text})");
+                    match size {
+                        Some(bytes) => reclaimed_bytes += bytes,
+                        None => unmeasured += 1,
+                    }
+                    Ok(())
+                }
+                Err(message) => Err(message),
+            }
+        });
+        for message in &applied.failures {
+            eprintln!("diskops: {message}");
+        }
+        let total = if unmeasured == 0 {
+            format_gib(reclaimed_bytes)
+        } else {
+            format!(
+                "{}+ ({} dirs unmeasured)",
+                format_gib(reclaimed_bytes),
+                unmeasured
+            )
+        };
+        if applied.failures.is_empty() {
+            println!("reclaimed {total} ({} dirs removed)", applied.removed);
+            ExitCode::SUCCESS
+        } else {
+            println!(
+                "reclaimed {total} ({} dirs removed, {} failed)",
+                applied.removed,
+                applied.failures.len()
+            );
+            ExitCode::FAILURE
+        }
     } else {
-        println!("would reclaim {total} ({count} dirs)");
+        let total = if unmeasured == 0 {
+            format_gib(reclaimed_bytes)
+        } else {
+            format!(
+                "{}+ ({} dirs unmeasured)",
+                format_gib(reclaimed_bytes),
+                unmeasured
+            )
+        };
+        println!("would reclaim {total} ({candidates} dirs)");
+        ExitCode::SUCCESS
     }
-    Ok(ExitCode::SUCCESS)
 }
 
 /// The size of a directory as `du -s --block-size=1` reports it, or `None`
@@ -290,13 +332,17 @@ fn dir_size_bytes(path: &Path) -> Option<u64> {
     stdout.split_whitespace().next()?.parse::<u64>().ok()
 }
 
-/// Remove a candidate: `remove_dir_all` for `target-*`, `git worktree
-/// remove` (never `--force`) for `hireling-*`.
-fn remove_dir(path: &Path, name: &str) -> Result<(), String> {
-    if name.starts_with("hireling-") {
-        return git_worktree_remove(path);
+/// Remove a candidate, branching on the kind `build_plan` already computed:
+/// `remove_dir_all` for `target-*`, `git worktree remove` (never `--force`)
+/// for `hireling-*`. The kind, not the name, is the source of truth here —
+/// the delete path must not re-derive it (F4).
+fn remove_dir(path: &Path, name: &str, kind: SiblingKind) -> Result<(), String> {
+    match kind {
+        SiblingKind::Hireling => git_worktree_remove(path),
+        SiblingKind::Target | SiblingKind::Mor | SiblingKind::Reference | SiblingKind::Other => {
+            std::fs::remove_dir_all(path).map_err(|error| format!("cannot remove {name}: {error}"))
+        }
     }
-    std::fs::remove_dir_all(path).map_err(|error| format!("cannot remove {name}: {error}"))
 }
 
 /// Whether the branch at `worktree` HEAD is an ancestor of `origin/main` —
@@ -377,7 +423,14 @@ fn read_processes() -> Result<Vec<ProcessObservation>, String> {
         }
         let cmdline = argv.join(" ");
         let cwd = std::fs::read_link(format!("/proc/{pid}/cwd")).ok();
-        observations.push(ProcessObservation { cmdline, argv, cwd });
+        let (env_target_dir, env_readable) = read_environ_target_dir(pid);
+        observations.push(ProcessObservation {
+            cmdline,
+            argv,
+            cwd,
+            env_target_dir,
+            env_readable,
+        });
     }
     Ok(observations)
 }
@@ -394,6 +447,27 @@ fn read_argv(pid: u32) -> Option<Vec<String>> {
         .map(str::to_owned)
         .collect();
     Some(argv)
+}
+
+/// The `CARGO_TARGET_DIR` a process was started with, from its
+/// `/proc/<pid>/environ`, plus whether the environment was readable at all.
+/// The detached-gate recipe sets `CARGO_TARGET_DIR="$PWD/../target-gate-<n>"`
+/// on the process environment (never on argv), so this is the one place the
+/// repo's `target-*` producer names its directory (F1).
+fn read_environ_target_dir(pid: u32) -> (Option<PathBuf>, bool) {
+    let Ok(bytes) = std::fs::read(format!("/proc/{pid}/environ")) else {
+        return (None, false);
+    };
+    let environ = String::from_utf8_lossy(&bytes);
+    for entry in environ.split('\0') {
+        if let Some(value) = entry.strip_prefix("CARGO_TARGET_DIR=") {
+            if value.is_empty() {
+                return (None, true);
+            }
+            return (Some(PathBuf::from(value)), true);
+        }
+    }
+    (None, true)
 }
 
 /// The pids of every ancestor of the current process, walking `/proc/<pid>/stat`.
