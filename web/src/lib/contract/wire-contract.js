@@ -1,4 +1,14 @@
-/* Wire contract gate — BROWSER-SAFE HALF (see tests/helpers/wire-contract.js). */
+/* The grizzly-gate image lints with its own flat config and no env
+ * (`--no-config-lookup`), so it declares no platform globals — `console` is not
+ * defined there, and `no-undef` is on. An eslint file that imports a module
+ * checks that module's globals under the SAME config, so `web/src/lib/party/
+ * stash.js` (runtime) and `web/tests/sheet/state.test.js` (vitest) both pull
+ * this file into scope and report an undeclared `console` in it. The tree's
+ * convention for exactly this is the in-file header (see
+ * `web/src/lib/sheet/state.js:1`); declaring it here instead of adding a
+ * `globals` block to the replica keeps bench and image pointed at one rule set
+ * (MOR-122). */
+/* global console */
 
 /** The pinned set of legal `value.op` literals for a `stash` target, as the
  *  machine-readable half of wire-protocol §3. Declared inline rather than read
