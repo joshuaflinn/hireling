@@ -1,12 +1,13 @@
-//! Decision logic for the disk floor (MOR-637).
+//! Decision logic for the disk guard and the disk reaper (MOR-637 / MOR-649).
 //!
 //! Everything here is pure: no I/O, no `std::env`, no `std::fs`, no
-//! `std::process`. The binary in `src/main.rs` reads the environment and
-//! runs `df`, and feeds the result back through these functions — so the
-//! threshold and refusal rules are unit-tested through the production path
-//! instead of living inline in a recipe.
+//! `std::process`. The binary in `src/main.rs` reads the environment,
+//! `/proc`, and `df`/`git` output, and feeds the results back through these
+//! functions — so the floor threshold, the refusal rules, and the reaper's
+//! per-sibling liveness attribution are unit-tested through the production
+//! path instead of living inline in a recipe.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// One gibibyte — the unit the floor and every reported figure share.
 pub const GIB: u64 = 1024 * 1024 * 1024;
@@ -108,9 +109,9 @@ pub enum GuardOutcome {
 /// Decide the guard's outcome from a free-space reading.
 ///
 /// The refusal message names the condition (free space below the floor),
-/// the number measured, and a remedy that exists at this head: free space,
-/// or the `disk-floor-gb` just variable. The threshold test asserts the
-/// message text.
+/// the number measured, and the remedies that exist at this head: `just
+/// reap` (reclaim leaked build dirs) and the `disk-floor-gb` just variable
+/// (lower the floor). The threshold test asserts the message text.
 #[must_use]
 pub fn guard_outcome(
     free_bytes: u64,
@@ -121,7 +122,7 @@ pub fn guard_outcome(
     if below_floor(free_bytes, floor_bytes) {
         GuardOutcome::Refuse {
             message: format!(
-                "error: {} free on {}, need {}G — free space, or lower the floor: just disk-floor-gb=<n>",
+                "error: {} free on {}, need {}G — run 'just reap' to reclaim leaked build dirs, or lower the floor: just disk-floor-gb=<n>",
                 format_gib(free_bytes),
                 mount,
                 floor_gib
@@ -136,6 +137,311 @@ pub fn guard_outcome(
                 floor_gib
             ),
         }
+    }
+}
+
+/// What a directory in the sweep parent is, decided on its name alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SiblingKind {
+    /// `target-*` — a leaked external `CARGO_TARGET_DIR` (the detached-gate
+    /// recipe names `target-gate-<n>`). Reapable once no live build writes
+    /// inside it.
+    Target,
+    /// `hireling-*` — a hand-cut worktree. Reapable only when it also
+    /// passes the AGENTS.md staleness test: branch an ancestor of
+    /// `origin/main` *and* a clean tree.
+    Hireling,
+    /// `MOR-<n>` — a harness-provisioned workspace. Never reaped, however
+    /// stale it looks: a clean `MOR-<n>` that is an ancestor of `main` can
+    /// still be a live harness-owned workspace.
+    Mor,
+    /// `hireling` — the shared reference checkout. Never reaped.
+    Reference,
+    /// Anything else — not a reapable sibling.
+    Other,
+}
+
+/// Classify a sibling directory name.
+#[must_use]
+pub fn classify_sibling(name: &str) -> SiblingKind {
+    if name == "hireling" {
+        SiblingKind::Reference
+    } else if name.starts_with("MOR-") {
+        SiblingKind::Mor
+    } else if name.starts_with("hireling-") {
+        SiblingKind::Hireling
+    } else if name.starts_with("target-") {
+        SiblingKind::Target
+    } else {
+        SiblingKind::Other
+    }
+}
+
+/// Why a candidate is skipped, in operator-facing words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkipReason {
+    /// `MOR-<n>` — harness-owned, never reaped.
+    HarnessOwned,
+    /// The shared `hireling` checkout — never reaped.
+    ReferenceCheckout,
+    /// A live build is writing inside the candidate.
+    LiveBuild,
+    /// A build-token process could not be observed — its working directory
+    /// or environment is unreadable — so it reads as live, fail-closed.
+    Unobservable,
+    /// A hand-cut worktree with uncommitted work.
+    DirtyTree,
+    /// A hand-cut worktree whose branch is not an ancestor of `origin/main`.
+    NotMerged,
+    /// A name outside the reapable set.
+    NotReapable,
+}
+
+/// The reaper's decision for one candidate directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReapDecision {
+    /// Remove the directory.
+    Reap,
+    /// Leave it, for `reason`.
+    Skip { reason: SkipReason },
+}
+
+/// The liveness signal for one candidate — three states, so an unobservable
+/// process is reported as such rather than as a confirmed live build (F3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveStatus {
+    /// Nothing attributes a live build to the candidate.
+    Idle,
+    /// A build-token process is attributed inside the candidate.
+    Live,
+    /// A build-token process could not be observed — its working directory
+    /// or environment is unreadable — so it reads as live, fail-closed.
+    Unobservable,
+}
+
+impl LiveStatus {
+    /// Combine two observations' statuses for one candidate: a confirmed
+    /// live build outranks an unobservable one, which outranks idle.
+    #[must_use]
+    pub fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Live, _) | (_, Self::Live) => Self::Live,
+            (Self::Unobservable, _) | (_, Self::Unobservable) => Self::Unobservable,
+            _ => Self::Idle,
+        }
+    }
+}
+
+/// Decide a candidate's fate. The hard exclusions are decided on the name
+/// *before* liveness or staleness is consulted, so they hold regardless of
+/// `liveness`, `is_clean`, or `is_ancestor`: `MOR-<n>` and the shared
+/// `hireling` checkout are skipped even when a build is writing inside
+/// them.
+#[must_use]
+pub fn decide(name: &str, is_ancestor: bool, is_clean: bool, liveness: LiveStatus) -> ReapDecision {
+    let kind = classify_sibling(name);
+    match kind {
+        SiblingKind::Mor => ReapDecision::Skip {
+            reason: SkipReason::HarnessOwned,
+        },
+        SiblingKind::Reference => ReapDecision::Skip {
+            reason: SkipReason::ReferenceCheckout,
+        },
+        SiblingKind::Other => ReapDecision::Skip {
+            reason: SkipReason::NotReapable,
+        },
+        SiblingKind::Target | SiblingKind::Hireling => {
+            match liveness {
+                LiveStatus::Live => {
+                    return ReapDecision::Skip {
+                        reason: SkipReason::LiveBuild,
+                    };
+                }
+                LiveStatus::Unobservable => {
+                    return ReapDecision::Skip {
+                        reason: SkipReason::Unobservable,
+                    };
+                }
+                LiveStatus::Idle => {}
+            }
+            if kind == SiblingKind::Hireling && !is_clean {
+                return ReapDecision::Skip {
+                    reason: SkipReason::DirtyTree,
+                };
+            }
+            if kind == SiblingKind::Hireling && !is_ancestor {
+                return ReapDecision::Skip {
+                    reason: SkipReason::NotMerged,
+                };
+            }
+            ReapDecision::Reap
+        }
+    }
+}
+
+/// The operator-facing reason text for a skip.
+#[must_use]
+pub fn skip_reason_text(reason: SkipReason) -> &'static str {
+    match reason {
+        SkipReason::HarnessOwned => "harness-owned MOR-<n> workspace",
+        SkipReason::ReferenceCheckout => "the shared hireling checkout",
+        SkipReason::LiveBuild => "a live build is writing inside it",
+        SkipReason::Unobservable => {
+            "a build-token process whose working directory or environment could not be read"
+        }
+        SkipReason::DirtyTree => "dirty worktree",
+        SkipReason::NotMerged => "branch is not an ancestor of origin/main",
+        SkipReason::NotReapable => "not a reapable sibling",
+    }
+}
+
+/// One observed process, as the reaper shell reads it from `/proc`.
+///
+/// - `cmdline`: the argv elements joined with spaces — the string the build
+///   token match runs over.
+/// - `argv`: the NUL-separated argv elements, for the path-under-argv check.
+/// - `cwd`: the resolved working directory (`read_link /proc/<pid>/cwd`),
+///   or `None` when it cannot be read — which the liveness check treats as
+///   live, never idle (fail-closed).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessObservation {
+    /// The argv joined with spaces.
+    pub cmdline: String,
+    /// The argv elements.
+    pub argv: Vec<String>,
+    /// The resolved working directory, or `None` when unreadable.
+    pub cwd: Option<PathBuf>,
+    /// The `CARGO_TARGET_DIR` named in the process environment, or `None`
+    /// when it names none or the environment could not be read.
+    pub env_target_dir: Option<PathBuf>,
+    /// Whether `/proc/<pid>/environ` was readable. A build-token process
+    /// whose environment is unreadable reads as live — the detached-gate
+    /// recipe names its target dir there, so an unreadable environment
+    /// cannot be ruled out (F1).
+    pub env_readable: bool,
+}
+
+/// Whether `cmdline` names a build tool — the pre-filter before attribution.
+///
+/// Substring matching over the joined argv is deliberate: `node` and `npm`
+/// also appear in the install *paths* of permanent tooling (Paperclip's
+/// embedded Postgres runs at `.../installs/npm/.../@embedded-postgres/...`
+/// for the whole system uptime), so this matcher over-matches by design.
+/// The over-match is harmless because it only selects processes worth
+/// attributing — whether any one of them blocks a candidate is decided by
+/// [`process_blocks_dir`] on the process's cwd, not by this match alone.
+#[must_use]
+pub fn is_live_build_process(cmdline: &str) -> bool {
+    ["cargo", "rustc", "npm", "node"]
+        .iter()
+        .any(|token| cmdline.contains(token))
+}
+
+/// Whether `child` is `parent` itself or a descendant of it, compared
+/// component-wise — `/a/foobar` is not within `/a/foo`. Both sides must be
+/// absolute, resolved paths: the candidate is canonicalized by the shell and
+/// the cwd comes from `read_link /proc/<pid>/cwd`, which is already
+/// resolved.
+#[must_use]
+pub fn path_is_within(child: &Path, parent: &Path) -> bool {
+    child.starts_with(parent)
+}
+
+/// Whether any argv element is an absolute path under `candidate`.
+///
+/// This is the argv half of the liveness check: `cargo build --target-dir
+/// <candidate>` writes into the candidate while its cwd is elsewhere, and
+/// the cwd check alone would miss it. Only absolute argv elements are
+/// compared, and the comparison is lexical — a relative or `..`-carrying
+/// argv path is *not* resolved against the process cwd. Note the direction
+/// of that residual: a missed argv match on a live build means the reaper
+/// deletes a directory a build is writing — the over-delete direction. It
+/// is accepted only because the cwd and environment checks are the primary
+/// signals, and this repo's recipes name no target dir on argv at all
+/// (`--target-dir` appears on no recipe; F1).
+#[must_use]
+pub fn argv_names_path(argv: &[String], candidate: &Path) -> bool {
+    argv.iter().any(|argument| {
+        let path = Path::new(argument);
+        path.is_absolute() && path_is_within(path, candidate)
+    })
+}
+
+/// Lexically normalize `path` — resolve `.` and `..` components without
+/// touching the filesystem — so an unresolved `CARGO_TARGET_DIR` compares
+/// cleanly against the canonicalized candidate. The detached-gate recipe
+/// writes `CARGO_TARGET_DIR="$PWD/../target-gate-<n>"`, which still carries
+/// a `..` when cargo reads it; a lexical `starts_with` against the
+/// canonicalized candidate would miss it, and the environment is how the
+/// repo's only `target-*` producer names its directory (F1).
+#[must_use]
+pub fn normalize_path(path: &Path) -> PathBuf {
+    let mut parts: Vec<std::ffi::OsString> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir => match parts.last().map(std::ffi::OsString::as_os_str) {
+                Some(prev) if prev == ".." => parts.push(std::ffi::OsString::from("..")),
+                Some(prev) if prev == "/" => {}
+                Some(_) => {
+                    parts.pop();
+                }
+                None => parts.push(std::ffi::OsString::from("..")),
+            },
+            Component::CurDir => {}
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                parts.push(component.as_os_str().to_owned());
+            }
+        }
+    }
+    parts.into_iter().collect()
+}
+
+/// How one observed process bears on reaping `candidate`.
+///
+/// Liveness is decided per candidate directory, not per process-table line:
+/// a process whose working directory is outside the candidate does not block
+/// it, even when its command line matches the build token set — the `npm`/
+/// `node` tokens appear in the install paths of permanent tooling, and a
+/// global match made the first reaper refuse forever (gh#301 round 2 F1).
+///
+/// A build-token process is [`LiveStatus::Live`] against the candidate when
+/// one of:
+///
+/// - its cwd is the candidate or a descendant of it — the real vitest reads
+///   `<parent>/hireling-488-stash-web/web`, inside the sibling; or
+/// - its argv names an absolute path under the candidate (see
+///   [`argv_names_path`]); or
+/// - its environment names a `CARGO_TARGET_DIR` under the candidate (the
+///   [`ProcessObservation::env_target_dir`] field) — the detached-gate
+///   recipe is the repo's only `target-*` producer and names the directory
+///   here, not on argv (F1).
+///
+/// It is [`LiveStatus::Unobservable`] when its cwd or environment cannot be
+/// read — fail-closed: an unobservable process reads as live, never idle.
+#[must_use]
+pub fn process_liveness(observation: &ProcessObservation, candidate: &Path) -> LiveStatus {
+    if !is_live_build_process(&observation.cmdline) {
+        return LiveStatus::Idle;
+    }
+    let Some(cwd) = &observation.cwd else {
+        return LiveStatus::Unobservable;
+    };
+    if path_is_within(cwd, candidate) {
+        return LiveStatus::Live;
+    }
+    if argv_names_path(&observation.argv, candidate) {
+        return LiveStatus::Live;
+    }
+    match &observation.env_target_dir {
+        Some(dir) => {
+            if path_is_within(&normalize_path(dir), candidate) {
+                LiveStatus::Live
+            } else {
+                LiveStatus::Idle
+            }
+        }
+        None if !observation.env_readable => LiveStatus::Unobservable,
+        None => LiveStatus::Idle,
     }
 }
 
@@ -158,6 +464,38 @@ pub fn nearest_existing_ancestor(path: &Path, exists: &dyn Fn(&Path) -> bool) ->
             return PathBuf::from(exhausted_walk_anchor(path.is_absolute()));
         }
     }
+}
+
+/// The result of applying removals to every reapable candidate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemovalsOutcome {
+    /// How many candidates were removed.
+    pub removed: u64,
+    /// The error messages for candidates that failed, in sweep order.
+    pub failures: Vec<String>,
+}
+
+/// Apply a removal to each reapable candidate, continuing past failures.
+///
+/// One failed candidate must not abandon the sweep: `report_and_remove`
+/// used to `?`-propagate, which left every later candidate untouched on a
+/// full disk — exactly when the reaper is reached for (F2). The removal
+/// action itself is injected by the shell (`std::fs::remove_dir_all` or
+/// `git worktree remove`); this function owns the control flow — collect,
+/// don't propagate — and the exit signal.
+pub fn apply_removals(
+    entries: &[(String, PathBuf, SiblingKind)],
+    mut remove: impl FnMut(&Path, &str, SiblingKind) -> Result<(), String>,
+) -> RemovalsOutcome {
+    let mut removed = 0;
+    let mut failures = Vec::new();
+    for (name, path, kind) in entries {
+        match remove(path, name, *kind) {
+            Ok(()) => removed += 1,
+            Err(message) => failures.push(message),
+        }
+    }
+    RemovalsOutcome { removed, failures }
 }
 
 /// The anchor a `PathBuf::pop()`-exhausted walk resolves to. An absolute
