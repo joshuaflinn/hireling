@@ -23,7 +23,32 @@ pub enum Kind {
     Condition,
     /// Item documents (`packs/equipment.json`).
     Item,
+    /// Spell documents (`packs/spells.json`) — importer v2 (Dave parity).
+    Spell,
+    /// Feat documents (`packs/feats.json`) — importer v2.
+    Feat,
+    /// Class-feature documents (`packs/class-features.json`; Foundry type
+    /// `feat`, distinct pack, disjoint ids) — importer v2. Carries school
+    /// curricula as `@UUID` spell links in its description.
+    ClassFeature,
+    /// Action documents (`packs/actions.json`) — importer v2; the Reference
+    /// column's basic/skill/exploration actions.
+    Action,
+    /// Creature documents (core bestiaries, Foundry type `npc`) — importer
+    /// v2; the summons browser. Publication lives at `system.details`.
+    Creature,
 }
+
+/// Every kind, in import order. Pack files per kind: [`Kind::pack_files`].
+pub const ALL_KINDS: [Kind; 7] = [
+    Kind::Condition,
+    Kind::Item,
+    Kind::Spell,
+    Kind::Feat,
+    Kind::ClassFeature,
+    Kind::Action,
+    Kind::Creature,
+];
 
 impl Kind {
     /// The stored `kind` value in `corpus_entries`.
@@ -32,6 +57,34 @@ impl Kind {
         match self {
             Kind::Condition => "condition",
             Kind::Item => "item",
+            Kind::Spell => "spell",
+            Kind::Feat => "feat",
+            Kind::ClassFeature => "class_feature",
+            Kind::Action => "action",
+            Kind::Creature => "creature",
+        }
+    }
+
+    /// The release-asset pack files whose documents are this kind. Creature
+    /// draws from the core bestiaries only (Monster Core 1+2, NPC Core,
+    /// Bestiary 1-3) — adventure-path bestiaries are out of scope.
+    #[must_use]
+    pub fn pack_files(self) -> &'static [&'static str] {
+        match self {
+            Kind::Condition => &["packs/conditions.json"],
+            Kind::Item => &["packs/equipment.json"],
+            Kind::Spell => &["packs/spells.json"],
+            Kind::Feat => &["packs/feats.json"],
+            Kind::ClassFeature => &["packs/class-features.json"],
+            Kind::Action => &["packs/actions.json"],
+            Kind::Creature => &[
+                "packs/pathfinder-monster-core.json",
+                "packs/pathfinder-monster-core-2.json",
+                "packs/pathfinder-npc-core.json",
+                "packs/pathfinder-bestiary.json",
+                "packs/pathfinder-bestiary-2.json",
+                "packs/pathfinder-bestiary-3.json",
+            ],
         }
     }
 
@@ -41,6 +94,11 @@ impl Kind {
         match self {
             Kind::Condition => "conditions",
             Kind::Item => "items",
+            Kind::Spell => "spells",
+            Kind::Feat => "feats",
+            Kind::ClassFeature => "class features",
+            Kind::Action => "actions",
+            Kind::Creature => "creatures",
         }
     }
 }
@@ -65,7 +123,7 @@ pub const ITEM_TYPES: [&str; 9] = [
 /// so re-runs honestly refresh provenance (FR-13). Tier-seed corrections
 /// do NOT need a bump — the transform re-plans conditions whose stored
 /// tier disagrees with the seed's current verdict on the next run.
-pub const IMPORTER_VERSION: i64 = 1;
+pub const IMPORTER_VERSION: i64 = 2;
 
 /// A validated pack document, ready for transform.
 #[derive(Debug, Clone)]
@@ -138,13 +196,26 @@ pub fn parse_doc(kind: Kind, doc: &Value) -> Result<PackDoc, DocError> {
         .ok_or_else(|| missing(subject, "system"))?;
     // Presence, not non-emptiness: 199 probed equipment docs (precious
     // materials and variants) legitimately carry an empty description.
-    system
-        .get("description")
-        .and_then(|d| d.get("value"))
+    // Creatures (npc) carry neither `system.description` nor
+    // `system.publication`; their equivalents live under `system.details`.
+    let (desc_path, pub_holder) = if kind == Kind::Creature {
+        ("system.details.publicNotes", system.get("details"))
+    } else {
+        (
+            "system.description.value",
+            Some(doc.get("system").unwrap_or(&Value::Null)),
+        )
+    };
+    let description = if kind == Kind::Creature {
+        system.get("details").and_then(|d| d.get("publicNotes"))
+    } else {
+        system.get("description").and_then(|d| d.get("value"))
+    };
+    description
         .and_then(Value::as_str)
-        .ok_or_else(|| missing(subject, "system.description.value"))?;
-    let publication = system
-        .get("publication")
+        .ok_or_else(|| missing(subject, desc_path))?;
+    let publication = pub_holder
+        .and_then(|holder| holder.get("publication"))
         .ok_or_else(|| missing(subject, "system.publication"))?;
     let license = publication
         .get("license")
@@ -201,7 +272,13 @@ pub struct Publication {
 /// Callers run this only on documents that already passed [`parse_doc`].
 #[must_use]
 pub fn publication_of(doc: &Value) -> Publication {
-    let publication = doc.get("system").and_then(|s| s.get("publication"));
+    let system = doc.get("system");
+    // Creatures keep publication under `system.details` (see parse_doc).
+    let publication = system.and_then(|s| s.get("publication")).or_else(|| {
+        system
+            .and_then(|s| s.get("details"))
+            .and_then(|d| d.get("publication"))
+    });
     Publication {
         license: string_at(publication, "license"),
         title: string_at(publication, "title"),
@@ -235,18 +312,34 @@ pub fn slug_of(doc: &Value) -> Option<String> {
 fn validate_type(kind: Kind, subject: &str, doc_type: Option<&str>) -> Result<(), DocError> {
     let found = doc_type.map_or_else(|| "none".to_owned(), |o| format!("\"{o}\""));
     let problem = match (kind, doc_type) {
-        (Kind::Condition, Some("condition")) => return Ok(()),
+        (Kind::Condition, Some("condition"))
+        | (Kind::Spell, Some("spell"))
+        | (Kind::Feat | Kind::ClassFeature, Some("feat"))
+        | (Kind::Action, Some("action"))
+        | (Kind::Creature, Some("npc")) => return Ok(()),
         (Kind::Item, Some(actual)) if ITEM_TYPES.contains(&actual) => return Ok(()),
-        (Kind::Condition, _) => format!("expected type \"condition\", found {found}"),
         (Kind::Item, _) => format!(
             "type {found} is not a recognized item type (supported: {})",
             ITEM_TYPES.join(", ")
         ),
+        (other, _) => format!("expected type \"{}\", found {found}", expected_type(other)),
     };
     Err(DocError {
         subject: subject.to_owned(),
         problem,
     })
+}
+
+/// The Foundry document type each non-item kind requires.
+fn expected_type(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Condition => "condition",
+        Kind::Item => "item",
+        Kind::Spell => "spell",
+        Kind::Feat | Kind::ClassFeature => "feat",
+        Kind::Action => "action",
+        Kind::Creature => "npc",
+    }
 }
 
 fn string_at(holder: Option<&Value>, key: &str) -> String {

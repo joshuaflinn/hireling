@@ -1,0 +1,67 @@
+{
+ "_id": "B6HbYsLBWb1RR6Fx",
+ "folder": "QhHpEbq98ZJAyDiH",
+ "img": "icons/sundries/books/book-red-exclamation.webp",
+ "name": "Charming Liar",
+ "system": {
+  "actionType": {
+   "value": "passive"
+  },
+  "actions": {
+   "value": null
+  },
+  "category": "skill",
+  "description": {
+   "value": "<p>Your charm allows you to win over those you lie to. When you get a critical success using the @UUID[Compendium.pf2e.actionspf2e.Item.ewwCglB7XOPLUz72]{Lie} action, the target's attitude toward you improves by one step, as though you'd succeeded at using Diplomacy to @UUID[Compendium.pf2e.actionspf2e.Item.OX4fy22hQgUHDr0q]{Make an Impression}. This works only once per conversation, and if you critically succeed against multiple targets using the same result, you choose one creature's attitude to improve. You must be lying to impart seemingly important information, inflate your status, or ingratiate yourself, which trivial or irrelevant lies can't achieve.</p>"
+  },
+  "level": {
+   "value": 1
+  },
+  "prerequisites": {
+   "value": [
+    {
+     "value": "trained in Deception"
+    }
+   ]
+  },
+  "publication": {
+   "license": "ORC",
+   "remaster": true,
+   "title": "Pathfinder Player Core"
+  },
+  "rules": [
+   {
+    "key": "Note",
+    "outcome": [
+     "criticalSuccess"
+    ],
+    "predicate": [
+     "action:lie"
+    ],
+    "selector": "skill-check",
+    "text": "PF2E.SpecificRule.Feat.CharmingLiar.Note",
+    "title": "{item|name}"
+   }
+  ],
+  "traits": {
+   "rarity": "common",
+   "value": [
+    "general",
+    "skill"
+   ]
+  },
+  "slug": "charming-liar",
+  "_migration": {
+   "version": 0.959,
+   "previous": null
+  }
+ },
+ "type": "feat",
+ "_stats": {
+  "coreVersion": "14.361",
+  "systemId": "pf2e",
+  "systemVersion": "8.5.1",
+  "compendiumSource": "Compendium.pf2e.feats-srd.Item.B6HbYsLBWb1RR6Fx"
+ },
+ "effects": []
+}

@@ -272,10 +272,42 @@ fn build_zip(entries: Vec<(&str, Vec<u8>)>) -> anyhow::Result<Vec<u8>> {
     {
         let mut zip = zip::ZipWriter::new(&mut buf);
         let options = zip::write::SimpleFileOptions::default();
+        // Importer v2 requires every declared pack file. Suites here target
+        // conditions + equipment; the v2 packs ride along as one captured
+        // real document each (empty arrays for the extra bestiary files),
+        // unless a test supplied its own.
+        let v2: [(&str, &[&str]); 10] = [
+            ("packs/spells.json", &["spell-daze.json"]),
+            ("packs/feats.json", &["feat-charming-liar.json"]),
+            (
+                "packs/class-features.json",
+                &["classfeature-school-of-mentalism.json"],
+            ),
+            ("packs/actions.json", &["action-seek.json"]),
+            (
+                "packs/pathfinder-monster-core.json",
+                &["creature-skeleton-guard.json"],
+            ),
+            ("packs/pathfinder-monster-core-2.json", &[]),
+            ("packs/pathfinder-npc-core.json", &[]),
+            ("packs/pathfinder-bestiary.json", &[]),
+            ("packs/pathfinder-bestiary-2.json", &[]),
+            ("packs/pathfinder-bestiary-3.json", &[]),
+        ];
+        let supplied: Vec<String> = entries.iter().map(|(name, _)| (*name).to_owned()).collect();
         for (name, bytes) in entries {
             zip.start_file(name, options)
                 .context("test zip entry starts")?;
             zip.write_all(&bytes).context("test zip entry writes")?;
+        }
+        for (name, fixtures) in v2 {
+            if supplied.iter().any(|s| s == name) {
+                continue;
+            }
+            zip.start_file(name, options)
+                .context("test zip entry starts")?;
+            zip.write_all(&pack_array(fixtures)?)
+                .context("test zip entry writes")?;
         }
         zip.finish().context("test zip finishes")?;
     }

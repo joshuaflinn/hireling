@@ -17,7 +17,7 @@ use anyhow::{Context as _, anyhow};
 use serde_json::Value;
 use zip::ZipArchive;
 
-use crate::import::model::{Kind, PackDoc, parse_doc};
+use crate::import::model::{ALL_KINDS, Kind, PackDoc, parse_doc};
 
 /// Cap for one decompressed entry — the largest real pack is ~40 MB.
 const MAX_ENTRY_BYTES: u64 = 512 * 1024 * 1024;
@@ -53,8 +53,8 @@ pub fn extract_categories(zip_bytes: &[u8]) -> anyhow::Result<Vec<PackCategory>>
             MAX_ENTRIES
         ));
     }
-    let mut conditions: Option<Vec<PackDoc>> = None;
-    let mut items: Option<Vec<PackDoc>> = None;
+    let mut found: std::collections::HashMap<&'static str, Vec<PackDoc>> =
+        std::collections::HashMap::new();
     let mut total_uncompressed: u64 = 0;
     for index in 0..archive.len() {
         let mut entry = archive
@@ -74,12 +74,9 @@ pub fn extract_categories(zip_bytes: &[u8]) -> anyhow::Result<Vec<PackCategory>>
             ));
         }
         let name = entry.name().to_owned();
-        let kind = match name.as_str() {
-            "packs/conditions.json" => Some(Kind::Condition),
-            "packs/equipment.json" => Some(Kind::Item),
-            _ => None,
+        let Some((kind, file)) = kind_for_entry(&name) else {
+            continue;
         };
-        let Some(kind) = kind else { continue };
         if entry.is_dir() {
             return Err(anyhow!("release asset entry `{name}` is a directory"));
         }
@@ -94,38 +91,48 @@ pub fn extract_categories(zip_bytes: &[u8]) -> anyhow::Result<Vec<PackCategory>>
                 entry.size()
             ));
         }
-        let docs = parse_pack_file(kind, &name, &bytes)?;
-        match kind {
-            Kind::Condition => {
-                if conditions.is_some() {
-                    return Err(duplicate_entry(&name));
-                }
-                conditions = Some(docs);
-            }
-            Kind::Item => {
-                if items.is_some() {
-                    return Err(duplicate_entry(&name));
-                }
-                items = Some(docs);
+        if found.contains_key(file) {
+            return Err(duplicate_entry(&name));
+        }
+        found.insert(file, parse_pack_file(kind, &name, &bytes)?);
+    }
+    let mut categories = Vec::with_capacity(ALL_KINDS.len());
+    for kind in ALL_KINDS {
+        let mut docs = Vec::new();
+        for file in kind.pack_files() {
+            let file_docs = found.remove(file).ok_or_else(|| {
+                anyhow!(
+                    "release asset holds no `{file}` — zero {} would import",
+                    kind.plural()
+                )
+            })?;
+            docs.extend(file_docs);
+        }
+        // Identity is `_id` per kind; a creature pack set that repeats an id
+        // across files is as fatal as a repeat within one file.
+        let mut seen = std::collections::HashSet::new();
+        for doc in &docs {
+            if !seen.insert(doc.source_id.clone()) {
+                return Err(anyhow!(
+                    "{} hold duplicate upstream id `{}` across pack files",
+                    kind.plural(),
+                    doc.source_id
+                ));
             }
         }
+        categories.push(PackCategory { kind, docs });
     }
-    let conditions = conditions.ok_or_else(|| {
-        anyhow!("release asset holds no `packs/conditions.json` — zero conditions would import")
-    })?;
-    let items = items.ok_or_else(|| {
-        anyhow!("release asset holds no `packs/equipment.json` — zero items would import")
-    })?;
-    Ok(vec![
-        PackCategory {
-            kind: Kind::Condition,
-            docs: conditions,
-        },
-        PackCategory {
-            kind: Kind::Item,
-            docs: items,
-        },
-    ])
+    Ok(categories)
+}
+
+/// Which kind (and which declared pack file) a zip entry name belongs to.
+fn kind_for_entry(name: &str) -> Option<(Kind, &'static str)> {
+    ALL_KINDS.into_iter().find_map(|kind| {
+        kind.pack_files()
+            .iter()
+            .find(|file| **file == name)
+            .map(|file| (kind, *file))
+    })
 }
 
 /// Parse one pack file (a JSON array of documents) into validated docs.
@@ -139,6 +146,12 @@ pub fn parse_pack_file(kind: Kind, name: &str, bytes: &[u8]) -> anyhow::Result<V
         .with_context(|| format!("pack file `{name}` is not a JSON array of documents"))?;
     let mut parsed = Vec::with_capacity(docs.len());
     for doc in &docs {
+        // Bestiary packs mix in hazards (1 in Monster Core 2 at pf2e-8.5.1);
+        // they are a different document class, not schema drift — skipped
+        // by type, never by guessing at fields.
+        if kind == Kind::Creature && doc.get("type").and_then(Value::as_str) != Some("npc") {
+            continue;
+        }
         let parsed_doc = parse_doc(kind, doc)
             .map_err(|err| anyhow!("pack file `{name}` failed validation: {err}"))?;
         parsed.push(parsed_doc);
