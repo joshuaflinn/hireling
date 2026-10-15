@@ -585,6 +585,19 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   `adjustBank` is FR-7's quartermaster adjustment and carried nine test
   references with no UI path to it. An export census that passes while three
   spec'd actions are unreachable cannot fail the way the sweep was meant to.
+
+  **The sweep walks what the diff removes, not only what it adds.** Read the
+  deleted lines for call sites (`git diff <base>...<head> -- src | grep '^-'`),
+  and for every symbol whose last production call the diff deletes, run the
+  same `grep -rn "<symbol>" src web/src`. Hits confined to the defining module
+  and its tests mean the diff made that symbol unbuilt — report it, the same as
+  an unbuilt requirement. PR #250 is the reason: its sweep was clean over every
+  symbol the PR added, while replacing two `authorize(...)` calls with a
+  hand-rolled membership `if` deleted the only production callers of
+  `Resource::Stash` and `Resource::PartySettings`, so two of design D4's three
+  authz-matrix rows went dead in production with `gate` `success` at head
+  `275b2c1` (check-run `116275069010`) and `src/auth/tests/authz.rs` still
+  testing code nothing called.
 - Priority order is P0 → P1 → P2 as tagged in the PRD's functional requirements.
 - Feedback on the PRD itself goes to the PRD (via issue or PR against `docs/PRD.md`),
   not into code comments.
