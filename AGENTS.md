@@ -467,8 +467,11 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   harness re-points it to current `origin/main` when a new run in the lineage
   starts — `MOR-482`'s reflog carries four `reset: moving to <sha>` entries
   before any commit landed on it, and PR #277 binds agents, not the harness.
-  Push every commit to `origin/MOR-<n>` in the same heartbeat you make it; an
-  unpushed commit survives only in one local disk's reflog. If that push
+  Push every commit to `origin/MOR-<n>` in the same heartbeat you make it —
+  unless a review round is open against the PR, where *The author holds the
+  head while a round is open* governs: the head is held, so do not make the
+  commit until the verdict lands. An unpushed commit survives only in one
+  local disk's reflog. If that push
   would need `--force`, the branch has already moved under you — stop and
   escalate it as a provisioning defect, same handling as a branch collision.
   Do not force-push, and do not rebase to make the push fast-forward; that is
