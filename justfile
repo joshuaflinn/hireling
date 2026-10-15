@@ -136,6 +136,15 @@ check-vendored:
     python3 scripts/check_gate_vendored.py --self-test
     python3 scripts/check_gate_vendored.py
 
+# The runner-label drift check (gh#331): the gate workflow's `runs-on:`
+# label and the label embedded in the cache key/restore-keys must agree.
+# After PR #319 those four literals are hand-kept; a mismatch is a silent
+# cache miss, not a red gate. The self-test re-proves every red direction;
+# the real check is the guardrail.
+check-runner-label:
+    python3 scripts/check_runner_label.py --self-test
+    python3 scripts/check_runner_label.py
+
 # The prose boundary (E9, contracts/inert-html.md §3): `{@html}` is banned
 # for prose repo-wide — every markup-carrying string renders through the one
 # inert setter (util/inert-html.js adoptHTML) inside ConditionTip/AboutView.
@@ -382,7 +391,7 @@ ci-drift:
 # Repo-side legs — no image pass runs these; CI gates them as guard steps
 # in the gate job of .github/workflows/gate.yml, ahead of the image run:
 # disk-guard, json-keys, boundary, web-test, web-css-guard,
-# web-html-boundary, check-vendored, and ci-drift itself. That job's drift-check step runs
+# web-html-boundary, check-vendored, check-runner-label, and ci-drift itself. That job's drift-check step runs
 # this same ci-drift recipe, so a new leg lands together with its CI home
 # or the gate goes red — bench and CI run one check, not two that can drift.
 #
@@ -393,7 +402,7 @@ ci-drift:
 # prints only when every leg passed, so a piped run reads green only when
 # it is green. Note what it is not: the exit status is still the thing to
 # check, and a reader who ignores both is still reading one leg's output.
-ci-local: disk-guard json-keys fmt-check lint test deny boundary web-check web-tsc web-test web-css-guard web-html-boundary web-eslint check-vendored scan-semgrep ship-guard ci-drift
+ci-local: disk-guard json-keys fmt-check lint test deny boundary web-check web-tsc web-test web-css-guard web-html-boundary web-eslint check-vendored check-runner-label scan-semgrep ship-guard ci-drift
     @echo "ci-local: every leg above passed"
 
 # Alias — same gate, the name the spec calls it by.
