@@ -2915,7 +2915,7 @@ fn validate_daily(value: &JsonValue) -> Result<(), String> {
 /// a document store; 256 KiB is ~60 pages of dense session notes.
 const SHEET_UI_MAX_BYTES: usize = 256 * 1024;
 
-/// `sheet_ui` shape (specs/015): exactly `{notes, minions, layout}`.
+/// `sheet_ui` shape (specs/015): `{notes, minions, layout}` plus optional `inv`.
 /// notes: array of `{id, title, html, tags}` (strings; tags string array),
 /// minions: array of `{id, name, hp, hp_max}` (+ optional `corpus_id`),
 /// layout: null or an object of widget → `{x, y, w, h}` numbers. HTML in
@@ -2924,12 +2924,38 @@ fn validate_sheet_ui(value: &JsonValue) -> Result<(), String> {
     let Some(object) = value.as_object() else {
         return Err("sheet_ui must be an object {notes, minions, layout}".to_owned());
     };
-    if object.len() != 3
-        || !["notes", "minions", "layout"]
-            .iter()
-            .all(|k| object.contains_key(*k))
+    let required = ["notes", "minions", "layout"];
+    if !required.iter().all(|k| object.contains_key(*k))
+        || object
+            .keys()
+            .any(|k| !required.contains(&k.as_str()) && k != "inv")
     {
-        return Err("sheet_ui needs exactly notes, minions, layout".to_owned());
+        return Err("sheet_ui needs notes, minions, layout (and optionally inv)".to_owned());
+    }
+    // inv (slice 8, Dave's inventory editing): per-item overrides keyed by
+    // item name — {equipped?, removed?, container?: bool, loc?: string|null,
+    // tags?: string[]}. Display state only: quantities stay on the inv field.
+    if let Some(inv) = object.get("inv") {
+        let Some(entries) = inv.as_object() else {
+            return Err("sheet_ui.inv must be an object keyed by item name".to_owned());
+        };
+        for entry in entries.values() {
+            let ok = entry.as_object().is_some_and(|e| {
+                e.iter().all(|(k, v)| match k.as_str() {
+                    "equipped" | "removed" | "container" => v.is_boolean(),
+                    "loc" => v.is_string() || v.is_null(),
+                    "tags" => v
+                        .as_array()
+                        .is_some_and(|t| t.iter().all(JsonValue::is_string)),
+                    _ => false,
+                })
+            });
+            if !ok {
+                return Err(
+                    "sheet_ui.inv entries allow equipped, removed, container, loc, tags".to_owned(),
+                );
+            }
+        }
     }
     if value.to_string().len() > SHEET_UI_MAX_BYTES {
         return Err(format!("sheet_ui exceeds {SHEET_UI_MAX_BYTES} bytes"));
@@ -3549,6 +3575,23 @@ mod bounds_tests {
         assert!(
             validate_sheet_ui(&json!({"notes": []})).is_err(),
             "missing keys"
+        );
+        assert!(
+            validate_sheet_ui(&json!({"notes": [], "minions": [], "layout": null, "zzz": 1}))
+                .is_err(),
+            "unknown key"
+        );
+        assert_eq!(
+            validate_sheet_ui(&json!({"notes": [], "minions": [], "layout": null,
+                "inv": {"Rope": {"equipped": true, "loc": "Backpack", "tags": ["trade"],
+                                 "removed": false, "container": true}}})),
+            Ok(())
+        );
+        assert!(
+            validate_sheet_ui(
+                &json!({"notes": [], "minions": [], "layout": null, "inv": {"Rope": {"qty": 3}}})
+            )
+            .is_err()
         );
         assert!(
             validate_sheet_ui(&json!({"notes": [{"id": 1}], "minions": [], "layout": null}))

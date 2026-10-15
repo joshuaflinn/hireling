@@ -409,6 +409,9 @@
         onmoney={(/** @type {any} */ next) => sheet.writeMoney(next)}
         customItems={customItemRows}
         onaddcustom={() => (customFormKind = 'item')}
+        sheetUi={$sheetUi.value}
+        strMod={$view?.render_base?.attributes?.str ?? 0}
+        onwriteui={(/** @type {any} */ next) => sheet.writeSheetUi(next)}
       />
       <FeatsPanel baseSheet={character.base_sheet} {editable} />
     </div>

@@ -206,7 +206,7 @@ export function findOpError(opErrors, kind, match = {}) {
  * @property {(value: number) => void} writeFocus
  * @property {(value: number) => void} writeHeroPoints
  * @property {(value: {staff_charge_rank: number, staff_spent: number, drain_used: boolean}) => void} writeDaily
- * @property {(value: {notes: any[], minions: any[], layout: any}) => void} writeSheetUi
+ * @property {(value: {notes: any[], minions: any[], layout: any, inv?: Record<string, any>}) => void} writeSheetUi
  * @property {(raised: boolean) => void} writeShieldRaised
  * @property {(casterKey: string, rank: number, index: number, patch?: {used?: boolean, prepared?: string | null}) => void} writeSlot
  * @property {(itemName: string, quantity: number) => void} writeItemQty
@@ -626,12 +626,16 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
   /** Whole-row sheet_ui write (specs/015): callers pass the full next
    *  object; the server validates shape + size.
    *  @param {{notes: any[], minions: any[], layout: any}} value */
-  function writeSheetUi(value) {
-    write(vitalsTarget(characterId, 'sheet_ui'), {
+  function writeSheetUi(/** @type {{notes: any[], minions: any[], layout: any, inv?: Record<string, any>}} */ value) {
+    /** @type {Record<string, any>} */
+    const next = {
       notes: Array.isArray(value.notes) ? value.notes : [],
       minions: Array.isArray(value.minions) ? value.minions : [],
       layout: value.layout ?? null,
-    });
+    };
+    // inv (slice 8): optional per-item organization overrides.
+    if (value.inv && typeof value.inv === 'object') next.inv = value.inv;
+    write(vitalsTarget(characterId, 'sheet_ui'), next);
   }
 
   /** Raise/lower the shield (gh#82): a boolean vitals write; the server
