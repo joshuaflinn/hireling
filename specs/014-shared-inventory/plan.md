@@ -177,6 +177,39 @@ picker, QM-gated sell dialog — book-value prefill with the found/flagged
 states, claim log newest-first, settings toggle disabled where the flip
 rule denies), the App route.
 
+**Contract pin — read this before writing the store** (transcribed read-only
+from the #236 head `3b1323a644b3f64e49760b03502b0922575dc95b`, per the
+pinned-contract rule; re-verify against `origin/main` at pickup, because the
+pin is only binding once L2 merges):
+
+- Snapshot section values (the store's input shape, `src/sync/snapshot.rs`):
+  `stash` → `{item_name, quantity, bulk, notes}` @ row `version`;
+  `bank` → `{gp, sp, cp}` @ row `version`, and the field is **absent** until
+  the first movement (no row, no zero-mint); `party`/`quartermaster` →
+  `{quartermaster_character_id: int|null}` @ `quartermaster_version`, always
+  present; `claim` → `{item_name, quantity, origin, destination, actor_sub,
+  created_at, coins_gp, coins_sp, coins_cp}` (coins NULL on item rows) with
+  the **row id in the version slot** — D7's merge-by-id is the ordinary
+  strictly-newer rule, not a special case.
+- Write frames the client may build: `stash_new` `{item_name, quantity ≥ 1,
+  bulk?, notes?}`; `stash` `{op:"qty", qty_delta}` (additive — ignore
+  `base_version`, never `superseded`) and `{op:"meta", bulk?, notes?}` (CAS
+  on the row version); `bank` `{gp_delta, sp_delta, cp_delta}` (additive,
+  signed, per-denomination non-negative); `party` `{character_id: int|null}`
+  (CAS). `claim` is read-only — no client write frame exists for it.
+- `web/tests/helpers/wire-contract.js` must gain the `stash_ops` set from
+  `field-targets.json` alongside the existing `effect_ops`/`vitals_fields`
+  pins, so a client `op` literal drift fails the suite, not the socket.
+- **The lane boundary is checkable, and Task 6 must honor it:** at `3b1323a`,
+  `grep -nE '"transfer"|"sell"' src/sync/write.rs` returns **1 hit, and it is
+  a test** — `stash(json!({"op": "sell", "qty": 1})).is_err()` with the
+  message `"sell is lane L3, not wired yet"` (write.rs:3000). So `transfer`
+  and `sell` are **not on the wire yet** — L3 adds them to the accepted set.
+  Task 6's transfer dialog and sell dialog must post through the ops that do
+  exist (`stash_new` / `stash qty` / `bank`) or gate behind L3's merge; a
+  client frame the server refuses at bounds is a red production-path test,
+  not a TODO.
+
 **Acceptance** (production-path, real events):
 - The sell dialog's two prompt states (prefilled / "no book value") both
   driven — one fixture asserts each (two-fixture rule).
