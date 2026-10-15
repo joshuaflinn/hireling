@@ -210,6 +210,10 @@ fn the_pinned_stash_ops_are_the_write_paths_accepted_set() {
         let value = match op {
             "qty" => serde_json::json!({"op": "qty", "qty_delta": 1}),
             "meta" => serde_json::json!({"op": "meta", "notes": "x"}),
+            "transfer" => {
+                serde_json::json!({"op": "transfer", "direction": "out", "qty": 1, "character_id": 7})
+            }
+            "sell" => serde_json::json!({"op": "sell", "qty": 1, "price": {"gp": 10}}),
             other => panic!(
                 "the fixture pins stash op {other:?}, which no arm of the \
                  write path accepts — update the fixture with the write path, \
@@ -231,15 +235,14 @@ fn the_pinned_stash_ops_are_the_write_paths_accepted_set() {
     }
 
     // The deny arm: an unpinned name is rejected, so the loop above cannot
-    // go green against a validator that accepts everything — and lane L3
-    // cannot land `transfer`/`sell` without the fixture growing.
+    // go green against a validator that accepts everything.
     assert!(
         validate_bounds(
             &FieldTarget::Stash {
                 party_id: 1,
                 item_name: "Rope".to_owned(),
             },
-            &serde_json::json!({"op": "transfer"}),
+            &serde_json::json!({"op": "sunder"}),
         )
         .is_err(),
         "an op name outside the pinned set must be rejected by the bounds validator"

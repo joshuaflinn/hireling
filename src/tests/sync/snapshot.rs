@@ -586,7 +586,7 @@ async fn seed_inventory_rows(
     assert_eq!(designation.outcome, Outcome::Applied);
 
     // The mint creates the stash row and its outside→stash claim; the bank
-    // delta mints the balance row (no claim — that is Task 3's write).
+    // delta mints the balance row and its own outside→bank claim (Task 3).
     let mint = apply_write(
         pool,
         actor,
@@ -684,8 +684,12 @@ async fn a_snapshot_carries_the_stash_bank_and_claim_sections() {
         .iter()
         .filter(|field| matches!(field.field, FieldTarget::Claim { .. }))
         .collect();
-    assert_eq!(claims.len(), 1, "the mint appends one claim: {claims:?}");
-    let claim = claims.first().expect("one claim asserted above");
+    assert_eq!(
+        claims.len(),
+        2,
+        "mint and bank credit each append one claim: {claims:?}"
+    );
+    let claim = claims.first().expect("two claims asserted above");
     let FieldTarget::Claim { claim_id } = claim.field else {
         panic!("the claim section targets Claim, got {:?}", claim.field);
     };
@@ -697,6 +701,20 @@ async fn a_snapshot_carries_the_stash_bank_and_claim_sections() {
     assert_eq!(claim.value.get("destination"), Some(&json!("stash")));
     assert_eq!(claim.value.get("item_name"), Some(&json!("Rope")));
     assert_eq!(claim.value.get("quantity"), Some(&json!(4)));
+
+    // The bank credit's own claim row (Task 3): a signed outside→bank
+    // adjustment with the quantity pinned to 1.
+    let bank_claim = claims.get(1).expect("two claims asserted above");
+    assert_eq!(bank_claim.value.get("origin"), Some(&json!("outside")));
+    assert_eq!(bank_claim.value.get("destination"), Some(&json!("bank")));
+    assert_eq!(
+        bank_claim.value.get("item_name"),
+        Some(&json!("bank adjustment"))
+    );
+    assert_eq!(bank_claim.value.get("coins_gp"), Some(&json!(10)));
+    assert_eq!(bank_claim.value.get("coins_sp"), Some(&json!(5)));
+    assert_eq!(bank_claim.value.get("coins_cp"), Some(&json!(1)));
+    assert_eq!(bank_claim.value.get("quantity"), Some(&json!(1)));
     testing::drop_test_db(pool, "snapshot_stash_bank_claim").await;
 }
 
