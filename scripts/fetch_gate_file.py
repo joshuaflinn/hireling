@@ -55,12 +55,16 @@ import sys
 import tarfile
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, NoReturn, cast
+from typing import Any, NoReturn, cast
 
 GATE_WORKFLOW = Path(".github/workflows/gate.yml")
 DEFAULT_DIGEST_FILE = GATE_WORKFLOW
+
+# A digest is sha256:<64 lowercase hex chars> — checked, never trusted.
+SHA256_HEX_LEN = 64
 
 # The registry the digest names when the ref has no host (Docker Hub).
 DOCKER_HUB_REGISTRY = "registry-1.docker.io"
@@ -124,7 +128,9 @@ def parse_image_ref(ref: str) -> ImageRef:
             " must be a digest (name@sha256:…), never a tag"
         )
     hexdigest = digest[len("sha256:") :]
-    if len(hexdigest) != 64 or any(c not in "0123456789abcdef" for c in hexdigest):
+    if len(hexdigest) != SHA256_HEX_LEN or any(
+        c not in "0123456789abcdef" for c in hexdigest
+    ):
         fail(
             f"image ref '{ref}' has a malformed digest — expected"
             " sha256:<64 hex chars>, never a tag or a shortened hash"
@@ -153,7 +159,9 @@ def _http_get(url: str, token: str | None = None) -> bytes:
     if token:
         request.add_unredirected_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:  # nosemgrep -- audited: dynamic-urllib-use-detected
+        # Audited: urllib over fixed https endpoints — the digest is read from
+        # the repo's own workflow, never user input; same as the module header.
+        with urllib.request.urlopen(request, timeout=120) as response:  # nosemgrep
             return cast("bytes", response.read())
     except urllib.error.HTTPError as exc:
         fail(f"GET {url} -> HTTP {exc.code}")
@@ -367,77 +375,78 @@ def upsert_manifest(
     )
 
 
-def _self_test() -> None:
-    """Re-prove the pure paths: ref parsing, tar search, overlay, manifest.
+def _make_layer(entries: dict[str, bytes]) -> bytes:
+    """Build a gzip tar with the given name->bytes entries (self-test fixture)."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as archive:
+        for name, data in entries.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
 
-    No network — the registry round-trip is exercised by the real run, and
-    the pure pieces it depends on are re-proven here.
-    """
-    ran: list[str] = []
 
-    def check(name: str, *, condition: bool) -> None:
-        ran.append(name)
-        if not condition:
-            print(f"fetch-gate-file self-test [{name}]: FAILED", file=sys.stderr)
-            sys.exit(1)
+def _check(ran: list[str], name: str, *, condition: bool) -> None:
+    """Record one self-test check; exit 1 on failure."""
+    ran.append(name)
+    if not condition:
+        print(f"fetch-gate-file self-test [{name}]: FAILED", file=sys.stderr)
+        sys.exit(1)
 
-    digest64 = "sha256:" + "a" * 64
 
+def _self_test_ref_cases(ran: list[str], digest64: str) -> None:
     # Digest is read from the workflow's own text, and a tag is refused.
-    check(
+    _check(
+        ran,
         "read-ref",
         condition=read_gate_image_ref("env:\n  GATE_IMAGE: a/b@sha256:abc\n")
         == "a/b@sha256:abc",
     )
-    check("read-ref-missing", condition=read_gate_image_ref("env: {}\n") is None)
+    _check(ran, "read-ref-missing", condition=read_gate_image_ref("env: {}\n") is None)
     hub = parse_image_ref(f"bearflinn/grizzly-gate@{digest64}")
-    check(
+    _check(
+        ran,
         "ref-hub",
         condition=hub.registry == DOCKER_HUB_REGISTRY
         and hub.repository == "bearflinn/grizzly-gate"
         and hub.digest == digest64,
     )
     short = parse_image_ref(f"ubuntu@{digest64}")
-    check("ref-short", condition=short.repository == "library/ubuntu")
+    _check(ran, "ref-short", condition=short.repository == "library/ubuntu")
     hosted = parse_image_ref(f"ghcr.io/owner/repo@{digest64}")
-    check(
+    _check(
+        ran,
         "ref-hosted",
         condition=hosted.registry == "ghcr.io" and hosted.repository == "owner/repo",
     )
 
     def refuses(ref: str) -> bool:
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
+        with contextlib.redirect_stderr(io.StringIO()):
             try:
                 parse_image_ref(ref)
             except SystemExit:
                 return True
         return False
 
-    check("ref-tag-refused", condition=refuses("a/b:latest"))
-    check("ref-malformed-digest-refused", condition=refuses(f"a/b@sha256:{'a' * 7}"))
+    _check(ran, "ref-tag-refused", condition=refuses("a/b:latest"))
+    _check(ran, "ref-malformed-digest-refused", condition=refuses(f"a/b@sha256:{'a' * 7}"))
 
+
+def _self_test_tar_cases(ran: list[str]) -> None:
     # Tar search: found, name-normalized, missing, and non-regular-file.
-    def make_layer(entries: dict[str, bytes]) -> bytes:
-        buf = io.BytesIO()
-        with tarfile.open(fileobj=buf, mode="w:gz") as archive:
-            for name, data in entries.items():
-                info = tarfile.TarInfo(name)
-                info.size = len(data)
-                archive.addfile(info, io.BytesIO(data))
-        return buf.getvalue()
-
-    layer = make_layer({"etc/gate/x.tmpl": b"hello"})
-    check("tar-found", condition=search_tar_bytes(layer, "etc/gate/x.tmpl") == b"hello")
-    check(
+    layer = _make_layer({"etc/gate/x.tmpl": b"hello"})
+    _check(ran, "tar-found", condition=search_tar_bytes(layer, "etc/gate/x.tmpl") == b"hello")
+    _check(
+        ran,
         "tar-dot-normalized",
         condition=search_tar_bytes(layer, "./etc/gate/x.tmpl") == b"hello",
     )
-    check(
+    _check(
+        ran,
         "tar-slash-normalized",
         condition=search_tar_bytes(layer, "/etc/gate/x.tmpl") == b"hello",
     )
-    check("tar-missing", condition=search_tar_bytes(layer, "etc/gate/nope") is None)
+    _check(ran, "tar-missing", condition=search_tar_bytes(layer, "etc/gate/nope") is None)
 
     def refuse_non_regular() -> bool:
         buf = io.BytesIO()
@@ -445,20 +454,21 @@ def _self_test() -> None:
             info = tarfile.TarInfo("etc/gate/x.tmpl")
             info.type = tarfile.DIRTYPE
             archive.addfile(info)
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
+        with contextlib.redirect_stderr(io.StringIO()):
             try:
                 search_tar_bytes(buf.getvalue(), "etc/gate/x.tmpl")
             except SystemExit:
                 return True
         return False
 
-    check("tar-non-regular-refused", condition=refuse_non_regular())
+    _check(ran, "tar-non-regular-refused", condition=refuse_non_regular())
 
+
+def _self_test_overlay_case(ran: list[str], digest64: str) -> None:
     # Overlay: a top layer's copy wins over a lower layer's — through the
     # production search_layers path (reversed(layers), first hit wins).
-    bottom = make_layer({"etc/gate/x.tmpl": b"old"})
-    top = make_layer({"etc/gate/x.tmpl": b"new"})
+    bottom = _make_layer({"etc/gate/x.tmpl": b"old"})
+    top = _make_layer({"etc/gate/x.tmpl": b"new"})
     blobs = {"sha256:bottom": bottom, "sha256:top": top}
     found = search_layers(
         digest64,
@@ -466,19 +476,35 @@ def _self_test() -> None:
         [{"digest": "sha256:bottom"}, {"digest": "sha256:top"}],
         lambda d: blobs[d],
     )
-    check("overlay-top-wins", condition=found == b"new")
+    _check(ran, "overlay-top-wins", condition=found == b"new")
 
+
+def _self_test_compose_cases(ran: list[str], digest64: str) -> None:
     # Vendored file composition: header + marker + exact source bytes.
-    composed = compose_vendored_file("etc/gate/x.tmpl", "sha256:" + "a" * 64, b"body")
-    check("compose-marker", condition=VENDOR_MARKER.encode("utf-8") + b"\n" in composed)
-    check("compose-body", condition=composed.endswith(b"body"))
+    composed = compose_vendored_file("etc/gate/x.tmpl", digest64, b"body")
+    _check(ran, "compose-marker", condition=VENDOR_MARKER.encode("utf-8") + b"\n" in composed)
+    _check(ran, "compose-body", condition=composed.endswith(b"body"))
     body_after_marker = composed.split(VENDOR_MARKER.encode("utf-8") + b"\n", 1)[1]
-    check(
+    _check(
+        ran,
         "compose-hash-matches-source",
         condition=hashlib.sha256(b"body").hexdigest()
         == hashlib.sha256(body_after_marker).hexdigest(),
     )
 
+
+def _self_test() -> None:
+    """Re-prove the pure paths: ref parsing, tar search, overlay, manifest.
+
+    No network — the registry round-trip is exercised by the real run, and
+    the pure pieces it depends on are re-proven here.
+    """
+    ran: list[str] = []
+    digest64 = "sha256:" + "a" * 64
+    _self_test_ref_cases(ran, digest64)
+    _self_test_tar_cases(ran)
+    _self_test_overlay_case(ran, digest64)
+    _self_test_compose_cases(ran, digest64)
     print(f"fetch-gate-file self-test: {len(ran)} checks, all pass")
 
 

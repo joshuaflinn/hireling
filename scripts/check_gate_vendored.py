@@ -243,154 +243,174 @@ def _self_test_case(
         sys.exit(1)
 
 
+def _run_self_test_case(
+    script: Path, ran: list[str], tree: Path, args: list[str], *, expect_red: bool
+) -> None:
+    """Run one CLI case through _self_test_case and record it in `ran`."""
+    ran.append(tree.name)
+    _self_test_case(script, tree, tree.name, args, expect_red=expect_red)
+
+
+def _make_self_test_tree(
+    root: Path, name: str, body: bytes, *, row_sha: str | None = None
+) -> Path:
+    """Build a synthetic tree with one vendored file and a matching manifest row."""
+    tree = root / name
+    (tree / "scripts").mkdir(parents=True)
+    (tree / "web").mkdir()
+    (tree / "web" / "gate-eslint.config.mjs").write_bytes(
+        SELF_TEST_HEADER.encode("utf-8") + body
+    )
+    digest = row_sha if row_sha is not None else sha256_bytes(body)
+    (tree / "scripts" / "gate_vendored.tsv").write_text(
+        "etc/gate/x.tmpl\tweb/gate-eslint.config.mjs\t" + digest + "\n",
+        encoding="utf-8",
+    )
+    return tree
+
+
+def _offline_self_test(script: Path, ran: list[str], root: Path) -> Path:
+    """Run the offline direction's cases; return the shared green tree."""
+    # Green: vendored file matches the recorded hash.
+    green = _make_self_test_tree(root, "green", b"body\n")
+    _run_self_test_case(script, ran, green, [], expect_red=False)
+
+    # Red: the vendored file is missing.
+    tree = _make_self_test_tree(root, "missing-vendored-file", b"body\n")
+    (tree / "web" / "gate-eslint.config.mjs").unlink()
+    _run_self_test_case(script, ran, tree, [], expect_red=True)
+
+    # Red: the marker is missing (not the file fetch_gate_file writes).
+    tree = _make_self_test_tree(root, "missing-marker", b"body\n")
+    (tree / "web" / "gate-eslint.config.mjs").write_bytes(b"// no marker\nbody\n")
+    _run_self_test_case(script, ran, tree, [], expect_red=True)
+
+    # Red: bytes below the marker were edited.
+    tree = _make_self_test_tree(root, "body-drift", b"body\n")
+    (tree / "web" / "gate-eslint.config.mjs").write_bytes(
+        SELF_TEST_HEADER.encode("utf-8") + b"edited\n"
+    )
+    _run_self_test_case(script, ran, tree, [], expect_red=True)
+
+    # Green: a provenance-comment edit ABOVE the marker is not drift.
+    tree = _make_self_test_tree(root, "provenance-edit-ok", b"body\n")
+    (tree / "web" / "gate-eslint.config.mjs").write_bytes(
+        b"// Vendored (edited provenance only).\n"
+        b"// === vendored-source-begin ===\n"
+        b"body\n"
+    )
+    _run_self_test_case(script, ran, tree, [], expect_red=False)
+
+    # Red: manifest is missing.
+    tree = _make_self_test_tree(root, "missing-manifest", b"body\n")
+    (tree / "scripts" / "gate_vendored.tsv").unlink()
+    _run_self_test_case(script, ran, tree, [], expect_red=True)
+
+    # Red: a malformed row (2 fields).
+    tree = _make_self_test_tree(root, "malformed-row", b"body\n")
+    (tree / "scripts" / "gate_vendored.tsv").write_text(
+        "etc/gate/x.tmpl\tweb/gate-eslint.config.mjs\n", encoding="utf-8"
+    )
+    _run_self_test_case(script, ran, tree, [], expect_red=True)
+
+    # Red: a row whose sha256 is not hex.
+    tree = _make_self_test_tree(root, "bad-sha", b"body\n", row_sha="z" * 64)
+    _run_self_test_case(script, ran, tree, [], expect_red=True)
+
+    # Red: the same image path is declared twice.
+    tree = _make_self_test_tree(root, "duplicate-image-path", b"body\n")
+    (tree / "scripts" / "gate_vendored.tsv").write_text(
+        "etc/gate/x.tmpl\tweb/gate-eslint.config.mjs\t" + sha256_bytes(b"body\n")
+        + "\netc/gate/x.tmpl\tweb/other.tmpl\t" + sha256_bytes(b"body\n") + "\n",
+        encoding="utf-8",
+    )
+    _run_self_test_case(script, ran, tree, [], expect_red=True)
+
+    # Red: a manifest with only comments parses to zero rows.
+    tree = _make_self_test_tree(root, "zero-rows", b"body\n")
+    (tree / "scripts" / "gate_vendored.tsv").write_text(
+        "# only a comment, no data rows\n", encoding="utf-8"
+    )
+    _run_self_test_case(script, ran, tree, [], expect_red=True)
+
+    return green
+
+
+def _image_source_self_test(
+    script: Path, ran: list[str], root: Path, green: Path
+) -> None:
+    """Run the --image-source direction's cases."""
+    # The extracted image file is the raw source (no header/marker), so its
+    # full hash equals the recorded one.
+    img = root / "image.tmpl"
+    img.write_bytes(b"body\n")
+    _run_self_test_case(
+        script,
+        ran,
+        green,
+        ["--image-source", f"etc/gate/x.tmpl={img}"],
+        expect_red=False,
+    )
+    _run_self_test_case(
+        script,
+        ran,
+        green,
+        ["--require-image-sources", "--image-source", f"etc/gate/x.tmpl={img}"],
+        expect_red=False,
+    )
+    img.write_bytes(b"other\n")
+    _run_self_test_case(
+        script,
+        ran,
+        green,
+        ["--image-source", f"etc/gate/x.tmpl={img}"],
+        expect_red=True,
+    )
+    # The extracted image file must exist (a matching key, a missing file).
+    _run_self_test_case(
+        script,
+        ran,
+        green,
+        ["--image-source", "etc/gate/x.tmpl=/nonexistent"],
+        expect_red=True,
+    )
+    # A key with an existing file but no matching manifest row.
+    _run_self_test_case(
+        script,
+        ran,
+        green,
+        ["--image-source", f"etc/gate/nope={img}"],
+        expect_red=True,
+    )
+    # --image-source that is not KEY=PATH.
+    _run_self_test_case(
+        script,
+        ran,
+        green,
+        ["--image-source", "notkeypath"],
+        expect_red=True,
+    )
+    # --image-source with an empty key or path.
+    _run_self_test_case(
+        script, ran, green, ["--image-source", "=path"],
+        expect_red=True,
+    )
+    # --require-image-sources reds on an uncovered row.
+    _run_self_test_case(
+        script, ran, green, ["--require-image-sources"],
+        expect_red=True,
+    )
+
+
 def self_test() -> None:
     """Re-prove every red direction against synthetic trees through the CLI."""
     script = Path(__file__).resolve()
     ran: list[str] = []
 
-    def run_case(tree: Path, name: str, args: list[str], *, expect_red: bool) -> None:
-        ran.append(name)
-        _self_test_case(script, tree, name, args, expect_red=expect_red)
-
     with tempfile.TemporaryDirectory(prefix="vendored-selftest-") as tmp:
         root = Path(tmp)
-        counter = [0]
-
-        def make_tree(body: bytes, *, row_sha: str | None = None) -> Path:
-            counter[0] += 1
-            tree = root / f"tree-{counter[0]}"
-            (tree / "scripts").mkdir(parents=True)
-            (tree / "web").mkdir()
-            (tree / "web" / "gate-eslint.config.mjs").write_bytes(
-                SELF_TEST_HEADER.encode("utf-8") + body
-            )
-            digest = row_sha if row_sha is not None else sha256_bytes(body)
-            (tree / "scripts" / "gate_vendored.tsv").write_text(
-                "etc/gate/x.tmpl\tweb/gate-eslint.config.mjs\t" + digest + "\n",
-                encoding="utf-8",
-            )
-            return tree
-
-        # Green: vendored file matches the recorded hash.
-        green = make_tree(b"body\n")
-        run_case(green, "green", [], expect_red=False)
-
-        # Red: the vendored file is missing.
-        tree = make_tree(b"body\n")
-        (tree / "web" / "gate-eslint.config.mjs").unlink()
-        run_case(tree, "missing-vendored-file", [], expect_red=True)
-
-        # Red: the marker is missing (not the file fetch_gate_file writes).
-        tree = make_tree(b"body\n")
-        (tree / "web" / "gate-eslint.config.mjs").write_bytes(b"// no marker\nbody\n")
-        run_case(tree, "missing-marker", [], expect_red=True)
-
-        # Red: bytes below the marker were edited.
-        tree = make_tree(b"body\n")
-        (tree / "web" / "gate-eslint.config.mjs").write_bytes(
-            SELF_TEST_HEADER.encode("utf-8") + b"edited\n"
-        )
-        run_case(tree, "body-drift", [], expect_red=True)
-
-        # Green: a provenance-comment edit ABOVE the marker is not drift.
-        tree = make_tree(b"body\n")
-        (tree / "web" / "gate-eslint.config.mjs").write_bytes(
-            b"// Vendored (edited provenance only).\n"
-            b"// === vendored-source-begin ===\n"
-            b"body\n"
-        )
-        run_case(tree, "provenance-edit-ok", [], expect_red=False)
-
-        # Red: manifest is missing.
-        tree = make_tree(b"body\n")
-        (tree / "scripts" / "gate_vendored.tsv").unlink()
-        run_case(tree, "missing-manifest", [], expect_red=True)
-
-        # Red: a malformed row (2 fields).
-        tree = make_tree(b"body\n")
-        (tree / "scripts" / "gate_vendored.tsv").write_text(
-            "etc/gate/x.tmpl\tweb/gate-eslint.config.mjs\n", encoding="utf-8"
-        )
-        run_case(tree, "malformed-row", [], expect_red=True)
-
-        # Red: a row whose sha256 is not hex.
-        tree = make_tree(b"body\n", row_sha="z" * 64)
-        run_case(tree, "bad-sha", [], expect_red=True)
-
-        # Red: the same image path is declared twice.
-        tree = make_tree(b"body\n")
-        (tree / "scripts" / "gate_vendored.tsv").write_text(
-            "etc/gate/x.tmpl\tweb/gate-eslint.config.mjs\t" + sha256_bytes(b"body\n")
-            + "\netc/gate/x.tmpl\tweb/other.tmpl\t" + sha256_bytes(b"body\n") + "\n",
-            encoding="utf-8",
-        )
-        run_case(tree, "duplicate-image-path", [], expect_red=True)
-
-        # Red: a manifest with only comments parses to zero rows.
-        tree = make_tree(b"body\n")
-        (tree / "scripts" / "gate_vendored.tsv").write_text(
-            "# only a comment, no data rows\n", encoding="utf-8"
-        )
-        run_case(tree, "zero-rows", [], expect_red=True)
-
-        # Image-source direction. The extracted image file is the raw source
-        # (no header/marker), so its full hash equals the recorded one.
-        img = root / "image.tmpl"
-        img.write_bytes(b"body\n")
-        run_case(
-            green,
-            "image-source-green",
-            ["--image-source", f"etc/gate/x.tmpl={img}"],
-            expect_red=False,
-        )
-        run_case(
-            green,
-            "require-image-sources-green",
-            ["--require-image-sources", "--image-source", f"etc/gate/x.tmpl={img}"],
-            expect_red=False,
-        )
-        img.write_bytes(b"other\n")
-        run_case(
-            green,
-            "image-source-drift",
-            ["--image-source", f"etc/gate/x.tmpl={img}"],
-            expect_red=True,
-        )
-        # The extracted image file must exist (a matching key, a missing file).
-        run_case(
-            green,
-            "image-source-missing-file",
-            ["--image-source", "etc/gate/x.tmpl=/nonexistent"],
-            expect_red=True,
-        )
-        # A key with an existing file but no matching manifest row.
-        run_case(
-            green,
-            "image-source-unknown-key",
-            ["--image-source", f"etc/gate/nope={img}"],
-            expect_red=True,
-        )
-        # --image-source that is not KEY=PATH.
-        run_case(
-            green,
-            "image-source-not-key-path",
-            ["--image-source", "notkeypath"],
-            expect_red=True,
-        )
-        # --image-source with an empty key or path.
-        run_case(
-            green,
-            "image-source-empty-key",
-            ["--image-source", "=path"],
-            expect_red=True,
-        )
-        # --require-image-sources reds on an uncovered row.
-        run_case(
-            green,
-            "require-image-sources-missing",
-            ["--require-image-sources"],
-            expect_red=True,
-        )
+        green = _offline_self_test(script, ran, root)
+        _image_source_self_test(script, ran, root, green)
 
     print(f"vendored-drift self-test: {len(ran)} cases, all pass")
 
