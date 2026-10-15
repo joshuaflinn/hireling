@@ -10,11 +10,22 @@
 //! proven here is the joint — the importer's write path and the route's read
 //! path, with nothing of this suite's shape in between.
 //!
-//! Both tests drive the route through the configured router, never the module
-//! underneath it (AGENTS.md: a spec'd behavior is proven on the production
-//! path that owns it). `lookup` stays private to `book_value` and
-//! that is load-bearing: with the seam private, a session-less call into the
-//! lookup does not compile, so the HTTP surface is the only way in.
+//! The two halves drive different ends of the joint, and only half two goes
+//! through the configured router. Half two is the consumer end: it mounts the
+//! real router and asserts the answer `resolve` returns to a session, so the
+//! route's own SQL is what is exercised (AGENTS.md: a spec'd behavior is
+//! proven on the production path that owns it). Half one is the producer end:
+//! it asserts where the importer *stored* the price, by querying the pool at
+//! the path the route reads, and never mounts a router — there is no handler
+//! call in it to assert about.
+//!
+//! `lookup` stays private to `book_value`, which keeps this suite from calling
+//! it and so keeps half two on the HTTP surface. That is a locality preference,
+//! not a wall: this file is a child module of `book_value` (`src/book_value.rs`,
+//! `#[path] mod importer_tests`), and Rust privacy reaches downward from an
+//! ancestor, so `super::lookup` does compile from here. It is not used that way,
+//! and `resolve`'s authz branch is covered on its own at
+//! `tests/book_value.rs::a_non_member_is_forbidden_with_the_e3_payload`.
 //!
 //! The expected price is read out of the captured fixture, never restated —
 //! so no literal is shared across the joint, and the wrapper convention is
@@ -215,6 +226,10 @@ async fn seeded_party(pool: &sqlx::PgPool, sub: &str) -> i64 {
 /// fails. Because the path is a literal here rather than read from `book_value`,
 /// a move in the route's own SQL cannot fail this half; half two covers that
 /// end. Keep the two literals apart on purpose.
+///
+/// This half queries the pool directly and mounts no router: it is proving the
+/// stored path, not the handler, so there is no request in it to route. Half
+/// two is the one that drives the configured router.
 #[tokio::test]
 async fn the_importer_stores_the_price_where_the_route_reads_it() {
     let Some(pool) = imported_pool().await else {
