@@ -83,10 +83,10 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   head. A reviewer who narrows a round's scope says so in the verdict,
   and the press honors the stated scope instead of reading past it.
 
-  **One review round is one review task.** Whoever opens a round opens a
-  single task for it, asking every question the round asks in it — a
-  round split across tasks produces verdicts that are each correct in
-  their own scope and jointly unreadable at the press. While a round is
+  **One review round is one review task.** A round gets a single task —
+  the author opens it at seating — and the round's scope is stated in one
+  announcement; a round split across tasks produces verdicts that are each
+  correct in their own scope and jointly unreadable at the press. While a round is
   open, the press waits, and it reads that state off the PR — the round
   is open when it is announced on the PR and closed when the verdict at
   that head is posted to it — never off tracker task state, which the
@@ -106,8 +106,9 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   announcement: an author never calls `gh pr review` to open a round, and a
   seat task never states that the round "is announced". The author's questions
   are the round's proposal, not its scope; scope is set by the seat that read
-  the diff, and the reviewer is free to widen them. PR #247 is the reason: it
-  carried author announcements at 05:39:40Z (review 5528645993, three
+  the diff, and the reviewer may widen them on an author-text round. PR #247
+  is the reason: it carried author announcements at 05:39:40Z (review
+  5528645993, three
   questions) and 05:56:27Z (5528801267), so each head held two announcements,
   and the timeline stayed readable only because the reviewer caught both by
   hand — widening round 1 to five questions, one of which was the gate read,
