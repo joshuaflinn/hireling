@@ -91,6 +91,21 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   is open when it is announced on the PR and closed when the verdict at
   that head is posted to it — never off tracker task state, which the
   press seat cannot see at the PR.
+
+  **The author holds the head while a round is open.** Between the
+  announcement and the verdict: no push, no merge of `main`. `gh pr review`
+  binds a review object's `commit_id` to the PR's head at submit time, not to
+  the head the verdict's text names, so a head move mid-round stamps the
+  reviewer's verdict with a head nobody read. If the branch goes behind during
+  a round, it waits — the verdict lands first, and *Verdict carry-over* then
+  handles the head move against a diff already judged.
+
+  **An author who must move the head asks the reviewer to withdraw the
+  round.** A plain PR comment saying so; the reviewer closes the round with a
+  review comment naming the head and stating that no verdict was reached. A
+  withdrawn round read text the author retracted, so it does not count against
+  the budget. Only the reviewer closes a round — an author never retires one
+  by pushing over it.
 - **The reviewer announces the round on the PR before reading the diff — and
   only the reviewer.** A review comment (`gh pr review <n> --comment -F -`)
   naming the head SHA under review, the questions the round is asking, and the
@@ -164,6 +179,10 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   gated. Every verdict states the SHA it is bound to, so a wrong-head read is
   visible in the record afterwards — that is what makes this rule
   self-checking, and it costs nothing the record does not already carry.
+
+  **A review object's `commit_id` is not evidence of what was reviewed.** The
+  head a verdict is bound to is the head its text names. A push can move the
+  stamp; it cannot rewrite the prose.
 - **Review rounds — two author-text rounds, then a verdict.** The budget
   counts rounds that review changed author text. Two of those, then a
   verdict — accept-with-follow-up-issues or reject-with-a-plan. There is no
