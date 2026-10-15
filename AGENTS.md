@@ -44,8 +44,14 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
    issue where one exists (`feat/12-buff-engine`), govern branches cut by
    hand outside a provisioned workspace — a human in a clone, a hotfix off
    the shared checkout. Never commit to `main`.
-   Never force-push shared branches. Open a PR; the author never merges their own
-   work. Authorship is read off the board, not off GitHub: every Moradin agent
+   Never force-push shared branches — a branch is shared from the moment a
+   review round is announced against it; who cut it is irrelevant, because a
+   reviewer and a press seat read heads off that ref. PR #277 is the reason:
+   its author hand-cut `docs/275-head-pinned`, force-pushed it at 11:51:01Z
+   (`head_ref_force_pushed`, erasing `279e9600` back to `5c73ddc`), and
+   defended it as "my own hand-cut branch, not a shared branch" — a reading
+   the text permitted. Open a PR; the author never merges their own work.
+   Authorship is read off the board, not off GitHub: every Moradin agent
    pushes as `joshuaflinn`, so between agents a PR's `author.login` is the same
    string and cannot distinguish author from presser. For a PR this company
    authors, the authoritative record of authorship is the tracking task's
@@ -257,12 +263,23 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   the accepted branch.** That is what the follow-up issue is for: the accept
   names it, the author files it, and it is worked on a fresh branch. Pushing
   the fix onto the reviewed branch invalidates the head the verdict is bound
-  to and spends review capacity the budget does not have.
+  to and spends review capacity the budget does not have. Once an accept is
+  posted, an earlier direction to fix something in-PR is superseded — the
+  item becomes a follow-up on a fresh branch, because an accept binds to a
+  head and a direction issued when no head was protected cannot authorise
+  moving one. PR #277 is the instance: comment `6191002802` (11:29:40Z)
+  told the author to close the enumeration in-PR; the round-2 accept
+  `5532580105` (11:46:33Z, head `5c73ddc`) routed the same fix to a fresh
+  branch — the accept wins.
 
   **If author text does land over a posted verdict, it is an author fault**
   — not a provisioning defect; the harness did nothing. Handling matches a
   branch collision: name it in the PR body, report it on the author's
   tracking task. No penalty attaches, and it does not deadlock the branch.
+  The remedy is the post-accept re-bind round below, and erasing the push
+  is not one — PR #277 pushed `279e9600` at 11:46:54Z (21s after accept
+  `5532580105` at 11:46:33Z) and force-pushed it away at 11:51:01Z instead
+  of taking that round.
   Text arriving in the tree that is *not* the author's — a foreign path
   mid-task — is not this rule; that is the mid-task tree check in *Workflow*.
 
@@ -375,24 +392,23 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   `git checkout`/`git switch` onto another branch and `git rebase` of the
   provisioned branch are both out; a rebase moves the branch under the
   seats sharing the tree, and the force-push that would make it reachable
-  is already forbidden above. A detached read is the one exception to that
-  pin — the gate worktree recipe takes `--detach` in a separate worktree
-  and takes no commits. The consequence: a concurrent seat in that same
-  tree fails
+  is already forbidden above. That pin binds this tree only — the gate
+  worktree recipe takes `--detach` in a *separate* worktree and takes no
+  commits. The consequence: a concurrent seat in that same tree fails
   `workspace_validation_failed` (`git_worktree_branch_incoherence`), which
   reads to it as a provisioning defect. gh#149 is the structural cause —
-  one worktree per issue *lineage*, so sibling seats share one HEAD — and
-  PR #271, the gh#267 instance, cost a concurrent seat one heartbeat, no
-  text.
+  one worktree per issue *lineage*, so sibling seats share one HEAD —
+  and PR #271, the gh#267 instance, cost a concurrent seat one
+  heartbeat, no text.
   Never cut your own worktree for your own task — verify where you are with
-  `git rev-parse --show-toplevel` and work there — with one exception: any
-  work that is not this task's — a side fix, another issue's docs change, a
-  hotfix, a branch collision. The keep-all-commits instruction carries a
-  premise: the provisioned branch is *this* task's PR branch, 1:1. Check
-  the premise at pickup (`git branch --show-current`, then `gh pr list
-  --head <branch>
-  --state open`, then `git status --short`): if the branch is already
-  another open PR's head, if it carries another task's commits, or if the
+  `git rev-parse --show-toplevel` and work there — with one exception:
+  work the provisioned branch cannot carry — a side fix, another issue's
+  docs change, a hotfix, a branch collision. The keep-all-commits
+  instruction carries a premise: the provisioned branch is *this* task's
+  PR branch, 1:1. Check the premise at pickup (`git branch
+  --show-current`, then `gh pr list --head <branch> --state open`, then
+  `git status --short`): if the branch is already another open PR's
+  head, if it carries another task's commits, or if the
   tree holds modified or untracked paths this task will not touch, the
   premise has failed — committing would move a review head that a verdict
   may be bound to, or sweep a foreign path onto it. The tree check is
@@ -408,8 +424,9 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   body, and report it on your tracking task. It is a provisioning defect,
   not an engineer error. The shared `hireling`
   checkout is reference only: read from it, never run in it, and let it
-  drift behind `origin/main`. Hand-cut worktrees — a human in a clone, a
-  hotfix, a branch collision — go in sibling directories, never run scratch
+  drift behind `origin/main`. Hand-cut worktrees — a side fix, another
+  issue's docs change, a hotfix, a branch collision — go in sibling
+  directories, never run scratch
   dirs (those get cleaned). Removal has a hard edge: a sibling named for an
   *open* task
   (`MOR-<n>`) can be clean and an ancestor of `origin/main` and still be a
