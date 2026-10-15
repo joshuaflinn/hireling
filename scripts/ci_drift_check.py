@@ -41,7 +41,7 @@ import sys
 import tempfile
 from collections import Counter
 from pathlib import Path
-from typing import NoReturn
+from typing import Callable, NoReturn
 
 DECLARATION = Path("scripts/gate_passes.tsv")
 JUSTFILE = Path("justfile")
@@ -418,103 +418,111 @@ def self_test() -> None:
                 (tree / "image.log").write_text(image_log, encoding="utf-8")
             return tree
 
-        # Green: alpha mirrored, alpha guarded by the workflow step, both
-        # declared checks covered, image output all declared.
-        green = make_tree(
-            "one:alpha\talpha\tmirrors alpha\ntwo:beta\t-\texempt: provisioning only\n",
-            "[PASS] one:alpha\n[PASS] two:beta\n",
-        )
-        run_case(green, "green", [], expect_red=False)
-        run_case(green, "green-image", ["--image-log", "image.log"], expect_red=False)
-
-        # A-red: a ci-local leg with no CI home.
-        tree = make_tree("one:alpha\talpha\tmirrors alpha\n", None)
-        (tree / "justfile").write_text(
-            "ci-local: alpha charlie\n\nalpha:\n\ttrue\ncharlie:\n\ttrue\n", encoding="utf-8"
-        )
-        run_case(tree, "a-ungated-leg", [], expect_red=True)
-
-        # B-red: a mirror naming a leg ci-local does not run.
-        tree = make_tree("one:alpha\tnonexistent\tmirrors nothing real\n", None)
-        run_case(tree, "b-phantom-mirror", [], expect_red=True)
-
-        # B-red: a declared pass with no mirror and no written reason.
-        tree = make_tree("two:beta\t-\t\n", None)
-        run_case(tree, "b-empty-reason", [], expect_red=True)
-
-        # C-red: the image's output names a check the declaration does not know.
-        tree = make_tree(
-            "one:alpha\talpha\tmirrors alpha\n", "[PASS] one:alpha\n[PASS] node:zork\n"
-        )
-        run_case(tree, "c-undeclared-pass", ["--image-log", "image.log"], expect_red=True)
-
-        # C fail-closed: an empty log is a failure, not a pass.
-        tree = make_tree("one:alpha\talpha\tmirrors alpha\n", "")
-        run_case(tree, "c-empty-log", ["--image-log", "image.log"], expect_red=True)
-
-        # C-red (gh#163 F1): the image's output omits a MIRRORED declared
-        # pass — the reverse of c-undeclared-pass. one:alpha is mirrored;
-        # its absence must red even though two:beta (exempt) is named.
-        tree = make_tree(
-            "one:alpha\talpha\tmirrors alpha\ntwo:beta\t-\texempt: provisioning only\n",
-            "[PASS] two:beta\n",
-        )
-        run_case(
-            tree, "c-mirrored-pass-dropped", ["--image-log", "image.log"], expect_red=True
-        )
-
-        # C-green (gh#163 F1, the false-red guard): an EXEMPT pass absent
-        # from the image's output is not drift — only mirrored rows are
-        # required to appear.
-        tree = make_tree(
-            "one:alpha\talpha\tmirrors alpha\ntwo:beta\t-\texempt: provisioning only\n",
-            "[PASS] one:alpha\n",
-        )
-        run_case(
-            tree, "c-exempt-pass-skipped", ["--image-log", "image.log"], expect_red=False
-        )
-
-        # C-red (gh#163 F2): a verdict line whose name is off-shape reds
-        # naming the line, instead of being dropped from the found set.
-        tree = make_tree(
-            "one:alpha\talpha\tmirrors alpha\n",
-            "[PASS] one:alpha\n[PASS] node:ts_check\n",
-        )
-        run_case(
-            tree, "c-offshape-pass-name", ["--image-log", "image.log"], expect_red=True
-        )
-
-        # D-red (gh#163 F3): the workflow no longer invokes this script
-        # with --image-log. Direction A and B still hold; the missing
-        # step alone must red, bench-side, without --image-log.
-        tree = make_tree("one:alpha\talpha\tmirrors alpha\n", None)
-        (tree / ".github" / "workflows" / "gate.yml").write_text(
-            SELF_TEST_TREE_WORKFLOW_NO_IMAGE_STEP, encoding="utf-8"
-        )
-        run_case(tree, "d-image-step-deleted", [], expect_red=True)
-
-        # A-green: the guard step passes an argument to the leg. The leg is
-        # still gated; the argument is not a new leg (gh#320: CI runs
-        # `just check-vendored --allow-unvendored`). Alpha is unmirrored so
-        # the derived repo_side step is its only CI home — the arged form
-        # must still derive it, or direction A reds.
-        tree = make_tree("one:alpha\t-\texempt: gated by the guard step\n", None)
-        (tree / ".github" / "workflows" / "gate.yml").write_text(
-            SELF_TEST_TREE_WORKFLOW_ARGED, encoding="utf-8"
-        )
-        run_case(tree, "a-guard-step-arged", [], expect_red=False)
-
-        # A-red: the same leg invoked from a multi-line `run: |` block, a
-        # shape this derivation does not read. Fails closed: textual presence
-        # in an unread shape is not a derived CI home, so the unmirrored leg
-        # stays ungated and direction A reds.
-        tree = make_tree("one:alpha\t-\texempt: gated by the guard step\n", None)
-        (tree / ".github" / "workflows" / "gate.yml").write_text(
-            SELF_TEST_TREE_WORKFLOW_MULTILINE, encoding="utf-8"
-        )
-        run_case(tree, "a-guard-step-multiline", [], expect_red=True)
+        _run_self_test_cases(run_case, make_tree)
 
     print(f"ci-drift self-test: {len(ran)} cases, all pass")
+
+
+def _run_self_test_cases(
+    run_case: Callable[..., None],
+    make_tree: Callable[..., Path],
+) -> None:
+    """Build and run every synthetic-tree case (kept out of self_test for PLR0915)."""
+    # Green: alpha mirrored, alpha guarded by the workflow step, both
+    # declared checks covered, image output all declared.
+    green = make_tree(
+        "one:alpha\talpha\tmirrors alpha\ntwo:beta\t-\texempt: provisioning only\n",
+        "[PASS] one:alpha\n[PASS] two:beta\n",
+    )
+    run_case(green, "green", [], expect_red=False)
+    run_case(green, "green-image", ["--image-log", "image.log"], expect_red=False)
+
+    # A-red: a ci-local leg with no CI home.
+    tree = make_tree("one:alpha\talpha\tmirrors alpha\n", None)
+    (tree / "justfile").write_text(
+        "ci-local: alpha charlie\n\nalpha:\n\ttrue\ncharlie:\n\ttrue\n", encoding="utf-8"
+    )
+    run_case(tree, "a-ungated-leg", [], expect_red=True)
+
+    # B-red: a mirror naming a leg ci-local does not run.
+    tree = make_tree("one:alpha\tnonexistent\tmirrors nothing real\n", None)
+    run_case(tree, "b-phantom-mirror", [], expect_red=True)
+
+    # B-red: a declared pass with no mirror and no written reason.
+    tree = make_tree("two:beta\t-\t\n", None)
+    run_case(tree, "b-empty-reason", [], expect_red=True)
+
+    # C-red: the image's output names a check the declaration does not know.
+    tree = make_tree(
+        "one:alpha\talpha\tmirrors alpha\n", "[PASS] one:alpha\n[PASS] node:zork\n"
+    )
+    run_case(tree, "c-undeclared-pass", ["--image-log", "image.log"], expect_red=True)
+
+    # C fail-closed: an empty log is a failure, not a pass.
+    tree = make_tree("one:alpha\talpha\tmirrors alpha\n", "")
+    run_case(tree, "c-empty-log", ["--image-log", "image.log"], expect_red=True)
+
+    # C-red (gh#163 F1): the image's output omits a MIRRORED declared
+    # pass — the reverse of c-undeclared-pass. one:alpha is mirrored;
+    # its absence must red even though two:beta (exempt) is named.
+    tree = make_tree(
+        "one:alpha\talpha\tmirrors alpha\ntwo:beta\t-\texempt: provisioning only\n",
+        "[PASS] two:beta\n",
+    )
+    run_case(
+        tree, "c-mirrored-pass-dropped", ["--image-log", "image.log"], expect_red=True
+    )
+
+    # C-green (gh#163 F1, the false-red guard): an EXEMPT pass absent
+    # from the image's output is not drift — only mirrored rows are
+    # required to appear.
+    tree = make_tree(
+        "one:alpha\talpha\tmirrors alpha\ntwo:beta\t-\texempt: provisioning only\n",
+        "[PASS] one:alpha\n",
+    )
+    run_case(
+        tree, "c-exempt-pass-skipped", ["--image-log", "image.log"], expect_red=False
+    )
+
+    # C-red (gh#163 F2): a verdict line whose name is off-shape reds
+    # naming the line, instead of being dropped from the found set.
+    tree = make_tree(
+        "one:alpha\talpha\tmirrors alpha\n",
+        "[PASS] one:alpha\n[PASS] node:ts_check\n",
+    )
+    run_case(
+        tree, "c-offshape-pass-name", ["--image-log", "image.log"], expect_red=True
+    )
+
+    # D-red (gh#163 F3): the workflow no longer invokes this script
+    # with --image-log. Direction A and B still hold; the missing
+    # step alone must red, bench-side, without --image-log.
+    tree = make_tree("one:alpha\talpha\tmirrors alpha\n", None)
+    (tree / ".github" / "workflows" / "gate.yml").write_text(
+        SELF_TEST_TREE_WORKFLOW_NO_IMAGE_STEP, encoding="utf-8"
+    )
+    run_case(tree, "d-image-step-deleted", [], expect_red=True)
+
+    # A-green: the guard step passes an argument to the leg. The leg is
+    # still gated; the argument is not a new leg (gh#320: CI runs
+    # `just check-vendored --allow-unvendored`). Alpha is unmirrored so
+    # the derived repo_side step is its only CI home — the arged form
+    # must still derive it, or direction A reds.
+    tree = make_tree("one:alpha\t-\texempt: gated by the guard step\n", None)
+    (tree / ".github" / "workflows" / "gate.yml").write_text(
+        SELF_TEST_TREE_WORKFLOW_ARGED, encoding="utf-8"
+    )
+    run_case(tree, "a-guard-step-arged", [], expect_red=False)
+
+    # A-red: the same leg invoked from a multi-line `run: |` block, a
+    # shape this derivation does not read. Fails closed: textual presence
+    # in an unread shape is not a derived CI home, so the unmirrored leg
+    # stays ungated and direction A reds.
+    tree = make_tree("one:alpha\t-\texempt: gated by the guard step\n", None)
+    (tree / ".github" / "workflows" / "gate.yml").write_text(
+        SELF_TEST_TREE_WORKFLOW_MULTILINE, encoding="utf-8"
+    )
+    run_case(tree, "a-guard-step-multiline", [], expect_red=True)
 
 
 if __name__ == "__main__":
