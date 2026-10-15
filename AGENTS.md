@@ -282,19 +282,19 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   this closes a rule gap on the announcing side, not a fault assignment.
 
   **The announcement names whether the head is up to date with `main`.**
-  Alongside the gate read, at the head already named: `git fetch origin main`,
-  then `git merge-base --is-ancestor origin/main <head>` — exit 0 is up to
-  date, exit 1 is behind. The fetch is not optional: `origin/main` is a local
+  Alongside the gate read, at the head already named: `git fetch origin main
+  <branch>`, then `git merge-base --is-ancestor origin/main <head>` — exit 0 is
+  up to date, exit 1 is behind. The fetch is not optional: `origin/main` is a
   ref, and a stale one reports a behind head as current — a false pass, the
   same wrong-head fault class as reading check-runs at a superseded SHA. `gh
   pr view <n> --json mergeStateStatus` is corroboration, never a substitute;
   it is computed lazily and can read `UNKNOWN`. A behind head does not hold
   the review — the diff is still the diff — so announce and review as normal,
   and the verdict names the head move the press will need. `main` carries the
-  strict up-to-date policy — the `main-gate` ruleset (`24735400`) enforces
-  `required_status_checks` with `strict_required_status_checks_policy: true`
-  (`enforcement: active`, `updated_at` 2026-10-13, read live 2026-10-15) — so
-  that move is forced; where `main` has not edited a reviewed path it is the
+  strict up-to-date policy — the `main-gate` ruleset (id `24735400`), which at
+  version `v53013064` enforces `required_status_checks` with
+  `strict_required_status_checks_policy: true` — so that move is forced; where
+  `main` has not edited a reviewed path it is the
   wholly-mechanical carry-over re-bind of *Verdict carry-over* and costs no
   round. This does not relieve *Bring the branch up to date before you ask
   for review* — it is the second seat on it.
