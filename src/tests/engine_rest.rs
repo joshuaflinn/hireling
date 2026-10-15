@@ -235,9 +235,10 @@ async fn the_effects_read_returns_actives_only() {
     .await
     .expect("create");
     assert_eq!(created.outcome, Outcome::Applied);
-    let Some((FieldTarget::Effect { effect_id }, _)) = created.broadcast else {
+    let Some((FieldTarget::Effect { effect_id }, _, _)) = created.broadcast.first() else {
         panic!("create broadcasts");
     };
+    let effect_id = *effect_id;
     // End a SECOND effect so the read proves the active filter.
     let second = apply_write(
         &pool,
@@ -247,9 +248,10 @@ async fn the_effects_read_returns_actives_only() {
     )
     .await
     .expect("second create");
-    let Some((FieldTarget::Effect { effect_id: doomed }, _)) = second.broadcast else {
+    let Some((FieldTarget::Effect { effect_id: doomed }, _, _)) = second.broadcast.first() else {
         panic!("second broadcasts");
     };
+    let doomed = *doomed;
     let doomed_version: i64 = sqlx::query_scalar("SELECT version FROM effects WHERE id = $1")
         .bind(doomed)
         .fetch_one(&pool)

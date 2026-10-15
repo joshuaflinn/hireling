@@ -95,11 +95,14 @@ state a rule E12's shipped code breaks.
 | `bank` | `party_id` | `{gp_delta, sp_delta, cp_delta}` | the balance row's `version` | additive, never `superseded`; QM-only |
 | `party` | `party_id`, `field:"quartermaster"` | `{character_id \| null}` | `quartermaster_version` | absolute, CAS |
 
-Snapshot/diff shapes: stash rows as `{item_name, quantity, bulk, notes,
-version}`; bank as `{gp, sp, cp, version}`; party as
-`{quartermaster_character_id, quartermaster_version}`; claim rows by id
-(D7). Additive applies ignore `base_version` (the frame still carries it —
-uniform shape); acks return the resulting version. `superseded` is
+Snapshot/diff shapes: stash rows as `{item_name, quantity, bulk, notes}`;
+bank as `{gp, sp, cp}`; party as `{quartermaster_character_id}`; claim rows
+by id (D7). The version is not part of the value — it rides each snapshot
+field's own version slot (`SnapshotField.version`), and diff versions ride
+the diff frame's slot, never the value. A `stash` `qty` draw to exactly
+zero deletes the row and fans a removal diff (`value:null`) with a fresh
+version. Additive applies ignore `base_version` (the frame still carries
+it — uniform shape); acks return the resulting version. `superseded` is
 unreachable for additive ops — spec FR-2.5's rule, asserted in D8's
 suite.
 

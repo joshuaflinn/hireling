@@ -21,8 +21,29 @@
     "effect_new": {
       "kind": "effect_new",
       "fields": ["party_id"]
+    },
+    "stash_new": {
+      "kind": "stash_new",
+      "fields": ["party_id"]
+    },
+    "stash": {
+      "kind": "stash",
+      "fields": ["party_id", "item_name"]
+    },
+    "bank": {
+      "kind": "bank",
+      "fields": ["party_id"]
+    },
+    "party": {
+      "kind": "party",
+      "fields": ["party_id", "field"]
+    },
+    "claim": {
+      "kind": "claim",
+      "fields": ["claim_id"]
     }
   },
   "effect_ops": ["create", "update", "end"],
+  "stash_ops": ["qty", "meta"],
   "vitals_fields": ["hp", "temp_hp", "money", "level_adjust", "focus_current", "hero_points", "daily", "shield_raised"]
 }

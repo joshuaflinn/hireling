@@ -5,8 +5,10 @@
 
 use serde_json::{Value as JsonValue, json};
 
-use crate::sync::protocol::{FieldTarget, SnapshotField, VitalsField};
+use crate::auth::authz::{Actor, Role};
+use crate::sync::protocol::{FieldTarget, Outcome, PartyField, SnapshotField, VitalsField};
 use crate::sync::snapshot::{party_snapshot, snapshot_bytes};
+use crate::sync::write::{ClientOp, apply_write};
 use crate::testing;
 
 /// The POC party (migration-seeded; the only party unless a test adds one).
@@ -354,6 +356,23 @@ async fn a_snapshot_carries_every_versioned_field_with_its_db_version() {
             {"type": "untyped", "stat": "fort_save", "value": -2}
         ]),
     ));
+    // The E12 party field rides every snapshot (the designation is versioned
+    // party state, not a character's row).
+    let (qm_character, qm_version): (Option<i64>, i64) = sqlx::query_as(
+        "SELECT quartermaster_character_id, quartermaster_version FROM parties WHERE id = $1",
+    )
+    .bind(party_id)
+    .fetch_one(&pool)
+    .await
+    .expect("party row");
+    expected.push(SnapshotField {
+        field: FieldTarget::Party {
+            party_id,
+            field: PartyField::Quartermaster,
+        },
+        value: json!({"quartermaster_character_id": qm_character}),
+        version: qm_version,
+    });
 
     assert_eq!(
         fields.len(),
@@ -386,7 +405,16 @@ fn targets_character(target: &FieldTarget, character_id: i64) -> bool {
             character_id: owned,
             ..
         } => *owned == character_id,
-        FieldTarget::Effect { .. } | FieldTarget::EffectNew { .. } => false,
+        // Effects and the E12 party targets address no character's rows —
+        // the quartermaster designation names a character but does not
+        // address that character's rows.
+        FieldTarget::Effect { .. }
+        | FieldTarget::EffectNew { .. }
+        | FieldTarget::StashNew { .. }
+        | FieldTarget::Stash { .. }
+        | FieldTarget::Bank { .. }
+        | FieldTarget::Party { .. }
+        | FieldTarget::Claim { .. } => false,
     }
 }
 
@@ -421,8 +449,8 @@ async fn a_snapshot_contains_only_the_party_s_own_rows() {
     let own = party_snapshot(&pool, party_id).await.expect("own snapshot");
     assert_eq!(
         own.len(),
-        8 + 1 + 1,
-        "own party: 8 vitals + 1 slot + 1 item, no effects"
+        8 + 1 + 1 + 1,
+        "own party: 8 vitals + 1 slot + 1 item + the party settings field, no effects"
     );
     assert!(
         own.iter()
@@ -435,8 +463,8 @@ async fn a_snapshot_contains_only_the_party_s_own_rows() {
         .expect("other snapshot");
     assert_eq!(
         other.len(),
-        8 + 1 + 1 + 1,
-        "other party: 8 vitals + 1 slot + 1 item + 1 effect"
+        8 + 1 + 1 + 1 + 1,
+        "other party: 8 vitals + 1 slot + 1 item + 1 effect + the party settings field"
     );
     assert!(
         other
@@ -479,7 +507,7 @@ async fn snapshot_bytes_is_the_serialized_length_of_the_rows() {
 }
 
 #[tokio::test]
-async fn an_empty_party_yields_an_empty_snapshot() {
+async fn an_empty_party_yields_only_the_party_settings_row() {
     let Some(pool) = testing::test_pool().await else {
         return;
     };
@@ -492,14 +520,184 @@ async fn an_empty_party_yields_an_empty_snapshot() {
     let fields = party_snapshot(&pool, empty_party)
         .await
         .expect("snapshot builds");
-    assert!(fields.is_empty(), "no characters, no rows");
+    // No characters, no stash, no bank row, no claims — but the party's own
+    // settings field is versioned party state and rides every snapshot (E12).
+    assert_eq!(fields.len(), 1, "only the party settings field");
+    let party_field = fields.first().expect("one row asserted above");
+    assert!(
+        matches!(
+            &party_field.field,
+            FieldTarget::Party {
+                field: PartyField::Quartermaster,
+                ..
+            }
+        ),
+        "the one row is the quartermaster field: {:?}",
+        party_field.field
+    );
+    assert_eq!(
+        party_field.value,
+        json!({"quartermaster_character_id": null}),
+        "no designation"
+    );
     assert_eq!(
         snapshot_bytes(&fields).expect("bytes"),
-        serde_json::to_vec(&fields)
-            .expect("empty rows serialize")
-            .len() as u64,
+        serde_json::to_vec(&fields).expect("rows serialize").len() as u64,
     );
     testing::drop_test_db(pool, "snapshot_empty").await;
+}
+
+// E12 (plan Task 2, design D2): the snapshot carries the stash, bank, and
+// claim sections with the same shapes the write path fans out — one shape,
+// two riders (D7).
+
+/// Seed the stash row (mint), the bank balance (credit), and the
+/// quartermaster designation through the production write path; return the
+/// mint's stash-row version and the credit's bank-row version.
+async fn seed_inventory_rows(
+    pool: &sqlx::PgPool,
+    actor: &Actor,
+    party_id: i64,
+    character_id: i64,
+) -> (i64, i64) {
+    // The bank is quartermaster-only (D4); designate our character. The flip
+    // is CAS on `quartermaster_version` — read the current base first.
+    let base: i64 = sqlx::query_scalar("SELECT quartermaster_version FROM parties WHERE id = $1")
+        .bind(party_id)
+        .fetch_one(pool)
+        .await
+        .expect("quartermaster version");
+    let designation = apply_write(
+        pool,
+        actor,
+        party_id,
+        ClientOp {
+            op_id: "snap-designate".to_owned(),
+            target: FieldTarget::Party {
+                party_id,
+                field: PartyField::Quartermaster,
+            },
+            base_version: base,
+            value: json!({"character_id": character_id}),
+        },
+    )
+    .await
+    .expect("designation applies");
+    assert_eq!(designation.outcome, Outcome::Applied);
+
+    // The mint creates the stash row and its outside→stash claim; the bank
+    // delta mints the balance row (no claim — that is Task 3's write).
+    let mint = apply_write(
+        pool,
+        actor,
+        party_id,
+        ClientOp {
+            op_id: "snap-mint".to_owned(),
+            target: FieldTarget::StashNew { party_id },
+            base_version: 0,
+            value: json!({"item_name": "Rope", "quantity": 4}),
+        },
+    )
+    .await
+    .expect("mint applies");
+    assert_eq!(mint.outcome, Outcome::Applied);
+    let credit = apply_write(
+        pool,
+        actor,
+        party_id,
+        ClientOp {
+            op_id: "snap-bank".to_owned(),
+            target: FieldTarget::Bank { party_id },
+            base_version: 0,
+            value: json!({"gp_delta": 10, "sp_delta": 5, "cp_delta": 1}),
+        },
+    )
+    .await
+    .expect("bank credit applies");
+    assert_eq!(credit.outcome, Outcome::Applied);
+
+    (
+        mint.version.expect("the mint ack carries a version"),
+        credit.version.expect("the credit ack carries a version"),
+    )
+}
+
+#[tokio::test]
+async fn a_snapshot_carries_the_stash_bank_and_claim_sections() {
+    let Some(pool) = testing::test_pool().await else {
+        return;
+    };
+    let (party_id, character_id) =
+        crate::sync::test_helpers::seed_member(&pool, "sub-snap-stash").await;
+    let actor = Actor {
+        sub: "sub-snap-stash".to_owned(),
+        role: Role::Player,
+    };
+    let (mint_version, credit_version) =
+        seed_inventory_rows(&pool, &actor, party_id, character_id).await;
+
+    let fields = party_snapshot(&pool, party_id)
+        .await
+        .expect("snapshot builds");
+
+    // The stash section: one row, the D2 value shape, the minted version.
+    let stash: Vec<&SnapshotField> = fields
+        .iter()
+        .filter(|field| {
+            matches!(
+                field.field,
+                FieldTarget::Stash {
+                    party_id: pid,
+                    ..
+                } if pid == party_id
+            )
+        })
+        .collect();
+    assert_eq!(stash.len(), 1, "one stash row: {stash:?}");
+    let row = stash.first().expect("one row asserted above");
+    assert_eq!(
+        row.value,
+        json!({"item_name": "Rope", "quantity": 4, "bulk": null, "notes": ""}),
+        "the stash snapshot value is the D2 shape"
+    );
+    assert_eq!(row.version, mint_version);
+
+    // The bank section: the minted balance row, gp/sp/cp in order.
+    let bank: Vec<&SnapshotField> = fields
+        .iter()
+        .filter(|field| {
+            matches!(
+                field.field,
+                FieldTarget::Bank {
+                    party_id: pid
+                } if pid == party_id
+            )
+        })
+        .collect();
+    assert_eq!(bank.len(), 1, "one bank row: {bank:?}");
+    let balance = bank.first().expect("one row asserted above");
+    assert_eq!(balance.value, json!({"gp": 10, "sp": 5, "cp": 1}));
+    assert_eq!(balance.version, credit_version);
+
+    // The claim section: one append-only row, id riding the version slot.
+    let claims: Vec<&SnapshotField> = fields
+        .iter()
+        .filter(|field| matches!(field.field, FieldTarget::Claim { .. }))
+        .collect();
+    assert_eq!(claims.len(), 1, "the mint appends one claim: {claims:?}");
+    let claim = claims.first().expect("one claim asserted above");
+    let FieldTarget::Claim { claim_id } = claim.field else {
+        panic!("the claim section targets Claim, got {:?}", claim.field);
+    };
+    assert_eq!(
+        claim.version, claim_id,
+        "the claim id rides the version slot"
+    );
+    assert_eq!(claim.value.get("origin"), Some(&json!("outside")));
+    assert_eq!(claim.value.get("destination"), Some(&json!("stash")));
+    assert_eq!(claim.value.get("item_name"), Some(&json!("Rope")));
+    assert_eq!(claim.value.get("quantity"), Some(&json!(4)));
+    testing::drop_test_db(pool, "snapshot_stash_bank_claim").await;
 }
 
 // E6: the spell-economy fields ride the snapshot like every vitals field.
