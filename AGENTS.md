@@ -152,7 +152,9 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   as success, not an error, only after confirming the head it gated is the
   head GitHub records as merged (`gh api repos/joshuaflinn/hireling/pulls/<n>
   --jq '.merged, .head.sha'`, with `.head.sha` equal to the gated head), so a
-  second presser is a no-op rather than a race.
+  second presser is a no-op rather than a race. When `.merged` is true but
+  `.head.sha` is not the gated head, do not press — escalate to Thrane, the
+  same class as a branch collision.
 
   **A head gets exactly one open round.** A second round against a head that
   already carries an announced round with no verdict is not opened: the
@@ -177,7 +179,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   verdicts at one head with different scopes, each correct in its own terms,
   jointly unreadable at the press, resolved by whichever the press happened to
   read first. At a carry-over head the collapse keeps the narrow scope: a
-  withdrawn question outside the combination is declined as out of scope,
+  collapsed or adopted question outside the combination is declined as out of scope,
   and if real it opens a fresh counted round.
 
   **Two concurrent runs of one seat.** The collapse orders announcements on
