@@ -730,9 +730,12 @@ test('two offline bank withdrawals on ONE field echo the sum', () => {
   assert.deepEqual(stash.bank(), { gp: 12, sp: 0, cp: 0 }, 'the second lands on the first');
   // And the third is refused whole: the server tracks a bank per denomination and
   // refuses the adjustment if ANY denomination would go below zero
-  // (write.rs:1878-1887), so a -1 sp against a 0 sp bank never lands — and
-  // because the queue is FIFO, neither does anything behind it. Folding gp while
-  // refusing sp would render a balance the server cannot hold.
+  // (write.rs:1853-1859, reason selected at :1882-1890), so a -1 sp against a 0 sp
+  // bank never lands. What happens to anything queued BEHIND it is the other half
+  // of the story, and it is `continue` rather than `break`: the guard lives in the
+  // UPDATE's WHERE clause, so a refused op matches no row, the base is untouched,
+  // and the next op applies to it — see the two [refused, applicable] tests below.
+  // Folding gp while refusing sp would render a balance the server cannot hold.
   stash.adjustBank({ gp: -2, sp: -1 });
   assert.deepEqual(stash.bank(), { gp: 12, sp: 0, cp: 0 }, 'a partial overdraw is refused whole, so the balance holds');
 });
@@ -919,8 +922,9 @@ test('a draw to zero renders no row, and a draw past it is refused whole', () =>
   //
   // This is finding 3, and the old assertion here was the bug. It demanded a
   // 5-draw on a 2-row echo `0`, but the server does not clamp and it does not
-  // zero: write.rs:1878-1887 refuses the adjustment ENTIRELY ("that adjustment
-  // would drive {name} below zero"), which is FR-7's "refused whole, with a
+  // zero: the guard at write.rs:1853-1859 refuses the adjustment ENTIRELY ("that
+  // adjustment
+  // would drive {name} below zero", :1882-1890), which is FR-7's "refused whole, with a
   // reason." An echo of 0 is therefore just as much a number the server will
   // never hold as -3 was — the floor was the wrong conclusion from a correct
   // premise ("do not show -7"). The committed value is the only number on the
@@ -948,6 +952,98 @@ test('a draw to zero renders no row, and a draw past it is refused whole', () =>
     stash3.bank(),
     { gp: 3, sp: 0, cp: 0 },
     'an overdraw keeps the committed 3 gp — never -7 (no debt) and never 0 (a balance the server will never hold)',
+  );
+});
+
+test('B1 bank: a refused op ends only itself, the op queued behind it still folds', () => {
+  // B1. The fold used to `break` on the first refusal, on the premise that a
+  // refused delta leaves "no base to fold onto" for the rest of the field's
+  // queue. That premise is false. `apply_bank_delta` (write.rs:1795, :1965)
+  // returns `PartyApply::rejected` for the ONE op whose UPDATE matched no row;
+  // the queue driver then applies the NEXT op against the unchanged base. So
+  // the server ends up holding 5 + 100 = 105 gp while the client, having broken
+  // out of the fold at the -10, showed 5. degraded-mode §4 is unconditional that
+  // a write applies to view state immediately — so a view that stops at the
+  // refusal shows a balance the server will never hold, which is the very fault
+  // the floor was introduced to prevent.
+  const sync = fakeSync();
+  const stash = createStashState({ sync, partyId: 1 });
+  sync.deliver(BANK_TARGET(1), { gp: 5, sp: 0, cp: 0 }, 80);
+
+  stash.adjustBank({ gp: -10, sp: 0, cp: 0 }); // would drive gp below zero: refused whole
+  stash.adjustBank({ gp: 100, sp: 0, cp: 0 }); // applies against the unchanged 5
+
+  assert.deepEqual(
+    stash.bank(),
+    { gp: 105, sp: 0, cp: 0 },
+    'the refused op folds to nothing and the next op still folds onto the base',
+  );
+  // And the refusal itself is not silently swallowed — the queue has to step
+  // over it, not pretend it never happened.
+  sync.expose(sync.writes[0], 'rejected', 'would drive gp below zero');
+  assert.equal(stash.opErrors().length, 1, 'the refused op is still exposed to the user');
+});
+
+test('B1 stash row: a refused draw ends only itself, the draw behind it still folds', () => {
+  // B1, the stash-row site. Same server semantics: `stash_delta` returns
+  // `Refused` for the one op (write.rs:1781) and the driver goes on to the next.
+  // Breaking here showed Arrow at its committed 2 where the server would land on
+  // 2 + 10 = 12.
+  const sync = fakeSync();
+  const stash = createStashState({ sync, partyId: 1 });
+  sync.deliver(STASH_TARGET(1, 'Arrow'), ROW('Arrow', 2), 81);
+
+  stash.adjustQty('Arrow', -5); // 2 - 5 < 0: refused whole
+  stash.adjustQty('Arrow', 10); // applies against the unchanged 2
+
+  assert.deepEqual(
+    quantities(stash.rows()),
+    { Arrow: 12 },
+    'the refused draw folds to nothing and the next draw still folds onto the base',
+  );
+});
+
+test('B1b bank fold guards the i32 ceiling on BOTH sides of the threshold', () => {
+  // B1b. The floor guard had no ceiling partner. The server's apply is
+  // `gp::bigint + $1 BETWEEN 0 AND $5` with `$5 = i32::MAX` (write.rs:1855-1858),
+  // so it refuses the top end exactly as firmly as the bottom one and for the
+  // same reason: the columns are int4. A fold that steps over a refusal at zero
+  // but not at the ceiling diverges from the server at the other end of the
+  // number line. AGENTS.md's *Rules exactness* asks for both sides of an asserted
+  // threshold, so this asserts `MAX` and `MAX - 1` with different results.
+  const MAX = 2147483647;
+
+  const atCeiling = fakeSync();
+  const stash = createStashState({ sync: atCeiling, partyId: 1 });
+  atCeiling.deliver(BANK_TARGET(1), { gp: MAX, sp: 0, cp: 0 }, 82);
+  stash.adjustBank({ gp: 1, sp: 0, cp: 0 }); // MAX + 1 > i32::MAX: refused whole
+  assert.deepEqual(
+    stash.bank(),
+    { gp: MAX, sp: 0, cp: 0 },
+    'at the ceiling the fold shows the committed balance, never 2147483648',
+  );
+
+  const underCeiling = fakeSync();
+  const stash2 = createStashState({ sync: underCeiling, partyId: 1 });
+  underCeiling.deliver(BANK_TARGET(1), { gp: MAX - 1, sp: 0, cp: 0 }, 83);
+  stash2.adjustBank({ gp: 1, sp: 0, cp: 0 }); // MAX - 1 + 1 == MAX: applies
+  assert.deepEqual(
+    stash2.bank(),
+    { gp: MAX, sp: 0, cp: 0 },
+    'one below the ceiling the same +1 lands — the guard is the threshold, not a wall',
+  );
+
+  // The ceiling is per denomination and a refusal is whole, so a sp overflow
+  // must not let a gp addition through either (the same partial-refusal rule the
+  // floor already enforces at the bottom end).
+  const spOverflow = fakeSync();
+  const stash3 = createStashState({ sync: spOverflow, partyId: 1 });
+  spOverflow.deliver(BANK_TARGET(1), { gp: 3, sp: MAX, cp: 0 }, 84);
+  stash3.adjustBank({ gp: 2, sp: 1, cp: 0 });
+  assert.deepEqual(
+    stash3.bank(),
+    { gp: 3, sp: MAX, cp: 0 },
+    'a single overflowing denomination refuses the whole frame, so no denomination moves',
   );
 });
 
@@ -1018,10 +1114,10 @@ test('a subscriber may read a plain accessor during its own notification', () =>
 
 test('adjustBank refuses a fractional or wrapped coin count instead of truncating it', () => {
   // The client must build a frame the SERVER accepts. §4 fixes only what a blank
-  // means (no adjustment); write.rs's `parse_bank_adjustment` fixes what the
+  // means (no adjustment); write.rs's `validate_bank` fixes what the
   // input may be, and it is a hard boundary — each of `gp_delta`/`sp_delta`/
-  // `cp_delta` must be present, a JSON number, and an integer >= -2147483648
-  // (write.rs:1856-1873), so a string or absent key is refused whole. `Number(x)
+  // `cp_delta` must be present, a JSON number, and an integer in i32 range
+  // (`as_i64` + `i32::try_from`, write.rs:3182-3199), so a string or absent key is refused whole. `Number(x)
   // | 0` aimed at that boundary and missed it twice: 2.7 posted 2, and 1e10
   // wrapped to 1410065408 — a party's whole bank, mis-posted by an arithmetic
   // wrap. Both are refused; a blank still encodes as the integer 0, and a string
@@ -1051,5 +1147,103 @@ test('adjustBank refuses a fractional or wrapped coin count instead of truncatin
     Object.keys(sync.writes[0].value).sort(),
     ['cp_delta', 'gp_delta', 'sp_delta'],
     'a bank frame always carries all three deltas',
+  );
+});
+
+test('a stash row fold guards the i32 ceiling on both sides too', () => {
+  // The row's guard is `quantity::bigint + $1 BETWEEN 1 AND $4` (write.rs:1289)
+  // — same two-sided shape as the bank's, and FR-1's delete-at-zero arm
+  // (write.rs:1310) is a separate apply path, so zero is legal while MAX + 1 is
+  // not. Both sides of the ceiling are asserted per the two-fixture rule.
+  const rowCeiling = fakeSync();
+  const stash4 = createStashState({ sync: rowCeiling, partyId: 1 });
+  rowCeiling.deliver(STASH_TARGET(1, 'Coin'), ROW('Coin', 2_147_483_647), 90);
+  stash4.adjustQty('Coin', -1);
+  assert.deepEqual(quantities(rowCeiling.rows()), { Coin: 2_147_483_646 }, 'one below the row ceiling moves');
+  stash4.adjustQty('Coin', 1);
+  assert.deepEqual(quantities(rowCeiling.rows()), { Coin: 2_147_483_647 }, 'landing exactly on it is inside the guard');
+  stash4.adjustQty('Coin', 1);
+  assert.deepEqual(quantities(rowCeiling.rows()), { Coin: 2_147_483_647 }, 'one past it is refused, so the row stays at MAX');
+});
+
+// --- round-2 finding 2: a refusal removes ONE op, not the queue behind it ---
+//
+// `apply_bank_delta` (write.rs:1853-1862) is an UPDATE whose WHERE clause carries
+// the guard: `gp::bigint + $1 BETWEEN 0 AND $5`. When the guard fails the UPDATE
+// matches no row, so the balance is left EXACTLY where it was and the next op in
+// the queue applies to that same untouched base. `apply_stash_delta`
+// (write.rs:1285-1292) is the same shape for its ceiling. So the client's fold
+// must SKIP a refused delta, not END the fold — and the comment that claimed "the
+// rest of that field's queue has no base to fold onto either" had the server's
+// semantics backwards. These two tests are the [refused, applicable] pair that
+// comment made unreachable.
+
+test('a refused bank withdrawal does not swallow a valid deposit queued behind it', () => {
+  const sync = fakeSync();
+  const stash = createStashState({ sync, partyId: 1 });
+  sync.deliver(BANK_TARGET(1), { gp: 5, sp: 0, cp: 0 }, 4);
+
+  // Refused whole: 5 - 10 < 0 (FR-7).
+  stash.adjustBank({ gp: -10 });
+  assert.deepEqual(stash.bank(), { gp: 5, sp: 0, cp: 0 }, 'the refused draw leaves the balance where it was');
+
+  // Valid, and the server applies it to the SAME base the refused one saw.
+  stash.adjustBank({ gp: 100 });
+  assert.deepEqual(
+    stash.bank(),
+    { gp: 105, sp: 0, cp: 0 },
+    'the deposit still folds — the server would hold 105, not 5',
+  );
+});
+
+test('a refused row draw does not swallow a valid draw queued behind it', () => {
+  const sync = fakeSync();
+  const stash = createStashState({ sync, partyId: 1 });
+  sync.deliver(STASH_TARGET(1, 'Arrow'), ROW('Arrow', 2), 3);
+
+  // Refused: 2 - 5 is below the UPDATE's `BETWEEN 1 AND i32::MAX` and is not
+  // exactly zero, so neither apply arm fires and the row keeps quantity 2.
+  stash.adjustQty('Arrow', -5);
+  assert.deepEqual(quantities(stash.rows()), { Arrow: 2 }, 'the refused draw leaves the row intact');
+
+  stash.adjustQty('Arrow', 10);
+  assert.deepEqual(
+    quantities(stash.rows()),
+    { Arrow: 12 },
+    'the second draw still folds — the server would hold 12, not 2',
+  );
+});
+
+// --- round-2 finding 3: the server's guard is two-sided, so the fold's is too ---
+//
+// Both guards read `BETWEEN 0 AND $5` / `BETWEEN 1 AND $4` with the bound set to
+// `i64::from(i32::MAX)` (write.rs:1858, :1289), and the bank's refusal reason for
+// that half is "that adjustment would overflow the balance" (write.rs:1884). A
+// fold that only tests `< 0` echoes a balance the int4 column cannot hold. Both
+// sides of the threshold are asserted, per the two-fixture rule: a one-sided
+// fixture passes against every wrong ceiling on its own side.
+
+test('a bank deposit past the i32 ceiling is refused, and one landing exactly on it is not', () => {
+  const sync = fakeSync();
+  const stash = createStashState({ sync, partyId: 1 });
+  sync.deliver(BANK_TARGET(1), { gp: 2_147_483_647, sp: 0, cp: 0 }, 4);
+
+  // Just under: 2147483647 - 2 + 1 lands on i32::MAX. Inside the guard, so it folds.
+  stash.adjustBank({ gp: -2 });
+  assert.deepEqual(stash.bank(), { gp: 2_147_483_645, sp: 0, cp: 0 }, 'the base moves off the ceiling');
+  stash.adjustBank({ gp: 2 });
+  assert.deepEqual(
+    stash.bank(),
+    { gp: 2_147_483_647, sp: 0, cp: 0 },
+    'a deposit landing exactly ON i32::MAX is inside BETWEEN 0 AND i32::MAX',
+  );
+
+  // One over, on top of a base already at the ceiling: the server's `+ $1 BETWEEN
+  // 0 AND $5` fails and refuses whole, so the fold must refuse too.
+  stash.adjustBank({ gp: 1 });
+  assert.deepEqual(
+    stash.bank(),
+    { gp: 2_147_483_647, sp: 0, cp: 0 },
+    'a deposit past the ceiling is refused whole, exactly as the server refuses it',
   );
 });

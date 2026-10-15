@@ -388,11 +388,38 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
   }
 
   /**
-   * Fold one additive delta onto a committed base, floored where the server
-   * floors. `sheet/state.js`'s `Math.max(0, base + delta)` is the precedent for a
-   * row; the bank floors per denomination because §4 refuses an overdraw rather
-   * than posting a debt, and the screen must not show -7 gp the server will never
-   * accept.
+   * The shipped column ceiling. Both server guards compare against
+   * `i64::from(i32::MAX)` on the same SQL line as their floor
+   * (`write.rs:1858` bank, `write.rs:1289` row), so the client's bound is this
+   * number and not a looser one — see `appliesTo` for the guard itself.
+   */
+  const I32_MAX = 2_147_483_647;
+
+  /**
+   * Would the server apply this delta, or refuse the op whole? Both apply paths
+   * are an `UPDATE … WHERE <base> + <delta> BETWEEN <low> AND I32_MAX`, so the
+   * answer is that same two-sided test: a sum below `low`, or above the int4
+   * ceiling, matches no row and is refused. The floor differs by kind — the bank
+   * admits zero (`BETWEEN 0 AND $5`), a stash row does not (`BETWEEN 1 AND $4`,
+   * because FR-1 deletes a row at zero rather than storing one).
+   *
+   * Called before `foldBalance`, not after it: the fold clamps, so a post-hoc
+   * check against a clamped value can only see the floor half (finding 3).
+   * @param {number} base @param {number} delta @param {number} low
+   */
+  function appliesTo(base, delta, low) {
+    const sum = base + delta;
+    return sum >= low && sum <= I32_MAX;
+  }
+
+  /**
+   * Fold one additive delta onto a committed base. The `Math.max(0, …)` here is a
+   * LAST-RESORT clamp for a base already at or below zero — it is not where an
+   * overdraw is handled. The server does not floor an overdraw, it refuses the
+   * adjustment whole (`apply_bank_delta`, `write.rs:1856-1858`), and the caller
+   * skips a delta the server would refuse rather than flooring it (see
+   * `appliesTo`). `sheet/state.js`'s `Math.max(0, base + delta)` is the precedent
+   * this clamp is copied from, and it is the same last-resort shape.
    */
   /** @param {BankBalance|null} base @param {{gp_delta?: number, sp_delta?: number, cp_delta?: number}} delta */
   function foldBalance(base, delta) {
@@ -516,29 +543,35 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
         // own ceiling guard refuses the overdraw.
         // Fold in FIFO order rather than assigning, so a second pending
         // withdrawal lands on the first instead of replacing it (finding 2), and
-        // stop at the first overdraw rather than flooring it (finding 3).
+        // SKIP a delta the server would refuse (finding 3).
         //
-        // Finding 3 is why the fold BREAKS rather than skipping: write.rs:1878
-        // refuses an adjustment that would drive a denomination below zero and
-        // refuses it WHOLE (FR-7), so the overdraw never lands and neither can
-        // anything queued behind it. The server applies the queue in send order,
-        // so once a delta is refused the rest of that field's queue has no base
-        // to fold onto either — skipping ahead would show a balance the server
-        // will never hold, which is the same fault the floor had, one delta
-        // further down the list. `foldBalance`'s floor stays as the last line of
-        // defence for a base already at or below zero.
+        // The skip is a SKIP and not a stop, because of how `apply_bank_delta`
+        // refuses: the guard lives in the UPDATE's WHERE clause
+        // (`gp::bigint + $1 BETWEEN 0 AND $5`, write.rs:1853-1858), so a refused
+        // adjustment matches no row and the balance is left EXACTLY where it was.
+        // The next op in the queue then applies to that same untouched base —
+        // which is why the server keeps going after a refusal, and why ending the
+        // fold here would hide a valid deposit queued behind a refused draw.
+        // That is the collateral the `break` had: a 5 gp bank with [-10, +100]
+        // queued echoed 5 where the server would hold 105, and offline there is no
+        // refusal ack yet to explain the missing deposit — so a quartermaster
+        // banking loot offline sees nothing move and banks it again.
+        // `foldBalance`'s clamp stays as the last line of defence for a base
+        // already at or below zero.
         /** @type {BankBalance} */
         let foldBase = /** @type {BankBalance} */ (bank ?? committedBank);
         if (foldBase === null) continue;
         for (const pendingOp of pending) {
           if (!isDelta(pendingOp.value)) continue;
           const incoming = /** @type {{gp_delta?: number, sp_delta?: number, cp_delta?: number}} */ (pendingOp.value);
+          // The guard is checked against the UNCLAMPED base, not against
+          // `foldBalance`'s output, or the ceiling half can never fire (finding 3).
           if (
-            foldBase.gp + (incoming.gp_delta ?? 0) < 0 ||
-            foldBase.sp + (incoming.sp_delta ?? 0) < 0 ||
-            foldBase.cp + (incoming.cp_delta ?? 0) < 0
+            !appliesTo(foldBase.gp, incoming.gp_delta ?? 0, 0) ||
+            !appliesTo(foldBase.sp, incoming.sp_delta ?? 0, 0) ||
+            !appliesTo(foldBase.cp, incoming.cp_delta ?? 0, 0)
           )
-            break;
+            continue;
           foldBase = foldBalance(foldBase, incoming);
         }
         bank = foldBase;
@@ -549,14 +582,21 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
         const shown = rows.find((row) => row.item_name === name);
         if (shown) {
           // Fold every pending draw on this row in queue order (finding 2), and
-          // drop a draw the server would refuse rather than flooring at zero
-          // (finding 3, same reasoning as the bank above).
-          // Stop at the first overdraw — see the bank fold above for why a
-          // refusal ends the field's queue rather than stepping over it.
+          // skip a draw the server would refuse rather than flooring at zero
+          // (finding 3, same reasoning as the bank fold above).
+          //
+          // The row's floor is 1, not 0: `apply_stash_delta`'s UPDATE tests
+          // `quantity::bigint + $1 BETWEEN 1 AND $4` (write.rs:1289) because FR-1
+          // DELETES a row that reaches zero instead of storing one, and the
+          // delete-at-zero arm (`= 0`, write.rs:1310) is a separate apply path — so
+          // a delta landing on zero is APPLIED as a removal, not a refusal. That
+          // is why zero is handled after the fold rather than inside the guard.
           let quantity = shown.quantity;
           for (const pendingOp of pending) {
             const delta = /** @type {{qty_delta?: number}} */ (pendingOp.value).qty_delta ?? 0;
-            if (quantity + delta < 0) break;
+            // A sum of exactly 0 is the delete arm, so it is legal here; anything
+            // below it, or above the int4 ceiling, is refused and skipped (finding 2).
+            if (quantity + delta < 0 || quantity + delta > I32_MAX) continue;
             quantity += delta;
           }
           if (quantity === 0) rows.splice(rows.indexOf(shown), 1);
@@ -796,7 +836,7 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
 
   /**
    * One bank denomination to the integer the server requires, or `null` when the
-   * value cannot be one. `parse_bank_adjustment` (write.rs:1856-1873) wants a
+   * value cannot be one. `validate_bank` (write.rs:3182-3199) wants a
    * JSON NUMBER whose `as_i64` survives `i32::try_from`, so the two ways a
    * coercion can lie — a fraction, and a magnitude outside i32 — are refusals
    * rather than something to post anyway. A blank is the integer 0, not an
@@ -902,10 +942,10 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     adjustBank(coins) {
       // The blank-vs-number rule is the server's, and §4 only fixes what a blank
       // MEANS (no adjustment) — it says nothing about what the input may be.
-      // write.rs's `parse_bank_adjustment` is the boundary this frame is built to
+      // write.rs's `validate_bank` is the boundary this frame is built to
       // aim at, and it is stricter than a coercion: each of the three must be
-      // PRESENT, a JSON NUMBER, and an integer >= -2147483648 (`as_i64` +
-      // `i32::try_from`, write.rs:1856-1873), and an absent key is refused
+      // PRESENT, a JSON NUMBER, and an integer in i32 range (`as_i64` +
+      // `i32::try_from`, write.rs:3182-3199), and an absent key is refused
       // outright. So the client encodes a blank as the integer 0 rather than
       // sending nothing, and refuses anything it cannot encode as an integer
       // rather than coercing it into one — `Number(x) | 0` did exactly that, so
@@ -925,7 +965,8 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
       }
       const { gp, sp, cp } = encoded;
       // A no-op adjustment is not sent. FR-7 requires an adjustment that would
-      // drive a denomination below zero to be refused WHOLE (write.rs:1878) and
+      // drive a denomination below zero to be refused WHOLE (the guard at
+      // write.rs:1853-1859, the reason chosen at :1882-1890) and
       // is silent on the all-zero case, so the server would take a zero-frame as
       // a zero-delta APPLIED and fan a version bump for a field that never
       // moved. `addRow` refuses its no-op inputs the same way.
