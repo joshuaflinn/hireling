@@ -40,8 +40,9 @@ import subprocess
 import sys
 import tempfile
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, NoReturn
+from typing import NoReturn
 
 DECLARATION = Path("scripts/gate_passes.tsv")
 JUSTFILE = Path("justfile")
