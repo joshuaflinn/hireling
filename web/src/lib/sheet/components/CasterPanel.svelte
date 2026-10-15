@@ -1,4 +1,5 @@
 <script>
+  import { tipTrigger } from '../../corpus/tip.svelte.js';
   // One caster block (spec §2.3): header pills (tradition, type, ability,
   // spell attack / DC from the adapter), prepared slots by rank with cast
   // tracking, cantrips at heightened rank, innate rows (locked open — an
@@ -130,7 +131,7 @@
     {#each focusSpells as spell (spell)}
       <div class="row srow">
         <span></span>
-        <span class="nm">{spell}</span>
+        <span class="nm" use:tipTrigger={{ kind: 'spell', name: spell }}>{spell}</span>
         <span></span>
       </div>
     {/each}
@@ -180,7 +181,7 @@
         {#each bookAt(list.rank) as spell (spell)}
           <div class="row srow">
             <span></span>
-            <span class="nm">{spell}</span>
+            <span class="nm" use:tipTrigger={{ kind: 'spell', name: spell }}>{spell}</span>
             {#if editable && !offline}
               <button
                 class="chip book"

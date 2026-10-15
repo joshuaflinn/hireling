@@ -294,11 +294,21 @@ fn build_zip(entries: Vec<(&str, Vec<u8>)>) -> anyhow::Result<Vec<u8>> {
             ("packs/pathfinder-bestiary-2.json", &[]),
             ("packs/pathfinder-bestiary-3.json", &[]),
         ];
+        let journals = std::fs::read(format!(
+            "{}/tests/fixtures/packs/journals-gm-screen.json",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .context("journals fixture readable")?;
         let supplied: Vec<String> = entries.iter().map(|(name, _)| (*name).to_owned()).collect();
         for (name, bytes) in entries {
             zip.start_file(name, options)
                 .context("test zip entry starts")?;
             zip.write_all(&bytes).context("test zip entry writes")?;
+        }
+        if !supplied.iter().any(|s| s == "packs/journals.json") {
+            zip.start_file("packs/journals.json", options)
+                .context("test zip entry starts")?;
+            zip.write_all(&journals).context("test zip entry writes")?;
         }
         for (name, fixtures) in v2 {
             if supplied.iter().any(|s| s == name) {

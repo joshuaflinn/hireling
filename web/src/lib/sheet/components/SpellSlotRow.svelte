@@ -1,4 +1,5 @@
 <script>
+  import { tipTrigger } from '../../corpus/tip.svelte.js';
   // One spell slot row (spec §2.3): cast toggle → slot.used, prepared
   // spell name, and (when unprepared) the prep affordance whose keyboard
   // path is the caster's Dialog picker. Spent slots strike through;
@@ -24,7 +25,7 @@
   {:else}
     <span class="use none"></span>
   {/if}
-  <span class="nm">{row.prepared_spell ?? (row.rank === 0 ? '—' : 'open slot')}</span>
+  <span class="nm" use:tipTrigger={row.prepared_spell ? { kind: 'spell', name: row.prepared_spell } : null}>{row.prepared_spell ?? (row.rank === 0 ? '—' : 'open slot')}</span>
   {#if editable && !row.prepared_spell && row.rank > 0}
     <button class="chip slot" onclick={onprepare} disabled={busy}>Prepare…</button>
   {/if}

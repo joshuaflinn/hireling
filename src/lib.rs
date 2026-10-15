@@ -10,6 +10,7 @@
 pub mod auth;
 pub mod book_value;
 pub mod config;
+pub mod corpus_read;
 pub mod custom;
 pub mod db;
 pub mod engine_host;

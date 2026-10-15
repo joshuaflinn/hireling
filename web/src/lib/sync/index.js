@@ -40,8 +40,8 @@ function defaultSocketFactory(url) {
 // reject that with "TypeError: Illegal invocation" (Node does not, so the
 // suite never saw it). Resolved at call time against the global.
 export const defaultTimers = {
-  setTimeout: (fn, ms) => setTimeout(fn, ms),
-  clearTimeout: (id) => clearTimeout(id),
+  setTimeout: (/** @type {() => void} */ fn, /** @type {number} */ ms) => setTimeout(fn, ms),
+  clearTimeout: (/** @type {any} */ id) => clearTimeout(id),
 };
 
 /**

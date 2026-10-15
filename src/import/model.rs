@@ -37,10 +37,15 @@ pub enum Kind {
     /// Creature documents (core bestiaries, Foundry type `npc`) — importer
     /// v2; the summons browser. Publication lives at `system.details`.
     Creature,
+    /// Rules journal pages (`packs/journals.json`, the "GM Screen" journal
+    /// only) — importer v2; the Reference column's Rules tab and its
+    /// Basic / Skill / Exploration action tables. Each page is one document
+    /// (identity = page `_id`), flattened at extraction (see pack.rs).
+    RulesPage,
 }
 
 /// Every kind, in import order. Pack files per kind: [`Kind::pack_files`].
-pub const ALL_KINDS: [Kind; 7] = [
+pub const ALL_KINDS: [Kind; 8] = [
     Kind::Condition,
     Kind::Item,
     Kind::Spell,
@@ -48,6 +53,7 @@ pub const ALL_KINDS: [Kind; 7] = [
     Kind::ClassFeature,
     Kind::Action,
     Kind::Creature,
+    Kind::RulesPage,
 ];
 
 impl Kind {
@@ -62,6 +68,7 @@ impl Kind {
             Kind::ClassFeature => "class_feature",
             Kind::Action => "action",
             Kind::Creature => "creature",
+            Kind::RulesPage => "rules_page",
         }
     }
 
@@ -85,6 +92,7 @@ impl Kind {
                 "packs/pathfinder-bestiary-2.json",
                 "packs/pathfinder-bestiary-3.json",
             ],
+            Kind::RulesPage => &["packs/journals.json"],
         }
     }
 
@@ -99,6 +107,7 @@ impl Kind {
             Kind::ClassFeature => "class features",
             Kind::Action => "actions",
             Kind::Creature => "creatures",
+            Kind::RulesPage => "rules pages",
         }
     }
 }
@@ -181,6 +190,19 @@ pub fn parse_doc(kind: Kind, doc: &Value) -> Result<PackDoc, DocError> {
     if identity.name.as_str().is_none_or(str::is_empty) {
         return Err(nonempty(subject, "name"));
     }
+    validate_type(kind, subject, identity.doc_type.as_str())?;
+    if kind == Kind::RulesPage {
+        // Flattened journal page (pack.rs): `text.content` + the
+        // synthesized `system.publication` from its journal.
+        doc.pointer("/text/content")
+            .and_then(Value::as_str)
+            .ok_or_else(|| missing(subject, "text.content"))?;
+        doc.pointer("/system/publication/license")
+            .and_then(Value::as_str)
+            .filter(|l| !l.is_empty())
+            .ok_or_else(|| missing(subject, "system.publication.license"))?;
+        return finish(doc, &identity, subject);
+    }
     if doc
         .get("img")
         .and_then(Value::as_str)
@@ -188,7 +210,6 @@ pub fn parse_doc(kind: Kind, doc: &Value) -> Result<PackDoc, DocError> {
     {
         return Err(nonempty(subject, "img"));
     }
-    validate_type(kind, subject, identity.doc_type.as_str())?;
 
     let system = doc
         .get("system")
@@ -244,6 +265,10 @@ pub fn parse_doc(kind: Kind, doc: &Value) -> Result<PackDoc, DocError> {
         return Err(missing(subject, "system.value.isValued"));
     }
 
+    finish(doc, &identity, subject)
+}
+
+fn finish(doc: &Value, identity: &DocIdentity, subject: &str) -> Result<PackDoc, DocError> {
     let canonical = serde_json::to_vec(doc).map_err(|err| DocError {
         subject: subject.to_owned(),
         problem: format!("document failed canonical serialization: {err}"),
@@ -316,7 +341,8 @@ fn validate_type(kind: Kind, subject: &str, doc_type: Option<&str>) -> Result<()
         | (Kind::Spell, Some("spell"))
         | (Kind::Feat | Kind::ClassFeature, Some("feat"))
         | (Kind::Action, Some("action"))
-        | (Kind::Creature, Some("npc")) => return Ok(()),
+        | (Kind::Creature, Some("npc"))
+        | (Kind::RulesPage, Some("text")) => return Ok(()),
         (Kind::Item, Some(actual)) if ITEM_TYPES.contains(&actual) => return Ok(()),
         (Kind::Item, _) => format!(
             "type {found} is not a recognized item type (supported: {})",
@@ -339,6 +365,7 @@ fn expected_type(kind: Kind) -> &'static str {
         Kind::Feat | Kind::ClassFeature => "feat",
         Kind::Action => "action",
         Kind::Creature => "npc",
+        Kind::RulesPage => "text",
     }
 }
 

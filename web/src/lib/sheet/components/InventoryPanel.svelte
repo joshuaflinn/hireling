@@ -1,4 +1,5 @@
 <script>
+  import { tipTrigger } from '../../corpus/tip.svelte.js';
   // The inventory pane (spec §2.5, Q2 ruling: display + qty). Container
   // groups from base_sheet with Bulk rollups (extradimensional excluded
   // and labeled), quantity editing (qty 0 = removed, design §11.6), coin
@@ -94,7 +95,7 @@
     {#each group.items as item (item.name)}
       {@const itemError = qtyError(item.name)}
       <div class="row irow" class:pending={qtyMap[item.name]?.pending}>
-        <span class="nm">
+        <span class="nm" use:tipTrigger={{ kind: 'item', name: item.name }}>
           {item.name}
           {#if item.invested}<span class="chip">invested</span>{/if}
           {#each item.traits as trait (trait)}

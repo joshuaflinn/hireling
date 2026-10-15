@@ -139,6 +139,18 @@ pub(crate) const API_ROUTES: &[ApiRoute] = &[
     },
 ];
 
+/// The read-only corpus surface (specs/015 Dave parity): lookups, browse
+/// lists, and a creature's embedded items.
+fn corpus_routes() -> Router<Arc<AuthState>> {
+    Router::new()
+        .route("/corpus/{kind}", get(crate::corpus_read::lookup))
+        .route("/corpus/{kind}/list", get(crate::corpus_read::list))
+        .route(
+            "/corpus/creature/{id}/items",
+            get(crate::corpus_read::creature_items),
+        )
+}
+
 /// Build the application router.
 ///
 /// Explicit routes win over the fallback, so `/healthz` answers even when the
@@ -195,6 +207,7 @@ pub fn router(auth: Arc<AuthState>, static_dir: &Path, sync: crate::sync::SyncSt
             "/characters/{character_id}/derived",
             get(crate::engine_host::rest::derived),
         )
+        .merge(corpus_routes())
         // Sync's runtime state rides as an Extension; the router's State
         // stays E3's Arc<AuthState> (see SyncState).
         .layer(axum::Extension(sync));

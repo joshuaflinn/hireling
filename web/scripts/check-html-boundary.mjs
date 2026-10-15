@@ -16,6 +16,10 @@ const ROOT = join(import.meta.dirname, '..', 'src');
 const SANCTIONED = new Set([
   'lib/sheet/components/ConditionTip.svelte',
   'lib/sheet/components/AboutView.svelte',
+  // specs/015 Dave parity (Josh, 2026-10-15): the corpus detail card and the
+  // Reference column render Foundry pack prose — through adoptHTML only.
+  'lib/corpus/DetailTip.svelte',
+  'lib/corpus/ReferencePanel.svelte',
 ]);
 
 /** @param {string} dir @returns {string[]} */

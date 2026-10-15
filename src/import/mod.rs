@@ -162,7 +162,8 @@ async fn plan_all(
             | Kind::Feat
             | Kind::ClassFeature
             | Kind::Action
-            | Kind::Creature => None,
+            | Kind::Creature
+            | Kind::RulesPage => None,
         };
         let plan = plan_category(
             category.kind,

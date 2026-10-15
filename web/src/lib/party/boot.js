@@ -86,7 +86,10 @@ export function createThrottledWriter(
   ms,
   // Wrapped for the same reason as sync/index.js defaultTimers — a bare
   // `{ setTimeout }` called as `timers.setTimeout` is "Illegal invocation" in browsers.
-  timers = { setTimeout: (f, t) => setTimeout(f, t), clearTimeout: (id) => clearTimeout(id) },
+  timers = {
+    setTimeout: (/** @type {() => void} */ f, /** @type {number} */ t) => setTimeout(f, t),
+    clearTimeout: (/** @type {any} */ id) => clearTimeout(id),
+  },
 ) {
   /** @type {*} */
   let pending = null;

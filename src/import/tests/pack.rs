@@ -63,6 +63,10 @@ fn full_entries() -> Vec<(&'static str, Vec<u8>)> {
         ("packs/pathfinder-bestiary.json", b"[]".to_vec()),
         ("packs/pathfinder-bestiary-2.json", b"[]".to_vec()),
         ("packs/pathfinder-bestiary-3.json", b"[]".to_vec()),
+        (
+            "packs/journals.json",
+            fixture_bytes("journals-gm-screen.json"),
+        ),
     ]
 }
 
@@ -244,5 +248,23 @@ fn duplicate_creature_ids_across_files_fail() {
     assert!(
         err.to_string().contains("duplicate upstream id"),
         "got: {err}"
+    );
+}
+
+#[test]
+fn rules_journal_flattens_to_pages_with_synthesized_publication() {
+    let docs = parse_pack_file(
+        Kind::RulesPage,
+        "packs/journals.json",
+        &fixture_bytes("journals-gm-screen.json"),
+    )
+    .expect("the GM Screen journal flattens");
+    assert_eq!(docs.len(), 1, "one text page");
+    let doc = docs.first().expect("one page");
+    assert_eq!(doc.name, "Basic Actions");
+    assert_eq!(
+        doc.doc.pointer("/system/publication/synthesized"),
+        Some(&serde_json::Value::Bool(true)),
+        "the stamped publication says it was synthesized"
     );
 }

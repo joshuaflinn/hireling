@@ -545,6 +545,14 @@ fn filler_doc(kind: crate::import::model::Kind, file: &str) -> serde_json::Value
                 serde_json::json!({"details": {"publicNotes": "", "publication": publication}}),
             )
         }
+        Kind::RulesPage => {
+            return serde_json::json!([{
+                "_id": "filler-journal",
+                "name": "GM Screen",
+                "pages": [{"_id": "filler-page", "name": "Filler page", "type": "text",
+                           "sort": 0, "text": {"content": "", "format": 1}}]
+            }]);
+        }
         Kind::Condition | Kind::Item => return serde_json::json!([]),
     };
     serde_json::json!([{

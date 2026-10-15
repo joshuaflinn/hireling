@@ -12,7 +12,6 @@
   import MagicPane from './components/MagicPane.svelte';
   import CompanionsPanel from './components/CompanionsPanel.svelte';
   import InventoryPanel from './components/InventoryPanel.svelte';
-  import StrikesPane from './components/StrikesPane.svelte';
   import FeatsPanel from './components/FeatsPanel.svelte';
   import EffectsStrip from './components/EffectsStrip.svelte';
   import ConditionPicker from './components/ConditionPicker.svelte';
@@ -20,6 +19,9 @@
   import Dialog from './components/Dialog.svelte';
   import { createCustomStore } from '../rules/custom-store.js';
   import EffectsComposer from './components/EffectsComposer.svelte';
+  import ReferencePanel from '../corpus/ReferencePanel.svelte';
+  import DetailTip from '../corpus/DetailTip.svelte';
+  import { signed } from '../engine/format.js';
 
   /** @type {{ character: any, accountSub?: string, editable?: boolean,
     partyId?: number | null,
@@ -206,6 +208,26 @@
     }
   });
 
+  /** Strikes as the Reference column lists them (Dave's strikeRow line). */
+  const refStrikes = $derived(
+    ($view?.derived?.strikes ?? []).map((/** @type {any} */ st) => {
+      const atk = st.attack.total;
+      const map = st.map;
+      return {
+        name: st.label,
+        base: st.label.replace(/^\+\d+\s+/, ''),
+        line: `${signed(atk)} / ${signed(atk - map)} / ${signed(atk - 2 * map)} · ${st.damage_expr} ${String(st.damage_type_name ?? '').charAt(0).toUpperCase()}`,
+      };
+    }),
+  );
+  const refSkills = $derived(
+    ($view?.derived?.skills ?? []).map((/** @type {any} */ sk) => ({
+      name: sk.label ?? sk.name,
+      mod: sk.total,
+      rank: sk.rank,
+    })),
+  );
+
   function subline() {
     const parts = [identity.ancestry, identity.class, identity.heritage].filter(Boolean);
     return parts.join(' · ');
@@ -310,7 +332,6 @@
           onhero={(/** @type {number} */ value) => sheet.writeHeroPoints(value)}
           onshield={(/** @type {boolean} */ raised) => sheet.writeShieldRaised(raised)}
         />
-        <StrikesPane view={$view} />
       {:else}
         <!-- Engine output not on the wire yet: pane-shaped skeletons, no
              invented numbers (design §7's loading state; derived is never
@@ -324,7 +345,6 @@
           <div class="skeleton" style="width: 100%; height: 180px;"></div>
         </div>
       {/if}
-      <FeatsPanel baseSheet={character.base_sheet} {editable} />
     </div>
     <div class="col">
       <MagicPane
@@ -352,8 +372,6 @@
           {/if}
         {/snippet}
       </MagicPane>
-    </div>
-    <div class="col">
       <InventoryPanel
         baseSheet={character.base_sheet}
         itemBulk={character.item_bulk ?? {}}
@@ -368,9 +386,14 @@
         customItems={customItemRows}
         onaddcustom={() => (customFormKind = 'item')}
       />
+      <FeatsPanel baseSheet={character.base_sheet} {editable} />
+    </div>
+    <div class="col">
+      <ReferencePanel strikes={refStrikes} skills={refSkills} perception={$view?.derived?.perception?.total ?? null} />
     </div>
   </div>
 </div>
+<DetailTip />
 
 <style>
   .effects-head {

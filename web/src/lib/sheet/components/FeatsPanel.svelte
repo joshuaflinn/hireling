@@ -1,4 +1,5 @@
 <script>
+  import { tipTrigger } from '../../corpus/tip.svelte.js';
   // Feats & features (spec §2.7): feats level-grouped (names + categories
   // only — detail prose needs the feats corpus, E9's lane) and a features
   // tab with class features and ancestry & heritage from the export's
@@ -41,7 +42,7 @@
       </div>
       {#each featsAt(level) as feat (feat.name + feat.category)}
         <div class="row frow2">
-          <span class="nm">{feat.name}</span>
+          <span class="nm" use:tipTrigger={{ kind: 'feat', name: feat.name }}>{feat.name}</span>
           {#if feat.category}<span class="chip">{feat.category}</span>{/if}
         </div>
       {/each}
@@ -50,7 +51,7 @@
     {/each}
   {:else}
     {#each specials as feature (feature)}
-      <div class="row frow2"><span class="nm">{feature}</span></div>
+      <div class="row frow2"><span class="nm" use:tipTrigger={{ kind: 'class_feature', name: feature }}>{feature}</span></div>
     {:else}
       <p class="meta">No features recorded.</p>
     {/each}
@@ -58,7 +59,7 @@
   {#if !editable}
     <h3>Features</h3>
     {#each specials as feature (feature)}
-      <div class="row frow2"><span class="nm">{feature}</span></div>
+      <div class="row frow2"><span class="nm" use:tipTrigger={{ kind: 'class_feature', name: feature }}>{feature}</span></div>
     {:else}
       <p class="meta">No features recorded.</p>
     {/each}

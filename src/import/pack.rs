@@ -144,6 +144,11 @@ fn kind_for_entry(name: &str) -> Option<(Kind, &'static str)> {
 pub fn parse_pack_file(kind: Kind, name: &str, bytes: &[u8]) -> anyhow::Result<Vec<PackDoc>> {
     let docs: Vec<Value> = serde_json::from_slice(bytes)
         .with_context(|| format!("pack file `{name}` is not a JSON array of documents"))?;
+    let docs = if kind == Kind::RulesPage {
+        flatten_rules_journal(&docs)?
+    } else {
+        docs
+    };
     let mut parsed = Vec::with_capacity(docs.len());
     for doc in &docs {
         // Bestiary packs mix in hazards (1 in Monster Core 2 at pf2e-8.5.1);
@@ -166,6 +171,48 @@ pub fn parse_pack_file(kind: Kind, name: &str, bytes: &[u8]) -> anyhow::Result<V
         }
     }
     Ok(parsed)
+}
+
+/// The one journal the Reference column reads.
+pub const RULES_JOURNAL: &str = "GM Screen";
+
+/// Flatten the GM Screen journal into one document per page. Journal pages
+/// carry no publication block. The journal is the pf2e system's remaster
+/// rules summary (its tables carry `class="pf2e remaster"` and link ORC
+/// Player Core / GM Core entries), so each page is stamped license ORC with
+/// an honest title naming the journal, plus `synthesized: true` so nobody
+/// mistakes it for a field upstream wrote.
+fn flatten_rules_journal(journals: &[Value]) -> anyhow::Result<Vec<Value>> {
+    let journal = journals
+        .iter()
+        .find(|j| j.get("name").and_then(Value::as_str) == Some(RULES_JOURNAL))
+        .ok_or_else(|| anyhow!("journals pack holds no `{RULES_JOURNAL}` journal"))?;
+    let pages = journal
+        .get("pages")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("`{RULES_JOURNAL}` journal carries no pages array"))?;
+    Ok(pages
+        .iter()
+        .filter(|page| page.get("type").and_then(Value::as_str) == Some("text"))
+        .map(|page| {
+            let mut page = page.clone();
+            if let Some(object) = page.as_object_mut() {
+                object.insert(
+                    "system".to_owned(),
+                    serde_json::json!({
+                        "publication": {
+                            "license": "ORC",
+                            "title": "pf2e system journal: GM Screen",
+                            "remaster": true,
+                            "synthesized": true
+                        },
+                        "sort": object.get("sort").cloned().unwrap_or(Value::Null)
+                    }),
+                );
+            }
+            page
+        })
+        .collect())
 }
 
 fn duplicate_entry(name: &str) -> anyhow::Error {
