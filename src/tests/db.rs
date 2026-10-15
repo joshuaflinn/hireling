@@ -97,7 +97,7 @@ fn is_transport_unreachable(err: &sqlx::Error) -> bool {
 /// Parse the base URL and replace its database component with `database`,
 /// via the driver's parser — never string surgery. Both connection paths
 /// build their options here (the maintenance connect below and the
-/// fresh-db connect in [`TestDb::provision`]), so the URL-shape regression
+/// fresh-db connect in [`TestDb::provision_from`]), so the URL-shape regression
 /// test `url_database_component_is_replaced_not_appended` guards the code
 /// the suite actually connects with: the old bare append produced
 /// `…/postgres/postgres` on a path-bearing URL (gh#125, gate run
@@ -2003,6 +2003,23 @@ fn skip_branch_fails_closed_when_the_url_was_requested() {
 /// Hardcoding `false` (or negating the flag) reds this; before the seam,
 /// that mutation stayed green everywhere, because on any host with a live
 /// Postgres the Skip branch never executes at all.
+///
+/// Recorded limits (gh#226): this test costs ~2.00s of wall clock on every
+/// `cargo test --lib` (measured three times at the head that added it). The
+/// cause is not the test — it is `connect_maintenance`'s
+/// `acquire_timeout(2s)`: against a port that REJECTs, sqlx's pool loops
+/// connect attempts for the whole acquire budget before surfacing
+/// `PoolTimedOut` ("pool timed out while waiting for an open connection").
+/// A paused clock (`start_paused = true`, as
+/// `probe_unrequested_and_dead_skips_loud` uses) drops this to ~0s with
+/// the same `PoolTimedOut` panic — it is not taken here for the reason the
+/// gh#127 note above gives: on a host that DROPs rather than REJECTs
+/// :59999, the connect parks on I/O readiness, auto-advance never fires,
+/// and the test hangs instead of failing. The 2.00s is the price of that
+/// safety, not an unavoidable cost. Recorded
+/// for the same reason as the gh#127 notes above: the cost is real,
+/// invisible in the test body, and the next reader should not re-time it
+/// by surprise.
 #[tokio::test]
 async fn provision_requested_but_dead_fails_closed() {
     let outcome = tokio::spawn(TestDb::provision_from(
