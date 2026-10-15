@@ -97,8 +97,29 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   correct in their own scope and jointly unreadable at the press. While a round is
   open, the press waits, and it reads that state off the PR — the round
   is open when it is announced on the PR and closed when the verdict at
-  that head is posted to it — never off tracker task state, which the
+  that head is posted to it, or when the reviewer withdraws the round —
+  never off tracker task state, which the
   press seat cannot see at the PR.
+
+  **The author holds the head while a round is open.** Between the
+  announcement and the verdict: no push, no merge of `main`. `gh pr review`
+  binds a review object's `commit_id` to the PR's head at submit time, not to
+  the head the verdict's text names, so a head move mid-round stamps the
+  reviewer's verdict with a head nobody read. If the branch goes behind during
+  a round, it waits — the verdict lands first, and *Verdict carry-over* then
+  handles the head move against a diff already judged.
+
+  **An author who must move the head asks the reviewer to withdraw the
+  round.** A plain PR comment saying so; the reviewer closes the round with a
+  review comment (`gh pr review <n> --comment -F -`) naming the head and
+  stating that no verdict was reached — the round's terminal record, distinct
+  from the procedural `gh pr comment` that withdraws a duplicate *announcement*
+  under *When a duplicate round is already announced*. A withdrawn round read
+  text the author retracted, so it does not count against the budget. Only the
+  reviewer closes a round — an author never retires one by pushing over it.
+  Once per PR — a second withdrawal ask on the same PR is not granted by the
+  reviewer; the PR goes to Thrane, and whether it proceeds is a decision about
+  the task.
 - **The reviewer announces the round on the PR before reading the diff — and
   only the reviewer.** A review comment (`gh pr review <n> --comment -F -`)
   naming the head SHA under review, the questions the round is asking, and the
@@ -139,7 +160,9 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   as success, not an error, only after confirming the head it gated is the
   head GitHub records as merged (`gh api repos/joshuaflinn/hireling/pulls/<n>
   --jq '.merged, .head.sha'`, with `.head.sha` equal to the gated head), so a
-  second presser is a no-op rather than a race.
+  second presser is a no-op rather than a race. When `.merged` is true but
+  `.head.sha` is not the gated head, do not press — escalate to Thrane, the
+  same class as a branch collision.
 
   **A head gets exactly one open round.** A second round against a head that
   already carries an announced round with no verdict is not opened: the
@@ -164,7 +187,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   verdicts at one head with different scopes, each correct in its own terms,
   jointly unreadable at the press, resolved by whichever the press happened to
   read first. At a carry-over head the collapse keeps the narrow scope: a
-  withdrawn question outside the combination is declined as out of scope,
+  collapsed or adopted question outside the combination is declined as out of scope,
   and if real it opens a fresh counted round.
 
   **Two concurrent runs of one seat.** The collapse orders announcements on
@@ -223,6 +246,10 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   gated. Every verdict states the SHA it is bound to, so a wrong-head read is
   visible in the record afterwards — that is what makes this rule
   self-checking, and it costs nothing the record does not already carry.
+
+  **A review object's `commit_id` is not evidence of what was reviewed.** The
+  head a verdict is bound to is the head its text names. A push can move the
+  stamp; it cannot rewrite the prose.
 - **Review rounds — two author-text rounds, then a verdict.** The budget
   counts rounds that review changed author text. Two of those, then a
   verdict — accept-with-follow-up-issues or reject-with-a-plan. There is no
