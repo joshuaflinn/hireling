@@ -297,10 +297,10 @@ def self_test() -> None:
         )
 
         # Red: the key label disagrees with runs-on (the PR #319 round-2
-        # failure mode — runs-on moved, the key stayed).
+        # failure mode — runs-on stayed, the key drifted).
         run_case(
             "red-key-label",
-            _synthetic_workflow("ubuntu-22.04", "ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04"),
+            _synthetic_workflow("ubuntu-24.04", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-24.04"),
             expect_red=True,
         )
 
