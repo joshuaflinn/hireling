@@ -17,6 +17,9 @@ Two directions, both failing closed:
    digest is named once, at .github/workflows/gate.yml) and passes it here;
    a digest bump that moved the config without re-vendoring reds this
    direction instead of silently stranding the vendored copy.
+   `--require-image-sources` (also CI-side) reds when a manifest row is not
+   covered by an `--image-source`, so the image-side extraction cannot
+   silently skip a row.
 
 The manifest is written by scripts/fetch_gate_file.py (the producer); this
 is the verifier. One row per vendored file, three tab-separated fields:
@@ -170,6 +173,11 @@ def main() -> None:
         action="store_true",
         help="re-prove every red direction against synthetic trees and exit",
     )
+    parser.add_argument(
+        "--require-image-sources",
+        action="store_true",
+        help="red if any manifest row lacks an --image-source (CI-side)",
+    )
     args = parser.parse_args()
     if args.self_test:
         self_test()
@@ -188,6 +196,13 @@ def main() -> None:
         sources[key] = Path(path)
     if sources:
         check_image_sources(rows, sources)
+    if args.require_image_sources:
+        missing = [image_path for image_path, _, _ in rows if image_path not in sources]
+        if missing:
+            fail(
+                f"--require-image-sources: {len(missing)} manifest row(s) not"
+                f" covered by --image-source: {', '.join(missing)}"
+            )
 
     direction = f"{len(rows)} vendored file(s)"
     if sources:
@@ -302,6 +317,22 @@ def self_test() -> None:
         tree = make_tree(b"body\n", row_sha="z" * 64)
         run_case(tree, "bad-sha", [], expect_red=True)
 
+        # Red: the same image path is declared twice.
+        tree = make_tree(b"body\n")
+        (tree / "scripts" / "gate_vendored.tsv").write_text(
+            "etc/gate/x.tmpl\tweb/gate-eslint.config.mjs\t" + sha256_bytes(b"body\n")
+            + "\netc/gate/x.tmpl\tweb/other.tmpl\t" + sha256_bytes(b"body\n") + "\n",
+            encoding="utf-8",
+        )
+        run_case(tree, "duplicate-image-path", [], expect_red=True)
+
+        # Red: a manifest with only comments parses to zero rows.
+        tree = make_tree(b"body\n")
+        (tree / "scripts" / "gate_vendored.tsv").write_text(
+            "# only a comment, no data rows\n", encoding="utf-8"
+        )
+        run_case(tree, "zero-rows", [], expect_red=True)
+
         # Image-source direction. The extracted image file is the raw source
         # (no header/marker), so its full hash equals the recorded one.
         img = root / "image.tmpl"
@@ -312,6 +343,12 @@ def self_test() -> None:
             ["--image-source", f"etc/gate/x.tmpl={img}"],
             expect_red=False,
         )
+        run_case(
+            green,
+            "require-image-sources-green",
+            ["--require-image-sources", "--image-source", f"etc/gate/x.tmpl={img}"],
+            expect_red=False,
+        )
         img.write_bytes(b"other\n")
         run_case(
             green,
@@ -319,10 +356,39 @@ def self_test() -> None:
             ["--image-source", f"etc/gate/x.tmpl={img}"],
             expect_red=True,
         )
+        # The extracted image file must exist (a matching key, a missing file).
+        run_case(
+            green,
+            "image-source-missing-file",
+            ["--image-source", "etc/gate/x.tmpl=/nonexistent"],
+            expect_red=True,
+        )
+        # A key with an existing file but no matching manifest row.
         run_case(
             green,
             "image-source-unknown-key",
-            ["--image-source", "etc/gate/nope=/nonexistent"],
+            ["--image-source", f"etc/gate/nope={img}"],
+            expect_red=True,
+        )
+        # --image-source that is not KEY=PATH.
+        run_case(
+            green,
+            "image-source-not-key-path",
+            ["--image-source", "notkeypath"],
+            expect_red=True,
+        )
+        # --image-source with an empty key or path.
+        run_case(
+            green,
+            "image-source-empty-key",
+            ["--image-source", "=path"],
+            expect_red=True,
+        )
+        # --require-image-sources reds on an uncovered row.
+        run_case(
+            green,
+            "require-image-sources-missing",
+            ["--require-image-sources"],
             expect_red=True,
         )
 

@@ -20,15 +20,18 @@ The primary target today is the node eslint flat config:
 The image ships it as a `.tmpl` (not a live `.mjs`); the harness copies it
 verbatim to `eslint.config.mjs` beside its own node_modules at run time (see
 the file's own header and ADR-033). This script vendors that byte stream
-into `web/gate-eslint.config.mjs` with a short provenance header above a
-marker line; scripts/check_gate_vendored.py hashes everything below the
-marker and reds on drift. The mechanism generalizes to any path the image
-carries — gh#295 (the semgrep rule directory) is the next consumer, same
-call shape with a different IMAGE_PATH and --output.
+into `web/gate-eslint.config.mjs.tmpl` — the same `.tmpl` shape, so neither
+the gate's honest-map walk nor `node:eslint` sees a live `.mjs` — with a
+short provenance header above a marker line; scripts/check_gate_vendored.py
+hashes everything below the marker and reds on drift, and the justfile
+`web-eslint` leg materializes it into `web/node_modules/` at run time
+(auto-ignored by ESLint 9) and removes it after. The mechanism generalizes
+to any path the image carries — gh#295 (the semgrep rule directory) is the
+next consumer, same call shape with a different IMAGE_PATH and --output.
 
 Usage:
     python3 scripts/fetch_gate_file.py IMAGE_PATH \
-        --output web/gate-eslint.config.mjs \
+        --output web/gate-eslint.config.mjs.tmpl \
         --manifest scripts/gate_vendored.tsv
 
     python3 scripts/fetch_gate_file.py IMAGE_PATH --hash
@@ -43,6 +46,7 @@ tar stores `etc/...`, not `/etc/...`).
 # printing its verdict/hash is the product.
 
 import argparse
+import contextlib
 import hashlib
 import io
 import json
@@ -53,7 +57,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, NoReturn, cast
+from typing import Any, Callable, NoReturn, cast
 
 GATE_WORKFLOW = Path(".github/workflows/gate.yml")
 DEFAULT_DIGEST_FILE = GATE_WORKFLOW
@@ -119,6 +123,12 @@ def parse_image_ref(ref: str) -> ImageRef:
             f"image ref '{ref}' is not digest-pinned — the vendoring source"
             " must be a digest (name@sha256:…), never a tag"
         )
+    hexdigest = digest[len("sha256:") :]
+    if len(hexdigest) != 64 or any(c not in "0123456789abcdef" for c in hexdigest):
+        fail(
+            f"image ref '{ref}' has a malformed digest — expected"
+            " sha256:<64 hex chars>, never a tag or a shortened hash"
+        )
     first, slash, rest = name.partition("/")
     if "." in first or ":" in first or first == "localhost":
         # A host was named (ghcr.io/…, localhost:5000/…).
@@ -143,7 +153,7 @@ def _http_get(url: str, token: str | None = None) -> bytes:
     if token:
         request.add_unredirected_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
+        with urllib.request.urlopen(request, timeout=120) as response:  # nosemgrep -- audited: dynamic-urllib-use-detected
             return cast("bytes", response.read())
     except urllib.error.HTTPError as exc:
         fail(f"GET {url} -> HTTP {exc.code}")
@@ -219,10 +229,10 @@ def search_tar_bytes(blob: bytes, target: str) -> bytes | None:
     directory/symlink members — the vendored copy must be a regular file's
     bytes, not a link to be resolved against a tree that does not exist.
     """
-    normalized_target = target.lstrip("./")
+    normalized_target = target.removeprefix("./").removeprefix("/")
     with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as archive:
         for member in archive.getmembers():
-            name = member.name.lstrip("./")
+            name = member.name.removeprefix("./").removeprefix("/")
             if name == normalized_target:
                 if not member.isfile():
                     fail(f"path '{target}' in the image is not a regular file")
@@ -233,27 +243,43 @@ def search_tar_bytes(blob: bytes, target: str) -> bytes | None:
     return None
 
 
-def extract_from_image(ref: ImageRef, image_path: str) -> bytes:
-    """Pull `image_path` out of the pinned image's layers.
+def search_layers(
+    digest: str,
+    image_path: str,
+    layers: list[dict[str, Any]],
+    blob_getter: Callable[[str], bytes],
+) -> bytes:
+    """Return `image_path`'s bytes, searching `layers` topmost-first.
 
-    Layers are read topmost-first so a file overwritten by a later layer is
-    found in its final state; the first hit wins.
+    Layers are read in reverse (topmost first) so a file overwritten by a
+    later layer is found in its final state; the first hit wins. The blob
+    fetch is injected so the overlay order is provable without a registry.
     """
-    token = registry_token(ref)
-    manifest = resolve_manifest(ref, token)
-    layers = manifest.get("layers", [])
     if not layers:
-        fail(f"manifest {ref.digest} declares no layers")
+        fail(f"manifest {digest} declares no layers")
     for layer in reversed(layers):
         layer_digest = layer.get("digest")
         if not layer_digest:
             fail(f"layer without digest: {layer!r}")
-        url = f"https://{ref.registry}/v2/{ref.repository}/blobs/{layer_digest}"
-        blob = _http_get(url, token)
-        content = search_tar_bytes(blob, image_path)
+        content = search_tar_bytes(blob_getter(layer_digest), image_path)
         if content is not None:
             return content
-    fail(f"path '{image_path}' not found in image {ref.digest}")
+    fail(f"path '{image_path}' not found in image {digest}")
+
+
+def extract_from_image(ref: ImageRef, image_path: str) -> bytes:
+    """Pull `image_path` out of the pinned image's layers over the registry."""
+    token = registry_token(ref)
+    manifest = resolve_manifest(ref, token)
+    return search_layers(
+        ref.digest,
+        image_path,
+        manifest.get("layers", []),
+        lambda layer_digest: _http_get(
+            f"https://{ref.registry}/v2/{ref.repository}/blobs/{layer_digest}",
+            token,
+        ),
+    )
 
 
 def vendoring_header(image_path: str, digest: str) -> str:
@@ -275,7 +301,7 @@ def vendoring_header(image_path: str, digest: str) -> str:
         "//\n"
         "// Regenerate after a digest bump:\n"
         f"//   python3 scripts/fetch_gate_file.py {image_path} \\\n"
-        "//     --output web/gate-eslint.config.mjs --manifest scripts/gate_vendored.tsv\n"
+        "//     --output web/gate-eslint.config.mjs.tmpl --manifest scripts/gate_vendored.tsv\n"
         f"{VENDOR_MARKER}\n"
     )
 
@@ -355,6 +381,8 @@ def _self_test() -> None:
             print(f"fetch-gate-file self-test [{name}]: FAILED", file=sys.stderr)
             sys.exit(1)
 
+    digest64 = "sha256:" + "a" * 64
+
     # Digest is read from the workflow's own text, and a tag is refused.
     check(
         "read-ref",
@@ -362,29 +390,32 @@ def _self_test() -> None:
         == "a/b@sha256:abc",
     )
     check("read-ref-missing", condition=read_gate_image_ref("env: {}\n") is None)
-    hub = parse_image_ref("bearflinn/grizzly-gate@sha256:abc")
+    hub = parse_image_ref(f"bearflinn/grizzly-gate@{digest64}")
     check(
         "ref-hub",
         condition=hub.registry == DOCKER_HUB_REGISTRY
         and hub.repository == "bearflinn/grizzly-gate"
-        and hub.digest == "sha256:abc",
+        and hub.digest == digest64,
     )
-    short = parse_image_ref("ubuntu@sha256:abc")
+    short = parse_image_ref(f"ubuntu@{digest64}")
     check("ref-short", condition=short.repository == "library/ubuntu")
-    hosted = parse_image_ref("ghcr.io/owner/repo@sha256:abc")
+    hosted = parse_image_ref(f"ghcr.io/owner/repo@{digest64}")
     check(
         "ref-hosted",
         condition=hosted.registry == "ghcr.io" and hosted.repository == "owner/repo",
     )
 
-    def refuse_tag() -> bool:
-        try:
-            parse_image_ref("a/b:latest")
-        except SystemExit:
-            return True
+    def refuses(ref: str) -> bool:
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            try:
+                parse_image_ref(ref)
+            except SystemExit:
+                return True
         return False
 
-    check("ref-tag-refused", condition=refuse_tag())
+    check("ref-tag-refused", condition=refuses("a/b:latest"))
+    check("ref-malformed-digest-refused", condition=refuses(f"a/b@sha256:{'a' * 7}"))
 
     # Tar search: found, name-normalized, missing, and non-regular-file.
     def make_layer(entries: dict[str, bytes]) -> bytes:
@@ -408,15 +439,33 @@ def _self_test() -> None:
     )
     check("tar-missing", condition=search_tar_bytes(layer, "etc/gate/nope") is None)
 
-    # Overlay: a top layer's copy wins over a lower layer's.
+    def refuse_non_regular() -> bool:
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as archive:
+            info = tarfile.TarInfo("etc/gate/x.tmpl")
+            info.type = tarfile.DIRTYPE
+            archive.addfile(info)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            try:
+                search_tar_bytes(buf.getvalue(), "etc/gate/x.tmpl")
+            except SystemExit:
+                return True
+        return False
+
+    check("tar-non-regular-refused", condition=refuse_non_regular())
+
+    # Overlay: a top layer's copy wins over a lower layer's — through the
+    # production search_layers path (reversed(layers), first hit wins).
     bottom = make_layer({"etc/gate/x.tmpl": b"old"})
     top = make_layer({"etc/gate/x.tmpl": b"new"})
-    found = None
-    for blob in (top, bottom):
-        hit = search_tar_bytes(blob, "etc/gate/x.tmpl")
-        if hit is not None:
-            found = hit
-            break
+    blobs = {"sha256:bottom": bottom, "sha256:top": top}
+    found = search_layers(
+        digest64,
+        "etc/gate/x.tmpl",
+        [{"digest": "sha256:bottom"}, {"digest": "sha256:top"}],
+        lambda d: blobs[d],
+    )
     check("overlay-top-wins", condition=found == b"new")
 
     # Vendored file composition: header + marker + exact source bytes.

@@ -81,10 +81,15 @@ web-tsc: web-deps
     cd web && ./node_modules/.bin/tsc --noEmit -p tsconfig.json
 
 # The gate image's node:eslint pass, replicated bench-side over the image's
-# OWN flat config — not a hand-typed replica. web/gate-eslint.config.mjs is
-# vendored verbatim from the pinned digest (etc/grizzly-gate/config/
+# OWN flat config — not a hand-typed replica. web/gate-eslint.config.mjs.tmpl
+# is vendored verbatim from the pinned digest (etc/grizzly-gate/config/
 # languages/node/eslint.config.mjs.tmpl) by scripts/fetch_gate_file.py, and
 # scripts/check_gate_vendored.py reds when it drifts (`just check-vendored`).
+# It is kept as a `.tmpl` — the same shape the image ships — so neither the
+# gate's honest-map walk nor node:eslint sees a live `.mjs`; this leg
+# materializes it into web/node_modules/ (auto-ignored by ESLint 9) and
+# removes it after, reproducing the image's own "copy beside node_modules,
+# then delete" contract (ADR-033).
 # The image lints with --no-config-lookup and ES builtins only (no browser/
 # node env), so platform globals must still be declared in-file
 # (/* global */ header; convention: web/src/lib/sync/index.js).
@@ -95,23 +100,33 @@ web-tsc: web-deps
 #   GATE_TSCONFIG  — the repo's tsconfig, absolute (the image passes its
 #                    wrapped tsconfig: same strictness — web/tsconfig.json
 #                    is strict:true — plus skip_dirs unioned into exclude).
-#   GATE_SKIP_DIRS — the image's Ops-owned skip_dirs, read off the pinned
-#                    digest's config/detect.toml (the honest-map walk skips
-#                    the same names).
-# The toolchain is pinned identically to the image (read off the digest's
-# config-blob ARGs): eslint 9.39.4, typescript-eslint 8.62.0, react
-# 7.37.5, react-hooks 7.1.1, svelte-plugin 3.20.0 — same discipline as
-# web-tsc's TypeScript pin.
+#   GATE_SKIP_DIRS — the image's Ops-owned skip_dirs, hand-copied from the
+#                    pinned digest's config/detect.toml (verified 15/15 at
+#                    vendoring 2026-10-15); not re-read by any guard — gh#322
+#                    files wiring it to the manifest (which needs a raw-byte
+#                    vendoring format: non-JS files cannot carry the `//`
+#                    provenance header).
+# The eslint toolchain in web/package.json (eslint 9.39.4, typescript-eslint
+# 8.62.0, react 7.37.5, react-hooks 7.1.1, svelte-plugin 3.20.0, plus
+# svelte-eslint-parser 1.8.0 and typescript 6.0.3) matches the image's
+# languages/node/package.json dependencies — verified at vendoring
+# (2026-10-15), not re-read by any guard; gh#322 files wiring that check.
+# svelte (5.57.1) and svelte-check (4.7.6) are the app's own versions, not
+# the image's 5.56.4/4.7.1 — they are not part of the eslint toolchain.
 #
-# Two constructional differences from the image, both written exemptions:
-# (a) the image's eslint config lives OUTSIDE the scanned tree and cannot
-# lint itself; the vendored copy lives at web/, so this leg ignores it with
-# --ignore-pattern gate-eslint.config.mjs (the image needs no such flag);
-# (b) the image lints the whole project with -f json; the bench lints the
-# same files (`.`) but drops the json formatter so findings are human-
-# readable. The rule set, the file set and the env knobs are identical.
+# One constructional difference from the image, a written exemption: the
+# image lints the whole project with -f json; the bench lints the same files
+# (`.`) but drops the json formatter so findings are human-readable. The rule
+# set, the file set and the env knobs are identical.
 web-eslint: web-deps
-    cd web && GATE_TSCONFIG="$(pwd)/tsconfig.json" GATE_SKIP_DIRS="node_modules,target,vendor,.venv,venv,__pycache__,.mypy_cache,.pytest_cache,.ruff_cache,.cargo,.gradle,.tox,dist,build,.svelte-kit" ./node_modules/.bin/eslint --no-config-lookup --no-error-on-unmatched-pattern --ignore-pattern gate-eslint.config.mjs --config gate-eslint.config.mjs .
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd web
+    trap 'rm -f node_modules/eslint.config.mjs' EXIT
+    cp gate-eslint.config.mjs.tmpl node_modules/eslint.config.mjs
+    GATE_TSCONFIG="$(pwd)/tsconfig.json" \
+    GATE_SKIP_DIRS="node_modules,target,vendor,.venv,venv,__pycache__,.mypy_cache,.pytest_cache,.ruff_cache,.cargo,.gradle,.tox,dist,build,.svelte-kit" \
+        ./node_modules/.bin/eslint --no-config-lookup --no-error-on-unmatched-pattern --config node_modules/eslint.config.mjs .
 
 # The drift check over the vendored gate config (gh#314): the vendored file
 # must still hash to what scripts/gate_vendored.tsv records, and (CI-side,
