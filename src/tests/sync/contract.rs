@@ -13,6 +13,7 @@ use serde_json::Value;
 use strum::IntoEnumIterator;
 
 use crate::sync::protocol::{FieldTarget, PartyField, VitalsField};
+use crate::sync::write::validate_bounds;
 
 /// The fixture this suite pins, relative to the crate manifest (repo root).
 const FIXTURE_PATH: &str = "specs/007-party-sync/contracts/field-targets.json";
@@ -218,10 +219,76 @@ fn the_pinned_effect_ops_are_the_write_paths_accepted_set() {
         .iter()
         .map(|op| op.as_str().expect("op names are strings"))
         .collect();
-    assert_eq!(
-        ops,
-        ["create", "update", "end"],
-        "the accepted set is the write path's bounds table: create (on effect_new), \
-         update and end (on effect) — src/sync/write.rs apply_effect_write"
+
+    // Each pinned op name must be accepted by the write path's own bounds
+    // validator on the target kind the dispatch routes it to — the
+    // fixture's list is production-reachable, not a restated literal
+    // (gh#90 F3). The payloads are the minimum each bounds arm accepts:
+    // create on effect_new (name, source, targets), update on effect
+    // (targets), end on effect (no fields).
+    for op in ops {
+        let (target, value) = match op {
+            "create" => (
+                FieldTarget::EffectNew { party_id: 1 },
+                serde_json::json!({
+                    "op": "create",
+                    "name": "Bull's Strength",
+                    "source_character_id": 1,
+                    "targets": [3],
+                }),
+            ),
+            "update" => (
+                FieldTarget::Effect { effect_id: 41 },
+                serde_json::json!({"op": "update", "targets": [3]}),
+            ),
+            "end" => (
+                FieldTarget::Effect { effect_id: 41 },
+                serde_json::json!({"op": "end"}),
+            ),
+            other => panic!(
+                "the fixture pins effect op {other:?}, which no arm of the \
+                 write path accepts — update the fixture with the write path, \
+                 never ahead of it"
+            ),
+        };
+        assert!(
+            validate_bounds(&target, &value).is_ok(),
+            "the write path's bounds validator must accept the pinned op \
+             {op:?} — the accepted set moved and the fixture is stale"
+        );
+    }
+
+    // The deny arms: an unpinned name is rejected on BOTH target kinds,
+    // so the loop above cannot go green against a validator that accepts
+    // everything — and the EffectNew arm cannot pass on payload shape
+    // alone (round-1 F1: it hardcoded "create" and never read the op).
+    assert!(
+        validate_bounds(
+            &FieldTarget::Effect { effect_id: 41 },
+            &serde_json::json!({"op": "sunder"}),
+        )
+        .is_err(),
+        "an op name outside the pinned set must be rejected by the bounds validator"
+    );
+    assert!(
+        validate_bounds(
+            &FieldTarget::EffectNew { party_id: 1 },
+            &serde_json::json!({
+                "op": "sunder",
+                "name": "x",
+                "source_character_id": 1,
+                "targets": [3],
+            }),
+        )
+        .is_err(),
+        "an op name outside the pinned set must be rejected on effect_new too"
+    );
+    assert!(
+        validate_bounds(
+            &FieldTarget::EffectNew { party_id: 1 },
+            &serde_json::json!({"name": "x", "source_character_id": 1, "targets": [3]}),
+        )
+        .is_err(),
+        "an effect_new frame with no op key is denied by default, not shape-checked"
     );
 }

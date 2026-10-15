@@ -2357,7 +2357,9 @@ fn validate_daily(value: &JsonValue) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result<(), String> {
+/// The write path's own bounds gate; the wire-contract suite pins the
+/// fixture's `effect_ops` through it (gh#90 F3), so it is crate-visible.
+pub(crate) fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result<(), String> {
     match target {
         FieldTarget::Vitals {
             character_id: _,
@@ -2434,27 +2436,9 @@ fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result<(), String
             }
         }
         // Effect writes decode since E8; this is the write path's own gate
-        // — per-op, deny-by-default, with the `rejected` reasons (plan T7):
-        // name ≤120, ≤16 modifiers, stats via the engine's validator, values
-        // −50..=50. The database-dependent checks (roster membership,
-        // ownership, corpus rows) live in the effect engine, where the rows
-        // are.
-        FieldTarget::EffectNew { .. } => validate_effect_value(value, "create"),
-        FieldTarget::Effect { .. } => {
-            let op = value.get("op").and_then(JsonValue::as_str).unwrap_or("");
-            match op {
-                "update" => validate_effect_value(value, "update"),
-                "end" => {
-                    if value.as_object().is_some_and(|object| object.len() != 1) {
-                        return Err("end carries no fields".to_owned());
-                    }
-                    Ok(())
-                }
-                other => Err(format!(
-                    "unknown effect op {other:?} (create goes on effect_new; update and end on effect)"
-                )),
-            }
-        }
+        // — per-op, deny-by-default, with the `rejected` reasons (plan T7).
+        FieldTarget::EffectNew { .. } => validate_effect_bounds(true, value),
+        FieldTarget::Effect { .. } => validate_effect_bounds(false, value),
         // E12's party targets (design D2): the mint, the row ops, the bank
         // delta, the designation. The claim target is read-only — append-only
         // rows have no write frame.
@@ -2464,6 +2448,36 @@ fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result<(), String
         FieldTarget::Party { .. } => validate_party(value),
         FieldTarget::Claim { .. } => {
             Err("claim rows are append-only and cannot be written".to_owned())
+        }
+    }
+}
+
+/// The effect target's own bounds (E8, plan T7): per-op, deny-by-default.
+/// `create_target` is the `effect_new` frame (`create` only); the effect
+/// frame carries `update`/`end`. The database-dependent checks (roster
+/// membership, ownership, corpus rows) live in the effect engine, where
+/// the rows are.
+fn validate_effect_bounds(create_target: bool, value: &JsonValue) -> Result<(), String> {
+    let op = value.get("op").and_then(JsonValue::as_str).unwrap_or("");
+    if create_target {
+        if op != "create" {
+            return Err(format!(
+                "unknown effect op {op:?} on effect_new (create goes on effect_new; update and end on effect)"
+            ));
+        }
+        validate_effect_value(value, "create")
+    } else {
+        match op {
+            "update" => validate_effect_value(value, "update"),
+            "end" => {
+                if value.as_object().is_some_and(|object| object.len() != 1) {
+                    return Err("end carries no fields".to_owned());
+                }
+                Ok(())
+            }
+            other => Err(format!(
+                "unknown effect op {other:?} (create goes on effect_new; update and end on effect)"
+            )),
         }
     }
 }
