@@ -116,11 +116,29 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   the reviewer's is the round: it names which author text it adopts or widens,
   and the verdict binds to it.
 
+  **Seat-opening is idempotent.** Before opening a task for the next seat — an
+  author seating a reviewer, a reviewer escalating, anyone opening a round —
+  query the board for an open task already naming that PR, round and head, and
+  reuse it rather than opening a second. Before announcing a round, read the
+  PR's reviews at that head for an announcement already there.
+
   **A head gets exactly one open round.** A second round against a head that
   already carries an announced round with no verdict is not opened: the
   existing round's scope is widened, and the widening is announced the same
   way. Opening a second is a provisioning defect — note it in the PR body and
   report it on the tracking task, same handling as a branch collision.
+
+  **When a duplicate round is already announced, the earliest announcement is
+  the round.** The widening remedy above assumes the second round has not been
+  announced. When it has, the earliest announcement at that head is the round;
+  every later announcement is withdrawn on the PR by name, in a procedural
+  comment carrying no verdict. The round gets exactly one verdict, and that
+  verdict is bound on the PR to every announcement it collapses, answering each
+  withdrawn announcement's questions by number — including any question the
+  surviving announcement did not word that way. A verdict per seat is not an
+  alternative: it recreates the PR #158 shape — two verdicts at one head with
+  different scopes, each correct in its own terms, jointly unreadable at the
+  press, resolved by whichever landed last (gh#169).
 
   **Every announced round at the head being merged has a verdict against it
   before the press** — a narrower accept does not close a wider round still
