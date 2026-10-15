@@ -564,12 +564,45 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   assert anything about what blocks a merge. When a procedure doc states a
   ruleset rule, it states the rule operatively and cites a named ruleset
   version — `ruleset 24735400 v53013064` — never the live value.
-- **Sweep for reachability before you hand over.** Walk the spec's requirement
-  list and, for each one, name the production-path test that proves it. Where
-  the requirement landed in a library module, grep for a caller:
-  `grep -rn "<export_name>" src web/src`. Hits confined to the defining module
-  mean the requirement is unbuilt — a green unit test does not change that.
-  Report the sweep in the PR body alongside the gate output.
+- **Sweep for reachability before you hand over.** Walk the spec's
+  requirement list — the requirement list, never the module's export list —
+  and, for each one, name the production-path test that proves it and the
+  call site that reaches it. The unit of the census is the **named action
+  the requirement is implemented as**, whatever its shape: an exported
+  function, a method on an object a factory returns, a store action, a
+  handler a component is passed. A reachable factory says nothing about the
+  actions it returns, so counting the factory is not a sweep. Where the
+  requirement landed in a library module, grep for a caller of that action:
+  `grep -rn "<action_name>" src web/src`. Hits confined to the defining
+  module and its tests mean the requirement is unbuilt — a green unit test
+  does not change that. Report the sweep in the PR body alongside the gate
+  output, one row per requirement naming the action, its caller, and its
+  production-path test. PR #311 is the reason the unit is written down: its
+  sweep counted module exports, `createStashState` among them with callers
+  in `web/src/App.svelte`, and reported everything reachable — while
+  `adjustQty`, `editMeta` and `adjustBank`, the actions that factory
+  returns, had no caller anywhere in `web/src` at head `c7e7e3c`.
+  `adjustBank` is `specs/014-shared-inventory` FR-7's party bank and
+  carried nine test references with no UI path to it. An export census that
+  passes while three spec'd actions are unreachable cannot fail the way the
+  sweep was meant to.
+
+  **The sweep walks what the diff removes, not only what it adds.** Read the
+  deleted lines for call sites
+  (`git diff <base>...<head> -- src web/src | grep '^-' | grep -v '^---'` — a
+  git pathspec is root-relative, so `-- src` alone matches nothing under
+  `web/`, and the `--- a/<path>` headers read as deleted lines), and for
+  every symbol whose last production call the diff deletes, run the same
+  `grep -rn "<symbol>" src web/src`. Hits confined to the defining module
+  and its tests mean the diff made that symbol unbuilt — report it, the same
+  as an unbuilt requirement. PR #250 is the reason: its sweep was clean over
+  every symbol the PR added, while replacing two `authorize(...)` calls with
+  a hand-rolled membership `if` deleted the only production callers of
+  `Resource::Stash` and `Resource::PartySettings`, so two of
+  `specs/014-shared-inventory` design D4's three
+  authz-matrix rows went dead in production with `gate` `success` at head
+  `275b2c1` (check-run `116275069010`) and `src/auth/tests/authz.rs` still
+  testing code nothing called.
 - Priority order is P0 → P1 → P2 as tagged in the PRD's functional requirements.
 - Feedback on the PRD itself goes to the PRD (via issue or PR against `docs/PRD.md`),
   not into code comments.
