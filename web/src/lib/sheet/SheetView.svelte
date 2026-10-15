@@ -23,6 +23,7 @@
   import ReferencePanel from '../corpus/ReferencePanel.svelte';
   import DetailTip from '../corpus/DetailTip.svelte';
   import NotesPanel from './components/NotesPanel.svelte';
+  import Board from './components/Board.svelte';
   import { signed } from '../engine/format.js';
 
   /** @type {{ character: any, accountSub?: string, editable?: boolean,
@@ -244,6 +245,9 @@
     Math.max(1, ...($slots ?? []).map((/** @type {any} */ s) => s.rank)),
   );
 
+  /** Reset Layout (header) bumps this; the Board restores Dave's default. */
+  let layoutReset = $state(0);
+
   function subline() {
     const parts = [identity.ancestry, identity.class, identity.heritage].filter(Boolean);
     return parts.join(' · ');
@@ -261,6 +265,7 @@
     syncing={$syncing}
     onadjustlevel={(/** @type {number} */ level) => sheet.writeLevelAdjust(level)}
     onnewday={() => sheet.newDay()}
+    onresetlayout={editable ? () => (layoutReset += 1) : undefined}
     onimport={onimport}
     onlogout={onlogout}
   />
@@ -323,8 +328,14 @@
     </Dialog>
   {/if}
 
-  <div class="board">
-    <div class="col">
+  <Board
+    saved={$sheetUi.value?.layout ?? null}
+    resetSignal={layoutReset}
+    onsave={(/** @type {any} */ layout) => sheet.writeSheetUi({ ...$sheetUi.value, layout })}
+  >
+    {#snippet children(/** @type {string} */ id)}
+      {#if id === 'pStats'}
+        <div class="stack">
       {#if $view}
         <StatsPane
           view={$view}
@@ -361,8 +372,8 @@
           <div class="skeleton" style="width: 100%; height: 180px;"></div>
         </div>
       {/if}
-    </div>
-    <div class="col">
+        </div>
+      {:else if id === 'pSpells'}
       <MagicPane
         baseSheet={character.base_sheet}
         slots={$slots}
@@ -396,6 +407,7 @@
           {/if}
         {/snippet}
       </MagicPane>
+      {:else if id === 'pInv'}
       <InventoryPanel
         baseSheet={character.base_sheet}
         itemBulk={character.item_bulk ?? {}}
@@ -413,18 +425,20 @@
         strMod={$view?.render_base?.attributes?.str ?? 0}
         onwriteui={(/** @type {any} */ next) => sheet.writeSheetUi(next)}
       />
+      {:else if id === 'pFeats'}
       <FeatsPanel baseSheet={character.base_sheet} {editable} />
-    </div>
-    <div class="col">
+      {:else if id === 'pRef'}
       <ReferencePanel strikes={refStrikes} skills={refSkills} perception={$view?.derived?.perception?.total ?? null} />
+      {:else if id === 'pNotes'}
       <NotesPanel
         sheetUi={$sheetUi.value}
         {editable}
         characterId={character.character.id}
         onwrite={(/** @type {any} */ next) => sheet.writeSheetUi(next)}
       />
-    </div>
-  </div>
+      {/if}
+    {/snippet}
+  </Board>
 </div>
 <DetailTip />
 

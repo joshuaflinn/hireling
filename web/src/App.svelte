@@ -191,6 +191,7 @@
         name: c.character.name,
       }))}
       onlogout={logout}
+      onimport={sheetTarget.editable ? () => (view = 'import') : undefined}
     />
   </div>
 {:else if view === 'import'}

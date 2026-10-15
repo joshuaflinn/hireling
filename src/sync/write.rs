@@ -2994,13 +2994,15 @@ fn validate_sheet_ui(value: &JsonValue) -> Result<(), String> {
         Some(JsonValue::Null) => Ok(()),
         Some(JsonValue::Object(widgets)) => {
             for rect in widgets.values() {
+                // h may be null: Dave's "auto height" (fits content).
                 let ok = rect.as_object().is_some_and(|r| {
-                    ["x", "y", "w", "h"]
+                    ["x", "y", "w"]
                         .iter()
                         .all(|k| r.get(*k).is_some_and(JsonValue::is_number))
+                        && r.get("h").is_some_and(|h| h.is_number() || h.is_null())
                 });
                 if !ok {
-                    return Err("sheet_ui.layout values must be {x, y, w, h}".to_owned());
+                    return Err("sheet_ui.layout values must be {x, y, w, h|null}".to_owned());
                 }
             }
             Ok(())
@@ -3565,7 +3567,7 @@ mod bounds_tests {
         let full = json!({
             "notes": [{"id": "n1", "title": "Session 3", "html": "<b>Bruce</b>", "tags": ["npc"]}],
             "minions": [{"id": "m1", "name": "Skeleton Guard", "hp": 4, "hp_max": 4, "corpus_id": 9}],
-            "layout": {"pStats": {"x": 0, "y": 0, "w": 0.3, "h": 900}}
+            "layout": {"pStats": {"x": 0, "y": 0, "w": 0.3, "h": 900}, "pRef": {"x": 1, "y": 0, "w": 2, "h": null}}
         });
         assert_eq!(validate_sheet_ui(&full), Ok(()));
     }

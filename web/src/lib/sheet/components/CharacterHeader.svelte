@@ -20,6 +20,7 @@
     syncing = false,
     onadjustlevel = undefined,
     onnewday = undefined,
+    onresetlayout = undefined,
     onimport = undefined,
     onlogout = undefined,
   } = $props();
@@ -61,6 +62,9 @@
     <div class="sub">{subline}</div>
   </div>
   <div class="controls">
+    {#if onresetlayout}
+      <button class="btn" onclick={onresetlayout} title="Restore the default widget layout">Reset Layout</button>
+    {/if}
     {#if editable}
       <button
         class="btn"
@@ -84,7 +88,7 @@
     <SyncIndicator {syncing} />
     {#if onimport}
       <button class="btn" onclick={onimport} title="Import a Pathbuilder export (replaces this sheet's base data)">
-        Import
+        Import Pathbuilder JSON
       </button>
     {/if}
     {#if onlogout}
