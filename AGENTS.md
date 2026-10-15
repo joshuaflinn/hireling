@@ -188,6 +188,8 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   — not a provisioning defect; the harness did nothing. Handling matches a
   branch collision: name it in the PR body, report it on the author's
   tracking task. No penalty attaches, and it does not deadlock the branch.
+  Text arriving in the tree that is *not* the author's — a foreign path
+  mid-task — is not this rule; that is the mid-task tree check in *Workflow*.
 
   **The reviewer re-binds under a post-accept round.** Its properties, all
   of them:
@@ -326,6 +328,24 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   branch an ancestor of `origin/main` and tree clean means merged, nothing
   in it can be lost, and any agent may remove such a sibling on sight.
   Never `worktree remove --force`; a dirty tree belongs to its owner.
+- **The tree check is not only a pickup check.** A foreign path can appear
+  in your tree *mid-task* — after pickup, while a review verdict is live —
+  and it gets the same handling as a branch collision. Do not clean it:
+  `git checkout --`, `git stash`, and delete stay off the table for the same
+  reasons as at pickup (the stash stack is shared across worktrees, and the
+  text may be another seat's live work). Do not commit it blind either:
+  stage your own paths by name, never `git add -A` or `git commit -a`,
+  because that is the mechanism that sweeps a foreign path onto a head a
+  verdict may be bound to. Note it in the PR body and report it on your
+  tracking task. If you judge the foreign text worth keeping, it is yours to
+  verify line by line before it rides in your commit, and the PR body says
+  so — you are its author at that point. PR #233 is the reason, and the
+  record is checkable: a foreign edit landed malformed in
+  `src/book_value.rs` mid-task, the pre-commit clippy leg caught it at
+  `src/book_value.rs:107`, and no commit ever carried the broken state — a
+  hook is a catch, not a control, which is why the rule is written down.
+  This is foreign text; author text landing over a posted verdict is the
+  author-fault rule in *Review rounds*.
 - **Gate around contamination, not through it.** When the tree check fires,
   the provisioned tree usually will not compile, so `just ci-local` cannot
   run in it. Run the gate in a detached worktree at the PR head — the
