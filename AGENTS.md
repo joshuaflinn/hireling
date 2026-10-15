@@ -131,11 +131,56 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   the reviewer's is the round: it names which author text it adopts or widens,
   and the verdict binds to it.
 
+  **Every handoff step is idempotent — read the record before you write it.**
+  Any step whose effect is that a seat now exists for the next stage —
+  announcing a round, opening a seat task (an author seating a reviewer, a
+  reviewer escalating, anyone opening a round), posting a carry-over re-bind,
+  pressing — is performed once. Before performing it, read the record for that
+  same step already performed at that PR, round and head, and stop if it is
+  there: the PR's reviews and comments for an announcement, a `review-seat`
+  marker, or a re-bind already posted; the board for an open task already
+  naming that PR, round and head. Reuse what is already there rather than
+  writing a second one. The press re-reads the PR's merge state immediately
+  before the merge call and treats `MERGED` as success, not an error, so a
+  second presser is a no-op rather than a race.
+
   **A head gets exactly one open round.** A second round against a head that
   already carries an announced round with no verdict is not opened: the
   existing round's scope is widened, and the widening is announced the same
   way. Opening a second is a provisioning defect — note it in the PR body and
   report it on the tracking task, same handling as a branch collision.
+
+  **When a duplicate round is already announced, the earliest reviewer
+  announcement at that head is the round.** The widening remedy above assumes
+  the second round has not been announced. When it has, the earliest reviewer
+  announcement at that head is the round, by `submitted_at`, ties broken by the
+  lower review id; an author announcement is never the survivor — it is
+  withdrawn like any other duplicate, per the clause above. Every later
+  announcement is withdrawn by the seat that discovers the duplicate, on the PR
+  by name, via `gh pr comment` — a procedural comment naming the review id of
+  each announcement it withdraws and carrying no verdict. The round gets
+  exactly one verdict, bound on the PR to every announcement it collapses and
+  answering each withdrawn announcement's questions by announcement and number —
+  including any question the surviving announcement did not word that way. A
+  verdict per seat is not an alternative: it recreates the PR #158 shape — two
+  verdicts at one head with different scopes, each correct in its own terms,
+  jointly unreadable at the press, resolved by whichever the press happened to
+  read first (gh#169). At a carry-over head the collapse keeps the narrow
+  scope: a withdrawn question outside the combination is declined as out of
+  scope, and if real it opens a fresh counted round.
+
+  **Two concurrent runs of one seat.** The collapse orders announcements on
+  the PR because ordering on the PR is the one thing both runs read alike: two
+  concurrent runs each read a PR that does not yet carry the other's comment,
+  and a symmetric rule fails both ways — both runs claiming their own round
+  gives one head two verdicts, PR #158's failure mode, and both deferring gives
+  it none, which blocks the press outright. A duplicate-seat pair is one round
+  against the budget, not two — nobody is charged for a seat they did not ask
+  for. If the surviving seat dies before its verdict lands, the round is
+  re-seated from the stood-down seat's record and is not charged to the
+  author's budget. PR #250 round 2 is the instance: announcements `5529340890`
+  and `5529342611` at head `3d653f7`, one verdict `5529401102` bound to both by
+  review `5529415179`.
 
   **Every announced round at the head being merged has a verdict against it
   before the press** — a narrower accept does not close a wider round still
