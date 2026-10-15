@@ -107,3 +107,7 @@ mod latency_tests;
 #[cfg(test)]
 #[path = "../tests/sync/contract.rs"]
 mod contract_tests;
+
+#[cfg(test)]
+#[path = "../tests/sync/stash.rs"]
+mod stash_tests;

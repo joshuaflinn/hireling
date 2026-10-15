@@ -161,20 +161,21 @@ async fn a_create_applies_and_the_row_is_whole() {
     .expect("create applies");
 
     assert_eq!(result.outcome, Outcome::Applied);
-    let effect_id = match &result.broadcast {
-        Some((FieldTarget::Effect { effect_id }, value)) => {
-            assert_eq!(
-                value
-                    .get("modifiers")
-                    .and_then(Value::as_array)
-                    .map(Vec::len),
-                Some(1),
-                "the diff carries the stored modifiers: {value}"
-            );
-            *effect_id
-        }
-        other => panic!("create broadcasts the new effect row, got {other:?}"),
+    let Some((FieldTarget::Effect { effect_id }, value, _)) = result.broadcast.first() else {
+        panic!(
+            "create broadcasts the new effect row, got {:?}",
+            result.broadcast
+        );
     };
+    assert_eq!(
+        value
+            .get("modifiers")
+            .and_then(Value::as_array)
+            .map(Vec::len),
+        Some(1),
+        "the diff carries the stored modifiers: {value}"
+    );
+    let effect_id = *effect_id;
     let (active, tracked_manually, corpus) = effect_row(&pool, effect_id).await;
     assert!(active);
     assert!(!tracked_manually, "hand-built: plain row");
@@ -210,9 +211,10 @@ async fn a_retarget_at_a_stale_base_is_superseded() {
     )
     .await
     .expect("create");
-    let Some((FieldTarget::Effect { effect_id }, _)) = created.broadcast else {
+    let Some((FieldTarget::Effect { effect_id }, _, _)) = created.broadcast.first() else {
         panic!("create broadcasts");
     };
+    let effect_id = *effect_id;
     let base = effect_version(&pool, effect_id).await;
 
     let winner = apply_write(
@@ -303,9 +305,10 @@ async fn only_the_creator_mutates_and_the_gm_is_denied_everywhere() {
     )
     .await
     .expect("create");
-    let Some((FieldTarget::Effect { effect_id }, _)) = created.broadcast else {
+    let Some((FieldTarget::Effect { effect_id }, _, _)) = created.broadcast.first() else {
         panic!("create broadcasts");
     };
+    let effect_id = *effect_id;
     let version = effect_version(&pool, effect_id).await;
 
     // A fellow player who is NOT the creator: forbidden, row untouched.
@@ -460,9 +463,10 @@ async fn an_empty_target_set_is_rejected_on_create_and_update() {
     )
     .await
     .expect("live effect");
-    let Some((FieldTarget::Effect { effect_id }, _)) = live.broadcast else {
+    let Some((FieldTarget::Effect { effect_id }, _, _)) = live.broadcast.first() else {
         panic!("create broadcasts");
     };
+    let effect_id = *effect_id;
     let base = effect_version(&pool, effect_id).await;
     let stripped = apply_write(
         &pool,
@@ -527,9 +531,10 @@ async fn a_corpus_condition_create_resolves_signed_modifiers() {
         "reason: {:?}",
         result.reason
     );
-    let Some((FieldTarget::Effect { effect_id }, value)) = result.broadcast else {
+    let Some((FieldTarget::Effect { effect_id }, value, _)) = result.broadcast.first() else {
         panic!("corpus create broadcasts the resolved row");
     };
+    let effect_id = *effect_id;
     assert_eq!(
         value.get("modifiers"),
         Some(&json!([{"type": "status", "stat": "all_checks_and_dcs", "value": -2}])),
@@ -579,9 +584,10 @@ async fn a_display_only_corpus_condition_is_a_badge_chip() {
         "reason: {:?}",
         result.reason
     );
-    let Some((FieldTarget::Effect { effect_id }, value)) = result.broadcast else {
+    let Some((FieldTarget::Effect { effect_id }, value, _)) = result.broadcast.first() else {
         panic!("display-only create broadcasts");
     };
+    let effect_id = *effect_id;
     assert_eq!(
         value
             .get("modifiers")
@@ -796,9 +802,10 @@ async fn a_ws_end_at_the_current_version_ends_and_retains() {
     )
     .await
     .expect("create");
-    let Some((FieldTarget::Effect { effect_id }, _)) = created.broadcast else {
+    let Some((FieldTarget::Effect { effect_id }, _, _)) = created.broadcast.first() else {
         panic!("create broadcasts");
     };
+    let effect_id = *effect_id;
     let base = effect_version(&pool, effect_id).await;
     let (addr, shutdown) = spawn_server(pool.clone()).await;
 

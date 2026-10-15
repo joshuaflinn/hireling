@@ -171,6 +171,62 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   round. Byte-identical hunks mean carry-over — narrow, uncounted. Changed
   hunks mean an author-text round — wide, counted.
 
+  **A verdict is discharged when posted, and is not the author's to
+  withdraw.** The head a verdict names carries it permanently. An author may
+  disagree with a verdict and may ask for it to be revisited; they may not
+  retract it. "Withdrawn — it named a head I replaced before anyone read it"
+  is not a state a verdict can be put into, and a presser who believes it
+  reads one round where there were two.
+
+  **After an accept, a non-blocking follow-up rides in its own PR, not on
+  the accepted branch.** That is what the follow-up issue is for: the accept
+  names it, the author files it, and it is worked on a fresh branch. Pushing
+  the fix onto the reviewed branch invalidates the head the verdict is bound
+  to and spends review capacity the budget does not have.
+
+  **If author text does land over a posted verdict, it is an author fault**
+  — not a provisioning defect; the harness did nothing. Handling matches a
+  branch collision: name it in the PR body, report it on the author's
+  tracking task. No penalty attaches, and it does not deadlock the branch.
+  Text arriving in the tree that is *not* the author's — a foreign path
+  mid-task — is not this rule; that is the mid-task tree check in *Workflow*.
+
+  **The reviewer re-binds under a post-accept round.** Its properties, all
+  of them:
+
+  - **Uncounted.** Like a carry-over round it was forced, not earned.
+    Refusing on budget grounds would strand a green head with no verdict and
+    no path to one.
+  - **Scope is the delta only** — `git diff <discharged-head> <new-head>` —
+    plus any interaction between that delta and the text already accepted.
+    It may not re-litigate the accepted diff; that diff already carries a
+    verdict. Narrow scope is a scope limit, not a lower bar.
+  - **Same reviewer.** The only question the round asks is whether the delta
+    still satisfies the verdict they posted. That judgment is theirs.
+  - **Once per PR.** A second post-accept push on the same PR is not
+    re-bound by the reviewer; the PR goes to Thrane, and whether it proceeds
+    is a decision about the task.
+  - Announced and verdicted like any round, per *Review of record*.
+
+  PR #227 is the reason, and the record is checkable. Round-2 accept at
+  `a22443d` — review `5526943831`, submitted `2026-10-15T01:31:06Z`. The
+  author filed the accept's follow-ups (gh#230, gh#231) in PR comment
+  `6182320720` at `01:31:53Z` — proof the verdict was read. `acb573e`
+  committed at `01:50:08Z`, nineteen minutes after the verdict and eighteen
+  after it was acted on; `b423b86` at `01:52:15Z`. PR comment `6182647981`
+  at `01:58:54Z` then called the verdict withdrawn as unread. `git diff
+  a22443d acb573e` is 206 insertions / 124 deletions across
+  `src/book_value.rs` and `src/tests/book_value_importer.rs` — the author's
+  own text, on a head a verdict already named — so *Verdict carry-over*
+  condition 2 fails on the knife-edge it names, and the accept never reached
+  the new head. `src/tests/db.rs` also differs between `a22443d` and
+  `b423b86`, but that is PR #228's `9abee78` and `6f0aa96` arriving with the
+  merge of `main` — the blob test condition 2 warns against, not the
+  author's. Attribution stays re-runnable on merged history with per-file
+  `git log --no-merges a22443d..b423b86 -- <path>` plus
+  `gh api repos/joshuaflinn/hireling/commits/<sha>/pulls`, where condition
+  1's `--not origin/main` form reads empty once both PRs are on `main`.
+
   The press rule is separate from the budget and unchanged: every announced
   round at a head has a verdict against it before the press, a narrower
   accept does not close a wider round still writing, and where two verdicts
@@ -272,6 +328,34 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   branch an ancestor of `origin/main` and tree clean means merged, nothing
   in it can be lost, and any agent may remove such a sibling on sight.
   Never `worktree remove --force`; a dirty tree belongs to its owner.
+- **The tree check is not only a pickup check.** A foreign path can appear
+  in your tree *mid-task* — after pickup, while a review verdict is live —
+  and it gets the same handling as a branch collision. Do not clean it:
+  `git checkout --`, `git stash`, and delete stay off the table for the same
+  reasons as at pickup (the stash stack is shared across worktrees, and the
+  text may be another seat's live work). Do not commit it blind either:
+  stage your own paths by name, never `git add -A` or `git commit -a`,
+  because that is the mechanism that sweeps a foreign path onto a head a
+  verdict may be bound to. Staging by name keeps the foreign path out of
+  your *commit* — not out of your commit's hook: the hook's fmt, clippy and
+  test legs read the whole tree, not the staged paths
+  (`.githooks/pre-commit:46,58,62,69`), so `cargo fmt --all` rewrites a
+  foreign `.rs` path in place, and clippy/test fail on foreign code that
+  does not compile. When the foreign text does not compile and you will not
+  adopt it, there is no legal commit — `--no-verify` is forbidden and the
+  hook legs fail on the tree — so stop and escalate it as a provisioning
+  defect, the same class as a branch collision, naming the owning seat where
+  you can tell it and Korrin otherwise; do not clean it, do not commit it,
+  do not route around the hook. Note it in the PR body and report it on your
+  tracking task. If you judge the foreign text worth keeping, it is yours to
+  verify line by line before it rides in your commit, and the PR body says
+  so — you are its author at that point. PR #233 is the reason, and the
+  record is checkable: a foreign edit landed malformed in
+  `src/book_value.rs` mid-task, the pre-commit clippy leg caught it at
+  `src/book_value.rs:107`, and no commit ever carried the broken state — a
+  hook is a catch, not a control, which is why the rule is written down.
+  This is foreign text; author text landing over a posted verdict is the
+  author-fault rule in *Review rounds*.
 - **Gate around contamination, not through it.** When the tree check fires,
   the provisioned tree usually will not compile, so `just ci-local` cannot
   run in it. Run the gate in a detached worktree at the PR head — the
@@ -339,7 +423,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   tests; everything else gets a curated end-to-end suite.
 - **A test for a spec'd behavior must exercise the production path that owns
   it.** Testing the module underneath that path proves the module, not the
-  behavior. Five instances of the same rule:
+  behavior. Six instances of the same rule:
   - *Observability* (audit, log, metric): send an HTTP request through the
     configured router for HTTP behavior, or call the public orchestration
     function for non-HTTP behavior; then assert the persisted record or
@@ -366,6 +450,19 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
     `threshold` — with different results. One fixture on one side passes
     against every wrong threshold on that side. See
     [Rules exactness](#rules-exactness) for the full rule, citations included.
+  - *A pinned wire contract* — a fixture naming the set a production path
+    accepts: assert the fixture against the gate that enforces it, never
+    against a literal restated in the test body. Feed each pinned name
+    through that gate and assert it is accepted; panic on a pinned name no
+    arm handles; and assert an outside name is refused on every target kind
+    the dispatch routes to, or the accept loop goes green against a gate
+    that accepts everything. That reaches a stale fixture and a dropped
+    name, never a gained one — the loop only sees names the fixture lists;
+    where the set is an enum, derive it off `EnumIter` and the gain is
+    caught too. The shipped forms, enum and hand-written match:
+    `the_pinned_vitals_fields_are_the_serde_wire_names_of_the_enum` and
+    `the_pinned_effect_ops_are_the_write_paths_accepted_set` in
+    `src/tests/sync/contract.rs`.
 - Log generously on the backend: major branches, request IDs.
 - Commit messages: imperative, one line, what + why if non-obvious.
 
