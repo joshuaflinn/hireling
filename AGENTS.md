@@ -127,9 +127,16 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   postdates 5.9, and so a green bench run at `f29e85d` *was* the defect. No
   bench run could have caught that; the check-run at the head did.
 
-  **Name the head from the ref, not from the PR object** — `git fetch origin
-  <branch>` then `git rev-parse FETCH_HEAD`, or `git ls-remote origin
-  <branch>`. `gh pr view --json headRefOid` can serve a head minutes stale:
+  **Name the head from the ref, not from the PR object** — `git ls-remote
+  origin <branch>` is the primary form; `git fetch origin <branch>` then
+  `git rev-parse FETCH_HEAD` is the fallback for when you need the objects
+  locally. `FETCH_HEAD` is per-worktree and writable by any process sharing
+  the workspace, so a value read from it can be another seat's fetch:
+  measured in the `MOR-482` worktree on 2026-10-15, `git rev-parse
+  FETCH_HEAD` returned `39ca281` (a different task's branch) and the raw
+  `FETCH_HEAD` first line read `dc491fe` (`branch 'main'`), each a valid
+  commit with no tell (gh#253). `gh pr view --json headRefOid` can serve a
+  head minutes stale:
   on PR #139 it served the superseded head `f29e85d` for about two minutes
   after the push of `9116908` landed. The check-runs read at `f29e85d`
   returns `gate / failure` (workflow run 38417930166) — indistinguishable
