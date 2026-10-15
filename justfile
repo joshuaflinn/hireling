@@ -296,6 +296,17 @@ disk-floor-gb := env_var_or_default("DISK_FLOOR_GB", "10")
 disk-guard:
     cargo run -q --package diskops -- guard --floor-gib {{ disk-floor-gb }}
 
+# Reap leaked build dirs: sibling target-* dirs (external CARGO_TARGET_DIRs)
+# and stale hand-cut hireling-* worktrees that pass the AGENTS.md staleness
+# test (branch an ancestor of origin/main AND tree clean). Dry-run by
+# default; --prune removes. Hard exclusions are never touched, regardless of
+# liveness: MOR-<n> workspaces, dirty trees, and the shared hireling
+# checkout. Liveness is decided per candidate from /proc/<pid>/cwd, so a
+# permanent npm/node tooling process outside the sibling set does not block
+# the sweep (gh#301 round 2 F1).
+reap *args:
+    cargo run -q --package diskops -- reap {{ args }}
+
 # The guardrail guarding the guardrails (gh#151), the same script the gate
 # workflow's drift-check step runs: every ci-local leg has a CI home; every
 # pass declared in scripts/gate_passes.tsv is mirrored by a leg this
