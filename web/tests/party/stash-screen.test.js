@@ -13,6 +13,8 @@
 //     (E14 SC-5's discipline: assert the region's control set, not a page count)
 //   - a refused op record, rendered from a driven event, non-blocking
 
+/* global URL */
+
 import { afterEach, test, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/svelte';
@@ -35,7 +37,12 @@ import StashScreen from '../../src/lib/party/StashScreen.svelte';
 import { createStashState } from '../../src/lib/party/stash.js';
 import { createStore } from '../../src/lib/sync/store.js';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // The book-value read is a stubbed global fetch (see `mount`); leave no stub
+  // for a test that did not install one.
+  vi.unstubAllGlobals();
+});
 
 const STASH = (p, name) => ({ kind: 'stash', party_id: p, item_name: name });
 const BANK = (p) => ({ kind: 'bank', party_id: p });
@@ -108,7 +115,7 @@ const BECKY = { character: { id: 8, name: 'Becky', owner: 'dev-sub-b' } };
 /**
  * Mount the screen over a fixture.
  * @param {{you?: {sub: string, role: string}, rows?: object[], bank?: object|null,
- *   claims?: object[], qm?: number|null, roster?: object[], bookValues?: object}} o
+ *   claims?: object[], qm?: number|null, roster?: object[], bookValues?: Record<string, {gp: number, sp: number, cp: number}>}} o
  */
 function mount(o = {}) {
   const sync = fakeSync();
@@ -125,17 +132,32 @@ function mount(o = {}) {
     roster: o.roster ?? [FLINN, BECKY],
   });
 
-  // Book value is D5's read route (merged, `src/book_value.rs`). The screen
-  // takes it as a lookup so the test controls both match outcomes without a
-  // fetch — the route's own behavior is tested in src/tests/book_value.rs.
-  const lookUpBookValue = vi.fn(
-    o.bookValues !== undefined
-      ? (name) => Promise.resolve(o.bookValues[name] ?? null)
-      : () => Promise.resolve(null),
+  // The screen now performs D5's book-value READ itself (`book-value.js`), so
+  // the fixture stubs the transport instead of injecting the lookup. An
+  // injected lookup is what let `App.svelte` ship without wiring the route at
+  // all: the test drove its own fake, so it could not see the missing call.
+  // Stubbing fetch means the screen's real read path — URL, `found`/`price`
+  // shape, the unknown fallback — is what the assertions land on. The route's
+  // server half is tested in src/tests/book_value.rs.
+  const bookValueCalls = /** @type {string[]} */ ([]);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((/** @type {string} */ url) => {
+      const text = String(url);
+      if (!text.startsWith('/api/parties/1/items/book-value')) {
+        throw new Error(`unexpected fetch ${text}`);
+      }
+      const name = new URL(text, 'http://x').searchParams.get('name') ?? '';
+      bookValueCalls.push(name);
+      const price = o.bookValues?.[name];
+      return price
+        ? { ok: true, status: 200, json: () => Promise.resolve({ found: true, price }) }
+        : { ok: true, status: 200, json: () => Promise.resolve({ found: false }) };
+    }),
   );
 
-  const utils = render(StashScreen, { props: { stash, roster: o.roster ?? [FLINN, BECKY], lookUpBookValue } });
-  return { sync, stash, lookUpBookValue, ...utils };
+  const utils = render(StashScreen, { props: { stash, partyId: 1, roster: o.roster ?? [FLINN, BECKY] } });
+  return { sync, stash, bookValueCalls, ...utils };
 }
 
 /** Everything write-shaped inside the screen's own region — the SC-5 scope. */

@@ -201,7 +201,7 @@
        hub is reachable the same way from either screen. -->
   <main>
     <button class="back" onclick={backToParty}>← The party</button>
-    <StashScreen stash={stashState} roster={session.roster.characters} />
+    <StashScreen stash={stashState} partyId={session.roster.party_id} roster={session.roster.characters} />
   </main>
 {:else if view === 'about'}
   <AboutView onback={backToParty} />

@@ -19,24 +19,37 @@
 
   import { untrack } from 'svelte';
   import { tenthsText } from '../sheet/bulk.js';
+  import { createBookValueLookup } from './book-value.js';
 
-  // Props. `lookUpBookValue` is D5's read route injected rather than fetched,
-  // so both match outcomes are testable without a network: a resolved
-  // {gp,sp,cp} prefills the sell prompt, a null is the corpus saying it does
-  // not know — which the dialog must show, not swallow into a silent zero.
+  // Props. The screen reads the corpus book value itself, through D5's route:
+  // a resolved {gp,sp,cp} prefills the sell prompt, a null is the corpus saying
+  // it does not know — which the dialog must show, not swallow into a silent
+  // zero. `partyId` is a prop, not a lookup seam: an earlier revision took the
+  // lookup as a prop with an `async () => null` default, `App.svelte` never
+  // passed it, and every book-value test stayed green against the injected fake
+  // while the built app could never prefill. A seam with one caller and a
+  // default that is the broken behaviour is how that survived.
   /** @typedef {import('./stash.js').Projection} Projection */
   /** @typedef {import('./stash.js').StashRow} StashRow */
   /** @typedef {import('./stash.js').ClaimRow} ClaimRow */
   /** @typedef {import('./stash.js').BankBalance} BankBalance */
 
   /** @type {{ stash: import('./stash.js').StashState,
-   *   roster?: Array<{character: {id: number, name: string, owner: string}}>,
-   *   lookUpBookValue?: (name: string) => Promise<BankBalance | null> }} */
+   *   partyId: number,
+   *   roster?: Array<{character: {id: number, name: string, owner: string}}> }} */
   let {
     stash,
+    partyId,
     roster = [],
-    lookUpBookValue = async () => null,
   } = $props();
+
+  // Built lazily, not at setup: `createBookValueLookup({ partyId })` here would
+  // capture the initial prop value (compiler warning `state_referenced_locally`,
+  // and a party switch would keep reading the old party's corpus).
+  /** @param {string} name */
+  function lookUpBookValue(name) {
+    return createBookValueLookup({ partyId })(name);
+  }
 
   // The projection, mirrored into local state so the markup reads flat. The
   // subscription lives inside an $effect (the repo's own pattern, SheetView) so
