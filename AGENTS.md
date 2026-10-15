@@ -122,6 +122,35 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   way. Opening a second is a provisioning defect — note it in the PR body and
   report it on the tracking task, same handling as a branch collision.
 
+  **Two concurrent runs of one seat.** The widening remedy above assumes one
+  actor who can see both rounds. Two concurrent runs of the same seat cannot:
+  each reads a PR that does not yet carry the other's comment, and a symmetric
+  rule fails both ways — both runs claiming their own round gives one head two
+  verdicts, PR #158's failure mode, and both runs deferring gives it none,
+  which blocks the press outright. So the tiebreak is ordering on the PR, the
+  one thing both runs read alike: **the earliest announcement at a head is the
+  round**, by `submitted_at`, ties broken by the lower review id. The later
+  seat stands down — a procedural-only comment, no verdict in it — and that
+  comment does two things or it is not finished: it widens the round's scope to
+  the union of every question either announcement asked, and it names both
+  announcement ids as covered by the single verdict. The press reads "every
+  announced round has a verdict" off those ids, so a verdict naming one of two
+  announcements is an open round to a presser who was not there. A
+  duplicate-seat pair is one round against the budget, not two. If the
+  surviving seat dies before its verdict lands, the round is re-seated from the
+  stood-down seat's record and is not charged to the author. PR #250 round 2 is
+  the instance: two seat tasks, announcements `5529340890` (07:02:39Z) and
+  `5529342611` (07:02:50Z) at head `3d653f7`, one verdict `5529401102` bound to
+  both by review `5529415179`.
+
+  **Read the PR before you seat or announce.** The race above narrows to almost
+  nothing when each seat checks for a marker at the head it is about to claim:
+  an author run that finds a `review-seat` comment at this head does not seat
+  the round again, and a reviewer run that finds an announcement at this head
+  widens it rather than announcing a second. One `gh pr view <n> --comments`
+  ahead of the first write. PR #250's duplicate cost a full recovery round-trip
+  for want of it.
+
   **Every announced round at the head being merged has a verdict against it
   before the press** — a narrower accept does not close a wider round still
   writing, and where two verdicts
