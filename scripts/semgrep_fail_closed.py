@@ -66,7 +66,7 @@ def blind_spot_entries(errors: list[Any]) -> list[Any]:
     return out
 
 
-def finding_line(finding: Any) -> str:
+def finding_line(finding: object) -> str:
     """One diagnostic line per finding: rule, path, line, message."""
     if not isinstance(finding, dict):
         return f"semgrep fail-closed: finding: {json.dumps(finding)}"
@@ -151,14 +151,8 @@ def main() -> None:
 
 
 def _self_test_case(
-    script: Path,
-    name: str,
-    doc: bytes,
-    *,
-    expect_red: bool,
-    expect_stdout: str | None = None,
-    forbid_stdout: str | None = None,
-) -> None:
+    script: Path, name: str, doc: bytes, *, expect_red: bool
+) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory(prefix="semgrep-failclosed-") as tmp:
         tree = Path(tmp)
         (tree / "semgrep.json").write_bytes(doc)
@@ -178,20 +172,7 @@ def _self_test_case(
             file=sys.stderr,
         )
         sys.exit(1)
-    if expect_stdout is not None and expect_stdout not in proc.stdout:
-        print(
-            f"self-test [{name}]: expected stdout to contain {expect_stdout!r},"
-            f" got {proc.stdout!r}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    if forbid_stdout is not None and forbid_stdout in proc.stdout:
-        print(
-            f"self-test [{name}]: expected stdout NOT to contain"
-            f" {forbid_stdout!r}, got {proc.stdout!r}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    return proc
 
 
 def _doc(results: list[Any], errors: list[Any]) -> bytes:
@@ -215,14 +196,21 @@ def self_test() -> None:
         forbid_stdout: str | None = None,
     ) -> None:
         ran.append(name)
-        _self_test_case(
-            script,
-            name,
-            doc,
-            expect_red=expect_red,
-            expect_stdout=expect_stdout,
-            forbid_stdout=forbid_stdout,
-        )
+        proc = _self_test_case(script, name, doc, expect_red=expect_red)
+        if expect_stdout is not None and expect_stdout not in proc.stdout:
+            print(
+                f"self-test [{name}]: expected stdout to contain {expect_stdout!r},"
+                f" got {proc.stdout!r}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if forbid_stdout is not None and forbid_stdout in proc.stdout:
+            print(
+                f"self-test [{name}]: expected stdout NOT to contain"
+                f" {forbid_stdout!r}, got {proc.stdout!r}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     # Green: no findings, one tolerated info notice (the Missing-plugin shape).
     case(
