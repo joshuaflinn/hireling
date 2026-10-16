@@ -780,6 +780,42 @@ def _self_test_directory_cases(ran: list[str], digest64: str) -> None:
 
     _check(ran, "dir-write-tree-replaces", condition=write_tree_replaces())
 
+    def materialize_no_manifest_leaves_manifest() -> bool:
+        # MOR-729: the auto-vendor path (justfile self-provisioning) invokes the
+        # directory vend with --output and NO --manifest. The manifest is only
+        # ever touched under --manifest (the deliberate `just vendor-semgrep`
+        # action), so a materialize that drifts the pin would red here — the
+        # fetched tree must be verified against the *recorded* digest, not one
+        # it just rewrote to agree with itself.
+        with tempfile.TemporaryDirectory(prefix="fetch-gate-file-") as tmp:
+            out = Path(tmp) / "rules"
+            manifest = Path(tmp) / "gate_vendored.tsv"
+            before = (
+                "# header\n"
+                "etc/gate/rules/\tgate-semgrep-rules/\t" + "a" * 64 + "\n"
+            )
+            manifest.write_text(before, encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                _materialize_directory(
+                    argparse.Namespace(
+                        image_path="etc/gate/rules/",
+                        output=out,
+                        manifest=None,
+                        hash=False,
+                    ),
+                    {"a.yaml": b"fresh"},
+                )
+            return (
+                (out / "a.yaml").read_bytes() == b"fresh"
+                and manifest.read_text(encoding="utf-8") == before
+            )
+
+    _check(
+        ran,
+        "dir-materialize-no-manifest-leaves-manifest",
+        condition=materialize_no_manifest_leaves_manifest(),
+    )
+
 
 def _self_test() -> None:
     """Re-prove the pure paths: ref parsing, tar search, overlay, manifest.
@@ -840,9 +876,15 @@ def _resolve_image_ref(args: argparse.Namespace) -> ImageRef:
     return parse_image_ref(ref_text)
 
 
-def _vend_directory(args: argparse.Namespace, ref: ImageRef) -> None:
-    """Vend a directory IMAGE_PATH (trailing slash) and record its digest."""
-    tree = extract_directory(ref, args.image_path)
+def _materialize_directory(args: argparse.Namespace, tree: dict[str, bytes]) -> None:
+    """Write `tree` to `--output`; record the manifest row iff `--manifest`.
+
+    Split out of `_vend_directory` so the self-test can drive the materialize
+    decision (MOR-729) without a registry round-trip: with `--output` and no
+    `--manifest`, the tree is written and the manifest is left byte-identical.
+    The auto-vendor path must not rewrite the pin the drift check compares
+    against — the manifest write is the deliberate `just vendor-semgrep` action.
+    """
     digest = directory_digest(tree)
     if args.hash:
         print(digest)
@@ -865,6 +907,12 @@ def _vend_directory(args: argparse.Namespace, ref: ImageRef) -> None:
         "a directory IMAGE_PATH (trailing slash) needs --output or --hash —"
         " a tree cannot stream to stdout"
     )
+
+
+def _vend_directory(args: argparse.Namespace, ref: ImageRef) -> None:
+    """Vend a directory IMAGE_PATH (trailing slash) and record its digest."""
+    tree = extract_directory(ref, args.image_path)
+    _materialize_directory(args, tree)
 
 
 def _vend_file(args: argparse.Namespace, ref: ImageRef) -> None:
