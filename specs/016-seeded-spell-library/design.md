@@ -88,6 +88,12 @@ field — the shipped JSON-shape-drift posture from `src/import/model.rs`. Valid
 | modifier type | the engine's `MODIFIER_TYPES` / `ModifierType::parse` | D2 |
 | value | integer, within the composer's existing bound | D3 |
 | degree keys | exactly the four, all present | D4 |
+
+The four degree keys (`crit success` / `success` / `failure` / `crit failure`) are a **PF2e rules
+fact hard-coded in the loader**, not content. Rules-exactness §1 applies to the constant itself,
+not only to the per-entry `citation` field that covers Dave's content: the degree-key set carries
+its *Player Core* source and page in its doc comment, written off the source page. The plan
+requires this in H1.
 | target rule | `"chosen"` \| `"self"` | D5 |
 | required non-empty strings | `name`, `duration_note`, `citation`, each `prose` entry | D6 |
 | name uniqueness | set over entries | D7 |
@@ -174,8 +180,17 @@ alternative, arrived at from the data side). If review prefers the client-side r
 first make `render_base` reliably available for every roster card, which is a bigger change than
 this read.
 
-**Cost, stated plainly: one request per picker-change**, debounced on the composer's state
-(`selected` set + selected spell/degree), not per keystroke. A composer is opened seconds before
+**Cost, stated plainly: one request per (spell, outcome) selection**, debounced on that key alone,
+not on the picker and not per keystroke. **The verdict does not depend on the selection at all** —
+a suppression verdict is computed per (target × stat instance) against *that target's* active
+effects, so adding Josh to the selection cannot change Becky's verdict, and the key that includes
+`selected` re-reads a payload that was already complete. The request body is therefore
+`{ spell, outcome }` only — no `targets` — and the response is roster-wide (one call returns
+per-target verdicts for every candidate, which is what plan **H2**'s acceptance already requires);
+the picker filters that response locally. That is **one read per degree tap** — fewer than a
+picker-keyed design, same freshness, no cache, so the guardrail and SC-4 both stay honest. The
+latency question answers itself once the key is right: the read fires when the caster picks a
+degree, which is before they are looking at the picker. A composer is opened seconds before
 a decision and closed; a read at party scale (six characters, ≤ ~20 spells) is trivial —
 `GET /effects` already returns the larger payload on every composer-open today. Caching is
 explicitly **not** added: a cache here is exactly the "cached chips" the guardrail forbids, and
@@ -191,7 +206,24 @@ library writes still queue as they already do. The pre-warn is an enhancement, n
 Inside the engine (`engine/src/preconflict.rs`, ~new pure function, no state, no I/O):
 
 1. Build the target's existing candidates with the shipped `stack::candidates(effects, character_id, instances)` — the same function the compute path uses, so "what is already on the sheet" is never re-derived differently here than in the engine.
-2. Append one **shadow candidate** for the effect being considered, with a reserved sentinel `effect_id` and a synthetic `ord`. Its `stat_ref`(s) come from the shipped `fan_out`/`expand` over the target's `StatInstances` — so blanket and per-instance handling is the engine's own, reused, not re-implemented (spec Clarify Log #4's rejected client shortcut, avoided structurally).
+2. Append one **shadow `ActiveEffect`** for the effect being considered — a real one-modifier
+   `ActiveEffect` carrying the reserved sentinel `effect_id` and a synthetic `ord` — and run the
+   existing candidates plus the shadow through the **public** `stack::candidates(effects,
+   character_id, instances)` (D6 step 1's same function). Its `stat_ref`(s) are then produced by
+   the engine's own fan-out, reached *inside* `candidates`, so blanket and per-instance handling is
+   the engine's own, reused, not re-implemented (spec Clarify Log #4's rejected client shortcut,
+   avoided structurally).
+
+   **Why the public entry point and not the fan-out directly:** `fan_out` is **private**
+   (`engine/src/stack.rs:90` — `fn fan_out`, no `pub`), and `engine/src/preconflict.rs` is a
+   sibling module under the crate root, so it cannot see it. Every `ActiveEffect` field is `pub`
+   (`engine/src/model.rs`), so the shadow is constructible from outside with no edit to
+   `stack.rs` — which keeps `stack.rs` on D10's and the plan's read-only list, which is the point.
+   The public `expand` for blanket stats *is* reachable
+   (`engine/src/vocab.rs:492`, `pub fn expand`, over the `pub const BLANKET_EXPANSIONS` at `:438`)
+   if a call site ever needs it directly; nothing here does. The alternative — `pub(crate)` on
+   `fan_out` — is available, but it edits a file this epic's own safety argument declares
+   read-only, and it is not needed.
 3. Group per `StatRef` and run the shipped `stack_one` twice: once on the existing group, once on the group with the shadow appended.
 4. **The verdict is the delta**: the shadow lands in `applied` → `applies`; it lands in `suppressed` → the verdict is its `SuppressionReason`, mapped to wording (`SameTypeLowerBonus` → *"would be suppressed"*, `SameTypeTie` → *"same value — only one applies"*, `SameTypeLighterPenalty` → for a penalty candidate), and the `suppressed_by_effect_id` names which live effect to quote in the message. No instance was produced for that stat → `no_instance` and **no flag** (a modifier the engine will drop is not a conflict).
 
@@ -208,6 +240,13 @@ place (`stack.rs`); a warning that computes stacking a second way is a second co
 which the PRD forbids for numbers and which this epic refuses for verdicts. The delta method has
 one further advantage: it is correct about *every* rule in `stack.rs` including the ones nobody
 thought to enumerate here, because it *is* `stack.rs`.
+
+**The mechanism, named so the next reader can check it without reading `select_extreme`:**
+`stack_one` sorts the group ascending by the candidate key `(effect_id, ord)`
+(`engine/src/stack.rs:158-163`, `ordered.sort_by_key(|candidate| candidate.key())`) and the
+extremum winner is the **first** position holding the extremum
+(`engine/src/stack.rs:241-248`, `winner_position` then `index == winner_position`). So a sentinel
+placed *above* every real id loses a same-value tie and the **incumbent** is emitted `applied`.
 
 **The one subtlety worth a reviewer's time:** the shadow candidate's tie-break position. With a
 sentinel `effect_id` chosen larger than any real id, a same-value tie is decided in favour of the
@@ -313,7 +352,10 @@ PR's own surface.
 Anything a task wants outside this list stops and flags — in particular the engine's `model.rs`,
 `stack.rs`, `compute.rs` and `vocab.rs` are **read-only consumers** here (D6 adds a caller, not a
 change), as are `src/sync/write.rs`, the E9 custom-entry path, and the P0 composer's freeform
-branch.
+branch. **The read-only claim is what forces D6 step 2 through the public `stack::candidates`:**
+`fan_out` is private, so the direct-call reading of that step would require editing `stack.rs`
+and would contradict this paragraph. The shadow-`ActiveEffect` reading is the one that keeps both
+true.
 
 ## D12 — Implementation lane split (so lanes open the moment content lands)
 
@@ -337,7 +379,10 @@ part of this epic that delivers whether or not the content ever arrives.**
 
 ## Self-review
 
-- **Every spec FR maps to a decision**: FR-1/2→D1, FR-3→D10/D11 (no seat authors content; L4 is
+- **Numbering note:** this doc has **no D11**. D0–D10 are the design decisions, and **D12** is the
+  lane split; the number 11 is skipped, and the skip is recorded here rather than renumbered, so
+  review threads and plan references written against `D12` keep their meaning.
+- **Every spec FR maps to a decision**: FR-1/2→D1, FR-3→D10/D12 (no seat authors content; L4 is
   Josh+Dave), FR-4→the contract doc, FR-5/6/7→D7's tap, FR-8→D7 (`self`/`chosen`, no widening
   from data), FR-9→D7 (no deduction; the fork named), FR-10→D3/D7 + SC-6, FR-11/12→D5/D6,
   FR-13/14→D2 + SC-5, FR-15→D4, FR-16→D7, FR-17→D3, FR-18→D7/SC-8, FR-19→D7's rejected

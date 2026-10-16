@@ -93,7 +93,9 @@ Dave's PR adds a spell whose template says `stat: "attak"`. Nothing at the table
 
 ### User Story 4 — Everything that is not in the library is exactly as it was (Priority: P1)
 
-Witchfire is not on the list. Bear casts it the way he always has: *New effect*, name, `+1 status → attack`, duration, targets. The library section does not intercept it, does not grey anything out, does not hint that he is doing it wrong, and — the sharp edge — **no freeform spell ever mints a `custom` corpus row on its way past the composer**. The library is an extra door, not a new hallway.
+*A spell outside the list* — an unnamed one, per FR-3's quoting exemption, since no unsourced
+spell name may be coined here to make a membership claim legible — is not on the list. Bear casts
+it the way he always has: *New effect*, name, `+1 status → attack`, duration, targets. The library section does not intercept it, does not grey anything out, does not hint that he is doing it wrong, and — the sharp edge — **no freeform spell ever mints a `custom` corpus row on its way past the composer**. The library is an extra door, not a new hallway.
 
 **Why this priority**: the PRD's sentence is "*Spells outside the library stay freeform exactly as P0*." The cheap way to build a library is to route the composer through it, and that way breaks this story and, if the composer is reused carelessly, drags E9's custom-content side-effects into the P0 path.
 
@@ -116,7 +118,20 @@ Witchfire is not on the list. Bear casts it the way he always has: *New effect*,
 
 - **FR-2 [C] — Where the file lives and how it is named.** `data/seed/spell-library.json`, loaded by the same mechanism the tier seed uses (checked in, `include_str!`'d / embedded at build, validated at load, served through a session-gated read). One directory, one loading story, one precedent — the tier seed is the shipped answer to "how does human-authored data get into this product safely," and this epic joins it rather than inventing a second. *(File naming is design-confirmable; the posture is not.)*
 
-- **FR-3 [X] — The list is not enumerated here.** Neither this spec, nor a design, nor a plan, nor a PR body enumerates or implies the party's spell list. A spell name appearing outside `contracts/spell-library-seed.md`'s labelled illustration is a scope violation. *(This requirement exists because the temptation is structural: a spec that needs "an example spell" to be legible will otherwise grow the list one example at a time.)*
+- **FR-3 [X] — The list is not enumerated here.** Neither this spec, nor a design, nor a plan, nor a PR body enumerates or implies the party's spell list. A spell name appearing outside `contracts/spell-library-seed.md`'s labelled illustration is a scope violation — **unless it is quoted from a binding source, and each one names that source at first use.** *(This requirement exists because the temptation is structural: a spec that needs "an example spell" to be legible will otherwise grow the list one example at a time.)*
+
+  The quoting exemption is narrow, and it is the difference between the two failures this rule
+  guards against. **Allowed:** a name carried in from `docs/PRD.md` or `docs/EPICS.md` — the PRD's
+  own *Conflicting effects* example (Bless vs Inspire Courage, both +1 status) is the requirement
+  being specified, not a candidate entry; a spec that could not name it could not state US-2 at
+  all. Each such name cites its source file and line where it first appears. **Not allowed:** a
+  name invented to make a list-membership or behaviour claim legible. A coined name carries no
+  source, so the claim rests on data nobody owns — and it can then be *used* like data, which is
+  exactly how the one violation of this rule surfaced: a fictional spell was used to assert that
+  a spell outside the list still casts freeform, i.e. it behaved like a candidate entry that was
+  quietly kept out. Use an unnamed spell ("a spell outside the library") or quote a sourced name
+  and cite it; do not coin one. **Checkable** — one command, the whole spec directory, not one
+  file: see `checklists/requirements.md`, "the one check unique to this epic".
 
 - **FR-4 [X] — What one library entry must carry.** A library entry is, at minimum: a name; one or more **named outcomes**, each of which carries **zero or more** effect definitions and display prose; and a duration note. An effect definition carries a modifier type, a stat from the closed vocabulary, a value, and a target selection rule resolvable at cast time. The precise field names, the ordering, and the JSON shape are fixed by [`contracts/spell-library-seed.md`](contracts/spell-library-seed.md) — which is this shop's deliverable and the thing Dave and Dave's PR are written against. Content authors are not asked to design the schema; they are asked to fill it.
 
