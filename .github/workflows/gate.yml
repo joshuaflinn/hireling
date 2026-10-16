@@ -296,6 +296,35 @@ jobs:
           # the pinned bytes (check_image_sources), not the local tree.
           python3 scripts/check_gate_vendored.py --allow-unvendored --require-image-sources "${args[@]}"
 
+      # The image's pinned semgrep version, asserted against the number named
+      # in scripts/gate_passes.tsv's scan:semgrep row (MOR-727). The bench
+      # installs semgrep unpinned (pipx install semgrep); the image pins its
+      # own. PR #139 is the precedent: a bench tool at a different version
+      # than the image's can answer a different question and stay green. The
+      # expected semver is read from the scan:semgrep row — the single
+      # repo-side authority — and compared to the image's own
+      # `semgrep --version`; a mismatch reds, so the row cannot drift
+      # uncaught and the number is never restated here. A failed docker run
+      # reds too (bash -e over the substitution and the grep).
+      - name: semgrep version — image's pinned CLI matches the declared row
+        if: ${{ !cancelled() }}
+        env:
+          GATE_IMAGE_REF: ${{ env.GATE_IMAGE }}
+        run: |
+          set -euo pipefail
+          expected="$(awk -F'\t' '$1 == "scan:semgrep" { print $3 }' scripts/gate_passes.tsv \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"
+          if [ -z "$expected" ]; then
+            echo "semgrep version: no semver found in the scan:semgrep row" >&2
+            exit 1
+          fi
+          actual="$(docker run --rm --entrypoint semgrep "$GATE_IMAGE_REF" --version)"
+          printf 'semgrep version: image %s, scan:semgrep row %s\n' "$actual" "$expected"
+          printf '%s\n' "$actual" | grep -qx "$expected" || {
+            echo "semgrep version drift: image $actual != scan:semgrep row $expected" >&2
+            exit 1
+          }
+
       # The runner-label drift check (gh#331): the workflow's `runs-on:`
       # label and the label embedded in the cache key/restore-keys must
       # agree. PR #319 made the runner label a hand-kept literal in four

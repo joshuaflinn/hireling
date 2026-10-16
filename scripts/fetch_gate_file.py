@@ -60,9 +60,12 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import re
+import shutil
 import sys
 import tarfile
+import tempfile
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -343,6 +346,24 @@ def _apply_layer(
     """Merge one layer's members into `tree`, honouring OCI whiteouts."""
     for member in archive.getmembers():
         name = member.name.removeprefix("./").removeprefix("/")
+        if name.endswith(".wh..wh..opq"):
+            # OCI opaque whiteout: "delete every lower-layer entry in this
+            # directory." It erases a whole subtree of the merged view, so it
+            # bites not only at or below `prefix` but also on an ANCESTOR
+            # directory — an opaque whiteout on `etc/gate/` erases
+            # `etc/gate/rules/` one level down, and a root-level `.wh..wh..opq`
+            # (no slash in the name) erases everything. _whiteout_target would
+            # read the member as deleting a harmless `.wh..opq` path, silently
+            # dropping the erase and vendoring files the merged view does not
+            # have. Fail closed — reproducing the merged tree faithfully needs
+            # the full lower-layer contents, which this tool does not model.
+            opq_dir = name[: -len(".wh..wh..opq")]
+            if prefix.startswith(opq_dir) or opq_dir.startswith(prefix):
+                fail(
+                    f"path '{name}' under '{dir_prefix}' is an opaque whiteout"
+                    " (.wh..wh..opq) — the merged directory cannot be reproduced"
+                    " faithfully"
+                )
         deleted = _whiteout_target(name)
         if deleted is not None:
             _apply_whiteout(tree, deleted, prefix)
@@ -414,18 +435,33 @@ def extract_directory(ref: ImageRef, dir_prefix: str) -> dict[str, bytes]:
 def write_tree(output: Path, tree: dict[str, bytes]) -> None:
     """Write `tree`'s relpath -> bytes under `output`, refusing escapes.
 
-    Validation runs before any directory is created: a relpath with an empty,
+    Validation runs before any directory is touched: a relpath with an empty,
     `.` or `..` component would escape the vendored root and reds the whole
-    extraction rather than writing outside `output`.
+    extraction rather than writing outside `output`. The output is then
+    replaced, not overlaid — a pre-existing tree is removed first, so a
+    re-vendor that drops a file does not leave it behind.
     """
     for relpath in tree:
         if any(part in ("", ".", "..") for part in relpath.split("/")):
             fail(f"path '{relpath}' escapes the vendored directory")
-    output.mkdir(parents=True, exist_ok=True)
+    # Replace, not overlay (MOR-725): a re-vendor that drops a rule file must
+    # not leave the stale file on disk for check-vendored to red on with a
+    # "re-vendor" hint. Write into a staging sibling first, then swap it in:
+    # a removal failure is loud (fail()), not a silent ignore_errors=True
+    # leaving a stale tree behind, and the rename is atomic so a crash
+    # mid-write cannot leave a half-written tree in place.
+    staging = output.with_name(output.name + ".new")
+    shutil.rmtree(staging, ignore_errors=True)
     for relpath, content in tree.items():
-        target = output / relpath
+        target = staging / relpath
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
+    if output.exists():
+        try:
+            shutil.rmtree(output)
+        except OSError as exc:
+            fail(f"could not replace {output}: {exc}")
+    staging.replace(output)
 
 
 def vendoring_header(image_path: str, digest: str) -> str:
@@ -726,6 +762,144 @@ def _self_test_directory_cases(ran: list[str], digest64: str) -> None:
 
     _check(ran, "dir-write-escape-refused", condition=refuse_write("../evil"))
 
+    def opaque_whiteout_refused() -> bool:
+        layer = _make_layer(
+            {
+                "etc/gate/rules/a.yaml": b"one",
+                "etc/gate/rules/.wh..wh..opq": b"",
+            }
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                search_directory(
+                    digest64,
+                    "etc/gate/rules/",
+                    [{"digest": "sha256:x"}],
+                    lambda _: layer,
+                )
+            except SystemExit:
+                return True
+        return False
+
+    _check(ran, "dir-opaque-whiteout-refused", condition=opaque_whiteout_refused())
+
+    def write_tree_replaces() -> bool:
+        with tempfile.TemporaryDirectory(prefix="fetch-gate-file-") as tmp:
+            out = Path(tmp) / "rules"
+            out.mkdir()
+            (out / "stale.yaml").write_bytes(b"stale")
+            write_tree(out, {"a.yaml": b"fresh"})
+            return (
+                not (out / "stale.yaml").exists()
+                and (out / "a.yaml").read_bytes() == b"fresh"
+            )
+
+    _check(ran, "dir-write-tree-replaces", condition=write_tree_replaces())
+
+
+def _self_test_directory_hardening_cases(ran: list[str], digest64: str) -> None:
+    # The fail-closed hardening cases added after the initial round (MOR-725,
+    # MOR-726, MOR-729): ancestor opaque whiteouts, a loud write_tree removal
+    # failure, and the manifest-untouched materialize invariant. Kept in their
+    # own function so each stays under the gate image's ruff complexity and
+    # statement limits.
+
+    def ancestor_opaque_whiteout_refused() -> bool:
+        # MOR-726: the opaque whiteout sits on an ANCESTOR of the prefix — a
+        # lower layer ships etc/gate/rules/old.yaml and an upper layer carries
+        # etc/gate/.wh..wh..opq (erasing everything under etc/gate/). The
+        # name.startswith(prefix) form misses this and vendors the stale
+        # lower-layer file; the ancestor comparison must red.
+        lower = _make_layer({"etc/gate/rules/old.yaml": b"lower"})
+        upper = _make_layer({"etc/gate/.wh..wh..opq": b""})
+        blobs = {"sha256:lower": lower, "sha256:upper": upper}
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                search_directory(
+                    digest64,
+                    "etc/gate/rules/",
+                    [{"digest": "sha256:lower"}, {"digest": "sha256:upper"}],
+                    lambda d: blobs[d],
+                )
+            except SystemExit:
+                return True
+        return False
+
+    _check(
+        ran,
+        "dir-ancestor-opaque-whiteout-refused",
+        condition=ancestor_opaque_whiteout_refused(),
+    )
+
+    def write_tree_removal_failure_refused() -> bool:
+        # MOR-725/F3: a removal failure must be loud, not silently ignored.
+        # The measured failure mode: a stale file under a chmod-0500
+        # subdirectory. ignore_errors=True on the old rmtree swallowed the
+        # EACCES and the write exited 0 with the stale file still on disk;
+        # the staging write now reds with a diagnostic. Root bypasses the
+        # permission bit, so the case is covered on the non-root bench where
+        # these self-tests run.
+        if getattr(os, "geteuid", lambda: 1)() == 0:
+            return True
+        with tempfile.TemporaryDirectory(prefix="fetch-gate-file-") as tmp:
+            out = Path(tmp) / "rules"
+            out.mkdir()
+            locked = out / "locked"
+            locked.mkdir()
+            (locked / "stale.yaml").write_bytes(b"stale")
+            locked.chmod(0o500)
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    try:
+                        write_tree(out, {"a.yaml": b"fresh"})
+                    except SystemExit:
+                        return True
+            finally:
+                locked.chmod(0o700)  # let TemporaryDirectory clean up
+        return False
+
+    _check(
+        ran,
+        "dir-write-tree-removal-failure-refused",
+        condition=write_tree_removal_failure_refused(),
+    )
+
+    def materialize_no_manifest_leaves_manifest() -> bool:
+        # MOR-729: the auto-vendor path (justfile self-provisioning) invokes the
+        # directory vend with --output and NO --manifest. The manifest is only
+        # ever touched under --manifest (the deliberate `just vendor-semgrep`
+        # action), so a materialize that drifts the pin would red here — the
+        # fetched tree must be verified against the *recorded* digest, not one
+        # it just rewrote to agree with itself.
+        with tempfile.TemporaryDirectory(prefix="fetch-gate-file-") as tmp:
+            out = Path(tmp) / "rules"
+            manifest = Path(tmp) / "gate_vendored.tsv"
+            before = (
+                "# header\n"
+                "etc/gate/rules/\tgate-semgrep-rules/\t" + "a" * 64 + "\n"
+            )
+            manifest.write_text(before, encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                _materialize_directory(
+                    argparse.Namespace(
+                        image_path="etc/gate/rules/",
+                        output=out,
+                        manifest=None,
+                        hash=False,
+                    ),
+                    {"a.yaml": b"fresh"},
+                )
+            return (
+                (out / "a.yaml").read_bytes() == b"fresh"
+                and manifest.read_text(encoding="utf-8") == before
+            )
+
+    _check(
+        ran,
+        "dir-materialize-no-manifest-leaves-manifest",
+        condition=materialize_no_manifest_leaves_manifest(),
+    )
+
 
 def _self_test() -> None:
     """Re-prove the pure paths: ref parsing, tar search, overlay, manifest.
@@ -740,6 +914,7 @@ def _self_test() -> None:
     _self_test_overlay_case(ran, digest64)
     _self_test_compose_cases(ran, digest64)
     _self_test_directory_cases(ran, digest64)
+    _self_test_directory_hardening_cases(ran, digest64)
     print(f"fetch-gate-file self-test: {len(ran)} checks, all pass")
 
 
@@ -786,9 +961,15 @@ def _resolve_image_ref(args: argparse.Namespace) -> ImageRef:
     return parse_image_ref(ref_text)
 
 
-def _vend_directory(args: argparse.Namespace, ref: ImageRef) -> None:
-    """Vend a directory IMAGE_PATH (trailing slash) and record its digest."""
-    tree = extract_directory(ref, args.image_path)
+def _materialize_directory(args: argparse.Namespace, tree: dict[str, bytes]) -> None:
+    """Write `tree` to `--output`; record the manifest row iff `--manifest`.
+
+    Split out of `_vend_directory` so the self-test can drive the materialize
+    decision (MOR-729) without a registry round-trip: with `--output` and no
+    `--manifest`, the tree is written and the manifest is left byte-identical.
+    The auto-vendor path must not rewrite the pin the drift check compares
+    against — the manifest write is the deliberate `just vendor-semgrep` action.
+    """
     digest = directory_digest(tree)
     if args.hash:
         print(digest)
@@ -811,6 +992,12 @@ def _vend_directory(args: argparse.Namespace, ref: ImageRef) -> None:
         "a directory IMAGE_PATH (trailing slash) needs --output or --hash —"
         " a tree cannot stream to stdout"
     )
+
+
+def _vend_directory(args: argparse.Namespace, ref: ImageRef) -> None:
+    """Vend a directory IMAGE_PATH (trailing slash) and record its digest."""
+    tree = extract_directory(ref, args.image_path)
+    _materialize_directory(args, tree)
 
 
 def _vend_file(args: argparse.Namespace, ref: ImageRef) -> None:

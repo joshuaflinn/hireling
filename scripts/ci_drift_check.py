@@ -566,6 +566,20 @@ def _run_self_test_cases(
     )
     run_case(tree, "a-guard-step-redirect", [], expect_red=True)
 
+    # A-red (gh#344): `just alpha | tee x` pipes the leg's stdout into
+    # another command. The pipe tail is not a bare flag, so the step must
+    # read as ungated rather than deriving alpha from a step whose tail is a
+    # second command.
+    tree = make_tree("one:alpha\t-\texempt: gated by the guard step\n", None)
+    (tree / ".github" / "workflows" / "gate.yml").write_text(
+        "jobs:\n  gate:\n    steps:"
+        "\n      - name: guard\n        run: just alpha | tee x\n"
+        "      - name: drift image side\n"
+        "        run: python3 scripts/ci_drift_check.py --image-log image.log\n",
+        encoding="utf-8",
+    )
+    run_case(tree, "a-guard-step-piped", [], expect_red=True)
+
 
 if __name__ == "__main__":
     main()

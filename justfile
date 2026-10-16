@@ -131,9 +131,24 @@ web-eslint: web-deps
 # The drift check over the vendored gate config (gh#314): the vendored file
 # must still hash to what scripts/gate_vendored.tsv records, and (CI-side,
 # --image-source) the pinned digest must still carry those bytes. The self-
-# test re-proves every red direction; the real check is the guardrail.
+# test re-proves every red direction; the real check is the guardrail. A
+# git-ignored rule tree absent from a fresh checkout self-provisions here
+# (MOR-729) from the pinned digest, without touching the manifest — unless
+# --allow-unvendored says the registry is unreachable, in which case the
+# absent-tree note is tolerated and the scan leg still self-vendors or reds.
 check-vendored *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
     python3 scripts/check_gate_vendored.py --self-test
+    if [ ! -d gate-semgrep-rules ]; then
+        if [[ " {{args}} " == *" --allow-unvendored "* ]]; then
+            echo "check-vendored: gate-semgrep-rules/ absent and --allow-unvendored set — skipping self-provision (registry unreachable)"
+        else
+            echo "check-vendored: gate-semgrep-rules/ absent — materializing from the pinned image (~1.2 GB), without touching the manifest"
+            python3 scripts/fetch_gate_file.py etc/grizzly-gate/config/util/semgrep/rules/ \
+                --output gate-semgrep-rules
+        fi
+    fi
     python3 scripts/check_gate_vendored.py {{args}}
 
 # The runner-label drift check (gh#331): the gate workflow's `runs-on:`
@@ -185,9 +200,13 @@ web-css-guard: web-deps
 # the vendored rules), same --exclude-rule (the check_id is derived from the
 # --config path, so the vendored path prefixes it), same --json --error
 # --quiet. `--metrics=off` is a bench-only knob (the image runs offline).
-# Needs the semgrep CLI on PATH (`pipx install semgrep`) and the vendored
-# tree — a scan that skips is not a scan, so a missing CLI or tree fails
-# loudly. scripts/semgrep_fail_closed.py then reads the JSON and reds on any
+# Needs the semgrep CLI on PATH (`pipx install semgrep`) — a missing CLI
+# fails loudly. An absent rule tree self-provisions here (MOR-729) from the
+# pinned digest, fetched by scripts/fetch_gate_file.py WITHOUT --manifest so
+# the pin the drift check compares against is never rewritten, then verified
+# against the recorded digest; that fetch reds if the registry is
+# unreachable, so the scan still cannot skip.
+# scripts/semgrep_fail_closed.py then reads the JSON and reds on any
 # warn/PartialParsing entry, the blind-spot class gh#332 names.
 scan-semgrep:
     #!/usr/bin/env bash
@@ -198,8 +217,10 @@ scan-semgrep:
         exit 1
     fi
     if [ ! -d gate-semgrep-rules ]; then
-        echo "scan-semgrep: gate-semgrep-rules/ not vendored — run 'just vendor-semgrep'" >&2
-        exit 1
+        echo "scan-semgrep: gate-semgrep-rules/ absent — materializing from the pinned image (~1.2 GB), without touching the manifest"
+        python3 scripts/fetch_gate_file.py etc/grizzly-gate/config/util/semgrep/rules/ \
+            --output gate-semgrep-rules
+        python3 scripts/check_gate_vendored.py
     fi
     semgrep_json="$(mktemp)"
     trap 'rm -f "$semgrep_json"' EXIT
