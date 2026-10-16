@@ -770,25 +770,101 @@ over the same string creates the parent chain *under the worktree*, so the write
 lands in the tree and shows as ordinary untracked:
 
 ```
-$ echo '{"e":5}' > home/flinn/.tmp/paperclip-<run>/x.json   # parent pre-created
+$ mkdir -p home/flinn/.tmp/paperclip-<run>
+$ echo '{"e":5}' > home/flinn/.tmp/paperclip-<run>/x.json
 $ git status --short
 ?? home/
 ```
 
-A literal absolute path does not behave that way: it lands at the absolute path
-when the parent directory exists and fails with `No such file or directory` when
-it does not, and either way the worktree stays clean. What contaminated a
-workspace here was a host path carried without its leading `/`, so the rule is
-about the name, not the redirection:
+Both lines are needed. Without the `mkdir -p` the redirect exits 1 with `No such
+file or directory` and nothing is contaminated — measured in a clean tree. The
+`mkdir -p` is the step that makes it reproduce, so it is part of the
+reproduction, not a precondition to footnote.
 
-- Never name an output file from a host path — literal, variable, template, or a
-  value read from a tool response or a path-stripping wrapper.
+A literal absolute path does not behave that way. Point `$W` at a directory that
+is not beneath the tree, and each outcome is a command. Pointing `$W` *at* the
+tree does not test the claim: `"$W/out/x.json"` is then an absolute path that
+*is* under the tree, and the block demonstrates contamination instead.
+
+- *Parent exists → lands at the absolute path, tree clean.* From a clean tree:
+
+  ```
+  $ W="$(mktemp -d)"                      # a directory NOT beneath the tree
+  $ mkdir -p "$W/out"                     # rc 0
+  $ echo '{"e":5}' > "$W/out/x.json"      # rc 0
+  $ test -f "$W/out/x.json" && echo wrote # wrote
+  $ git status --short                    # (no output)
+  ```
+
+- *Parent missing → rc 1, tree clean.* Same tree, no `mkdir`:
+
+  ```
+  $ echo '{"e":5}' > "$W/absent-9x/y.json"  # rc 1: No such file or directory
+  $ git status --short                      # (no output)
+  ```
+
+  Read `git status` in a tree that is clean *before* the write. Contamination is
+  sticky — a `?? home/` from an earlier repro stays listed and reads as if the
+  absolute write caused it.
+
+What contaminated a workspace here was a host path carried without its leading
+`/`, so the rule is about the name, not the redirection:
+
+- Never name an output file from a host path **carried in from outside this
+  worktree** — as a literal, a variable, a template, or a value read from a tool
+  response or a path-stripping wrapper. Every directory outside this worktree is
+  a candidate — `/tmp`, a service home, another repo's checkout. The one
+  exemption is the directory this run's harness names for you, enumerated in the
+  paragraph below; it is not inferred from a path's look.
 - Never `>`, `tee`, or an `--output`/`-o`/`-f` flag to a path built by
-  concatenating host-path components from inside a worktree.
+  concatenating host-path components **carried in from outside this worktree**.
+
+The bullets are about where the name came from, not its shape, because shape
+cannot decide it: `$PAPERCLIP_RUN_SCRATCH_DIR/x.json` and
+`"${WORKTREE_DIR#/}/x.json"` (`$WORKTREE_DIR` is a stand-in for a worktree path,
+not an env var this harness sets) are both an absolute path in a variable, used as
+a template — and only the second is what the bullets mean. From a clean tree, the
+scratch variable passes whole and stays clean; the stripped worktree path needs
+one `mkdir -p` and then contaminates:
+
+```
+$ echo '{"e":5}' > "$PAPERCLIP_RUN_SCRATCH_DIR/x.json"   # rc 0
+$ git status --short                                     # (no output)
+$ mkdir -p "${WORKTREE_DIR#/}"                           # the step that makes it reproduce
+$ echo '{"e":5}' > "${WORKTREE_DIR#/}/x.json"            # rc 0
+$ git status --short
+?? home/
+```
+
+What the scratch dir is *not* is exempt. Used whole it is the prescribed
+substitute; run through a stripping wrapper or a slash-less interpolation it
+reaches the tree like any other absolute path. A stripping wrapper is not picky
+about which absolute it eats. Here is the same tree's own path taken from
+`git rev-parse --show-toplevel` — a value read straight out of a tool response —
+stripped and run through the mechanism. In a tree clean before the write:
+
+```
+$ W="$(git rev-parse --show-toplevel)"
+$ U="${W#/}"
+$ mkdir -p "$U"                                      # rc 0
+$ echo '{"e":5}' > "$U/x.json"                       # rc 0
+$ git status --short
+?? home/
+```
+
+The scratch dir is no further from the tree than that, and it fails the same way:
+`mkdir -p "${PAPERCLIP_RUN_SCRATCH_DIR#/}"` then a write to a child of that
+string is rc 0 and yields `?? home/`. Write to that same string *itself* and
+`mkdir -p` has just made it a directory — rc 1, `Is a directory`, tree still
+clean. Whether the scratch dir sits beside `$HOME` or under it does not decide
+anything, which is why `$HOME` is not the test; the condition is whether the
+absolute value survives intact to the redirect. The earlier "outside every
+worktree precisely so this cannot happen" over-claimed on that point.
 
 Write output to a workspace-relative path you chose and clean it up, or — on a
-Paperclip seat — under `$PAPERCLIP_RUN_SCRATCH_DIR`, which is run-owned and
-outside every worktree precisely so this cannot happen.
+Paperclip seat — under `$PAPERCLIP_RUN_SCRATCH_DIR`, passed whole. It is run-owned
+and outside every worktree, which is why it is the substitute; it does not need to
+sit outside `$HOME`, and it earns nothing by passing through a wrapper.
 
 `set -C` is not a guard, for two reasons, and the first governs: it blocks only
 *overwriting an existing file*, and a contaminating path is always new
