@@ -328,12 +328,19 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   heads, *and* ask whether `main`'s incoming hunks touch a reviewed one. The
   first round on a PR has no prior head; it is an author-text round. Changed
   author hunks mean an author-text round — wide, counted. Byte-identical
-  author hunks fork three ways on `main`'s side of the seam: non-interacting
-  `main` hunks are a plain carry-over; interacting `main` hunks that need no
-  fix are a carry-over with the reviewer's judgment branch of *Verdict
-  carry-over*; and interacting `main` hunks whose combination is defective in
-  a way that needs added text at the merged head are the reconciliation
-  re-bind round below — uncounted, and not an author-text round. Byte-identical
+  author hunks fork three ways on `main`'s side of the seam, and only one of
+  the three opens a round, so name each outcome by whether a round follows:
+  non-interacting `main` hunks are a plain carry-over re-bind — **no round**;
+  interacting `main` hunks that need no fix are a carry-over re-bind on the
+  reviewer's judgment branch of *Verdict carry-over* — **no round**; and
+  interacting `main` hunks whose combination is defective in a way that needs
+  added text at the merged head are the reconciliation re-bind round below —
+  **a round, uncounted**, and not an author-text round. The first two are
+  re-binds, not rounds: each posts a re-bind comment and never an announcement
+  carrying a verdict, so a presser must not hold a pressable PR waiting for a
+  verdict that will not come, and must not press past an open round. Say
+  "re-bind," not "carry-over round," for both — the preceding paragraph's
+  carry-over *round* is a third thing with its own trigger. Byte-identical
   hunks alone cannot tell those three apart, which is why the second question
   is part of the test.
 
@@ -385,8 +392,8 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
     is a decision about the task.
   - Announced and verdicted like any round, per *Review of record*.
 
-  **The reviewer re-binds under a reconciliation re-bind round.** The
-  post-accept round above is `main`'s, not the author's. A verdict is posted
+  **The reviewer re-binds under a reconciliation re-bind round.** This round
+  is `main`'s; the post-accept round above is the author's. A verdict is posted
   at a head; the strict up-to-date policy of `ruleset 24735400 v53013064`
   forces a head move; `main` has edited an interacting part of a reviewed
   path; and the combination is defective in a way that needs added text at
@@ -421,9 +428,12 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   - **Once per PR.** A second forced reconciliation on the same PR goes to
     Thrane, and whether it proceeds is a decision about the task.
   - Announced and verdicted like any round, per *Review of record*, gate read
-    first. The seat marker names the kind so no presser miscounts it as a
-    third author-text round: `review-seat: PR #<n> uncounted reconciliation
-    round head <sha>`.
+    first. **The announcement and the verdict name the kind** — *uncounted
+    reconciliation re-bind round* — so no presser miscounts it as a third
+    author-text round. The press reads round state off those two artifacts, so
+    the mandate belongs on them and not on the seat marker alone; the marker
+    carries it too: `review-seat: PR #<n> uncounted reconciliation round head
+    <sha>`.
 
   **PR #366 is this round's reason,** and the record is checkable. Round-2 accept
   `5545784972` at head `f1d0004e0fc3154e5c5351520b965af42a7f940b`; `main` at
@@ -503,7 +513,10 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   The verdict itself is still the reviewer's and only the reviewer's; the
   mechanical re-bind is bookkeeping over their verdict, not a second one.
   That comment is the record, same as any verdict — a carry-over is never
-  silent. If any condition fails, it is a new review round, full stop.
+  silent. If any condition fails, it is a new review round — counted and
+  author-text, unless condition 2 fails only because `main`'s interacting
+  hunks forced reconciliation text at the merged head, which is the uncounted
+  *reconciliation re-bind round* in *Review rounds*. Full stop on the rest.
 
   The head move itself is not waste and is not negotiable. `main` carries the
   `main-gate` ruleset (id `24735400`), which at version `v53013064` requires
