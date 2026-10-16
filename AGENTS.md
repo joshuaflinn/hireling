@@ -813,11 +813,12 @@ What contaminated a workspace here was a host path carried without its leading
 - Never name an output file from a host path **carried in from outside this
   worktree** — as a literal, a variable, a template, or a value read from a tool
   response or a path-stripping wrapper. Every directory outside this worktree is
-  a candidate — `/tmp`, a service home, another repo's checkout. The one
-  exemption is the directory this run's harness names for you, enumerated in the
-  paragraph below; it is not inferred from a path's look.
+  a candidate — `/tmp`, a service home, another repo's checkout.
 - Never `>`, `tee`, or an `--output`/`-o`/`-f` flag to a path built by
   concatenating host-path components **carried in from outside this worktree**.
+
+The one exemption is the directory this run's harness names for you, enumerated
+in the paragraph below; it is not inferred from a path's look.
 
 The bullets are about where the name came from, not its shape, because shape
 cannot decide it: `$PAPERCLIP_RUN_SCRATCH_DIR/x.json` and
