@@ -595,6 +595,22 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   mode, pinned image) on every PR — a red gate is a red PR, no exceptions. The
   lint/test configs are vendored from Bear's rust-toolkit; if a lint fights you,
   propose tuning it in a PR, don't `#[allow]` around it.
+- **A behaviour claim in the PR body names the test that proves it, per claimed
+  input.** The count rule above extends to behaviour, and the fail-closed class is
+  where it bites: a claim that the change *rejects*, *refuses* or *fails closed* on an
+  input is a claim nothing exercises incidentally — a working feature proves the accept
+  path and never the reject path — so each input the claim names carries its own
+  assertion through the production path that owns it, and the body names that assertion.
+  Where a named input has no assertion, the body says "not tested" for that input
+  instead of stating the behaviour as fact. A list of inputs is a list of claims: one
+  test behind a three-item list certifies two items nobody checked, the same fault as a
+  single citation over a whole rules table. Shipped text is held to the same bar — a
+  fail-closed claim in a doc comment is a behaviour claim, and it ships with the
+  assertion or it does not ship. PR #337 is the reason, and the tell was in the claim
+  itself: it named "chained `just a && just b`" as failing closed and "two new
+  self-tests, arged-green/multiline-red" as its coverage in one sentence. At head
+  `88aca54` that input derives `alpha`, and so does `run: just alpha; true` — a step
+  that can never red, reported as a CI home that can.
 - **Bring the branch up to date before you ask for review.** `main` is guarded
   by the `main-gate` ruleset (id `24735400`), which at version `v53013064`
   enforces a strict up-to-date status-check policy, so a branch BEHIND `main`
