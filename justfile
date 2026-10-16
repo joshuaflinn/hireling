@@ -139,9 +139,14 @@ web-eslint: web-deps
 # (MOR-729) from the pinned digest, without touching the manifest — unless
 # --allow-unvendored says the registry is unreachable, in which case the
 # absent-tree note is tolerated and the scan leg still self-vendors or reds.
+# `fetch_gate_file.py --self-test` runs first: the producer of the vendored
+# tree self-tests in the leg that consumes it. `scan-semgrep` also invokes that
+# producer, but `check-vendored` is the home that CI reaches — it is the one of
+# the two carrying a `run: just` guard step in `.github/workflows/gate.yml`.
 check-vendored *args:
     #!/usr/bin/env bash
     set -euo pipefail
+    python3 scripts/fetch_gate_file.py --self-test
     python3 scripts/check_gate_vendored.py --self-test
     if [ ! -d gate-semgrep-rules ]; then
         if [[ " {{args}} " == *" --allow-unvendored "* ]]; then
@@ -211,10 +216,15 @@ web-css-guard: web-deps
 # unreachable, so the scan still cannot skip.
 # scripts/semgrep_fail_closed.py then reads the JSON and reds on any
 # warn/PartialParsing entry, the blind-spot class gh#332 names.
+# Its `--self-test` runs first, above the CLI precondition, so the pure suite
+# still runs on a bench with no semgrep installed. `just scan-semgrep` has no
+# `run: just` step in `gate.yml` — its CI home is the image's own `scan:semgrep`
+# mirror, which cannot execute this suite — so this placement covers the bench.
 scan-semgrep:
     #!/usr/bin/env bash
     set -euo pipefail
     cd "$(git rev-parse --show-toplevel)"
+    python3 scripts/semgrep_fail_closed.py --self-test
     if ! command -v semgrep >/dev/null 2>&1; then
         echo "scan-semgrep: semgrep CLI not found — install it (pipx install semgrep) or run the pinned gate image (CONTRIBUTOR.md)" >&2
         exit 1
