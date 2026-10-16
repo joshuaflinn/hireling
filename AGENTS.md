@@ -770,25 +770,68 @@ over the same string creates the parent chain *under the worktree*, so the write
 lands in the tree and shows as ordinary untracked:
 
 ```
-$ echo '{"e":5}' > home/flinn/.tmp/paperclip-<run>/x.json   # parent pre-created
+$ mkdir -p home/flinn/.tmp/paperclip-<run>
+$ echo '{"e":5}' > home/flinn/.tmp/paperclip-<run>/x.json
 $ git status --short
 ?? home/
 ```
 
-A literal absolute path does not behave that way: it lands at the absolute path
-when the parent directory exists and fails with `No such file or directory` when
-it does not, and either way the worktree stays clean. What contaminated a
-workspace here was a host path carried without its leading `/`, so the rule is
-about the name, not the redirection:
+Both lines are needed. Without the `mkdir -p` the redirect exits 1 with `No such
+file or directory` and nothing is contaminated — measured in a clean tree at
+`97a5d2b`. The `mkdir -p` is the step that makes it reproduce, so it is part of
+the reproduction, not a precondition to footnote.
 
-- Never name an output file from a host path — literal, variable, template, or a
-  value read from a tool response or a path-stripping wrapper.
+A literal absolute path does not behave that way. Write *outside* the tree —
+under a directory that is not beneath it — and each outcome is a command. Set
+`$W` to that outside directory, **not** to the tree itself: with `$W` inside the
+tree, `"$W/out/x.json"` is an absolute path that *is* under the tree, and the
+block demonstrates contamination instead of the claim.
+
+- *Parent exists → lands at the absolute path, tree clean.* From a clean tree:
+
+  ```
+  $ W=$RUN_OWNED_DIR                 # a directory NOT beneath the tree
+  $ mkdir -p "$W/out"
+  $ echo '{"e":5}' > "$W/out/x.json" # rc 0
+  $ test -f "$W/out/x.json" && echo wrote   # wrote
+  $ git status --short                      # (no output)
+  ```
+
+- *Parent missing → rc 1, tree clean.* Same tree, no `mkdir`:
+
+  ```
+  $ echo '{"e":5}' > "$W/absent-9x/y.json"  # rc 1: No such file or directory
+  $ git status --short                      # (no output)
+  ```
+
+  Read `git status` in a tree that is clean *before* the write. Contamination is
+  sticky — a `?? home/` from an earlier repro stays listed and reads as if the
+  absolute write caused it.
+
+What contaminated a workspace here was a host path carried without its leading
+`/`, so the rule is about the name, not the redirection:
+
+- Never name an output file from a host path **carried in from outside this
+  worktree** — as a literal, a variable, a template, or a value read from a tool
+  response or a path-stripping wrapper. A directory the harness names for you is
+  not carried in; the next paragraph prescribes it.
 - Never `>`, `tee`, or an `--output`/`-o`/`-f` flag to a path built by
   concatenating host-path components from inside a worktree.
 
+The bullet is about where the name came from, not its shape, because shape cannot
+decide it: `$PAPERCLIP_RUN_SCRATCH_DIR/x.json` and `$WORKTREE_DIR/x.json` are the
+same shape — an absolute path in a variable, used as a template — and only the
+second is a hazard of this rule. Measured on a host where the scratch dir is not
+beneath the worktree: the scratch form returns rc 0 and leaves
+`git status --short` empty, while the worktree form written with its leading `/`
+stripped returns rc 0 and yields `?? home/`.
+
 Write output to a workspace-relative path you chose and clean it up, or — on a
-Paperclip seat — under `$PAPERCLIP_RUN_SCRATCH_DIR`, which is run-owned and
-outside every worktree precisely so this cannot happen.
+Paperclip seat — under `$PAPERCLIP_RUN_SCRATCH_DIR`, which is run-owned, outside
+every worktree on the adapter that provisions run scratch this way, and therefore
+outside the bullet above. On a host where the run scratch dir *is* under `$HOME`
+— and a stripped `$HOME/.tmp/...` can reach it — prefer a workspace-relative path
+you chose and clean it up.
 
 `set -C` is not a guard, for two reasons, and the first governs: it blocks only
 *overwriting an existing file*, and a contaminating path is always new
