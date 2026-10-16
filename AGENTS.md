@@ -285,7 +285,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   Alongside the gate read, at the head already named: `git fetch origin main
   <branch>`, then `git merge-base --is-ancestor origin/main <head>` — exit 0 is
   up to date, exit 1 is behind. The fetch is not optional: `origin/main` is a
-  ref, and a stale one reports a behind head as current — a false pass, the
+  local ref, and a stale one reports a behind head as current — a false pass, the
   same wrong-head fault class as reading check-runs at a superseded SHA. `gh
   pr view <n> --json mergeStateStatus` is corroboration, never a substitute;
   it is computed lazily and can read `UNKNOWN`. A behind head does not hold
@@ -508,8 +508,13 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   (`MOR-<n>`) can be clean and an ancestor of `origin/main` and still be a
   live harness-owned workspace — never remove one unless that task is
   closed. Hand-cut `hireling-*` siblings keep the old staleness test:
-  branch an ancestor of `origin/main` and tree clean means merged, nothing
-  in it can be lost, and any agent may remove such a sibling on sight.
+  a clean tree means nothing in it can be lost, and any agent may remove
+  such a sibling on sight — `git worktree remove` leaves the local branch
+  ref in place, so the commits stay reachable whatever the merge state, and
+  the clean-tree check carries that weight alone. The ancestry conjunct is
+  dropped because `main` squash-merges and a merged branch is normally *not*
+  an ancestor of `origin/main`; for a belt-and-braces merge check, read PR
+  state off `gh pr list --head <branch> --state all` (merged or closed).
   Never `worktree remove --force`; a dirty tree belongs to its owner.
   A provisioned `MOR-<n>` branch pointer is not durable between runs. The
   harness re-points it to current `origin/main` when a new run in the lineage
