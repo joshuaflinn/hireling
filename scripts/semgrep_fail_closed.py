@@ -5,11 +5,15 @@ semgrep --json records a rule that could not parse its target as an
 `errors[]` entry at `level: warn` with `type: ["PartialParsing", …]` — a skip
 that reads as a clean pass because the command exits 0 with `"results": []`.
 A rule that could not read its target looks exactly like one that read it and
-found nothing. This guard reads the same JSON and fails closed on any
-warn/PartialParsing entry, so a skipped target reds instead of passing.
+found nothing. This guard reads the same JSON and fails closed on every
+`errors[]` entry whose level is not `info` (an allow-list, not a warn-only
+deny-list: `error`, `warning`, `fatal`, and unknown levels all red), plus any
+entry carrying a PartialParsing marker under any level — so a skipped target
+reds instead of passing.
 
 `level: info` entries (the image's 19 `Missing plugin` Apex/Elixir pro-engine
-notices) are tolerated: they do not mark a target the rules skipped.
+notices) are the only tolerated level: they do not mark a target the rules
+skipped.
 
 Usage:
     semgrep scan --json --error … | python3 scripts/semgrep_fail_closed.py
@@ -54,14 +58,20 @@ def parse_doc(data: bytes) -> dict[str, Any]:
 
 
 def blind_spot_entries(errors: list[Any]) -> list[Any]:
-    """Return the errors[] entries this guard reds on (warn / PartialParsing)."""
+    """Return the errors[] entries this guard reds on.
+
+    The allow-list (gh#332 narrowing, MOR-724): every entry whose level is not
+    `info` reds — `error`, `warning`, `fatal`, an unknown level, a missing
+    level — plus any entry carrying a PartialParsing marker under any level (a
+    `level: info` entry that still marks an unparsed target is a skip).
+    """
     out = []
     for entry in errors:
         if not isinstance(entry, dict):
             out.append(entry)  # a malformed entry is itself a blind spot
             continue
         serialized = json.dumps(entry)
-        if entry.get("level") == "warn" or "PartialParsing" in serialized:
+        if entry.get("level") != "info" or "PartialParsing" in serialized:
             out.append(entry)
     return out
 
@@ -96,6 +106,12 @@ def check(data: bytes) -> None:
     errors = doc["errors"]
     paths = doc.get("paths")
     scanned = paths.get("scanned", []) if isinstance(paths, dict) else []
+    # Findings first (gh#345): a document carrying both a blind-spot entry and
+    # real findings must name every finding before the blind-spot block reds —
+    # the recipe deletes the JSON once this guard returns, so this loop is the
+    # only thing that can print them.
+    for finding in results:
+        print(finding_line(finding))
     blind = blind_spot_entries(errors)
     for entry in blind:
         # The whole entry: the rule, the path/line, and the parse error.
@@ -106,8 +122,6 @@ def check(data: bytes) -> None:
             " skipped target reads as a clean pass; fix the target or the rule"
             " before this passes"
         )
-    for finding in results:
-        print(finding_line(finding))
     info = [e for e in errors if isinstance(e, dict) and e.get("level") == "info"]
     if results:
         print(
@@ -192,18 +206,22 @@ def self_test() -> None:
         doc: bytes,
         *,
         expect_red: bool,
-        expect_stdout: str | None = None,
+        expect_stdout: str | list[str] | None = None,
         forbid_stdout: str | None = None,
     ) -> None:
         ran.append(name)
         proc = _self_test_case(script, name, doc, expect_red=expect_red)
-        if expect_stdout is not None and expect_stdout not in proc.stdout:
-            print(
-                f"self-test [{name}]: expected stdout to contain {expect_stdout!r},"
-                f" got {proc.stdout!r}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+        expected = (
+            [expect_stdout] if isinstance(expect_stdout, str) else expect_stdout
+        )
+        for want in expected or []:
+            if want not in proc.stdout:
+                print(
+                    f"self-test [{name}]: expected stdout to contain {want!r},"
+                    f" got {proc.stdout!r}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
         if forbid_stdout is not None and forbid_stdout in proc.stdout:
             print(
                 f"self-test [{name}]: expected stdout NOT to contain"
@@ -248,11 +266,62 @@ def self_test() -> None:
         ),
         expect_red=True,
     )
+    # Red: a non-info level reds under the allow-list even without a
+    # PartialParsing marker (MOR-724) — error, warning, fatal, unknown.
+    case(
+        "error-level",
+        _doc([], [{"level": "error", "type": "ParseError"}]),
+        expect_red=True,
+    )
+    case(
+        "warning-level",
+        _doc([], [{"level": "warning", "type": "ParseError"}]),
+        expect_red=True,
+    )
+    case(
+        "fatal-level",
+        _doc([], [{"level": "fatal", "type": "ParseError"}]),
+        expect_red=True,
+    )
+    case(
+        "unknown-level",
+        _doc([], [{"level": "zorp", "type": "ParseError"}]),
+        expect_red=True,
+    )
+    # Red: a missing level is not `info`, so it reds too (allow-list).
+    case(
+        "missing-level",
+        _doc([], [{"type": "ParseError"}]),
+        expect_red=True,
+    )
     # Red: the PartialParsing marker hides under an unexpected level.
     case(
         "partialparsing-under-info",
         _doc([], [{"level": "info", "type": "Missing plugin", "message": "PartialParsing"}]),
         expect_red=True,
+    )
+    # Red: a document carrying both a blind-spot entry and a finding must
+    # print the finding line before the blind-spot block reds (gh#345) —
+    # both are the only record once the recipe's trap deletes the JSON.
+    case(
+        "mixed-blind-and-finding",
+        _doc(
+            [
+                {
+                    "check_id": "real",
+                    "path": "real.py",
+                    "start": {"line": 12},
+                    "extra": {"message": "oops"},
+                }
+            ],
+            [{"code": 3, "level": "warn", "type": ["PartialParsing", []]}],
+        ),
+        expect_red=True,
+        expect_stdout=[
+            "semgrep fail-closed: real: real.py:12: oops",
+            "semgrep fail-closed: blind-spot entry:",
+        ],
+        forbid_stdout="semgrep fail-closed ok:",
     )
     # Red: a malformed (non-object) errors entry.
     case("non-object-entry", _doc([], ["not a dict"]), expect_red=True)
