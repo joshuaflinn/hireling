@@ -364,12 +364,13 @@ json-keys:
 
 # The disk floor for `disk-guard`, overridable three ways (precedence:
 # `just disk-floor-gb=<n>` on the command line, then `DISK_FLOOR_GB` in the
-# environment, then this 10G default). 10G is ~3x a measured full gate build — a leaked target-gate-*
-# dir runs 2.2–3.7G (`du -sh` on this bench) — so the floor leaves headroom
-# for one build plus the checkouts, node_modules and git objects that share
-# the filesystem, without crying wolf on every bench holding a little
-# history. CI runs the same default: the runner logged 75.4G free with the
-# gate cache already restored, so no override is needed.
+# environment, then this 10G default). 10G is ~3x a measured full gate build
+# — a leaked target-gate-* dir runs 2.2–3.7G (`du -sh` on this bench) — so
+# the floor leaves headroom for one build plus the checkouts, node_modules
+# and git objects that share the filesystem, without crying wolf on every
+# bench holding a little history. CI runs the same default: the runner
+# logged 75.4G free with the gate cache already restored, so no override is
+# needed.
 disk-floor-gb := env_var_or_default("DISK_FLOOR_GB", "10")
 
 # Free-space guard: fail fast, before the expensive ci-local legs, when the

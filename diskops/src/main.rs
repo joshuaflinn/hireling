@@ -13,8 +13,9 @@ use std::process::{Command, ExitCode};
 
 use diskops::{
     DEFAULT_FLOOR_GIB, FreeSpace, GIB, GuardOutcome, LiveStatus, ProcessObservation, ReapDecision,
-    SiblingKind, apply_removals, classify_sibling, decide, format_gib, guard_outcome,
-    nearest_existing_ancestor, parse_df, parse_floor_gib, process_liveness, skip_reason_text,
+    RemovalAction, SiblingKind, apply_removals, classify_sibling, decide, format_gib,
+    guard_outcome, nearest_existing_ancestor, parse_df, parse_floor_gib, process_liveness,
+    removal_action, skip_reason_text,
 };
 
 fn main() -> ExitCode {
@@ -263,7 +264,7 @@ fn report_and_remove(
 
     if prune {
         // Collect removals instead of `?`-propagating: one failed candidate
-        // must not abandon the sweep (F2).
+        // must not abandon the sweep.
         let applied = apply_removals(&reapable, |path, name, kind| {
             let size = dir_size_bytes(path);
             let size_text = size.map_or_else(|| "?".to_owned(), format_gib);
@@ -335,11 +336,11 @@ fn dir_size_bytes(path: &Path) -> Option<u64> {
 /// Remove a candidate, branching on the kind `build_plan` already computed:
 /// `remove_dir_all` for `target-*`, `git worktree remove` (never `--force`)
 /// for `hireling-*`. The kind, not the name, is the source of truth here —
-/// the delete path must not re-derive it (F4).
+/// the delete path must not re-derive it.
 fn remove_dir(path: &Path, name: &str, kind: SiblingKind) -> Result<(), String> {
-    match kind {
-        SiblingKind::Hireling => git_worktree_remove(path),
-        SiblingKind::Target | SiblingKind::Mor | SiblingKind::Reference | SiblingKind::Other => {
+    match removal_action(kind, name)? {
+        RemovalAction::GitWorktreeRemove => git_worktree_remove(path),
+        RemovalAction::RemoveDirAll => {
             std::fs::remove_dir_all(path).map_err(|error| format!("cannot remove {name}: {error}"))
         }
     }
@@ -394,7 +395,7 @@ fn git_worktree_remove(path: &Path) -> Result<(), String> {
 }
 
 /// Read every observable process from `/proc`, as a list of observations
-/// for [`process_blocks_dir`]. The reaper's own ancestors are excluded so a
+/// for [`process_liveness`]. The reaper's own ancestors are excluded so a
 /// `cargo run` wrapper never attributes its own waiting parent to a
 /// candidate. Fail-closed: an unreadable `/proc` is an error, so `--prune`
 /// can never delete on an unknown liveness state.
@@ -453,7 +454,7 @@ fn read_argv(pid: u32) -> Option<Vec<String>> {
 /// `/proc/<pid>/environ`, plus whether the environment was readable at all.
 /// The detached-gate recipe sets `CARGO_TARGET_DIR="$PWD/../target-gate-<n>"`
 /// on the process environment (never on argv), so this is the one place the
-/// repo's `target-*` producer names its directory (F1).
+/// repo's `target-*` producer names its directory.
 fn read_environ_target_dir(pid: u32) -> (Option<PathBuf>, bool) {
     let Ok(bytes) = std::fs::read(format!("/proc/{pid}/environ")) else {
         return (None, false);
