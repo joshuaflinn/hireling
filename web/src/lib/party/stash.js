@@ -163,7 +163,66 @@ const partyTarget = (partyId) => ({ kind: 'party', party_id: partyId, field: 'qu
  * }} setup
  * @returns {StashState & {sync: import('../sync/index.js').Sync}}
  */
-export function createStashState({ sync, partyId, you = null, roster = [] }) {
+export function createStashState({
+  sync,
+  partyId,
+  you = null,
+  roster = [],
+  transport = null,
+}) {
+  // The frame-delivery seam. Production passes nothing and gets the sync
+  // surface's own `write` — `post` below is unchanged in every other respect, so
+  // with no `transport` the module behaves exactly as it did before this existed.
+  // A test passes a recorder and then asserts on the FRAME it posted.
+  //
+  // Why a seam inside the module rather than a hand-rolled `sync` fake: the
+  // screen's own-write echo and its refusal records are both facts the SURFACE
+  // produces, and a fake has to invent them. `sync/index.js:188-210` fans the
+  // post-dequeue `op_exposed` carrying the surface's own op object — the only
+  // place a full `target` ever reaches the store's refusal record, because the
+  // frame on the wire is `{t, op_id, outcome, version}` with no target at all. A
+  // fake that files `op_exposed` with a hand-built op makes
+  // `opErrors()[0].op.target` a test artifact, not a wire fact, and the same fake
+  // has to mint `op_id`s that agree with the store's pending-op table or every
+  // own-write echo silently never clears (which reads as "the DOM did not
+  // update"). Recording at the delivery point and leaving the real store to do
+  // everything else costs one parameter and removes both fabrications.
+  // The recorder's clock is the SURFACE's, not this module's. The id has to be
+  // the one the sync surface filed the op under, because everything downstream of
+  // a write keys on it: the store's `pendingOps` map, the ack that clears the
+  // own-write echo, and any test that matches a recorded frame against what the
+  // socket carried. A store-local counter here produced `t1`, `t2`, … while the
+  // surface's `idFactory` produced the real ids, and a test could not tie a frame
+  // it asserted on to the op the server was answering — the mismatch showed up as
+  // an echo that never cleared, which reads as a broken control.
+  //
+  // So the seam hands the frame to `write` and reads the id back off the
+  // surface's own queue (`opIds` below): the queue is where the surface filed it,
+  // and reading it back is the only way to be sure the recorded id is the one the
+  // ack will name rather than one this module guessed. Absent a queue to read,
+  // the recording carries `id: null` and no caller may claim an id for it — a
+  // frame recorded without the id it travelled under is a frame nobody can prove
+  // was ever sent.
+  /** @type {Array<{target: Record<string, *>, value: *, base_version: number, id: string|null}>} */
+  const posted = [];
+  /** The id the surface filed `target`'s newest write under, or null when the
+   *  surface keeps no readable queue (a test seam that is not the real one). */
+  const opIds = () => /** @type {any} */ (sync).queue?.() ?? [];
+  /** @type {(t: Record<string, *>, v: *, b: number) => string|null} */
+  const deliver =
+    transport ??
+    ((t, v, b) => {
+      const sync2 = /** @type {any} */ (sync);
+      const before = opIds().length;
+      sync2.write(t, v, b);
+      // The write is the last thing the queue gained, and only if the surface
+      // accepted it — a surface that refused would leave the length alone and the
+      // newest id is then whatever stale op is at the end, which is why this
+      // checks that a frame was actually appended rather than just reading the end.
+      const all = opIds();
+      return all.length > before ? all[all.length - 1].op_id : null;
+    });
+
   const isGm = you?.role === 'gm';
   const mySub = you?.sub ?? null;
 
@@ -592,13 +651,32 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
           // a delta landing on zero is APPLIED as a removal, not a refusal. That
           // is why zero is handled after the fold rather than inside the guard.
           let quantity = shown.quantity;
+          let deleted = false;
           for (const pendingOp of pending) {
             const delta = /** @type {{qty_delta?: number}} */ (pendingOp.value).qty_delta ?? 0;
             // A sum of exactly 0 is the delete arm, so it is legal here; anything
             // below it, or above the int4 ceiling, is refused and skipped (finding 2).
             if (quantity + delta < 0 || quantity + delta > I32_MAX) continue;
             quantity += delta;
+            // gh#340: a delete is not a refusal, and the two differ in what
+            // happens to the ops behind them. A refusal matches no row, so the
+            // base is untouched and the next op still applies — `continue`, which
+            // is #311's finding-2 fix and stays. A sum of exactly zero is the
+            // DELETE arm (write.rs:1310-1313): the row is gone, and every op
+            // behind it addresses nothing, so `apply_stash_delta` refuses each one
+            // `unknown target` (write.rs:1326-1336). Nothing behind a delete can
+            // ever apply, so the fold stops with the row removed here rather than
+            // at the `quantity === 0` render below — on an unfixed fold the row is
+            // still in `rows` with its old quantity when the next op folds, so
+            // `[-2, +10]` on a 2-row shows 10 where the server holds no row, and
+            // that sum never rests on zero, so the render below never sees it.
+            if (quantity === 0) {
+              rows.splice(rows.indexOf(shown), 1);
+              deleted = true;
+              break;
+            }
           }
+          if (deleted) continue;
           if (quantity === 0) rows.splice(rows.indexOf(shown), 1);
           else shown.quantity = quantity;
           continue;
@@ -769,7 +847,23 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     let out = '';
     for (const key of Object.keys(fields).sort()) {
       const entry = fields[key];
-      out += `${key}|${encodeValue(entry.value)}|${entry.version}|${encodeValue(entry.serverValue)}|`;
+      // All three of the field's facts, and the pending one is not a refinement —
+      // it is the fact the cache used to miss. A fold over a field whose SERVER
+      // value is unmoved but whose ECHO just appeared produces a different row
+      // quantity, so a witness that left the echo out served the pre-click fold to
+      // a read made after the click: the delta rode the wire, the queue held it,
+      // the store held the echo, and the screen still showed ×3. That is the §4
+      // optimistic echo missing from the cache's own key, and it looked exactly
+      // like an unresponsive button.
+      out += `${key}|${encodeValue(entry.value)}|${entry.version}|${encodeValue(entry.serverValue)}|${encodeValue(entry.pendingValue)}|${entry.pendingOpId ?? "-"}|`;
+      // The echo's op id is in the key alongside its value, and it is there for a
+      // reason: a settled echo that happens to project the SAME quantity as the
+      // server already holds — a refused delta, an `already_applied` ack — leaves
+      // every value and version in this string unchanged and would otherwise read
+      // "nothing moved" while the field's pending slot emptied. The projection
+      // would keep serving the pre-settle fold, which for a row is the same number
+      // and harmless, but for a bank whose echo was refused is the balance the
+      // server never committed. Ids are unique per op, so this cannot collide.
     }
     return out;
   }
@@ -804,6 +898,32 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     // every clear has a `refresh()` beside it.
   }
 
+  // The event set this module listens for, and the reason `queue` is in it.
+  // `write` emits `queue` and nothing else (sync/index.js:269), and it is the only
+  // event an OPTIMISTIC ECHO produces — the store's `enqueueView` moves no field,
+  // so `fields` never fires for it. §4 makes that echo the user's only feedback on
+  // an additive op: a delta frame carries no balance, so between the click and the
+  // ack there is no number on screen except the one the store painted. A listener
+  // that watched only `fields`/`applied`/`op_exposed` left the queue indicator, the
+  // degraded-mode banner and every optimistic quantity one event behind — which is
+  // how a +1 button reads as doing nothing while the frame is already on the wire.
+  // `queue` also covers the settle: an ack dequeues (index.js:198) and emits it,
+  // so a refused echo that changes no field still comes back to the fold here.
+  // The event set this module listens for is spelled out in the branches below
+  // rather than held in a set: `queue` is a member of the listened-for kinds and
+  // NOT a member of the clearing kinds, and a `Set` that both branches consult
+  // cannot say that. What each kind owes this module:
+  //
+  // `write` emits `queue` and nothing else (sync/index.js:269), and it is the only
+  // event an OPTIMISTIC ECHO produces — the store's `enqueueView` moves no field,
+  // so `fields` never fires for it. §4 makes that echo the user's only feedback on
+  // an additive op: a delta frame carries no balance, so between the click and the
+  // ack there is no number on screen except the one the store painted. A listener
+  // that watched only `fields`/`applied`/`op_exposed` left the queue indicator, the
+  // degraded-mode banner and every optimistic quantity one event behind — which is
+  // how a +1 button reads as doing nothing while the frame is already on the wire.
+  // `queue` also covers the settle: an ack dequeues (index.js:198) and emits it,
+  // so a refused echo that changes no field still comes back to the fold here.
   const unsubscribe = sync.subscribe((event) => {
     if (event.type === 'fields' || event.type === 'derived') {
       refresh();
@@ -820,6 +940,22 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
       // shipped when it is not, and the reverted echo stays wrong on screen. The
       // `superseded` path gets away without it only because a field frame always
       // follows a supersede; a refusal is terminal.
+      refresh();
+    } else if (event.type === 'queue') {
+      // Echo painted or settled: re-fold, and do NOT clear the refused records —
+      // `clearRefused`'s rule is "the field it argued about moved", and a dequeue
+      // says nothing about any field.
+      //
+      // `refresh()` is the *only* thing that may run on this branch. A `rejected`
+      // ack emits `queue` and `op_exposed` back to back (sync/index.js:198 then
+      // :201) and moves no field at all, so a branch that cleared here would wipe
+      // the record the branch two lines above had just filed — and would wipe it
+      // *after* that branch's `refresh()` had already published it, which leaves
+      // `cached` holding a notice the `refused` array no longer has. Every later
+      // fold then drops it for good: the DOM stays blank while
+      // `opErrors().length === 0` reads as "nothing to show", so the failure is
+      // invisible from inside the store. That is FR-11's refused-op record deleted
+      // by a listener this PR added, found while wiring FR-7's controls.
       refresh();
     } else if (event.type === 'applied') {
       // Re-project on the ack too, not only on the field. §4 lets the own-write
@@ -861,11 +997,25 @@ export function createStashState({ sync, partyId, you = null, roster = [] }) {
     // before it satisfies the socket.
     assertWriteTarget(/** @type {{kind: string, field?: string}} */ (target));
     if (target.kind === 'stash') assertStashOp(/** @type {{op: string}} */ (value));
-    sync.write(target, value, baseVersion);
+    // The recorded half is the frame ONLY; `deliver` is the whole of the delivery,
+    // and in production `deliver` IS `sync.write`. A test reads `writes()` for
+    // what went out and still gets its echoes from the real store, because
+    // nothing here bypasses it.
+    const id = deliver(target, value, baseVersion ?? 0);
+    posted.push({
+      target,
+      value,
+      base_version: baseVersion ?? 0,
+      id: typeof id === "string" ? id : null,
+    });
   }
 
   return {
     sync,
+
+    /** What `post` delivered, in order. Assertions about a frame read this; in
+     *  production nothing does. */
+    writes: () => posted,
 
     refresh,
     destroy: unsubscribe,

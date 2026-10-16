@@ -175,6 +175,62 @@
   function closeDialog() {
     dialog = null;
     dialogError = '';
+    metaBulk = '';
+    metaNotes = '';
+  }
+
+  // --- FR-7 manual adjustments / FR-8 row meta ----------------------------
+  //
+  // Three affordances, all of them the quartermaster's, all of them obeying the
+  // store's own predicate rather than a second copy of the rule: FR-7's signed
+  // row delta, FR-7's signed bank delta, and the row's bulk/note editor (which
+  // is FR-8's field set reached from the row — NOT a delta, and not labelled as
+  // one). The store actions behind them shipped in PR #311 with no caller at
+  // all; gh#336 is the wiring, and the gate below is what makes the claim true.
+  //
+  // One rule governs all three: the client NEVER sends an absolute it computed
+  // from what it read. A row delta is `qty_delta`, a bank move is `gp_delta`,
+  // and only the meta frame is absolute — because meta is CAS'd on the version
+  // this seat read (design D2), so an absolute there is the safe form, while the
+  // same shape on a count or a balance is a lost-update race.
+  let metaBulk = $state('');
+  let metaNotes = $state('');
+
+  /** @param {StashRow} row */
+  function openMeta(row) {
+    dialog = { kind: 'meta', item: row.item_name, quantity: row.quantity };
+    // Prefilled from the row, because the editor cannot tell "unset" from
+    // "unedited" any other way — and clearing IS a legal action here: the
+    // both-null frame is the server's clear arm.
+    metaBulk = row.bulk === null ? '' : String(row.bulk);
+    metaNotes = row.notes ?? '';
+    dialogError = '';
+  }
+
+  function submitMeta() {
+    if (!dialog) return;
+    // Blank means CLEAR (`bulk: null`), not zero. `''`/`null` are the blanks the
+    // store's own comment names; a coercion here would silently price a 0 Bulk
+    // onto an item the corpus leaves unweighed.
+    stash.editMeta(dialog.item, {
+      bulk: metaBulk === '' ? null : Number(metaBulk),
+      notes: metaNotes.trim() === '' ? null : metaNotes.trim(),
+    });
+    closeDialog();
+  }
+
+  // The bank adjuster: one signed delta per denomination, applied on one click.
+  // Blank means "no adjustment", which the store encodes as the integer 0 — the
+  // frame `validate_bank` requires all three keys of (write.rs:3182-3199).
+  let bankDelta = $state({ gp: '', sp: '', cp: '' });
+
+  function adjustBank() {
+    stash.adjustBank(bankDelta);
+    // Cleared on send, not on success: the send is what this control does, and
+    // whether it landed is the notice strip's and the header's to say. Leaving
+    // the number in the box invites a second click that double-posts — the harm
+    // path PR #311's finding 2 named.
+    bankDelta = { gp: '', sp: '', cp: '' };
   }
 
   function submitDialog() {
@@ -257,6 +313,13 @@
 
   /** @param {string|null|undefined} iso */
   const timeText = (iso) => (iso ? String(iso).slice(0, 16).replace('T', ' ') : '');
+
+  /** The dialog's word, in the three places it appears (label, heading, submit).
+   *  One function so the `meta` arm cannot be added to one and missed in another
+   *  — the shape that made the sell dialog's label and heading disagree once. */
+  const dialogHeadings = { transfer: 'Transfer', sell: 'Sell', meta: 'Edit' };
+  /** @param {{kind: string}} d */
+  const dialogHeading = (d) => dialogHeadings[/** @type {keyof typeof dialogHeadings} */ (d.kind)];
 </script>
 
 <header>
@@ -277,6 +340,34 @@
     <!-- D1: the balance row is not zero-minted, so "we do not know yet" is
          the truth and 0/0/0 would be a fabrication. -->
     <p class="balance unknown">No bank record yet — the balance is unknown until the first movement.</p>
+  {/if}
+
+  {#if canSell}
+    <!-- FR-7's manual adjustment, and the one place in this screen where the
+         quartermaster's owner is the gate rather than membership: every
+         `FieldTarget::Bank` write goes through `deny_non_quartermaster_owner`
+         (`write.rs:995-1003`), so this renders where the frame would land and
+         nowhere else. Signed amounts, never a balance: the store sends
+         `gp_delta`/`sp_delta`/`cp_delta`, and a box here that carried a resulting
+         balance would be the read-modify-write that design D2 exists to refuse.
+         A blank box is no adjustment at all — `adjustBank` sends 0 for it and
+         refuses the all-zero frame, because the server would record a claim row
+         for a movement that never happened. -->
+    <div class="adjust">
+      <label>
+        Gold (gp)
+        <input type="number" step="1" bind:value={bankDelta.gp} placeholder="±" />
+      </label>
+      <label>
+        Silver (sp)
+        <input type="number" step="1" bind:value={bankDelta.sp} placeholder="±" />
+      </label>
+      <label>
+        Copper (cp)
+        <input type="number" step="1" bind:value={bankDelta.cp} placeholder="±" />
+      </label>
+      <button type="button" onclick={adjustBank}>Adjust bank</button>
+    </div>
   {/if}
 </section>
 
@@ -309,10 +400,69 @@
           <span class="bulk">{bulkText(row.bulk)}</span>
           <span class="notes">{row.notes ?? ''}</span>
           {#if canTransfer}
-            <button type="button" onclick={() => openTransfer(row)}>Transfer</button>
+            <button type="button" aria-label="Transfer" onclick={() => openTransfer(row)}>
+              Transfer
+            </button>
+          {/if}
+          {#if canWrite}
+            <!-- gh#336's row controls, and the gate is the part of them that can
+                 be got wrong. The tracking issue says "quartermaster-only … gated on
+                 the quartermaster check", but the spec, the server, and the epic text
+                 all say the row half of this is every party member's:
+
+                 - `specs/014-shared-inventory/spec.md:441` (FR-10): "stash writes
+                   (add, transfer, quantity adjust, metadata edit) — ANY character
+                   owner of the party; bank mutations (sell, manual adjustment) — the
+                   quartermaster character's owner only".
+                 - The server matches that reading at the dispatch: only the `sell`
+                   arm of a stash target routes to the Bank resource, and the `qty`
+                   and `meta` arms go to `deny_non_member` with
+                   `Resource::Stash { actor_is_party_member }` (`write.rs:969-992`);
+                   `authorize` allows that on membership alone (`auth/authz.rs:134-144`).
+                   Every Bank write, by contrast, goes through
+                   `deny_non_quartermaster_owner` (`write.rs:995-1003`).
+                 - `docs/EPICS.md:225` scopes the quartermaster's exclusivity to
+                   "quartermaster-only sell" and "quartermaster-only manual
+                   adjustments" (the bank's), and nothing else in the stash.
+                 - FR-1's duplicate-name refusal tells the member who hit it to
+                   "adjust the existing row's quantity instead" — a lie unless the
+                   control renders for the member who was refused.
+
+                 So `canWrite`, the store's own predicate for the member-and-not-GM
+                 gate, rather than a second copy of a rule the store already owns.
+                 The GM is excluded inside it, which is FR-11's rule: the socket
+                 refuses a GM frame outright, so a button that can only produce a
+                 refusal is not a control. The bank's adjuster below IS `canSell` —
+                 that is the quartermaster's, and the two gates differing is the
+                 rule, not an oversight. -->
+            <button
+              type="button"
+              aria-label={`Take one ${row.item_name} from the stash`}
+              onclick={() => stash.adjustQty(row.item_name, -1)}
+            >
+              −1 {row.item_name}
+            </button>
+            <button
+              type="button"
+              aria-label={`Add one ${row.item_name} to the stash`}
+              onclick={() => stash.adjustQty(row.item_name, 1)}
+            >
+              +1 {row.item_name}
+            </button>
+            <button type="button" aria-label="Edit" onclick={() => openMeta(row)}>
+              Edit
+            </button>
           {/if}
           {#if canSell}
-            <button type="button" onclick={() => openSell(row)}>Sell</button>
+            <!-- FR-6's sell, unchanged in gate and in place. `aria-label` is new
+                 and is not decoration: a button's accessible name is its subtree's
+                 WHOLE text content, so with three more buttons in this row the
+                 implicit name became "Transfer −1 Longsword +1 Longsword Edit".
+                 The label names one control to a screen reader and keeps a
+                 name-based query pointed at it. -->
+            <button type="button" aria-label="Sell" onclick={() => openSell(row)}>
+              Sell
+            </button>
           {/if}
         </li>
       {/each}
@@ -406,17 +556,34 @@
     <div
       class="dialog"
       role="dialog"
-      aria-label={dialog.kind === 'sell' ? `Sell ${dialog.item}` : `Transfer ${dialog.item}`}
+      aria-label={`${dialogHeading(dialog)} ${dialog.item}`}
     >
       <h3>
-        {dialog.kind === 'sell' ? 'Sell' : 'Transfer'} {dialog.item}
+        {dialogHeading(dialog)} {dialog.item}
         <span class="on-hand">({dialog.quantity} in the stash)</span>
       </h3>
 
-      <label>
-        Quantity
-        <input type="number" min="1" max={dialog.quantity} step="1" bind:value={dialogQty} />
-      </label>
+      {#if dialog.kind === 'meta'}
+        <!-- FR-8's fields, reached from the row. Absolute and CAS'd, not
+             additive: `stash_meta_tx` matches the row on the version this seat read
+             and writes these values as given (`write.rs:1418-1450`) — which is why a
+             box that carries a value is honest here where the same box is a lie on a
+             count or a balance. A blank is the CLEAR arm, not a zero: the server
+             distinguishes the three shapes by which keys are present (:1425-1431). -->
+        <label>
+          Bulk
+          <input type="number" step="0.1" min="0" bind:value={metaBulk} placeholder="—" />
+        </label>
+        <label>
+          Note
+          <input type="text" bind:value={metaNotes} maxlength="200" placeholder="no note" />
+        </label>
+      {:else}
+        <label>
+          Quantity
+          <input type="number" min="1" max={dialog.quantity} step="1" bind:value={dialogQty} />
+        </label>
+      {/if}
 
       {#if dialog.kind === 'transfer'}
         <label>
@@ -476,8 +643,8 @@
 
       <div class="actions">
         <button type="button" onclick={closeDialog}>Cancel</button>
-        <button type="button" onclick={submitDialog}>
-          {dialog.kind === 'sell' ? 'Sell' : 'Transfer'}
+        <button type="button" onclick={dialog.kind === 'meta' ? submitMeta : submitDialog}>
+          {dialog.kind === 'sell' ? 'Sell' : dialog.kind === 'meta' ? 'Save' : 'Transfer'}
         </button>
       </div>
     </div>
@@ -562,6 +729,22 @@
   }
   .loot button {
     margin-left: 0.25rem;
+  }
+  .adjust {
+    display: flex;
+    align-items: end;
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .adjust label {
+    display: grid;
+    gap: 0.2rem;
+    font-size: 0.8rem;
+    opacity: 0.85;
+  }
+  .adjust input {
+    width: 5.5rem;
   }
   .empty {
     opacity: 0.65;

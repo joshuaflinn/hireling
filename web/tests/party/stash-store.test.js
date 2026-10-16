@@ -1247,3 +1247,113 @@ test('a bank deposit past the i32 ceiling is refused, and one landing exactly on
     'a deposit past the ceiling is refused whole, exactly as the server refuses it',
   );
 });
+
+// --- gh#340: a delete is not a refusal, so the fold must tell them apart -----
+//
+// A draw that lands a row on exactly zero is the server's DELETE arm
+// (`quantity::bigint + $3 = 0`, write.rs:1310-1313) — APPLIED, not a refusal.
+// Every op behind it then addresses no row and `apply_stash_delta` refuses it
+// `unknown target` (write.rs:1326-1336). A refusal is different: its guard lives
+// in the UPDATE's WHERE, so nothing is written and the base survives for the op
+// behind it — which is why #311's finding-2 fix made a refused delta `continue`
+// rather than end the fold. `continue` is right for a refusal and wrong for a
+// delete, which removes the base. Three tests, three shapes:
+//
+//   1. [-2]           lands on zero, nothing behind it.
+//                                        Echo: no row            (test 1)
+//   2. [-2, +10]      lands on zero, then an applicable-looking deposit. On the
+//                      unfixed fold the row is still in the displayed set when
+//                      that op folds, so it lands on the base of 2 the DELETE had
+//                      already consumed and the projection shows `Arrow: 10` -- a
+//                      row the server will never hold, and one the sum reaches
+//                      without ever resting on zero, so the render-after-loop
+//                      never sees it either.
+//                                        Echo: no row            (test 2)  <-- RED pre-fix
+//   3. [-2, -10]      lands on zero, then an op the server refuses `unknown
+//                      target`. Locally the `< 0` guard skips it, so this is the
+//                      shape that was ALREADY honest before the fix -- it is here
+//                      as the control that keeps test 2's phantom honest, and it
+//                      is green on the unfixed tree.
+//                                        Echo: no row            (test 3)
+//
+// So exactly one test here is red before the fix: test 2. That is the whole of the
+// suite's claim about gh#340, and it is stated rather than padded. Two mutants
+// survive every shape in this section, and both are claims about the tests:
+//   - a stop at zero-or-below (`<= 0`) instead of exactly zero. Nothing can reach
+//     the difference: the delta that would show it is refused whole by the `< 0`
+//     guard before the stop is consulted, so `<= 0` is inert here -- but it is also
+//     wrong in a way the row's floor makes visible only if a sum can land below
+//     zero, which the guard forbids. `=== 0` is the arm the server has; keep it.
+//   - dropping the loop's `break`. Once the row is spliced out of the displayed
+//     set the ops behind the delete fold onto a `quantity` nothing renders, so the
+//     projection is identical with or without it. The `break` saves the walk and
+//     states the rule; it is not what the tests see.
+//
+// What IS pinned, and measured: the splice inside the loop. Hoist it back out to
+// the render after the loop and four tests in this file go red, this one among
+// them -- that is the pair the fix turns on.
+
+test('a draw to exactly zero shows no row, with nothing queued behind it (gh#340)', () => {
+  const sync = fakeSync();
+  const stash = createStashState({ sync, partyId: 1 });
+  sync.deliver(STASH_TARGET(1, 'Arrow'), ROW('Arrow', 2), 77);
+
+  stash.adjustQty('Arrow', -2);
+
+  assert.deepEqual(quantities(stash.rows()), {}, 'the row is gone, as FR-1 requires');
+});
+
+test('an op refused locally behind a delete folds to nothing and the row stays deleted (gh#340)', () => {
+  // `-10` behind the delete is refused on the server (`unknown target`), so it
+  // folds to nothing there. Locally it is NOT skippable -- against the base the
+  // fold is holding, it would drive the sum to -10, which is neither a legal
+  // quantity (the row's floor is 1, write.rs:1289) nor a state the server can ever
+  // hold, since the row is already gone. The stop is the only thing between the
+  // fold and that.
+  const sync = fakeSync();
+  const stash = createStashState({ sync, partyId: 1 });
+  sync.deliver(STASH_TARGET(1, 'Arrow'), ROW('Arrow', 2), 77);
+
+  stash.adjustQty('Arrow', -2); // sum 0: the server DELETES the row
+  stash.adjustQty('Arrow', -10); // no row exists: refused `unknown target`
+
+  assert.deepEqual(
+    quantities(stash.rows()),
+    {},
+    'nothing behind the delete is folded, so nothing revives or corrupts the row',
+  );
+});
+
+test('an applicable deposit behind a delete is not folded onto the deleted row (gh#340)', () => {
+  // THE defect, asserted directly. On the unfixed fold the row survives the delete
+  // until the end of the loop, so `+10` lands on the base of 2 that the delete had
+  // just consumed and the projection renders `Arrow: 10` -- a quantity the server
+  // will never hold. Ordering matters here and the comment says why: in `[-2,
+  // +10]` the running sum never rests on zero, so a render-after-loop has no zero
+  // state to catch either. `quantities()` flattens a duplicated row to its last
+  // entry, so the assertion is written against the row being GONE rather than
+  // against a row count: the phantom is the thing that must be impossible.
+  //
+  // This is the one test red on the unfixed tree. The other two in this section
+  // bound the stop from the other side and from FR-1's own rule, and both read
+  // green either way -- they are here so the fix cannot be made by something
+  // wilder than a stop (wiping the row on any later op passes all three; so does
+  // always rendering no row).
+  //
+  // The section header above carries the two mutants this run cannot kill and why
+  // (`<= 0` survives; so does dropping the `break`). What this test alone pins is
+  // the phantom: without the in-loop splice, `Arrow: 10` here, red on the unfixed
+  // tree.
+  const sync = fakeSync();
+  const stash = createStashState({ sync, partyId: 1 });
+  sync.deliver(STASH_TARGET(1, 'Arrow'), ROW('Arrow', 2), 77);
+
+  stash.adjustQty('Arrow', -2); // sum 0: the server DELETES the row
+  stash.adjustQty('Arrow', 10); // the op behind it must not fold onto the removed base
+
+  assert.deepEqual(
+    quantities(stash.rows()),
+    {},
+    'nothing behind the delete is folded, so the row stays deleted',
+  );
+});
