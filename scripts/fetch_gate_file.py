@@ -60,6 +60,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 import sys
@@ -445,13 +446,22 @@ def write_tree(output: Path, tree: dict[str, bytes]) -> None:
             fail(f"path '{relpath}' escapes the vendored directory")
     # Replace, not overlay (MOR-725): a re-vendor that drops a rule file must
     # not leave the stale file on disk for check-vendored to red on with a
-    # "re-vendor" hint. Remove any prior tree, then write fresh.
-    shutil.rmtree(output, ignore_errors=True)
-    output.mkdir(parents=True, exist_ok=True)
+    # "re-vendor" hint. Write into a staging sibling first, then swap it in:
+    # a removal failure is loud (fail()), not a silent ignore_errors=True
+    # leaving a stale tree behind, and the rename is atomic so a crash
+    # mid-write cannot leave a half-written tree in place.
+    staging = output.with_name(output.name + ".new")
+    shutil.rmtree(staging, ignore_errors=True)
     for relpath, content in tree.items():
-        target = output / relpath
+        target = staging / relpath
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
+    if output.exists():
+        try:
+            shutil.rmtree(output)
+        except OSError as exc:
+            fail(f"could not replace {output}: {exc}")
+    staging.replace(output)
 
 
 def vendoring_header(image_path: str, digest: str) -> str:
@@ -812,6 +822,39 @@ def _self_test_directory_cases(ran: list[str], digest64: str) -> None:
             )
 
     _check(ran, "dir-write-tree-replaces", condition=write_tree_replaces())
+
+    def write_tree_removal_failure_refused() -> bool:
+        # MOR-725/F3: a removal failure must be loud, not silently ignored.
+        # The measured failure mode: a stale file under a chmod-0500
+        # subdirectory. ignore_errors=True on the old rmtree swallowed the
+        # EACCES and the write exited 0 with the stale file still on disk;
+        # the staging write now reds with a diagnostic. Root bypasses the
+        # permission bit, so the case is covered on the non-root bench where
+        # these self-tests run.
+        if getattr(os, "geteuid", lambda: 1)() == 0:
+            return True
+        with tempfile.TemporaryDirectory(prefix="fetch-gate-file-") as tmp:
+            out = Path(tmp) / "rules"
+            out.mkdir()
+            locked = out / "locked"
+            locked.mkdir()
+            (locked / "stale.yaml").write_bytes(b"stale")
+            locked.chmod(0o500)
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    try:
+                        write_tree(out, {"a.yaml": b"fresh"})
+                    except SystemExit:
+                        return True
+            finally:
+                locked.chmod(0o700)  # let TemporaryDirectory clean up
+        return False
+
+    _check(
+        ran,
+        "dir-write-tree-removal-failure-refused",
+        condition=write_tree_removal_failure_refused(),
+    )
 
     def materialize_no_manifest_leaves_manifest() -> bool:
         # MOR-729: the auto-vendor path (justfile self-provisioning) invokes the
