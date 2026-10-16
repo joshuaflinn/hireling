@@ -325,9 +325,17 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   narrow scope is a scope limit, not a lower bar.
 
   **Which kind a round is, checkable:** compare the PR's own hunks at both
-  heads. The first round on a PR has no prior head; it is an author-text
-  round. Byte-identical hunks mean carry-over — narrow, uncounted. Changed
-  hunks mean an author-text round — wide, counted.
+  heads, *and* ask whether `main`'s incoming hunks touch a reviewed one. The
+  first round on a PR has no prior head; it is an author-text round. Changed
+  author hunks mean an author-text round — wide, counted. Byte-identical
+  author hunks fork three ways on `main`'s side of the seam: non-interacting
+  `main` hunks are a plain carry-over; interacting `main` hunks that need no
+  fix are a carry-over with the reviewer's judgment branch of *Verdict
+  carry-over*; and interacting `main` hunks whose combination is defective in
+  a way that needs added text at the merged head are the reconciliation
+  re-bind round below — uncounted, and not an author-text round. Byte-identical
+  hunks alone cannot tell those three apart, which is why the second question
+  is part of the test.
 
   **A verdict is discharged when posted, and is not the author's to
   withdraw.** The head a verdict names carries it permanently. An author may
@@ -377,7 +385,57 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
     is a decision about the task.
   - Announced and verdicted like any round, per *Review of record*.
 
-  PR #227 is the reason, and the record is checkable. Round-2 accept at
+  **The reviewer re-binds under a reconciliation re-bind round.** The
+  post-accept round above is `main`'s, not the author's. A verdict is posted
+  at a head; the strict up-to-date policy of `ruleset 24735400 v53013064`
+  forces a head move; `main` has edited an interacting part of a reviewed
+  path; and the combination is defective in a way that needs added text at
+  the merged head. The merge is clean, so *Verdict carry-over* condition 1
+  flags nothing, and its condition 2 fails by the letter the moment the
+  reconciliation text is added. The *A carry-over round does not count
+  against the budget* clause does not cover
+  it either: its uncounted branch requires `main` to have moved an
+  *unrelated* part of the shared file, and its tail sends a defect-finding
+  carry-over round to a counted author-text round, which a PR at its two
+  rounds does not have. This round carries the post-accept properties, all of
+  them:
+
+  - **Uncounted.** It is forced by that strict up-to-date policy, not earned
+    by the author. Refusing it on budget grounds strands a green accepted
+    head with no verdict and no path to one.
+  - **Scope is the combination and the reconciliation delta only** — the
+    merged file read as one unit, plus `git diff <verdict-head> <new-head>`
+    and the interaction between that delta and the text already accepted. It
+    may not re-litigate the author's diff; that diff already carries a
+    verdict. Narrow scope is a scope limit, not a lower bar.
+  - **The author's reviewed hunks stay byte-identical, and that is the
+    boundary condition.** If the fix moves the author's own hunks, or reaches
+    past the seam into fresh argument, it is a counted author-text round —
+    and on a PR already at its two rounds that is Thrane's decision about the
+    task, taken before the round is announced.
+  - **Same reviewer.** `main` edited a reviewed path and the incoming hunks
+    interact with the reviewed ones, so *Verdict carry-over*'s mechanical
+    branch is unavailable: naming the incoming hunks and judging the
+    interaction is judgment, and the judgment is the reviewer's. No presser
+    takes this PR on a silent or mechanical re-bind.
+  - **Once per PR.** A second forced reconciliation on the same PR goes to
+    Thrane, and whether it proceeds is a decision about the task.
+  - Announced and verdicted like any round, per *Review of record*, gate read
+    first. The seat marker names the kind so no presser miscounts it as a
+    third author-text round: `review-seat: PR #<n> uncounted reconciliation
+    round head <sha>`.
+
+  **PR #366 is this round's reason,** and the record is checkable. Round-2 accept
+  `5545784972` at head `f1d0004e0fc3154e5c5351520b965af42a7f940b`; `main` at
+  `999a6da8669399bc642a3feff09cf57f225890b1`, which edits the same paragraph.
+  `git merge-tree --write-tree f1d0004 999a6da` is rc 0, tree
+  `fbe2b376b94b60bbadfcb3986023f64308f8d5b6` — clean, and it produces a seam
+  that contradicts itself: merged `AGENTS.md:869` reads `` !! home/ `` while
+  merged `:874`, three lines later, calls "That `?? home/`" the oracle read
+  from the worktree toplevel. Reconciling that takes added lines at the
+  merged head, and both of this PR's author-text rounds were already spent.
+
+  **PR #227 is the post-accept round's reason,** and the record is checkable. Round-2 accept at
   `a22443d` — review `5526943831`, submitted `2026-10-15T01:31:06Z`. The
   author filed the accept's follow-ups (gh#230, gh#231) in PR comment
   `6182320720` at `01:31:53Z` — proof the verdict was read. `acb573e`
