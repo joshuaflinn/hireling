@@ -871,10 +871,13 @@ Write to that same string *itself* and
 `mkdir -p` has just made it a directory — rc 1, `Is a directory`, tree still
 clean — the `mkdir -p` has left the directory chain in the tree and `git status`
 cannot see it, because git does not track empty directories, so this form fails
-safe only until something writes into it. That `?? home/` is the oracle read
-from the worktree toplevel. Run the same write from a *tracked* subdirectory and
-the entry still reads `?? home/`, because the entry is relative to cwd and
-`mkdir -p` built the chain under cwd. `?? ./` appears only where cwd is itself
+safe only until something writes into it. From the worktree toplevel that write
+reads `!! home/` under `git status --short --ignored`, never `?? home/`: `.gitignore`
+anchors `/home/` at the root, so plain `git status` is silent on it. Run the same
+write from a *tracked* subdirectory and the entry appears as `?? home/`, because
+the entry is relative to cwd and `mkdir -p` built the chain under cwd — while the
+toplevel still reads `?? src/home/`, since `/home/` is root-anchored and never
+matches `src/home/`. `?? ./` appears only where cwd is itself
 untracked, and there it fires whether or not anything contaminated the tree, so
 it is not an oracle.
 Whether the scratch dir sits beside `$HOME` or under it does not decide
