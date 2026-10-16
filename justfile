@@ -117,7 +117,10 @@ web-tsc: web-deps
 # One constructional difference from the image, a written exemption: the
 # image lints the whole project with -f json; the bench lints the same files
 # (`.`) but drops the json formatter so findings are human-readable. The rule
-# set, the file set and the env knobs are identical.
+# set and the file set are identical; of the env knobs, GATE_TSCONFIG is the
+# second written exemption above — the bench passes the repo's raw
+# web/tsconfig.json, the image its harness-wrapped one (same strictness, plus
+# skip_dirs unioned into exclude).
 web-eslint: web-deps
     #!/usr/bin/env bash
     set -euo pipefail
