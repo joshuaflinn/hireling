@@ -649,6 +649,25 @@ fn process_liveness_resolves_a_relative_env_target_dir_against_the_cwd() {
 }
 
 #[test]
+fn process_liveness_marks_an_unresolvable_relative_env_as_unobservable() {
+    // gh#307: a relative CARGO_TARGET_DIR with an unreadable cwd cannot be
+    // resolved; a build-token process in that state is fail-closed to
+    // unobservable, never idle — `Idle` here would let --prune delete it.
+    let unresolvable = ProcessObservation {
+        cmdline: "cargo build".to_owned(),
+        argv: vec!["cargo".to_owned(), "build".to_owned()],
+        cwd: None,
+        env_target_dir: Some(PathBuf::from("../target-gate-42")),
+        env_readable: true,
+    };
+    assert_eq!(
+        process_liveness(&unresolvable, Path::new("/parent/target-gate-42")),
+        LiveStatus::Unobservable,
+        "relative env + unreadable cwd is unobservable, never idle"
+    );
+}
+
+#[test]
 fn live_status_merge_precedence_over_all_pairs() {
     use LiveStatus::{Idle, Live, Unobservable};
     // Live > Unobservable > Idle, the fold in build_plan. A wrong precedence
