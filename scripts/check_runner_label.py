@@ -296,8 +296,12 @@ def self_test() -> None:
             expect_red=False,
         )
 
-        # Red: the key label disagrees with runs-on (the PR #319 round-2
-        # failure mode — runs-on stayed, the key drifted).
+        # Red: the key label disagrees with runs-on — the mismatch PR #319
+        # round-2's four hand-maintained literals made possible. Inverted from
+        # the historical direction on purpose: runs-on stays and the key
+        # drifts, so only the key comparison fires. Moving runs-on instead
+        # would fire all three comparisons and the case would red through the
+        # restore-keys path with the key comparison deleted.
         run_case(
             "red-key-label",
             _synthetic_workflow("ubuntu-24.04", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-24.04"),
