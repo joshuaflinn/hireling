@@ -43,6 +43,9 @@ The users are the six party accounts. Two seats matter in every story: the **cas
 
 ### User Story 1 — Bear casts Bless without typing (Priority: P1) 🎯 MVP
 
+*Bless* here is quoted from `docs/PRD.md` — it is the PRD's own example spell at `:205,320,353,373` —
+and is used under FR-3's quoting exemption. It is not a candidate entry for the party's list.
+
 Bear taps *Bless* in the composer's spell-library section instead of writing it out. The form arrives already named, already carrying a duration note, already carrying the four outcomes. He picks his targets, taps **"success"**, and the effect is on Josh and Becky — both sheets' attack numbers rise on every connected device with their provenance, exactly as if he'd typed the modifier, and he typed nothing. The next round he casts again and taps **"crit failure"**; the critical-failure outcome's effects apply instead.
 
 **Why this priority**: this is the epic's whole promise and the PRD's Step 3 rewrite — "if it's in the seeded spell library (P1), its outcome template applies automatically; otherwise it's freeform via the picker." A library section that only pre-fills a form Bear still has to assemble is not this story.
@@ -93,9 +96,11 @@ Dave's PR adds a spell whose template says `stat: "attak"`. Nothing at the table
 
 ### User Story 4 — Everything that is not in the library is exactly as it was (Priority: P1)
 
-*A spell outside the list* — an unnamed one, per FR-3's quoting exemption, since no unsourced
-spell name may be coined here to make a membership claim legible — is not on the list. Bear casts
-it the way he always has: *New effect*, name, `+1 status → attack`, duration, targets. The library section does not intercept it, does not grey anything out, does not hint that he is doing it wrong, and — the sharp edge — **no freeform spell ever mints a `custom` corpus row on its way past the composer**. The library is an extra door, not a new hallway.
+**A spell outside the list** is cast the way it always was. The story names no spell, and that is
+FR-3's exemption doing its work rather than a gap in the prose: the claim "a spell outside the
+library still casts freeform" needs no name to be legible, and a coined name would behave like a
+candidate entry that was quietly kept out of the list. Bear casts an unlisted spell the way he
+always has: *New effect*, name, `+1 status → attack`, duration, targets. The library section does not intercept it, does not grey anything out, does not hint that he is doing it wrong, and — the sharp edge — **no freeform spell ever mints a `custom` corpus row on its way past the composer**. The library is an extra door, not a new hallway.
 
 **Why this priority**: the PRD's sentence is "*Spells outside the library stay freeform exactly as P0*." The cheap way to build a library is to route the composer through it, and that way breaks this story and, if the composer is reused carelessly, drags E9's custom-content side-effects into the P0 path.
 
@@ -130,7 +135,14 @@ it the way he always has: *New effect*, name, `+1 status → attack`, duration, 
   exactly how the one violation of this rule surfaced: a fictional spell was used to assert that
   a spell outside the list still casts freeform, i.e. it behaved like a candidate entry that was
   quietly kept out. Use an unnamed spell ("a spell outside the library") or quote a sourced name
-  and cite it; do not coin one. **Checkable** — one command, the whole spec directory, not one
+  and cite it; do not coin one.
+
+  Two named spell occurrences satisfy the exemption at this head, and each cites its source where
+  it is load-bearing: **Bless** (`docs/PRD.md:205,216,320,353,373,377`; `docs/EPICS.md:165,236`) and
+  **Inspire Courage** (`docs/PRD.md:206,353`). US-2's and FR-11's quoted message string is the PRD's
+  own `:216` verbatim, not this spec's wording. US-1 and US-2 name *Bless* because they are the PRD's
+  own *Step 3* scenario and *Conflicting effects* example restated — a US-1 that could not name the
+  spell the PRD names could not state the story. **Checkable** — one command, the whole spec directory, not one
   file: see `checklists/requirements.md`, "the one check unique to this epic".
 
 - **FR-4 [X] — What one library entry must carry.** A library entry is, at minimum: a name; one or more **named outcomes**, each of which carries **zero or more** effect definitions and display prose; and a duration note. An effect definition carries a modifier type, a stat from the closed vocabulary, a value, and a target selection rule resolvable at cast time. The precise field names, the ordering, and the JSON shape are fixed by [`contracts/spell-library-seed.md`](contracts/spell-library-seed.md) — which is this shop's deliverable and the thing Dave and Dave's PR are written against. Content authors are not asked to design the schema; they are asked to fill it.
