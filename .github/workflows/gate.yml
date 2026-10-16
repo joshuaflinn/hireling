@@ -296,6 +296,20 @@ jobs:
           # the pinned bytes (check_image_sources), not the local tree.
           python3 scripts/check_gate_vendored.py --allow-unvendored --require-image-sources "${args[@]}"
 
+      # The image's pinned semgrep version, printed so the number named in
+      # scripts/gate_passes.tsv's scan:semgrep row stays checkable (MOR-727).
+      # The bench installs semgrep unpinned (pipx install semgrep); the image
+      # pins 1.168.0. PR #139 is the precedent: a bench tool at a different
+      # version than the image's can answer a different question and stay
+      # green. This step reds if the pinned digest cannot run semgrep at all
+      # (a failed docker run) — it reads the number, it does not assert parity
+      # with the bench CLI.
+      - name: semgrep version — image's pinned CLI
+        if: ${{ !cancelled() }}
+        env:
+          GATE_IMAGE_REF: ${{ env.GATE_IMAGE }}
+        run: docker run --rm --entrypoint semgrep "$GATE_IMAGE_REF" --version
+
       # The runner-label drift check (gh#331): the workflow's `runs-on:`
       # label and the label embedded in the cache key/restore-keys must
       # agree. PR #319 made the runner label a hand-kept literal in four
