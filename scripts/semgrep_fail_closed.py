@@ -66,8 +66,31 @@ def blind_spot_entries(errors: list[Any]) -> list[Any]:
     return out
 
 
+def finding_line(finding: Any) -> str:
+    """One diagnostic line per finding: rule, path, line, message."""
+    if not isinstance(finding, dict):
+        return f"semgrep fail-closed: finding: {json.dumps(finding)}"
+    check_id = finding.get("check_id", "<no check_id>")
+    path = finding.get("path", "<no path>")
+    start = finding.get("start")
+    line = start.get("line", "?") if isinstance(start, dict) else "?"
+    extra = finding.get("extra")
+    message = extra.get("message", "") if isinstance(extra, dict) else ""
+    # Collapse the message's own newlines so a finding stays on one line.
+    message = " ".join(str(message).split())
+    return f"semgrep fail-closed: {check_id}: {path}:{line}: {message}"
+
+
 def check(data: bytes) -> None:
-    """Run the assertion over semgrep's JSON; print findings and a summary."""
+    """Run the assertion over semgrep's JSON; print findings and a summary.
+
+    Findings are semgrep's own verdict (its `--error` exit code reds the
+    recipe), not this guard's — but the recipe deletes the JSON once the
+    guard returns, so this is the only thing that can print them before they
+    vanish. Every finding gets a line (rule, path, line, message), and the
+    summary omits `ok` when findings are present, so a run about to red never
+    prints `ok`.
+    """
     doc = parse_doc(data)
     results = doc["results"]
     errors = doc["errors"]
@@ -83,11 +106,19 @@ def check(data: bytes) -> None:
             " skipped target reads as a clean pass; fix the target or the rule"
             " before this passes"
         )
+    for finding in results:
+        print(finding_line(finding))
     info = [e for e in errors if isinstance(e, dict) and e.get("level") == "info"]
-    print(
-        f"semgrep fail-closed ok: {len(results)} finding(s),"
-        f" {len(scanned)} path(s) scanned, {len(info)} info notice(s) tolerated"
-    )
+    if results:
+        print(
+            f"semgrep fail-closed: {len(results)} finding(s),"
+            f" {len(scanned)} path(s) scanned, {len(info)} info notice(s) tolerated"
+        )
+    else:
+        print(
+            f"semgrep fail-closed ok: 0 finding(s),"
+            f" {len(scanned)} path(s) scanned, {len(info)} info notice(s) tolerated"
+        )
 
 
 def main() -> None:
@@ -120,7 +151,13 @@ def main() -> None:
 
 
 def _self_test_case(
-    script: Path, name: str, doc: bytes, *, expect_red: bool
+    script: Path,
+    name: str,
+    doc: bytes,
+    *,
+    expect_red: bool,
+    expect_stdout: str | None = None,
+    forbid_stdout: str | None = None,
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="semgrep-failclosed-") as tmp:
         tree = Path(tmp)
@@ -141,6 +178,20 @@ def _self_test_case(
             file=sys.stderr,
         )
         sys.exit(1)
+    if expect_stdout is not None and expect_stdout not in proc.stdout:
+        print(
+            f"self-test [{name}]: expected stdout to contain {expect_stdout!r},"
+            f" got {proc.stdout!r}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if forbid_stdout is not None and forbid_stdout in proc.stdout:
+        print(
+            f"self-test [{name}]: expected stdout NOT to contain"
+            f" {forbid_stdout!r}, got {proc.stdout!r}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def _doc(results: list[Any], errors: list[Any]) -> bytes:
@@ -155,9 +206,23 @@ def self_test() -> None:
     script = Path(__file__).resolve()
     ran: list[str] = []
 
-    def case(name: str, doc: bytes, *, expect_red: bool) -> None:
+    def case(
+        name: str,
+        doc: bytes,
+        *,
+        expect_red: bool,
+        expect_stdout: str | None = None,
+        forbid_stdout: str | None = None,
+    ) -> None:
         ran.append(name)
-        _self_test_case(script, name, doc, expect_red=expect_red)
+        _self_test_case(
+            script,
+            name,
+            doc,
+            expect_red=expect_red,
+            expect_stdout=expect_stdout,
+            forbid_stdout=forbid_stdout,
+        )
 
     # Green: no findings, one tolerated info notice (the Missing-plugin shape).
     case(
@@ -165,11 +230,26 @@ def self_test() -> None:
         _doc([], [{"level": "info", "type": "Missing plugin", "message": "Apex"}]),
         expect_red=False,
     )
-    # Green: findings present are semgrep's own rc, not this guard's red.
+    # Green: findings present are semgrep's own rc, not this guard's red —
+    # but the guard must still print each finding (rule, path, line, message)
+    # before the recipe's trap deletes the JSON, and must not print `ok` on
+    # a document whose caller is about to red (gh#320 finding 1).
     case(
         "findings-pass-through",
-        _doc([{"check_id": "x", "path": "a.py"}], []),
+        _doc(
+            [
+                {
+                    "check_id": "x",
+                    "path": "a.py",
+                    "start": {"line": 7},
+                    "extra": {"message": "oops"},
+                }
+            ],
+            [],
+        ),
         expect_red=False,
+        expect_stdout="semgrep fail-closed: x: a.py:7: oops",
+        forbid_stdout="semgrep fail-closed ok:",
     )
     # Red: a warn entry (the PartialParsing shape, verbatim).
     case(

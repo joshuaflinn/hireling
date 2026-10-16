@@ -53,14 +53,16 @@ WORKFLOW = Path(".github/workflows/gate.yml")
 # and a regex constant is no more a password than a verdict line is.)
 CHECK_NAME_RE = r"[a-z]+:[a-z0-9-]+"
 LEG_NAME_RE = r"[\w-]+"
-# A guard step body that runs exactly one leg on one line: `just <leg>`, then
-# optional non-pipe arguments (gh#320 runs `just check-vendored
-# --allow-unvendored`). The `(?![^\n]*\|)` lookahead rejects a shell-piped
-# `just a | tee` on the same line; `[^\n]` scopes both the lookahead and the
-# match to the line, so a `|` on a later line cannot poison this line's match
-# the way a DOTALL `.*` lookahead would (it would scan to end of file and drop
-# every earlier leg once one pipe appeared anywhere).
-GUARD_STEP_RE = r"^ *run: just ([\w-]+)(?![^\n]*\|)[^\n]*$"
+# A guard step body that runs exactly one leg on one line: `just <leg>`,
+# optionally followed by flag-shaped arguments only (gh#320 runs `just
+# check-vendored --allow-unvendored`). Anything beyond a bare flag tail — a
+# shell chain `just a && just b`, a command separator `just a; true`, a
+# redirect `just a > /dev/null`, a pipe — reads as ungated and fails closed:
+# the CI home is the step, and a step that can never red (or whose diagnostic
+# is suppressed) is not a home. `[\w./-]+` keeps flag values to path/word
+# shapes; `--flag value` (two words) is deliberately not matched, so a
+# multi-word tail stays ungated rather than being guessed.
+GUARD_STEP_RE = r"^ *run: just ([\w-]+)(?: +--?[\w-]+(?:=[\w./-]+)?)* *$"
 # A declaration row is pass, mirror-or-'-', reason — no more, no less.
 DECLARATION_FIELDS = 3
 # The image prints one verdict line per check: "[PASS] node:tsc".
@@ -166,12 +168,13 @@ def derive_repo_side() -> set[str]:
     MOR-130's fault class one storey up): delete a guard step and its leg
     drops out of this set, turning direction A red instead of printing
     coverage over a hole. Matches only a single-line `run: just <leg>`
-    step, optionally followed by arguments (`just check-vendored
-    --allow-unvendored`, gh#320): the CI home is the step, and what it
-    passes to the leg is not a second leg. Everything else reads as ungated
-    and fails closed — a multi-line `run: |` block (its body lines lack the
-    `run: ` prefix), a chained `just a && just b` (the leg name is not the
-    whole line), and a piped `just a | tee` (the lookahead sees the pipe).
+    step, optionally followed by flag-shaped arguments only (`just
+    check-vendored --allow-unvendored`, gh#320): the CI home is the step,
+    and what it passes to the leg is not a second leg. Everything else
+    reads as ungated and fails closed — a multi-line `run: |` block (its
+    body lines lack the `run: ` prefix), a chained `just a && just b`, a
+    command separator `just a; true`, a redirect `just a > /dev/null`, and
+    a piped `just a | tee`.
     This is a stdlib-only text match: `scripts/pyproject.toml` declares the
     scripts zero-dependency, so no YAML parser is pulled in here.
 
@@ -524,6 +527,44 @@ def _run_self_test_cases(
         SELF_TEST_TREE_WORKFLOW_MULTILINE, encoding="utf-8"
     )
     run_case(tree, "a-guard-step-multiline", [], expect_red=True)
+
+    # A-red (gh#320 finding 5): a chained `just alpha && just beta` must
+    # read as ungated — the leg name is not the whole line, and deriving
+    # alpha would certify a step whose tail is a second leg.
+    tree = make_tree("one:alpha\t-\texempt: gated by the guard step\n", None)
+    (tree / ".github" / "workflows" / "gate.yml").write_text(
+        "jobs:\n  gate:\n    steps:"
+        "\n      - name: guard\n        run: just alpha && just beta\n"
+        "      - name: drift image side\n"
+        "        run: python3 scripts/ci_drift_check.py --image-log image.log\n",
+        encoding="utf-8",
+    )
+    run_case(tree, "a-guard-step-chained", [], expect_red=True)
+
+    # A-red (gh#320 finding 5): `just alpha; true` derives alpha from a step
+    # that can never red — a fail-open hole in the checker whose whole job is
+    # proving every leg has a CI home that can fail.
+    tree = make_tree("one:alpha\t-\texempt: gated by the guard step\n", None)
+    (tree / ".github" / "workflows" / "gate.yml").write_text(
+        "jobs:\n  gate:\n    steps:"
+        "\n      - name: guard\n        run: just alpha; true\n"
+        "      - name: drift image side\n"
+        "        run: python3 scripts/ci_drift_check.py --image-log image.log\n",
+        encoding="utf-8",
+    )
+    run_case(tree, "a-guard-step-separator", [], expect_red=True)
+
+    # A-red (gh#320 finding 5): `just alpha > /dev/null` suppresses the
+    # diagnostic — a step that cannot be seen to red is not a CI home.
+    tree = make_tree("one:alpha\t-\texempt: gated by the guard step\n", None)
+    (tree / ".github" / "workflows" / "gate.yml").write_text(
+        "jobs:\n  gate:\n    steps:"
+        "\n      - name: guard\n        run: just alpha > /dev/null\n"
+        "      - name: drift image side\n"
+        "        run: python3 scripts/ci_drift_check.py --image-log image.log\n",
+        encoding="utf-8",
+    )
+    run_case(tree, "a-guard-step-redirect", [], expect_red=True)
 
 
 if __name__ == "__main__":
