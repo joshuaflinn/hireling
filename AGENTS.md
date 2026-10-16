@@ -771,5 +771,8 @@ past. Never `>` (nor `tee`, nor an `--output`/`-o`/`-f` flag) to an absolute
 path, and never name an output file from a host path — literal, variable, or
 read from a tool response. Write under `$PAPERCLIP_RUN_SCRATCH_DIR` by name,
 or redirect to a workspace-relative path you chose and clean up. `set -C` is
-not a guard: measured, a tool that creates the file itself is a creation path
-and noclobber never engages.
+not a guard: measured, it refuses only a redirect that overwrites an
+*existing* file (`set -C; echo NEW > existing.json` -> `cannot overwrite
+existing file`, rc 1) and not one that *creates* a file
+(`set -C; printf x > fresh.json` -> rc 0), and a scratch dump is a creation —
+so noclobber is the wrong tool.
