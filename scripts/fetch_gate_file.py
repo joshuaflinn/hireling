@@ -37,8 +37,18 @@ Usage:
     python3 scripts/fetch_gate_file.py IMAGE_PATH --hash
     python3 scripts/fetch_gate_file.py --self-test
 
+    # directory mode (trailing slash on IMAGE_PATH):
+    python3 scripts/fetch_gate_file.py etc/grizzly-gate/config/util/semgrep/rules/ \
+        --output gate-semgrep-rules --manifest scripts/gate_vendored.tsv
+
 IMAGE_PATH is the path inside the image, without a leading slash (the layer
-tar stores `etc/...`, not `/etc/...`).
+tar stores `etc/...`, not `/etc/...`). A trailing slash switches to directory
+mode: every regular file under that prefix is pulled as the merged view
+(bottom-up layers, OCI file whiteouts honored), written verbatim under
+--output, and the manifest records the canonical tree digest — one row, not
+one per file. gh#320 is the consumer: the image's semgrep rule directory,
+vendored as gate-semgrep-rules/ (git-ignored, re-created on demand) so
+`just scan-semgrep` can point the image's own rules at the repo root.
 """
 
 # ruff: noqa: S310, T201 -- a vendoring tool: urllib over fixed https
@@ -290,6 +300,134 @@ def extract_from_image(ref: ImageRef, image_path: str) -> bytes:
     )
 
 
+def directory_digest(entries: dict[str, bytes]) -> str:
+    """Return the canonical tree digest over {relpath: bytes}.
+
+    The same byte-identical form scripts/check_gate_vendored.py computes over
+    the vendored directory on disk: sorted relpaths, one
+    `relpath<TAB>sha256(content)` line each, the joined stream hashed. Sorting
+    makes the digest independent of layer/tar entry order; hashing each file
+    first keeps it stable under a rename that preserves bytes.
+    """
+    lines = "".join(
+        f"{relpath}\t{hashlib.sha256(entries[relpath]).hexdigest()}\n"
+        for relpath in sorted(entries)
+    )
+    return hashlib.sha256(lines.encode("utf-8")).hexdigest()
+
+
+def _whiteout_target(name: str) -> str | None:
+    """Return the path a `.wh.` member deletes, or None for a normal name."""
+    if "/" not in name:
+        return None
+    head, tail = name.rsplit("/", 1)
+    if not tail.startswith(".wh."):
+        return None
+    return f"{head}/{tail[len('.wh.'):]}"
+
+
+def _apply_whiteout(tree: dict[str, bytes], deleted: str, prefix: str) -> None:
+    """Delete `deleted` from `tree` when it lives under `prefix`."""
+    if deleted.startswith(prefix):
+        rel = deleted[len(prefix):]
+        if rel:
+            tree.pop(rel, None)
+
+
+def _apply_layer(
+    tree: dict[str, bytes],
+    archive: tarfile.TarFile,
+    prefix: str,
+    dir_prefix: str,
+) -> None:
+    """Merge one layer's members into `tree`, honouring OCI whiteouts."""
+    for member in archive.getmembers():
+        name = member.name.removeprefix("./").removeprefix("/")
+        deleted = _whiteout_target(name)
+        if deleted is not None:
+            _apply_whiteout(tree, deleted, prefix)
+            continue
+        if not name.startswith(prefix):
+            continue
+        rel = name[len(prefix):]
+        if not rel:
+            continue
+        if member.isdir():
+            continue
+        if not member.isfile():
+            fail(f"path '{name}' under '{dir_prefix}' is not a regular file")
+        extracted = archive.extractfile(member)
+        if extracted is None:
+            fail(f"path '{name}' could not be read")
+        tree[rel] = extracted.read()
+
+
+def search_directory(
+    digest: str,
+    dir_prefix: str,
+    layers: list[dict[str, Any]],
+    blob_getter: Callable[[str], bytes],
+) -> dict[str, bytes]:
+    """Return {relpath: bytes} for every regular file under `dir_prefix`.
+
+    Layers are read bottom-up so a later layer overwrites an earlier file and
+    an OCI file whiteout (`.wh.` sibling) deletes it — the merged view the
+    image actually runs, matching what `docker run --entrypoint tar` yields.
+    Relpaths are relative to `dir_prefix` (which ends in `/`). Symlinks,
+    hardlinks and other non-regular members fail closed rather than resolve
+    against a tree the image does not ship; an empty result reds — a vendored
+    directory of nothing certifies nothing.
+    """
+    if not layers:
+        fail(f"manifest {digest} declares no layers")
+    prefix = dir_prefix.removeprefix("./").removeprefix("/")
+    if not prefix.endswith("/"):
+        prefix += "/"
+    tree: dict[str, bytes] = {}
+    for layer in layers:
+        layer_digest = layer.get("digest")
+        if not layer_digest:
+            fail(f"layer without digest: {layer!r}")
+        blob = blob_getter(layer_digest)
+        with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as archive:
+            _apply_layer(tree, archive, prefix, dir_prefix)
+    if not tree:
+        fail(f"directory '{dir_prefix}' is empty or not found in image {digest}")
+    return tree
+
+
+def extract_directory(ref: ImageRef, dir_prefix: str) -> dict[str, bytes]:
+    """Pull every file under `dir_prefix` out of the image, merged view."""
+    token = registry_token(ref)
+    manifest = resolve_manifest(ref, token)
+    return search_directory(
+        ref.digest,
+        dir_prefix,
+        manifest.get("layers", []),
+        lambda layer_digest: _http_get(
+            f"https://{ref.registry}/v2/{ref.repository}/blobs/{layer_digest}",
+            token,
+        ),
+    )
+
+
+def write_tree(output: Path, tree: dict[str, bytes]) -> None:
+    """Write `tree`'s relpath -> bytes under `output`, refusing escapes.
+
+    Validation runs before any directory is created: a relpath with an empty,
+    `.` or `..` component would escape the vendored root and reds the whole
+    extraction rather than writing outside `output`.
+    """
+    for relpath in tree:
+        if any(part in ("", ".", "..") for part in relpath.split("/")):
+            fail(f"path '{relpath}' escapes the vendored directory")
+    output.mkdir(parents=True, exist_ok=True)
+    for relpath, content in tree.items():
+        target = output / relpath
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+
+
 def vendoring_header(image_path: str, digest: str) -> str:
     """Return the provenance header written above the marker in the vendored file."""
     return (
@@ -358,11 +496,15 @@ def upsert_manifest(
         )
     else:
         header = (
-            "# Vendored gate-file manifest. One row per vendored file, three\n"
-            "# tab-separated fields: <image-path> <vendored-path> <sha256>\n"
-            "# (sha256 of the image's raw bytes, i.e. everything below the\n"
-            "# marker line in the vendored file). Written by\n"
-            "# scripts/fetch_gate_file.py; read by scripts/check_gate_vendored.py."
+            "# Vendored gate-file manifest. One row per vendored file or directory,\n"
+            "# three tab-separated fields: <image-path> <vendored-path> <sha256>.\n"
+            "# File rows (no trailing slash): sha256 of the image's raw bytes, i.e.\n"
+            "# everything below the marker line in the vendored file. Directory rows\n"
+            "# (BOTH fields end in /): sha256 of the canonical tree digest — sorted\n"
+            "# relpath<TAB>file-sha256 lines, hashed — the same form both\n"
+            "# scripts/fetch_gate_file.py and scripts/check_gate_vendored.py compute.\n"
+            "# Written by scripts/fetch_gate_file.py; read by\n"
+            "# scripts/check_gate_vendored.py."
         )
         rows = []
     rows = [row for row in rows if row[0] != image_path]
@@ -493,6 +635,98 @@ def _self_test_compose_cases(ran: list[str], digest64: str) -> None:
     )
 
 
+def _self_test_directory_cases(ran: list[str], digest64: str) -> None:
+    # Directory extraction: relpaths relative to the prefix, subdirectories
+    # kept, a later layer's copy wins, whiteouts delete, and the digest is
+    # canonical (order-independent, stable).
+    bottom = _make_layer(
+        {
+            "etc/gate/rules/a.yaml": b"one",
+            "etc/gate/rules/sub/b.yaml": b"two",
+            "etc/gate/rules/ghost.yaml": b"doomed",
+        }
+    )
+    top = _make_layer(
+        {
+            "etc/gate/rules/a.yaml": b"one-new",
+            "etc/gate/rules/c.yaml": b"three",
+            "etc/gate/rules/.wh.ghost.yaml": b"",
+        }
+    )
+    blobs = {"sha256:bottom": bottom, "sha256:top": top}
+    tree = search_directory(
+        digest64,
+        "etc/gate/rules/",
+        [{"digest": "sha256:bottom"}, {"digest": "sha256:top"}],
+        lambda d: blobs[d],
+    )
+    _check(
+        ran,
+        "dir-relpaths-and-overlay-and-whiteout",
+        condition=tree
+        == {
+            "a.yaml": b"one-new",
+            "sub/b.yaml": b"two",
+            "c.yaml": b"three",
+        },
+    )
+    digest_a = directory_digest(tree)
+    reordered = {key: tree[key] for key in reversed(list(tree))}
+    _check(ran, "dir-digest-order-independent", condition=directory_digest(reordered) == digest_a)
+    _check(
+        ran,
+        "dir-digest-64-hex",
+        condition=(
+            len(digest_a) == SHA256_HEX_LEN
+            and all(c in "0123456789abcdef" for c in digest_a)
+        ),
+    )
+
+    def refuse(entries: dict[str, bytes]) -> bool:
+        layer = _make_layer(entries)
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                search_directory(
+                    digest64, "etc/gate/rules/", [{"digest": "sha256:x"}], lambda _: layer
+                )
+            except SystemExit:
+                return True
+        return False
+
+    _check(ran, "dir-empty-refused", condition=refuse({}))
+
+    def symlink_refused() -> bool:
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as archive:
+            info = tarfile.TarInfo("etc/gate/rules/link")
+            info.type = tarfile.SYMTYPE
+            info.linkname = "a.yaml"
+            archive.addfile(info)
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                search_directory(
+                    digest64,
+                    "etc/gate/rules/",
+                    [{"digest": "sha256:x"}],
+                    lambda _: buf.getvalue(),
+                )
+            except SystemExit:
+                return True
+        return False
+
+    _check(ran, "dir-symlink-refused", condition=symlink_refused())
+
+    def refuse_write(rel: str) -> bool:
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                write_tree(Path("/nonexistent-vendored-root"), {rel: b"x"})
+            except SystemExit:
+                return True
+        return False
+
+    _check(ran, "dir-write-escape-refused", condition=refuse_write("../evil"))
+
+
 def _self_test() -> None:
     """Re-prove the pure paths: ref parsing, tar search, overlay, manifest.
 
@@ -505,16 +739,21 @@ def _self_test() -> None:
     _self_test_tar_cases(ran)
     _self_test_overlay_case(ran, digest64)
     _self_test_compose_cases(ran, digest64)
+    _self_test_directory_cases(ran, digest64)
     print(f"fetch-gate-file self-test: {len(ran)} checks, all pass")
 
 
-def main() -> None:
-    """Parse arguments and vend the named path out of the pinned image."""
+def _parse_args() -> argparse.Namespace:
+    """Build the argument parser and return the parsed arguments."""
     parser = argparse.ArgumentParser(
         description="extract a named path from the pinned gate image"
     )
     parser.add_argument("image_path", nargs="?", help="path inside the image, no leading slash")
-    parser.add_argument("--output", type=Path, help="write the vendored file here")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="write the vendored file (or, for a trailing-slash IMAGE_PATH, directory) here",
+    )
     parser.add_argument(
         "--manifest",
         type=Path,
@@ -530,27 +769,54 @@ def main() -> None:
         help="workflow file to read GATE_IMAGE from (default: .github/workflows/gate.yml)",
     )
     parser.add_argument("--self-test", action="store_true", help="re-prove the pure paths and exit")
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    if args.self_test:
-        _self_test()
-        return
 
+def _resolve_image_ref(args: argparse.Namespace) -> ImageRef:
+    """Validate the arguments and parse the pinned image ref out of the workflow."""
     if not args.image_path:
         fail("IMAGE_PATH is required (or pass --self-test)")
     if args.manifest and not args.output:
         fail("--manifest requires --output (the vendored path the hash belongs to)")
-
     if not args.digest_file.is_file():
         fail(f"digest file {args.digest_file} not found — run from the repo root")
     ref_text = read_gate_image_ref(args.digest_file.read_text(encoding="utf-8"))
     if not ref_text:
         fail(f"no GATE_IMAGE line in {args.digest_file}")
-    ref = parse_image_ref(ref_text)
+    return parse_image_ref(ref_text)
 
+
+def _vend_directory(args: argparse.Namespace, ref: ImageRef) -> None:
+    """Vend a directory IMAGE_PATH (trailing slash) and record its digest."""
+    tree = extract_directory(ref, args.image_path)
+    digest = directory_digest(tree)
+    if args.hash:
+        print(digest)
+        return
+    if args.output:
+        write_tree(args.output, tree)
+        if args.manifest:
+            upsert_manifest(
+                args.manifest,
+                args.image_path,
+                str(args.output).rstrip("/") + "/",
+                digest,
+            )
+        print(
+            f"vendored {args.image_path} -> {args.output}/"
+            f" ({len(tree)} files, sha256 {digest[:16]}…)"
+        )
+        return
+    fail(
+        "a directory IMAGE_PATH (trailing slash) needs --output or --hash —"
+        " a tree cannot stream to stdout"
+    )
+
+
+def _vend_file(args: argparse.Namespace, ref: ImageRef) -> None:
+    """Vend a single file, record its digest, or stream the raw bytes."""
     source = extract_from_image(ref, args.image_path)
     digest = hashlib.sha256(source).hexdigest()
-
     if args.hash:
         print(digest)
         return
@@ -571,6 +837,19 @@ def main() -> None:
     # No --output/--hash: emit the raw bytes, the same shape the original
     # extraction used for inspection.
     sys.stdout.buffer.write(source)
+
+
+def main() -> None:
+    """Parse arguments and vend the named path out of the pinned image."""
+    args = _parse_args()
+    if args.self_test:
+        _self_test()
+        return
+    ref = _resolve_image_ref(args)
+    if args.image_path.endswith("/"):
+        _vend_directory(args, ref)
+    else:
+        _vend_file(args, ref)
 
 
 if __name__ == "__main__":

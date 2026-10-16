@@ -16,6 +16,13 @@
 # grizzly-gate local report output
 grizzly-gate-report/
 
+# Vendored semgrep rules (gh#320): reproduced from the pinned image by
+# `just vendor-semgrep`, hashed by `just check-vendored`, read by
+# `just scan-semgrep`. Git-ignored because the tree carries semgrep test
+# fixtures that are not JSON, which the pre-commit duplicate-key guard
+# refuses to commit. Never hand-edit; re-vendor instead.
+gate-semgrep-rules/
+
 # Frontend
 web/node_modules
 web/dist/

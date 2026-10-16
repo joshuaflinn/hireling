@@ -13,10 +13,14 @@ on:
   push:
     branches: [main]
 
-# The pinned gate image, named once: the two docker runs below, the cache
-# key, and the first restore-keys line — four readers — all read this, so a
-# deliberate digest bump — always its own PR — rolls the cache key over with
-# the same single edit instead of drifting apart.
+# The pinned gate image, named once: the cache key, the first restore-keys
+# line, and the two step-level GATE_IMAGE_REF env lines below — four readers
+# — all read this, so a deliberate digest bump — always its own PR — rolls
+# the cache key and both docker runs over with the same single edit instead
+# of drifting apart. The GATE_IMAGE_REF indirection keeps `${{ }}` out of
+# `run:` bodies: the image's curl-pipe security rules hand a `run:` body to a
+# Bash parser that cannot read GitHub expressions, and a skipped parse reads
+# as a clean pass (gh#332).
 env:
   GATE_IMAGE: bearflinn/grizzly-gate@sha256:25c6193d39ee9460f8e0dc2413e728723943caeb2b550249061c045cab42bc4e
 
@@ -240,9 +244,19 @@ jobs:
       # vendored copy stops hashing to what scripts/gate_vendored.tsv records.
       # A digest bump that forgets to re-vendor reds here before the image
       # even runs.
+      #
+      # --allow-unvendored: CI checks out a git tree, and gate-semgrep-rules/
+      # is git-ignored, so the vendored rule directory is structurally absent
+      # here — the same fetch that populates it is the one that cannot reach
+      # the registry from a bare checkout any better than the bench can.
+      # Absence is red on a bench (where `just vendor-semgrep` can run) and
+      # opt-out tolerated here, because the image-side step below is what
+      # actually proves the rules are the pinned ones. `just scan-semgrep`
+      # does not run in CI at all: the image runs its own semgrep pass, which
+      # reads its own on-image rules and never looks at this directory.
       - name: check-vendored — vendored config matches its recorded hash
         if: ${{ !cancelled() }}
-        run: just check-vendored
+        run: just check-vendored --allow-unvendored
 
       # The other half of gh#314: the pinned digest must still carry the
       # bytes we vendored. The offline check above hashes the vendored copies
@@ -255,16 +269,32 @@ jobs:
       # docker run reds the step under bash -e.
       - name: check-vendored — image carries every vendored file
         if: ${{ !cancelled() }}
+        env:
+          GATE_IMAGE_REF: ${{ env.GATE_IMAGE }}
         run: |
           set -euo pipefail
           args=()
           while IFS=$'\t' read -r image_path _ _; do
             [ -n "$image_path" ] || continue
-            out="$RUNNER_TEMP/image-$(printf '%s' "$image_path" | tr '/' '_').tmp"
-            docker run --rm --entrypoint cat "${{ env.GATE_IMAGE }}" "/$image_path" > "$out"
-            args+=(--image-source "$image_path=$out")
+            if [ "${image_path%/}" != "$image_path" ]; then
+              # Directory row: tar the subtree out of the image and unpack it.
+              dir="$RUNNER_TEMP/image-$(printf '%s' "$image_path" | tr '/' '_').dir"
+              mkdir -p "$dir"
+              docker run --rm --entrypoint tar "$GATE_IMAGE_REF" \
+                -c -C "/${image_path%/}" . | tar -x -C "$dir"
+              args+=(--image-source "$image_path=$dir")
+            else
+              # File row: cat a single file out of the image.
+              out="$RUNNER_TEMP/image-$(printf '%s' "$image_path" | tr '/' '_').tmp"
+              docker run --rm --entrypoint cat "$GATE_IMAGE_REF" "/$image_path" > "$out"
+              args+=(--image-source "$image_path=$out")
+            fi
           done < <(grep -v '^#' scripts/gate_vendored.tsv)
-          python3 scripts/check_gate_vendored.py --require-image-sources "${args[@]}"
+          # --allow-unvendored: same reason as the offline step above — the
+          # git-ignored rule directory is structurally absent from a CI
+          # checkout, and this step's job is to prove the image still carries
+          # the pinned bytes (check_image_sources), not the local tree.
+          python3 scripts/check_gate_vendored.py --allow-unvendored --require-image-sources "${args[@]}"
 
       # The runner-label drift check (gh#331): the workflow's `runs-on:`
       # label and the label embedded in the cache key/restore-keys must
@@ -303,6 +333,8 @@ jobs:
       - name: Run grizzly-gate
         if: ${{ !cancelled() }}
         shell: bash
+        env:
+          GATE_IMAGE_REF: ${{ env.GATE_IMAGE }}
         run: |
           set -o pipefail
           docker run --rm \
@@ -315,7 +347,7 @@ jobs:
             -e GIT_CONFIG_KEY_0=safe.directory \
             -e GIT_CONFIG_VALUE_0=* \
             -w /src \
-            "${{ env.GATE_IMAGE }}" \
+            "$GATE_IMAGE_REF" \
             --source /src 2>&1 | tee "$RUNNER_TEMP/gate-image-output.log"
         # --network host: the gate container's 127.0.0.1 is its own network
         # namespace, so without this the service Postgres above is unreachable
