@@ -770,16 +770,28 @@ over the same string creates the parent chain *under the worktree*, so the write
 lands in the tree and shows as ordinary untracked:
 
 ```
-$ mkdir -p home/flinn/.tmp/paperclip-<run>
-$ echo '{"e":5}' > home/flinn/.tmp/paperclip-<run>/x.json
+$ mkdir -p home/flinn/.tmp/paperclip-run
+$ echo '{"e":5}' > home/flinn/.tmp/paperclip-run/x.json
 $ git status --short
 ?? home/
 ```
 
-Both lines are needed. Without the `mkdir -p` the redirect exits 1 with `No such
-file or directory` and nothing is contaminated — measured in a clean tree at
-`97a5d2b`. The `mkdir -p` is the step that makes it reproduce, so it is part of
-the reproduction, not a precondition to footnote.
+Run in a clean tree from the repo root — `git rev-parse --show-toplevel` names
+it — with each write in its own command line, not chained with `&&`. Both write
+lines are needed. Without the `mkdir -p` the redirect exits 1 with `No such file
+or directory` and nothing is contaminated:
+
+```
+$ rm -rf home
+$ git status --short                              # (no output)
+$ echo '{"e":5}' > home/flinn/.tmp/paperclip-run/x.json
+bash: home/flinn/.tmp/paperclip-run/x.json: No such file or directory
+$ echo "rc=$?"                                    # rc=1
+$ git status --short                              # (no output)
+```
+
+The `mkdir -p` is the step that makes it reproduce, so it is part of the
+reproduction, not a precondition to footnote.
 
 A literal absolute path does not behave that way. Write *outside* the tree —
 under a directory that is not beneath it — and each outcome is a command. Set
@@ -787,20 +799,27 @@ under a directory that is not beneath it — and each outcome is a command. Set
 tree, `"$W/out/x.json"` is an absolute path that *is* under the tree, and the
 block demonstrates contamination instead of the claim.
 
-- *Parent exists → lands at the absolute path, tree clean.* From a clean tree:
+Both blocks below run from the repo root in a tree that is clean before the
+write. `$W` is a directory not beneath the tree — on a Paperclip seat that is
+`$PAPERCLIP_RUN_SCRATCH_DIR`.
+
+- *Parent exists → lands at the absolute path, tree clean.*
 
   ```
-  $ W=$RUN_OWNED_DIR                 # a directory NOT beneath the tree
+  $ W=$PAPERCLIP_RUN_SCRATCH_DIR      # a directory NOT beneath the tree
   $ mkdir -p "$W/out"
-  $ echo '{"e":5}' > "$W/out/x.json" # rc 0
-  $ test -f "$W/out/x.json" && echo wrote   # wrote
-  $ git status --short                      # (no output)
+  $ echo '{"e":5}' > "$W/out/x.json"
+  $ echo "rc=$?"                             # rc=0
+  $ test -f "$W/out/x.json" && echo wrote    # wrote
+  $ git status --short                       # (no output)
   ```
 
 - *Parent missing → rc 1, tree clean.* Same tree, no `mkdir`:
 
   ```
-  $ echo '{"e":5}' > "$W/absent-9x/y.json"  # rc 1: No such file or directory
+  $ echo '{"e":5}' > "$W/absent-9x7/y.json"
+  bash: /home/flinn/.tmp/paperclip-run-mor-751-…/absent-9x7/y.json: No such file or directory
+  $ echo "rc=$?"                            # rc=1
   $ git status --short                      # (no output)
   ```
 
@@ -813,18 +832,21 @@ What contaminated a workspace here was a host path carried without its leading
 
 - Never name an output file from a host path **carried in from outside this
   worktree** — as a literal, a variable, a template, or a value read from a tool
-  response or a path-stripping wrapper. A directory the harness names for you is
-  not carried in; the next paragraph prescribes it.
+  response or a path-stripping wrapper. Every directory outside this worktree is
+  a candidate: `/tmp`, a service home, another repo's checkout. The one
+  exemption is the directory this run's harness names for you, and it is
+  enumerated in the next paragraph — not inferred from a path's look.
 - Never `>`, `tee`, or an `--output`/`-o`/`-f` flag to a path built by
   concatenating host-path components from inside a worktree.
 
-The bullet is about where the name came from, not its shape, because shape cannot
-decide it: `$PAPERCLIP_RUN_SCRATCH_DIR/x.json` and `$WORKTREE_DIR/x.json` are the
-same shape — an absolute path in a variable, used as a template — and only the
-second is a hazard of this rule. Measured on a host where the scratch dir is not
-beneath the worktree: the scratch form returns rc 0 and leaves
-`git status --short` empty, while the worktree form written with its leading `/`
-stripped returns rc 0 and yields `?? home/`.
+The bullet turns on where the name came from, and that test lives in this run's
+context — the provenance is not in the string, so no shape check on the path can
+carry it. `$PAPERCLIP_RUN_SCRATCH_DIR/x.json` and `${TREE#/}/x.json` are the same
+shape — an expanded path used as a template — and only the second is a hazard of
+this rule. Measured in a clean tree at the repo root: the scratch-dir form
+returns rc 0 with `git status --short` empty; the same tree's own
+`git rev-parse --show-toplevel` output with its leading `/` stripped, `mkdir -p`
+then written through, returns rc 0 and yields `?? home/`.
 
 Write output to a workspace-relative path you chose and clean it up, or — on a
 Paperclip seat — under `$PAPERCLIP_RUN_SCRATCH_DIR`, which is run-owned, outside
