@@ -63,7 +63,7 @@ pub fn extract_categories(zip_bytes: &[u8]) -> anyhow::Result<Vec<PackCategory>>
         if entry.size() > MAX_ENTRY_BYTES {
             return Err(anyhow!(
                 "release asset entry `{}` is {} bytes — over the per-entry guard",
-                entry.name(),
+                entry_name(&entry)?,
                 entry.size()
             ));
         }
@@ -73,7 +73,7 @@ pub fn extract_categories(zip_bytes: &[u8]) -> anyhow::Result<Vec<PackCategory>>
                 "release asset decompresses past the total size guard; refusing"
             ));
         }
-        let name = entry.name().to_owned();
+        let name = entry_name(&entry)?;
         let kind = match name.as_str() {
             "packs/conditions.json" => Some(Kind::Condition),
             "packs/equipment.json" => Some(Kind::Item),
@@ -157,6 +157,21 @@ pub fn parse_pack_file(kind: Kind, name: &str, bytes: &[u8]) -> anyhow::Result<V
 
 fn duplicate_entry(name: &str) -> anyhow::Error {
     anyhow!("release asset holds `{name}` twice")
+}
+
+/// The archive entry's path as the importer sees it.
+///
+/// zip 9.x made `ZipFile::name()` fallible — it decodes the raw entry name
+/// and can fail on bytes that are not valid UTF-8. An unreadable name is a
+/// malformed release asset, so it fails the run like any other unreadable
+/// entry rather than being skipped.
+fn entry_name<R: std::io::Read + std::io::Seek>(
+    entry: &zip::read::ZipFile<'_, R>,
+) -> anyhow::Result<String> {
+    entry
+        .name()
+        .map(std::borrow::Cow::into_owned)
+        .map_err(|err| anyhow!("release asset entry name unreadable: {err}"))
 }
 
 #[cfg(test)]
