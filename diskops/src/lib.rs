@@ -25,7 +25,7 @@ pub const DEFAULT_FLOOR_GIB: u64 = 10;
 
 /// Whether `free_bytes` is below the floor — the guard's refusal condition.
 #[must_use]
-pub fn below_floor(free_bytes: u64, floor_bytes: u64) -> bool {
+fn below_floor(free_bytes: u64, floor_bytes: u64) -> bool {
     free_bytes < floor_bytes
 }
 
@@ -207,7 +207,7 @@ pub enum ReapDecision {
 }
 
 /// The liveness signal for one candidate — three states, so an unobservable
-/// process is reported as such rather than as a confirmed live build (F3).
+/// process is reported as such rather than as a confirmed live build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LiveStatus {
     /// Nothing attributes a live build to the candidate.
@@ -317,7 +317,7 @@ pub struct ProcessObservation {
     /// Whether `/proc/<pid>/environ` was readable. A build-token process
     /// whose environment is unreadable reads as live — the detached-gate
     /// recipe names its target dir there, so an unreadable environment
-    /// cannot be ruled out (F1).
+    /// cannot be ruled out.
     pub env_readable: bool,
 }
 
@@ -329,7 +329,7 @@ pub struct ProcessObservation {
 /// for the whole system uptime), so this matcher over-matches by design.
 /// The over-match is harmless because it only selects processes worth
 /// attributing — whether any one of them blocks a candidate is decided by
-/// [`process_blocks_dir`] on the process's cwd, not by this match alone.
+/// [`process_liveness`] on the process's cwd, not by this match alone.
 #[must_use]
 pub fn is_live_build_process(cmdline: &str) -> bool {
     ["cargo", "rustc", "npm", "node"]
@@ -373,7 +373,7 @@ pub fn argv_names_path(argv: &[String], candidate: &Path) -> bool {
 /// writes `CARGO_TARGET_DIR="$PWD/../target-gate-<n>"`, which still carries
 /// a `..` when cargo reads it; a lexical `starts_with` against the
 /// canonicalized candidate would miss it, and the environment is how the
-/// repo's only `target-*` producer names its directory (F1).
+/// repo's only `target-*` producer names its directory.
 #[must_use]
 pub fn normalize_path(path: &Path) -> PathBuf {
     let mut parts: Vec<std::ffi::OsString> = Vec::new();
@@ -396,6 +396,23 @@ pub fn normalize_path(path: &Path) -> PathBuf {
     parts.into_iter().collect()
 }
 
+/// Resolve a `CARGO_TARGET_DIR` value to a normalized absolute path.
+///
+/// An absolute value normalizes directly. A relative value is resolved
+/// against the process's observed cwd before normalizing — compared against
+/// a canonicalized candidate, a relative value never matches otherwise.
+/// When the cwd is unreadable and the value is relative, the path cannot be
+/// resolved and this returns `None`; a build-token process in that state
+/// reads unobservable, never idle.
+#[must_use]
+fn resolve_env_target_dir(dir: &Path, cwd: Option<&Path>) -> Option<PathBuf> {
+    if dir.is_absolute() {
+        Some(normalize_path(dir))
+    } else {
+        cwd.map(|cwd| normalize_path(&cwd.join(dir)))
+    }
+}
+
 /// How one observed process bears on reaping `candidate`.
 ///
 /// Liveness is decided per candidate directory, not per process-table line:
@@ -404,22 +421,36 @@ pub fn normalize_path(path: &Path) -> PathBuf {
 /// `node` tokens appear in the install paths of permanent tooling, and a
 /// global match made the first reaper refuse forever (gh#301 round 2 F1).
 ///
-/// A build-token process is [`LiveStatus::Live`] against the candidate when
-/// one of:
+/// The environment is consulted before the token pre-filter, because it is
+/// per-candidate and exact: a process whose `CARGO_TARGET_DIR` names the
+/// candidate blocks it regardless of its command line. The gate recipe's
+/// wrapper (`just`, `python3`, `semgrep`, `sh`) holds the variable while no
+/// `cargo`/`rustc`/`npm`/`node` token appears on argv, so the token match
+/// alone would attribute nothing. The pre-filter exists only to stop a
+/// `node`-in-a-path process from blocking globally.
 ///
+/// A process is [`LiveStatus::Live`] against the candidate when one of:
+///
+/// - its environment names a `CARGO_TARGET_DIR` under the candidate (the
+///   [`ProcessObservation::env_target_dir`] field), resolved against its
+///   observed cwd when the value is relative — the detached-gate recipe is
+///   the repo's only `target-*` producer and names the directory here, not
+///   on argv; or
 /// - its cwd is the candidate or a descendant of it — the real vitest reads
 ///   `<parent>/hireling-488-stash-web/web`, inside the sibling; or
 /// - its argv names an absolute path under the candidate (see
-///   [`argv_names_path`]); or
-/// - its environment names a `CARGO_TARGET_DIR` under the candidate (the
-///   [`ProcessObservation::env_target_dir`] field) — the detached-gate
-///   recipe is the repo's only `target-*` producer and names the directory
-///   here, not on argv (F1).
+///   [`argv_names_path`]).
 ///
 /// It is [`LiveStatus::Unobservable`] when its cwd or environment cannot be
 /// read — fail-closed: an unobservable process reads as live, never idle.
 #[must_use]
 pub fn process_liveness(observation: &ProcessObservation, candidate: &Path) -> LiveStatus {
+    if let Some(dir) = &observation.env_target_dir
+        && let Some(resolved) = resolve_env_target_dir(dir, observation.cwd.as_deref())
+        && path_is_within(&resolved, candidate)
+    {
+        return LiveStatus::Live;
+    }
     if !is_live_build_process(&observation.cmdline) {
         return LiveStatus::Idle;
     }
@@ -433,15 +464,8 @@ pub fn process_liveness(observation: &ProcessObservation, candidate: &Path) -> L
         return LiveStatus::Live;
     }
     match &observation.env_target_dir {
-        Some(dir) => {
-            if path_is_within(&normalize_path(dir), candidate) {
-                LiveStatus::Live
-            } else {
-                LiveStatus::Idle
-            }
-        }
         None if !observation.env_readable => LiveStatus::Unobservable,
-        None => LiveStatus::Idle,
+        Some(_) | None => LiveStatus::Idle,
     }
 }
 
@@ -477,12 +501,12 @@ pub struct RemovalsOutcome {
 
 /// Apply a removal to each reapable candidate, continuing past failures.
 ///
-/// One failed candidate must not abandon the sweep: `report_and_remove`
-/// used to `?`-propagate, which left every later candidate untouched on a
-/// full disk — exactly when the reaper is reached for (F2). The removal
-/// action itself is injected by the shell (`std::fs::remove_dir_all` or
-/// `git worktree remove`); this function owns the control flow — collect,
-/// don't propagate — and the exit signal.
+/// One failed candidate must not abandon the sweep: a failed removal would
+/// leave every later candidate untouched on a full disk — exactly when the
+/// reaper is reached for. The removal action itself is injected by the
+/// shell (`std::fs::remove_dir_all` or `git worktree remove`); this
+/// function owns the control flow — collect, don't propagate — and the exit
+/// signal.
 pub fn apply_removals(
     entries: &[(String, PathBuf, SiblingKind)],
     mut remove: impl FnMut(&Path, &str, SiblingKind) -> Result<(), String>,
@@ -498,6 +522,37 @@ pub fn apply_removals(
     RemovalsOutcome { removed, failures }
 }
 
+/// The removal the delete path performs for one candidate, decided on its
+/// kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemovalAction {
+    /// `remove_dir_all` — a leaked `target-*` dir.
+    RemoveDirAll,
+    /// `git worktree remove` (never `--force`) — a hand-cut worktree.
+    GitWorktreeRemove,
+}
+
+/// Decide the removal for a candidate from its kind. The exclusion is a
+/// property of the delete path, not only of [`decide`]: `MOR-<n>`, the
+/// shared checkout, and unknown names are refused outright here, so the one
+/// function that deletes things can never treat a harness-owned workspace
+/// as a removal candidate however it was reached.
+///
+/// # Errors
+///
+/// Returns `refusing to remove <name>: not a reapable kind` for
+/// [`SiblingKind::Mor`], [`SiblingKind::Reference`], and
+/// [`SiblingKind::Other`].
+pub fn removal_action(kind: SiblingKind, name: &str) -> Result<RemovalAction, String> {
+    match kind {
+        SiblingKind::Target => Ok(RemovalAction::RemoveDirAll),
+        SiblingKind::Hireling => Ok(RemovalAction::GitWorktreeRemove),
+        SiblingKind::Mor | SiblingKind::Reference | SiblingKind::Other => {
+            Err(format!("refusing to remove {name}: not a reapable kind"))
+        }
+    }
+}
+
 /// The anchor a `PathBuf::pop()`-exhausted walk resolves to. An absolute
 /// path never exhausts — the root exists — so this is the defensive branch:
 /// a relative path that walks to the empty path means the current directory
@@ -505,7 +560,7 @@ pub fn apply_removals(
 /// on. Anchoring a relative path at `/` would report the root filesystem
 /// instead of the worktree's for a single-component target dir.
 #[must_use]
-pub fn exhausted_walk_anchor(path_is_absolute: bool) -> &'static str {
+fn exhausted_walk_anchor(path_is_absolute: bool) -> &'static str {
     if path_is_absolute { "/" } else { "." }
 }
 

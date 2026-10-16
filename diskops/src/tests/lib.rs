@@ -13,10 +13,10 @@ use std::path::{Path, PathBuf};
 
 use super::{
     DEFAULT_FLOOR_GIB, FreeSpace, GIB, GuardOutcome, LiveStatus, ProcessObservation, ReapDecision,
-    RemovalsOutcome, SiblingKind, SkipReason, apply_removals, argv_names_path, below_floor,
-    classify_sibling, decide, exhausted_walk_anchor, format_gib, guard_outcome,
+    RemovalAction, RemovalsOutcome, SiblingKind, SkipReason, apply_removals, argv_names_path,
+    below_floor, classify_sibling, decide, exhausted_walk_anchor, format_gib, guard_outcome,
     is_live_build_process, nearest_existing_ancestor, normalize_path, parse_df, parse_floor_gib,
-    path_is_within, process_liveness, skip_reason_text,
+    path_is_within, process_liveness, removal_action, skip_reason_text,
 };
 
 const FLOOR_BYTES: u64 = DEFAULT_FLOOR_GIB * GIB;
@@ -589,6 +589,116 @@ fn path_is_within_is_component_wise() {
         !path_is_within(Path::new("/a"), Path::new("/a/b")),
         "an ancestor is not within its descendant"
     );
+}
+
+#[test]
+fn process_liveness_blocks_on_env_without_build_tokens() {
+    // gh#306: a `sleep 25` holder with CARGO_TARGET_DIR pointed into a 1.6G
+    // candidate — the token set (cargo/rustc/npm/node) never appears on its
+    // cmdline, so the old token-first gate reported it idle and the reaper
+    // said `would remove target-gate-999`. The environment names the
+    // candidate, so the holder must block it.
+    let holder = ProcessObservation {
+        cmdline: "sleep 25".to_owned(),
+        argv: vec!["sleep".to_owned(), "25".to_owned()],
+        cwd: Some(PathBuf::from("/parent")),
+        env_target_dir: Some(PathBuf::from("/parent/target-gate-999")),
+        env_readable: true,
+    };
+    assert_eq!(
+        process_liveness(&holder, Path::new("/parent/target-gate-999")),
+        LiveStatus::Live,
+        "a CARGO_TARGET_DIR holder blocks the candidate it names regardless of cmdline tokens"
+    );
+    assert_eq!(
+        process_liveness(&holder, Path::new("/parent/target-gate-998")),
+        LiveStatus::Idle,
+        "the same holder does not block an unrelated candidate"
+    );
+}
+
+#[test]
+fn process_liveness_resolves_a_relative_env_target_dir_against_the_cwd() {
+    // gh#307: a relative CARGO_TARGET_DIR is resolved against the observed
+    // cwd before it is compared to the canonicalized candidate.
+    let in_parent = ProcessObservation {
+        cmdline: "cargo build".to_owned(),
+        argv: vec!["cargo".to_owned(), "build".to_owned()],
+        cwd: Some(PathBuf::from("/parent/hireling-gate-42")),
+        env_target_dir: Some(PathBuf::from("../target-gate-42")),
+        env_readable: true,
+    };
+    assert_eq!(
+        process_liveness(&in_parent, Path::new("/parent/target-gate-42")),
+        LiveStatus::Live,
+        "relative env + cwd inside the parent resolves to the candidate"
+    );
+
+    let elsewhere = ProcessObservation {
+        cmdline: "cargo build".to_owned(),
+        argv: vec!["cargo".to_owned(), "build".to_owned()],
+        cwd: Some(PathBuf::from("/elsewhere")),
+        env_target_dir: Some(PathBuf::from("../target-gate-42")),
+        env_readable: true,
+    };
+    assert_eq!(
+        process_liveness(&elsewhere, Path::new("/parent/target-gate-42")),
+        LiveStatus::Idle,
+        "the same relative env with a cwd elsewhere resolves outside the candidate"
+    );
+}
+
+#[test]
+fn live_status_merge_precedence_over_all_pairs() {
+    use LiveStatus::{Idle, Live, Unobservable};
+    // Live > Unobservable > Idle, the fold in build_plan. A wrong precedence
+    // that returns Idle for (Live, Idle) deletes a live build (gh#308).
+    let pairs = [
+        (Live, Live, Live),
+        (Live, Unobservable, Live),
+        (Live, Idle, Live),
+        (Unobservable, Live, Live),
+        (Unobservable, Unobservable, Unobservable),
+        (Unobservable, Idle, Unobservable),
+        (Idle, Live, Live),
+        (Idle, Unobservable, Unobservable),
+        (Idle, Idle, Idle),
+    ];
+    for (a, b, expected) in pairs {
+        assert_eq!(
+            a.merge(b),
+            expected,
+            "({a:?}, {b:?}) must merge to {expected:?}"
+        );
+    }
+}
+
+#[test]
+fn removal_action_refuses_non_reapable_kinds() {
+    // gh#309: the one function that deletes things must refuse a non-reapable
+    // kind outright, so a MOR-<n> workspace or the shared checkout is never a
+    // remove_dir_all candidate however it was reached.
+    assert_eq!(
+        removal_action(SiblingKind::Target, "target-gate-1"),
+        Ok(RemovalAction::RemoveDirAll),
+        "a target dir is removed with remove_dir_all"
+    );
+    assert_eq!(
+        removal_action(SiblingKind::Hireling, "hireling-old"),
+        Ok(RemovalAction::GitWorktreeRemove),
+        "a hand-cut worktree is removed via git worktree remove"
+    );
+    for (kind, name) in [
+        (SiblingKind::Mor, "MOR-482"),
+        (SiblingKind::Reference, "hireling"),
+        (SiblingKind::Other, "docs"),
+    ] {
+        assert_eq!(
+            removal_action(kind, name),
+            Err(format!("refusing to remove {name}: not a reapable kind")),
+            "the delete path refuses to remove {kind:?}"
+        );
+    }
 }
 
 #[test]
