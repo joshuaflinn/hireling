@@ -252,8 +252,11 @@ jobs:
       # Absence is red on a bench (where `just vendor-semgrep` can run) and
       # opt-out tolerated here, because the image-side step below is what
       # actually proves the rules are the pinned ones. `just scan-semgrep`
-      # does not run in CI at all: the image runs its own semgrep pass, which
-      # reads its own on-image rules and never looks at this directory.
+      # still has no step of its own — its scan *is* the image's `scan:semgrep`
+      # pass, which reads its own on-image rules and never looks at this
+      # directory — but it is no longer true that nothing semgrep-side runs
+      # here beyond the image: `just guard-selftests` is a repo-side step, and
+      # so is the guard's pass over the image's own scan JSON below. gh#369.
       - name: check-vendored — vendored config matches its recorded hash
         if: ${{ !cancelled() }}
         run: just check-vendored --allow-unvendored
@@ -306,6 +309,20 @@ jobs:
       # `semgrep --version`; a mismatch reds, so the row cannot drift
       # uncaught and the number is never restated here. A failed docker run
       # reds too (bash -e over the substitution and the grep).
+      #
+      # A note for the reader who looks here for the scan's version provenance:
+      # the image's semgrep JSON carries a top-level "version" field, and
+      # semgrep_fail_closed.py does not read it — the guard's own docstring
+      # points version provenance at this step, so it is in its lane. What this
+      # step does not currently do is *bind* that number to the scan that
+      # produced it: it pulls `semgrep --version` from a separate, earlier
+      # docker run, so it proves the image's CLI version, not the version whose
+      # output the `Fail-closed guard over the image's own scan` step below then
+      # reads. Raising the two from the same log line would bind them by
+      # construction and cost nothing, because the log is already there. Filed
+      # separately rather than folded in here — gh#369 is about the guard's CI
+      # home, not about re-pointing this step (Korrin's scope, and the reason
+      # this PR adds no new version step of its own).
       - name: semgrep version — image's pinned CLI matches the declared row
         if: ${{ !cancelled() }}
         env:
@@ -411,6 +428,60 @@ jobs:
       - name: Drift check — image output names nothing undeclared
         if: ${{ !cancelled() }}
         run: python3 scripts/ci_drift_check.py --image-log "$RUNNER_TEMP/gate-image-output.log"
+
+      # The gh#332 blind-spot guard's CI home (gh#369). Runs the guard over the
+      # image's OWN scan, which the step above already captured to a file. This
+      # is a second reader of an existing artifact, NOT a second semgrep scan:
+      # the scan is the image's pass and the slowest leg of this job (~94s of
+      # 94.2s at run 38938434923); a repo-side scan would duplicate it and
+      # double that (Korrin's standing caution on gh#369, and the reason the
+      # issue rejected a full repo-side semgrep).
+      #
+      # Extraction is a grep in the step, not a new --extract-json flag in the
+      # script. Measured against the real image output (run 38938434923: semgrep
+      # 1.168.0, 0 findings, 292 scanned paths, 19 tolerated `info` notices): the
+      # JSON is one line, it is the line the image's own semgrep invocation
+      # printed, and it parses as-is — no transform, no second tool, no new
+      # python surface. The one-line JSON fact is not an assumption carried by
+      # this step: `ci_drift_check.py`'s `read_log_lines` already reads that log
+      # line by line, and a multi-line document would break the gh#151 pass
+      # declaration before it ever reached here. A flag would also be the only
+      # place the repo parses that log twice in two languages.
+      #
+      # `grep -m1 '^{"version"'` is anchored on the line start deliberately: the
+      # image's own prelude echoes the command line it is about to run, and that
+      # echo can contain the flag string `--json`. An unanchored match would let
+      # that prelude satisfy the "did it produce JSON at all" check with an
+      # empty document — the exact zero-is-clean hole this guard exists to
+      # close, reopened by the extraction itself. Proven against a fixture built
+      # in that shape: the anchored form reds on "no semgrep JSON"; the
+      # unanchored form matches the prelude and takes the bait.
+      #
+      # Why a plain `run:` line and not a `just` leg: this file's preamble owns
+      # the "`$RUNNER_TEMP` path that only exists inside the image's own step"
+      # reason for keeping log-reading out of the recipe list — the same reason
+      # no step here ever calls `just ci-local`. A recipe body would put a
+      # literal CI-only path in the bench's justfile, and `scan-semgrep` could
+      # not host the line anyway: it exits at its own CLI precondition on any
+      # machine without the semgrep CLI (`justfile:228-231`), which CI is.
+      #
+      # Fails closed on the missing-line direction: `shell: bash` (pipefail is a
+      # bash option and unavailable in dash, Actions' default shell for a `run:`
+      # with no `shell:` key), `set -euo pipefail`, and grep's no-match exit
+      # turned into a named red rather than an empty stdin. The guard's stdout
+      # stays on the page: the counts it prints are the evidence it read a real
+      # scan and not a zero-byte file. Every direction of this command was run
+      # against real and mutated copies of that log — clean scan, injected
+      # finding, blind-spot entry, both together, truncated JSON, a prelude-only
+      # log, a zero-byte log — in MOR-787.
+      - name: Fail-closed guard over the image's own scan
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          json_line="$(grep -m1 '^{"version"' "$RUNNER_TEMP/gate-image-output.log")" \
+            || { echo "semgrep fail-closed: no semgrep JSON in the image log — scan did not produce one" >&2; exit 1; } \
+            && printf '%s\n' "$json_line" | python3 scripts/semgrep_fail_closed.py
 
       # The container writes as root into the bind mount; the cache post-step
       # tars it back up as the runner user. Normalize ownership so a
