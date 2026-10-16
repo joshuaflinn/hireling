@@ -1,4 +1,4 @@
-/* global window, localStorage, Event, setTimeout */
+/* global window, document, localStorage, Event, setTimeout */
 
 import { afterEach, beforeEach, test, vi } from 'vitest';
 import assert from 'node:assert/strict';
@@ -332,4 +332,118 @@ test('logout hangs the session up: the tab never reopens the party socket', asyn
   // logout and kept reopening on backoff; this wait is the proof it cannot.
   await new Promise((resolve) => setTimeout(resolve, 1300));
   assert.equal(FakeSocket.instances.length, 1, 'a signed-out tab opens no further socket');
+});
+
+// SC-3's own socket stub. NOT the shared `FakeSocket` above: that class is
+// declared before `baseSheetFixture`/`engineFixture` and its constructor
+// references them, so a socket constructed *after* module init — which is what
+// App does, in the session's connect effect — throws a TDZ ReferenceError
+// inside the effect, the effect dies, and no socket is ever created. Every
+// existing test here drives `open()` synchronously from its own body, so none
+// ever exercised that path and none ever hit it. This stub is inert until a
+// test drives it, which is what the session-socket test below needs.
+class SessionSocket {
+  static instances = [];
+  /** @param {string} url */
+  constructor(url) {
+    this.url = url;
+    this.sent = [];
+    this.closed = false;
+    SessionSocket.instances.push(this);
+  }
+  /** @param {string} data */
+  send(data) {
+    this.sent.push(data);
+  }
+  close() {
+    this.closed = true;
+    this.onclose?.();
+  }
+  open() {
+    this.onopen?.();
+  }
+  /** @param {string} data */
+  message(data) {
+    this.onmessage?.({ data });
+  }
+}
+
+beforeEach(() => {
+  SessionSocket.instances = [];
+});
+// SC-3 with the read wired for real. The screen's book-value fetch is the one
+// P0 read in this epic that no prop can stand in for, and it is exactly the
+// kind of wiring that dies silently: an earlier revision of this branch took the
+// lookup as a *prop* defaulted to `async () => null`, `App.svelte` never passed
+// it, and every test stayed green while the fetch was dead in the built app
+// (design.md:214 puts this read in P0). So: drive App, drive the session socket,
+// and let the assertion be the network call.
+test('SC-3 through the app: the sell prompt prefills the corpus book value over the read route', async () => {
+  const calls = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url) => {
+      const text = String(url);
+      calls.push(text);
+      if (text === '/api/me') return { ok: true, status: 200, json: () => Promise.resolve(JOSH) };
+      if (text === '/api/party/roster')
+        return {
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ party_id: 1, you: JOSH, characters: [payload(7, 'Flinn', 'dev-sub-josh')] }),
+        };
+      if (text.startsWith('/api/parties/1/items/book-value'))
+        return {
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ name: 'Longsword', found: true, price: { gp: 3, sp: 0, cp: 0 } }),
+        };
+      throw new Error(`unexpected fetch ${text}`);
+    }),
+  );
+  vi.stubGlobal('WebSocket', SessionSocket);
+  render(App);
+  await waitFor(() => screen.getByText('Flinn'));
+  await waitFor(() => assert.ok(SessionSocket.instances.length > 0, 'the session opened its socket'));
+  const socket = SessionSocket.instances.at(-1);
+  socket.open();
+  // A `snapshot` frame is what takes the link live and what carries field values
+  // into the store (connection.js reaches goLive() from the snapshot drain;
+  // sync/index.js drops frames received while still `connecting`) — a diff-only
+  // harness therefore receives nothing at all, silently. The row arrives under
+  // its `stash` key (contract §3 keys a row by party+name); `stash_new` is the
+  // MINT key and the same table says it carries "no diff value".
+  socket.message(
+    snapshotFrame([
+      {
+        field: { kind: 'stash', party_id: 1, item_name: 'Longsword' },
+        value: { item_name: 'Longsword', quantity: 2, bulk: 1, notes: '' },
+        version: 1,
+      },
+      {
+        field: { kind: 'party', party_id: 1, field: 'quartermaster' },
+        value: { quartermaster_character_id: 7 },
+        version: 2,
+      },
+    ]),
+  );
+
+  await fireEvent.click(await screen.findByRole('button', { name: 'Stash' }));
+  // The ROW first: an affordance assertion over zero rows passes vacuously.
+  await waitFor(() =>
+    assert.ok(
+      document.body.textContent.includes('Longsword'),
+      'the server row reaches the screen through the app',
+    ),
+  );
+  const sell = [...document.querySelectorAll('button')].find((b) => /sell/i.test(b.textContent));
+  assert.ok(sell, "the quartermaster's owner sees a sell affordance (FR-6)");
+  await fireEvent.click(/** @type {HTMLButtonElement} */ (sell));
+
+  const gp = await screen.findByLabelText(/gp/i);
+  await waitFor(() => assert.equal(gp.value, '3', 'the corpus price prefills the sale prompt (SC-3)'));
+  assert.ok(
+    calls.some((c) => c.includes('/api/parties/1/items/book-value?name=Longsword')),
+    'the built app performs the book-value read itself',
+  );
 });

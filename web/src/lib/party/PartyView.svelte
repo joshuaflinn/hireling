@@ -9,8 +9,8 @@
   import EmptyState from '../sheet/components/EmptyState.svelte';
 
   /** @type {{ session: any, offlineColdBoot?: boolean, onimport?: () => void,
-      onopenCharacter?: (id: number) => void, onlogout?: () => void }} */
-  let { session, offlineColdBoot = false, onimport, onopenCharacter, onlogout } = $props();
+      onopenCharacter?: (id: number) => void, onopenStash?: () => void, onlogout?: () => void }} */
+  let { session, offlineColdBoot = false, onimport, onopenCharacter, onopenStash, onlogout } = $props();
 
   const you = $derived(session.roster.you);
   const empty = $derived(session.roster.characters.length === 0);
@@ -49,6 +49,12 @@
     <header class="party-head">
       <h1>The Party</h1>
       <div class="actions">
+        <!-- E12 FR-11: the stash is a party screen, so it hangs off the party
+             header for EVERY seat — the GM included. Read-only is not the same
+             as absent: the GM may not write a row but must still see the
+             party's loot. The screen itself renders no write controls for that
+             seat (FR-11's zero-affordance rule lives in StashScreen). -->
+        <button onclick={onopenStash}>Stash</button>
         {#if canImport}
           <button onclick={onimport}>Import your character</button>
         {/if}
