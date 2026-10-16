@@ -860,9 +860,11 @@ string is rc 0 and yields `?? home/`. Write to that same string *itself* and
 clean — the `mkdir -p` has left the directory chain in the tree and `git status`
 cannot see it, because git does not track empty directories, so this form fails
 safe only until something writes into it. That `?? home/` is the oracle read
-from the worktree toplevel; run from a subdirectory the same write still
-contaminates, only the entry is named for cwd (`?? ./` there), so the claim
-survives from anywhere and only the literal string moves.
+from the worktree toplevel. Run the same write from a *tracked* subdirectory and
+the entry still reads `?? home/`, because the entry is relative to cwd and
+`mkdir -p` built the chain under cwd. `?? ./` appears only where cwd is itself
+untracked, and there it fires whether or not anything contaminated the tree, so
+it is not an oracle.
 Whether the scratch dir sits beside `$HOME` or under it does not decide
 anything, which is why `$HOME` is not the test; the condition is whether the
 absolute value survives intact to the redirect. The earlier "outside every
