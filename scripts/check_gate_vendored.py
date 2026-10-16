@@ -169,7 +169,7 @@ def directory_digest(path: Path) -> str:
 
 
 def check_offline(
-    rows: list[tuple[str, str, str]], allow_unvendored: bool
+    rows: list[tuple[str, str, str]], *, allow_unvendored: bool
 ) -> None:
     """Direction 1: every vendored path hashes to its recorded sha256."""
     for image_path, vendored_path, sha256 in rows:
