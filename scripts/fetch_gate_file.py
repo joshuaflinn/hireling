@@ -783,6 +783,27 @@ def _self_test_directory_cases(ran: list[str], digest64: str) -> None:
 
     _check(ran, "dir-opaque-whiteout-refused", condition=opaque_whiteout_refused())
 
+    def write_tree_replaces() -> bool:
+        with tempfile.TemporaryDirectory(prefix="fetch-gate-file-") as tmp:
+            out = Path(tmp) / "rules"
+            out.mkdir()
+            (out / "stale.yaml").write_bytes(b"stale")
+            write_tree(out, {"a.yaml": b"fresh"})
+            return (
+                not (out / "stale.yaml").exists()
+                and (out / "a.yaml").read_bytes() == b"fresh"
+            )
+
+    _check(ran, "dir-write-tree-replaces", condition=write_tree_replaces())
+
+
+def _self_test_directory_hardening_cases(ran: list[str], digest64: str) -> None:
+    # The fail-closed hardening cases added after the initial round (MOR-725,
+    # MOR-726, MOR-729): ancestor opaque whiteouts, a loud write_tree removal
+    # failure, and the manifest-untouched materialize invariant. Kept in their
+    # own function so each stays under the gate image's ruff complexity and
+    # statement limits.
+
     def ancestor_opaque_whiteout_refused() -> bool:
         # MOR-726: the opaque whiteout sits on an ANCESTOR of the prefix — a
         # lower layer ships etc/gate/rules/old.yaml and an upper layer carries
@@ -809,19 +830,6 @@ def _self_test_directory_cases(ran: list[str], digest64: str) -> None:
         "dir-ancestor-opaque-whiteout-refused",
         condition=ancestor_opaque_whiteout_refused(),
     )
-
-    def write_tree_replaces() -> bool:
-        with tempfile.TemporaryDirectory(prefix="fetch-gate-file-") as tmp:
-            out = Path(tmp) / "rules"
-            out.mkdir()
-            (out / "stale.yaml").write_bytes(b"stale")
-            write_tree(out, {"a.yaml": b"fresh"})
-            return (
-                not (out / "stale.yaml").exists()
-                and (out / "a.yaml").read_bytes() == b"fresh"
-            )
-
-    _check(ran, "dir-write-tree-replaces", condition=write_tree_replaces())
 
     def write_tree_removal_failure_refused() -> bool:
         # MOR-725/F3: a removal failure must be loud, not silently ignored.
@@ -906,6 +914,7 @@ def _self_test() -> None:
     _self_test_overlay_case(ran, digest64)
     _self_test_compose_cases(ran, digest64)
     _self_test_directory_cases(ran, digest64)
+    _self_test_directory_hardening_cases(ran, digest64)
     print(f"fetch-gate-file self-test: {len(ran)} checks, all pass")
 
 
