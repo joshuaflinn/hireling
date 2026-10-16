@@ -185,9 +185,11 @@ web-css-guard: web-deps
 # the vendored rules), same --exclude-rule (the check_id is derived from the
 # --config path, so the vendored path prefixes it), same --json --error
 # --quiet. `--metrics=off` is a bench-only knob (the image runs offline).
-# Needs the semgrep CLI on PATH (`pipx install semgrep`) and the vendored
-# tree — a scan that skips is not a scan, so a missing CLI or tree fails
-# loudly. scripts/semgrep_fail_closed.py then reads the JSON and reds on any
+# Needs the semgrep CLI on PATH (`pipx install semgrep`) — a missing CLI
+# fails loudly. An absent rule tree self-provisions via `just vendor-semgrep`
+# (the pinned digest, fetched by scripts/fetch_gate_file.py); that vendor
+# step reds if the registry is unreachable, so the scan still cannot skip.
+# scripts/semgrep_fail_closed.py then reads the JSON and reds on any
 # warn/PartialParsing entry, the blind-spot class gh#332 names.
 scan-semgrep:
     #!/usr/bin/env bash
@@ -198,8 +200,8 @@ scan-semgrep:
         exit 1
     fi
     if [ ! -d gate-semgrep-rules ]; then
-        echo "scan-semgrep: gate-semgrep-rules/ not vendored — run 'just vendor-semgrep'" >&2
-        exit 1
+        echo "scan-semgrep: gate-semgrep-rules/ absent — vendoring from the pinned image"
+        just vendor-semgrep
     fi
     semgrep_json="$(mktemp)"
     trap 'rm -f "$semgrep_json"' EXIT
