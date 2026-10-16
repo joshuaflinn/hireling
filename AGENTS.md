@@ -505,10 +505,11 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   issue's docs change, a hotfix, a branch collision — go in sibling
   directories, never run scratch dirs (those get cleaned). Removal has a
   hard edge: a sibling named for an *open* task
-  (`MOR-<n>`) can be clean and an ancestor of `origin/main` and still be a
+  (`MOR-<n>`) can be clean and merged by any check you like and still be a
   live harness-owned workspace — never remove one unless that task is
-  closed. Hand-cut `hireling-*` siblings keep the old staleness test:
-  a clean tree means nothing in it can be lost, and any agent may remove
+  closed. Hand-cut `hireling-*` siblings use the clean-tree test:
+  a clean tree — `git status --porcelain` empty — means nothing tracked or
+  visibly untracked in it can be lost, and any agent may remove
   such a sibling on sight — `git worktree remove` leaves the local branch
   ref in place, so the commits stay reachable whatever the merge state, and
   the clean-tree check carries that weight alone. The ancestry conjunct is
@@ -772,13 +773,16 @@ looks absolute stops being one the moment the leading `/` is lost — stripped b
 a wrapper (`"${HOST_PATH#/}"`), dropped in interpolation, or read slash-less out
 of a tool response or a path variable — and once it is relative, a `mkdir -p`
 over the same string creates the parent chain *under the worktree*, so the write
-lands in the tree and shows as ordinary untracked:
+lands in the tree. The root shape of it is git-ignored by `.gitignore` (`/home/`,
+`/.tmp/`, `/.paperclip/`), so plain `git status` does not show it — `--ignored`
+does:
 
 ```
 $ mkdir -p home/flinn/.tmp/paperclip-<run>
 $ echo '{"e":5}' > home/flinn/.tmp/paperclip-<run>/x.json
-$ git status --short
-?? home/
+$ git status --short                 # (no output — /home/ is ignored; see .gitignore)
+$ git status --short --ignored
+!! home/
 ```
 
 Both lines are needed. Without the `mkdir -p` the redirect exits 1 with `No such
@@ -809,8 +813,8 @@ tree does not test the claim: `"$W/out/x.json"` is then an absolute path that
   ```
 
   Read `git status` in a tree that is clean *before* the write. Contamination is
-  sticky — a `?? home/` from an earlier repro stays listed and reads as if the
-  absolute write caused it.
+  sticky — an `!! home/` from an earlier repro stays listed under `--ignored` and
+  reads as if the absolute write caused it.
 
 What contaminated a workspace here was a host path carried without its leading
 `/`, so the rule is about the name, not the redirection:
@@ -837,8 +841,9 @@ $ echo '{"e":5}' > "$PAPERCLIP_RUN_SCRATCH_DIR/x.json"   # rc 0
 $ git status --short                                     # (no output)
 $ mkdir -p "${WORKTREE_DIR#/}"                           # the step that makes it reproduce
 $ echo '{"e":5}' > "${WORKTREE_DIR#/}/x.json"            # rc 0
-$ git status --short
-?? home/
+$ git status --short                                      # (no output — /home/ is ignored)
+$ git status --short --ignored
+!! home/
 ```
 
 What the scratch dir is *not* is exempt. Used whole it is the prescribed
@@ -853,13 +858,15 @@ $ W="$(git rev-parse --show-toplevel)"
 $ U="${W#/}"
 $ mkdir -p "$U"                                      # rc 0
 $ echo '{"e":5}' > "$U/x.json"                       # rc 0
-$ git status --short
-?? home/
+$ git status --short                                 # (no output — /home/ is ignored)
+$ git status --short --ignored
+!! home/
 ```
 
 The scratch dir is no further from the tree than that, and it fails the same way:
 `mkdir -p "${PAPERCLIP_RUN_SCRATCH_DIR#/}"` then a write to a child of that
-string is rc 0 and yields `?? home/`. Write to that same string *itself* and
+string is rc 0 and yields `!! home/` under `git status --short --ignored`.
+Write to that same string *itself* and
 `mkdir -p` has just made it a directory — rc 1, `Is a directory`, tree still
 clean. Whether the scratch dir sits beside `$HOME` or under it does not decide
 anything, which is why `$HOME` is not the test; the condition is whether the
