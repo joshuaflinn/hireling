@@ -1,0 +1,76 @@
+# Specification Quality Checklist: Seeded Spell Library + Conflict Pre-Warn (E13)
+
+**Purpose**: validate specification completeness and quality before review.
+**Created / validated**: 2026-10-16 (Korrin — specify, then one clarify round, then design sign-off)
+**Feature**: [spec.md](../spec.md) · gh#15 · design [design.md](../design.md) · plan
+[plan.md](../plan.md) · contracts [spell-library-seed.md](../contracts/spell-library-seed.md),
+[content-ask.md](../contracts/content-ask.md)
+
+## Content quality
+
+- [x] No implementation details (languages, frameworks, APIs) — where the spec names a route
+      (`GET /api/parties/{party_id}/spells`) or a file path (`data/seed/spell-library.json`) it is
+      naming a **shipped contract surface the epic must join**, per the house convention (E7/E12/
+      E14 specs name their contract surfaces); no tech choice is made in the spec — the design
+      owns those.
+- [x] Focused on user value and business needs — US-1 (cast without typing), US-2 (decide with
+      the math done), US-3 (a bad template never reaches the table), US-4 (nothing else changes).
+- [x] Written for non-technical stakeholders, with engineer-precision where acceptance demands it
+      (the four defect classes in FR-13, the four verdict states in FR-11).
+- [x] All mandatory sections completed.
+
+## Requirement completeness
+
+- [x] No `[NEEDS CLARIFICATION]` markers remain — the Clarify Log settles eight decisions in
+      place, each with its reason; none moves the P0/P1/P2 line. One (#1, the seed list itself)
+      generated a human ask, which is precise and filed in
+      [`contracts/content-ask.md`](../contracts/content-ask.md), and the code half proceeds without it.
+- [x] Requirements are testable and unambiguous — 19 FRs, each with a deciding check; FR-7 names
+      what a tap does per degree and what an empty outcome list does; FR-13 enumerates its defect
+      classes so "fails loud" is eight assertions, not a feeling.
+- [x] Success criteria are measurable — SC-1..SC-10, each mapped to a named suite in design
+      **D9**; SC-7 is honestly labelled directional (the E14 SC-6 discipline), SC-10 is owned by
+      the content PR.
+- [x] Success criteria are technology-agnostic (taps, flags, renders, refuses; suites are named
+      in the design, not in the SCs).
+- [x] All acceptance scenarios defined (four stories × 4–7 Given/When/Then — 21 scenarios).
+- [x] Edge cases identified (17 — including the two this epic is uniquely exposed to: a target
+      whose derived state isn't loaded at pick time, and a template whose effects all resolve to
+      `no_instance`).
+- [x] Scope is clearly bounded (Position + Out of scope, with the E15-curation and slot-deduction
+      items named as stop-and-flag rather than silently dropped).
+- [x] Dependencies and assumptions identified (E8 and E9 closed; the engine's vocabulary and
+      stacking core as consumers; the content half's ownership recorded as a binding split, not a
+      TODO).
+
+## Feature readiness
+
+- [x] Every FR has a deciding acceptance criterion, and every **content-gated** FR is marked as
+      such — the split is written into the requirement text (FR-3, FR-4) so a reader cannot
+      mistake a code deliverable for a content deliverable.
+- [x] User scenarios cover the primary flows (tap-cast, pre-warn decision, defect-on-load,
+      non-library spells unchanged — US-1..US-4).
+- [x] Feature meets the measurable outcomes in the Success Criteria, and the epic's one genuine
+      product-intent fork (does a cast spend a slot?) is filed as a one-line decision rather than
+      guessed at.
+- [x] No implementation detail leaked into the specification: design.md owns the HOW; the spec's
+      HOW-shaped sentences quote shipped facts (vocabulary, target kinds, the tier-seed precedent)
+      as constraints, which is what they are.
+
+## The one check unique to this epic
+
+- [x] **No seat of this company authored, illustrated, or "examplified" a spell's content.** The
+      only sample spell-shaped text in the whole pipeline sits inside
+      [`contracts/spell-library-seed.md`](../contracts/spell-library-seed.md) under a heading that names it a
+      **schema illustration**, and the file it would live in ships **empty**. Test fixtures are
+      required by the plan to be labelled fictional in the test file. Two checks, both re-runnable
+      from this directory: `grep -n '"name"' contracts/spell-library-seed.md` returns exactly one
+      spell name, `Example Cantrip`, inside the fenced illustration block (lines 34–67) — and
+      `git status --short data/` returns nothing, because this PR touches no data file.
+
+## Notes
+
+Nothing blocking. Two things I would want a reviewer to push on, both restated in design **D9**'s
+self-review: whether one conflicts read per picker-change is the right latency at the table, and
+whether the sentinel-id tie-break claim (**D6**) survives contact with the shipped id allocation —
+the plan turns the second into an assertion instead of an assumption.
