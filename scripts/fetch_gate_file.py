@@ -61,8 +61,10 @@ import hashlib
 import io
 import json
 import re
+import shutil
 import sys
 import tarfile
+import tempfile
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -343,6 +345,18 @@ def _apply_layer(
     """Merge one layer's members into `tree`, honouring OCI whiteouts."""
     for member in archive.getmembers():
         name = member.name.removeprefix("./").removeprefix("/")
+        if name.endswith(".wh..wh..opq") and name.startswith(prefix):
+            # OCI opaque whiteout: "delete every lower-layer entry in this
+            # directory." _whiteout_target would read it as deleting the
+            # harmless `.wh..opq` path, silently dropping the erase and
+            # vendoring files the image's merged view does not have. Fail
+            # closed — reproducing the merged tree faithfully needs the full
+            # lower-layer contents, which this tool does not model.
+            fail(
+                f"path '{name}' under '{dir_prefix}' is an opaque whiteout"
+                " (.wh..wh..opq) — the merged directory cannot be reproduced"
+                " faithfully"
+            )
         deleted = _whiteout_target(name)
         if deleted is not None:
             _apply_whiteout(tree, deleted, prefix)
@@ -414,13 +428,19 @@ def extract_directory(ref: ImageRef, dir_prefix: str) -> dict[str, bytes]:
 def write_tree(output: Path, tree: dict[str, bytes]) -> None:
     """Write `tree`'s relpath -> bytes under `output`, refusing escapes.
 
-    Validation runs before any directory is created: a relpath with an empty,
+    Validation runs before any directory is touched: a relpath with an empty,
     `.` or `..` component would escape the vendored root and reds the whole
-    extraction rather than writing outside `output`.
+    extraction rather than writing outside `output`. The output is then
+    replaced, not overlaid — a pre-existing tree is removed first, so a
+    re-vendor that drops a file does not leave it behind.
     """
     for relpath in tree:
         if any(part in ("", ".", "..") for part in relpath.split("/")):
             fail(f"path '{relpath}' escapes the vendored directory")
+    # Replace, not overlay (MOR-725): a re-vendor that drops a rule file must
+    # not leave the stale file on disk for check-vendored to red on with a
+    # "re-vendor" hint. Remove any prior tree, then write fresh.
+    shutil.rmtree(output, ignore_errors=True)
     output.mkdir(parents=True, exist_ok=True)
     for relpath, content in tree.items():
         target = output / relpath
@@ -725,6 +745,40 @@ def _self_test_directory_cases(ran: list[str], digest64: str) -> None:
         return False
 
     _check(ran, "dir-write-escape-refused", condition=refuse_write("../evil"))
+
+    def opaque_whiteout_refused() -> bool:
+        layer = _make_layer(
+            {
+                "etc/gate/rules/a.yaml": b"one",
+                "etc/gate/rules/.wh..wh..opq": b"",
+            }
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                search_directory(
+                    digest64,
+                    "etc/gate/rules/",
+                    [{"digest": "sha256:x"}],
+                    lambda _: layer,
+                )
+            except SystemExit:
+                return True
+        return False
+
+    _check(ran, "dir-opaque-whiteout-refused", condition=opaque_whiteout_refused())
+
+    def write_tree_replaces() -> bool:
+        with tempfile.TemporaryDirectory(prefix="fetch-gate-file-") as tmp:
+            out = Path(tmp) / "rules"
+            out.mkdir()
+            (out / "stale.yaml").write_bytes(b"stale")
+            write_tree(out, {"a.yaml": b"fresh"})
+            return (
+                not (out / "stale.yaml").exists()
+                and (out / "a.yaml").read_bytes() == b"fresh"
+            )
+
+    _check(ran, "dir-write-tree-replaces", condition=write_tree_replaces())
 
 
 def _self_test() -> None:
