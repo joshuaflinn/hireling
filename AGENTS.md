@@ -857,7 +857,13 @@ The scratch dir is no further from the tree than that, and it fails the same way
 `mkdir -p "${PAPERCLIP_RUN_SCRATCH_DIR#/}"` then a write to a child of that
 string is rc 0 and yields `?? home/`. Write to that same string *itself* and
 `mkdir -p` has just made it a directory — rc 1, `Is a directory`, tree still
-clean. Whether the scratch dir sits beside `$HOME` or under it does not decide
+clean — the `mkdir -p` has left the directory chain in the tree and `git status`
+cannot see it, because git does not track empty directories, so this form fails
+safe only until something writes into it. That `?? home/` is the oracle read
+from the worktree toplevel; run from a subdirectory the same write still
+contaminates, only the entry is named for cwd (`?? ./` there), so the claim
+survives from anywhere and only the literal string moves.
+Whether the scratch dir sits beside `$HOME` or under it does not decide
 anything, which is why `$HOME` is not the test; the condition is whether the
 absolute value survives intact to the redirect. The earlier "outside every
 worktree precisely so this cannot happen" over-claimed on that point.
