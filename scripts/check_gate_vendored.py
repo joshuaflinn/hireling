@@ -12,8 +12,10 @@ Two directions, both failing closed:
    verbatim — so a hand edit above the marker (a provenance comment) is fine
    and a hand edit below it reds. Directory rows (both fields end in `/`)
    hash the canonical tree digest of the vendored directory. An absent
-   directory reds: it is git-ignored, so nothing but `just vendor-semgrep`
-   writes it, and the tree is the provenance `just scan-semgrep` depends on
+   directory reds: it is git-ignored, so the justfile materializes it from
+   the pinned digest (`check-vendored` and `scan-semgrep` self-provision;
+   `vendor-semgrep` re-vendors and records the digest), and the tree is the
+   provenance `just scan-semgrep` depends on
    — a hand-made copy left stale reads green here while the scan runs
    against the wrong rules. `--allow-unvendored` is the only opt-out, and it
    says so in the output; it exists for a machine that cannot reach the
@@ -180,8 +182,9 @@ def check_offline(
                     print(
                         f"vendored-drift check: note: {vendored_path} not vendored"
                         " — tolerated because --allow-unvendored says the registry"
-                        " is unreachable here; 'just scan-semgrep' fails loudly"
-                        " until 'just vendor-semgrep' can run"
+                        " is unreachable here; 'just scan-semgrep' still self-"
+                        " vendors from the pinned image and reds without the"
+                        " registry, so the scan cannot skip"
                     )
                     continue
                 fail(
