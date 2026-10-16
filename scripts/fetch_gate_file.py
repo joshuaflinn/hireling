@@ -345,18 +345,24 @@ def _apply_layer(
     """Merge one layer's members into `tree`, honouring OCI whiteouts."""
     for member in archive.getmembers():
         name = member.name.removeprefix("./").removeprefix("/")
-        if name.endswith(".wh..wh..opq") and name.startswith(prefix):
+        if name.endswith(".wh..wh..opq"):
             # OCI opaque whiteout: "delete every lower-layer entry in this
-            # directory." _whiteout_target would read it as deleting the
-            # harmless `.wh..opq` path, silently dropping the erase and
-            # vendoring files the image's merged view does not have. Fail
-            # closed — reproducing the merged tree faithfully needs the full
-            # lower-layer contents, which this tool does not model.
-            fail(
-                f"path '{name}' under '{dir_prefix}' is an opaque whiteout"
-                " (.wh..wh..opq) — the merged directory cannot be reproduced"
-                " faithfully"
-            )
+            # directory." It erases a whole subtree of the merged view, so it
+            # bites not only at or below `prefix` but also on an ANCESTOR
+            # directory — an opaque whiteout on `etc/gate/` erases
+            # `etc/gate/rules/` one level down, and a root-level `.wh..wh..opq`
+            # (no slash in the name) erases everything. _whiteout_target would
+            # read the member as deleting a harmless `.wh..opq` path, silently
+            # dropping the erase and vendoring files the merged view does not
+            # have. Fail closed — reproducing the merged tree faithfully needs
+            # the full lower-layer contents, which this tool does not model.
+            opq_dir = name[: -len(".wh..wh..opq")]
+            if prefix.startswith(opq_dir) or opq_dir.startswith(prefix):
+                fail(
+                    f"path '{name}' under '{dir_prefix}' is an opaque whiteout"
+                    " (.wh..wh..opq) — the merged directory cannot be reproduced"
+                    " faithfully"
+                )
         deleted = _whiteout_target(name)
         if deleted is not None:
             _apply_whiteout(tree, deleted, prefix)
@@ -766,6 +772,33 @@ def _self_test_directory_cases(ran: list[str], digest64: str) -> None:
         return False
 
     _check(ran, "dir-opaque-whiteout-refused", condition=opaque_whiteout_refused())
+
+    def ancestor_opaque_whiteout_refused() -> bool:
+        # MOR-726: the opaque whiteout sits on an ANCESTOR of the prefix — a
+        # lower layer ships etc/gate/rules/old.yaml and an upper layer carries
+        # etc/gate/.wh..wh..opq (erasing everything under etc/gate/). The
+        # name.startswith(prefix) form misses this and vendors the stale
+        # lower-layer file; the ancestor comparison must red.
+        lower = _make_layer({"etc/gate/rules/old.yaml": b"lower"})
+        upper = _make_layer({"etc/gate/.wh..wh..opq": b""})
+        blobs = {"sha256:lower": lower, "sha256:upper": upper}
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                search_directory(
+                    digest64,
+                    "etc/gate/rules/",
+                    [{"digest": "sha256:lower"}, {"digest": "sha256:upper"}],
+                    lambda d: blobs[d],
+                )
+            except SystemExit:
+                return True
+        return False
+
+    _check(
+        ran,
+        "dir-ancestor-opaque-whiteout-refused",
+        condition=ancestor_opaque_whiteout_refused(),
+    )
 
     def write_tree_replaces() -> bool:
         with tempfile.TemporaryDirectory(prefix="fetch-gate-file-") as tmp:
