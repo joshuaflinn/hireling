@@ -13,13 +13,14 @@ on:
   push:
     branches: [main]
 
-# The pinned gate image, named once: the cache key and the two step-level
-# GATE_IMAGE_REF env lines below all read this, so a deliberate digest bump —
-# always its own PR — rolls the cache key and both docker runs over with the
-# same single edit instead of drifting apart. The REF indirection keeps
-# `${{ }}` out of `run:` bodies: the image's curl-pipe security rules hand a
-# `run:` body to a Bash parser that cannot read GitHub expressions, and a
-# skipped parse reads as a clean pass (gh#332).
+# The pinned gate image, named once: the cache key, the first restore-keys
+# line, and the two step-level GATE_IMAGE_REF env lines below — four readers
+# — all read this, so a deliberate digest bump — always its own PR — rolls
+# the cache key and both docker runs over with the same single edit instead
+# of drifting apart. The GATE_IMAGE_REF indirection keeps `${{ }}` out of
+# `run:` bodies: the image's curl-pipe security rules hand a `run:` body to a
+# Bash parser that cannot read GitHub expressions, and a skipped parse reads
+# as a clean pass (gh#332).
 env:
   GATE_IMAGE: bearflinn/grizzly-gate@sha256:25c6193d39ee9460f8e0dc2413e728723943caeb2b550249061c045cab42bc4e
 
@@ -294,6 +295,17 @@ jobs:
           # checkout, and this step's job is to prove the image still carries
           # the pinned bytes (check_image_sources), not the local tree.
           python3 scripts/check_gate_vendored.py --allow-unvendored --require-image-sources "${args[@]}"
+
+      # The runner-label drift check (gh#331): the workflow's `runs-on:`
+      # label and the label embedded in the cache key/restore-keys must
+      # agree. PR #319 made the runner label a hand-kept literal in four
+      # places; a mismatch is a silent cache miss, not a red gate (runner.os
+      # is "Linux" on every Ubuntu, so the key cannot catch it either). This
+      # step is that guard's CI home and reds when the workflow's own text
+      # drifts — runs-on moved but the key stayed, or the reverse.
+      - name: check-runner-label — runner label matches the cache key
+        if: ${{ !cancelled() }}
+        run: just check-runner-label
 
       # GIT_CONFIG_*/safe.directory: the cache restore extracts as the runner
       # user, so cached git state (cargo-deny's advisory DB, any future git
