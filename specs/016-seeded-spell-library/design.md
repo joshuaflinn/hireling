@@ -377,19 +377,21 @@ two files that own routing today — if a third appears, the check is "no `/spel
 which `grep -rn "spells" src/` answers.
 
 **And the same ledger rule applies to the pipeline's own outputs** (AGENTS.md, the warning-count
-clause): the four figures a reader might otherwise take from this doc's word for it, with the
-command that produced each — the **`gate` check-run's conclusion and warning count at the PR head
+clause): the figures a reader might otherwise take from this doc's word for it, with the command
+that produced each — the **`gate` check-run's conclusion and warning count at the PR head
 belong in the PR body, not here**: a check-run is a server-side fact about a pushed head, and a
 count written into a doc before the push is a number nobody can re-run.
 
 | figure | command that produced it |
 |---|---|
+| 17 tracked JSON files (the hook's "17 file(s), clean") | `git ls-files '*.json' \| wc -l` |
 | 19 functional requirements | `grep -c "^- \*\*FR-" spec.md` |
 | 10 success criteria | `grep -c "^- \*\*SC-" spec.md` |
 | 21 acceptance scenarios, 17 edge cases, 6 assumptions, 4 user stories | `grep -c "^[0-9]*\. \*\*Given" spec.md`; `sed -n '187,206p' spec.md \| grep -c "^- "`; `sed -n '207,215p' spec.md \| grep -c "^-"`; `grep -c "^### User Story" spec.md` |
 | 9 defect-class rows: D1–D8, which must each **fail** the load, plus D9, which is an **accepted** case (plausibility is Josh's review, not a lint) | `grep -c "^\| D[0-9]" contracts/spell-library-seed.md` → 9 |
 
-The `sed -n` line ranges in row 3 are section-bounded counts, so they move if the spec's sections
-move; the FR/SC counts and the defect-class count do not. All four are cited in
+The `sed -n` ranges in the scenario row are section-bounded counts, so they move if the spec's
+sections move; the file counts and the defect-class count do not. Every figure above is cited in
 [`checklists/requirements.md`](checklists/requirements.md) or in this doc's **D9**, and none is a
-claim about CI.
+claim about CI. A gate run's own warning count is not in this table on purpose: it is read at the
+pushed head and named in the PR body, which is where a certificate belongs.
