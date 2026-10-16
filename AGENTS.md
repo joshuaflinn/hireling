@@ -563,18 +563,6 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   hook is a catch, not a control, which is why the rule is written down.
   This is foreign text; author text landing over a posted verdict is the
   author-fault rule in *Review rounds*.
-- **A run's absolute-path artifact is foreign, and it arrives mid-task.** A
-  tool run by a *different* seat, whose cwd was this worktree, writes its
-  scratch dump relative to that cwd — `/home/flinn/.tmp/paperclip-<run>/x.json`
-  becomes `./home/flinn/.tmp/paperclip-<run>/x.json` here, and a dropped
-  leading `/` makes the path look like a workspace file. The named-path
-  entries in `.gitignore` keep that class out of `git status`, so `git status
-  --ignored --directory` is part of the mid-task check. When one appears:
-  leave it — no `git checkout --`, no `git stash`, no delete, it is not
-  yours — do not stage it, stage your own paths by name, and report it on
-  your tracking task as a hygiene defect with the owning run named where the
-  path shows it. It is not your fault and not yours to clean.
-
 - **Gate around contamination, not through it.** When the tree check fires,
   the provisioned tree usually will not compile, so `just ci-local` cannot
   run in it. Run the gate in a detached worktree at the PR head — the
@@ -784,6 +772,4 @@ path, and never name an output file from a host path — literal, variable, or
 read from a tool response. Write under `$PAPERCLIP_RUN_SCRATCH_DIR` by name,
 or redirect to a workspace-relative path you chose and clean up. `set -C` is
 not a guard: measured, a tool that creates the file itself is a creation path
-and noclobber never engages. See gh#346 for why the `.gitignore` scrub is
-named-path entries anchored at the worktree root rather than a basename or a
-depth threshold, and why an entry like `.tmp/` is not safe here.
+and noclobber never engages.
