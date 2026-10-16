@@ -63,11 +63,6 @@ SHA256_HEX_LEN = 64
 # fix is to re-align the two literals, not to patch around the red.
 MARKER = b"// === vendored-source-begin ===\n"
 
-# Set from --allow-unvendored in main(). A module flag rather than a parameter
-# because check_offline is the only reader and the self-test drives it through
-# the CLI, so the flag has to arrive the way a caller would send it.
-_ALLOW_UNVENDORED = False
-
 
 def fail(message: str) -> NoReturn:
     """Print the verdict to stderr and exit 1 — the only red this guard knows."""
@@ -173,13 +168,15 @@ def directory_digest(path: Path) -> str:
     return sha256_bytes(lines.encode("utf-8"))
 
 
-def check_offline(rows: list[tuple[str, str, str]]) -> None:
+def check_offline(
+    rows: list[tuple[str, str, str]], allow_unvendored: bool
+) -> None:
     """Direction 1: every vendored path hashes to its recorded sha256."""
     for image_path, vendored_path, sha256 in rows:
         if is_directory_row(image_path, vendored_path):
             vendored_dir = Path(vendored_path)
             if not vendored_dir.exists():
-                if _ALLOW_UNVENDORED:
+                if allow_unvendored:
                     print(
                         f"vendored-drift check: note: {vendored_path} not vendored"
                         " — tolerated because --allow-unvendored says the registry"
@@ -199,11 +196,17 @@ def check_offline(rows: list[tuple[str, str, str]]) -> None:
         else:
             actual = sha256_bytes(vendored_body(Path(vendored_path)))
         if actual != sha256:
+            if is_directory_row(image_path, vendored_path):
+                hint = "re-vendor with scripts/fetch_gate_file.py"
+            else:
+                hint = (
+                    "re-vendor with scripts/fetch_gate_file.py (or fix the"
+                    " hand edit below the marker)"
+                )
             fail(
                 f"{vendored_path} has sha256 {actual}, manifest records {sha256}"
                 f" for {image_path} — the vendored copy drifted from the pinned"
-                " image; re-vendor with scripts/fetch_gate_file.py (or fix the"
-                " hand edit below the marker)"
+                f" image; {hint}"
             )
 
 
@@ -274,10 +277,8 @@ def main() -> None:
         self_test()
         return
 
-    global _ALLOW_UNVENDORED  # noqa: PLW0603 -- the CLI flag is the only writer
-    _ALLOW_UNVENDORED = args.allow_unvendored
     rows = load_manifest()
-    check_offline(rows)
+    check_offline(rows, allow_unvendored=args.allow_unvendored)
 
     sources: dict[str, Path] = {}
     for item in args.image_source:
