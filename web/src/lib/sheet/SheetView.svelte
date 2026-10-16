@@ -11,8 +11,8 @@
   import StatsPane from './components/StatsPane.svelte';
   import MagicPane from './components/MagicPane.svelte';
   import CompanionsPanel from './components/CompanionsPanel.svelte';
+  import SummonsPanel from './components/SummonsPanel.svelte';
   import InventoryPanel from './components/InventoryPanel.svelte';
-  import StrikesPane from './components/StrikesPane.svelte';
   import FeatsPanel from './components/FeatsPanel.svelte';
   import EffectsStrip from './components/EffectsStrip.svelte';
   import ConditionPicker from './components/ConditionPicker.svelte';
@@ -20,6 +20,11 @@
   import Dialog from './components/Dialog.svelte';
   import { createCustomStore } from '../rules/custom-store.js';
   import EffectsComposer from './components/EffectsComposer.svelte';
+  import ReferencePanel from '../corpus/ReferencePanel.svelte';
+  import DetailTip from '../corpus/DetailTip.svelte';
+  import NotesPanel from './components/NotesPanel.svelte';
+  import Board from './components/Board.svelte';
+  import { signed } from '../engine/format.js';
 
   /** @type {{ character: any, accountSub?: string, editable?: boolean,
     partyId?: number | null,
@@ -120,6 +125,7 @@
     heroPoints,
     heroMax,
     daily,
+    sheetUi,
     shieldRaised,
     slots,
     qtyMap,
@@ -206,6 +212,42 @@
     }
   });
 
+  /** Strikes as the Reference column lists them (Dave's strikeRow line). */
+  const refStrikes = $derived(
+    ($view?.derived?.strikes ?? []).map((/** @type {any} */ st) => {
+      const atk = st.attack.total;
+      const map = st.map;
+      return {
+        name: st.label,
+        base: st.label.replace(/^\+\d+\s+/, ''),
+        line: `${signed(atk)} / ${signed(atk - map)} / ${signed(atk - 2 * map)} · ${st.damage_expr} ${String(st.damage_type_name ?? '').charAt(0).toUpperCase()}`,
+      };
+    }),
+  );
+  const refSkills = $derived(
+    ($view?.derived?.skills ?? []).map((/** @type {any} */ sk) => ({
+      name: sk.label ?? sk.name,
+      mod: sk.total,
+      rank: sk.rank,
+    })),
+  );
+
+  /** Every spell the character can cast or prepare (for summon lookups). */
+  const knownSpellNames = $derived([
+    ...new Set(
+      (character.base_sheet?.spellcasters ?? []).flatMap((/** @type {any} */ c) =>
+        (c.known ?? []).flatMap((/** @type {any} */ k) => k.spells ?? []),
+      ),
+    ),
+  ]);
+  /** Highest slot rank the character has (summon cap). */
+  const maxSlotRank = $derived(
+    Math.max(1, ...($slots ?? []).map((/** @type {any} */ s) => s.rank)),
+  );
+
+  /** Reset Layout (header) bumps this; the Board restores Dave's default. */
+  let layoutReset = $state(0);
+
   function subline() {
     const parts = [identity.ancestry, identity.class, identity.heritage].filter(Boolean);
     return parts.join(' · ');
@@ -223,6 +265,7 @@
     syncing={$syncing}
     onadjustlevel={(/** @type {number} */ level) => sheet.writeLevelAdjust(level)}
     onnewday={() => sheet.newDay()}
+    onresetlayout={editable ? () => (layoutReset += 1) : undefined}
     onimport={onimport}
     onlogout={onlogout}
   />
@@ -285,8 +328,14 @@
     </Dialog>
   {/if}
 
-  <div class="board">
-    <div class="col">
+  <Board
+    saved={$sheetUi.value?.layout ?? null}
+    resetSignal={layoutReset}
+    onsave={(/** @type {any} */ layout) => sheet.writeSheetUi({ ...$sheetUi.value, layout })}
+  >
+    {#snippet children(/** @type {string} */ id)}
+      {#if id === 'pStats'}
+        <div class="stack">
       {#if $view}
         <StatsPane
           view={$view}
@@ -310,7 +359,6 @@
           onhero={(/** @type {number} */ value) => sheet.writeHeroPoints(value)}
           onshield={(/** @type {boolean} */ raised) => sheet.writeShieldRaised(raised)}
         />
-        <StrikesPane view={$view} />
       {:else}
         <!-- Engine output not on the wire yet: pane-shaped skeletons, no
              invented numbers (design §7's loading state; derived is never
@@ -324,9 +372,8 @@
           <div class="skeleton" style="width: 100%; height: 180px;"></div>
         </div>
       {/if}
-      <FeatsPanel baseSheet={character.base_sheet} {editable} />
-    </div>
-    <div class="col">
+        </div>
+      {:else if id === 'pSpells'}
       <MagicPane
         baseSheet={character.base_sheet}
         slots={$slots}
@@ -347,13 +394,20 @@
         {#snippet companionsSlot()}
           {#if $view}
             <CompanionsPanel baseSheet={character.base_sheet} view={$view} />
+            <SummonsPanel
+              knownSpells={knownSpellNames}
+              maxRank={maxSlotRank}
+              sheetUi={$sheetUi.value}
+              {editable}
+              offline={$offline}
+              onwrite={(/** @type {any} */ next) => sheet.writeSheetUi(next)}
+            />
           {:else}
             <p class="meta" role="status">Character numbers still loading…</p>
           {/if}
         {/snippet}
       </MagicPane>
-    </div>
-    <div class="col">
+      {:else if id === 'pInv'}
       <InventoryPanel
         baseSheet={character.base_sheet}
         itemBulk={character.item_bulk ?? {}}
@@ -367,10 +421,26 @@
         onmoney={(/** @type {any} */ next) => sheet.writeMoney(next)}
         customItems={customItemRows}
         onaddcustom={() => (customFormKind = 'item')}
+        sheetUi={$sheetUi.value}
+        strMod={$view?.render_base?.attributes?.str ?? 0}
+        onwriteui={(/** @type {any} */ next) => sheet.writeSheetUi(next)}
       />
-    </div>
-  </div>
+      {:else if id === 'pFeats'}
+      <FeatsPanel baseSheet={character.base_sheet} {editable} />
+      {:else if id === 'pRef'}
+      <ReferencePanel strikes={refStrikes} skills={refSkills} perception={$view?.derived?.perception?.total ?? null} />
+      {:else if id === 'pNotes'}
+      <NotesPanel
+        sheetUi={$sheetUi.value}
+        {editable}
+        characterId={character.character.id}
+        onwrite={(/** @type {any} */ next) => sheet.writeSheetUi(next)}
+      />
+      {/if}
+    {/snippet}
+  </Board>
 </div>
+<DetailTip />
 
 <style>
   .effects-head {

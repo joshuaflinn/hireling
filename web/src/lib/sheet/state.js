@@ -112,6 +112,7 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
  *   money_sp: number, money_cp: number, level_adjust: number,
  *   focus_current: number, hero_points: number,
  *   daily: { staff_charge_rank: number, staff_spent: number, drain_used: boolean },
+ *   sheet_ui?: { notes: any[], minions: any[], layout: any },
  *   shield_raised: boolean | null }} vitals
  * @property {Array<{ caster_key: string, rank: number, slot_index: number,
  *   used: boolean, prepared_spell: string | null }>} slots
@@ -172,6 +173,7 @@ export function findOpError(opErrors, kind, match = {}) {
  * @property {import('svelte/store').Readable<{value: *, pending: boolean}>} heroPoints
  * @property {import('svelte/store').Readable<number>} heroMax
  * @property {import('svelte/store').Readable<{value: *, pending: boolean}>} daily
+ * @property {import('svelte/store').Readable<{value: *, pending: boolean}>} sheetUi
  * @property {import('svelte/store').Readable<{value: boolean, pending: boolean}>} shieldRaised
  *   the Raise-a-Shield toggle (gh#82): the live vitals flag, or the
  *   sheet's own `ac.shieldRaised` while the column is still NULL
@@ -204,6 +206,7 @@ export function findOpError(opErrors, kind, match = {}) {
  * @property {(value: number) => void} writeFocus
  * @property {(value: number) => void} writeHeroPoints
  * @property {(value: {staff_charge_rank: number, staff_spent: number, drain_used: boolean}) => void} writeDaily
+ * @property {(value: {notes: any[], minions: any[], layout: any, inv?: Record<string, any>}) => void} writeSheetUi
  * @property {(raised: boolean) => void} writeShieldRaised
  * @property {(casterKey: string, rank: number, index: number, patch?: {used?: boolean, prepared?: string | null}) => void} writeSlot
  * @property {(itemName: string, quantity: number) => void} writeItemQty
@@ -388,6 +391,12 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
   const focusCurrent = vitalsStore('focus_current', character.vitals.focus_current);
   const heroPoints = vitalsStore('hero_points', character.vitals.hero_points);
   const daily = vitalsStore('daily', character.vitals.daily);
+  /** Dave-parity UI state (specs/015): notes pages, current minions, board
+   *  layout — one whole-row object, the `daily` pattern. */
+  const sheetUi = vitalsStore(
+    'sheet_ui',
+    character.vitals.sheet_ui ?? { notes: [], minions: [], layout: null },
+  );
 
   /** The Raise-a-Shield toggle (gh#82). The wire's NULL — never toggled
    *  live — defers to the sheet's own `ac.shieldRaised`, the same
@@ -614,6 +623,21 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
     });
   }
 
+  /** Whole-row sheet_ui write (specs/015): callers pass the full next
+   *  object; the server validates shape + size.
+   *  @param {{notes: any[], minions: any[], layout: any}} value */
+  function writeSheetUi(/** @type {{notes: any[], minions: any[], layout: any, inv?: Record<string, any>}} */ value) {
+    /** @type {Record<string, any>} */
+    const next = {
+      notes: Array.isArray(value.notes) ? value.notes : [],
+      minions: Array.isArray(value.minions) ? value.minions : [],
+      layout: value.layout ?? null,
+    };
+    // inv (slice 8): optional per-item organization overrides.
+    if (value.inv && typeof value.inv === 'object') next.inv = value.inv;
+    write(vitalsTarget(characterId, 'sheet_ui'), next);
+  }
+
   /** Raise/lower the shield (gh#82): a boolean vitals write; the server
    *  bounds-checks it and the applied write fans out the character's
    *  recompute, so the party's AC moves off the derived frame.
@@ -751,6 +775,7 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
     heroPoints,
     heroMax,
     daily,
+    sheetUi,
     shieldRaised,
     slots,
     qtyMap,
@@ -776,6 +801,7 @@ export function createSheetState({ sync, character, partyId = 1, fetchImpl }) {
     writeFocus,
     writeHeroPoints,
     writeDaily,
+    writeSheetUi,
     writeShieldRaised,
     writeSlot,
     writeItemQty,

@@ -220,7 +220,7 @@ test('the header carries Import and Log out — there is a way off the sheet (fi
     },
   });
   screen.getByRole('button', { name: 'Log out' });
-  screen.getByRole('button', { name: 'Import' });
+  screen.getByRole('button', { name: 'Import Pathbuilder JSON' }); // Dave's label (specs/015)
   cleanup();
   render(CharacterHeader, {
     props: { name: 'Lorum Ipsum', subline: '', level: 3 },

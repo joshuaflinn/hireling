@@ -81,7 +81,16 @@ export function writeBootCache(storage, sub, roster, snapshotJson) {
  * @param {{ setTimeout: (fn: () => void, ms: number) => *, clearTimeout: (id: *) => void }} [timers]
  * @returns {{ call: (...args: A[]) => void, flush: () => void }}
  */
-export function createThrottledWriter(fn, ms, timers = { setTimeout, clearTimeout }) {
+export function createThrottledWriter(
+  fn,
+  ms,
+  // Wrapped for the same reason as sync/index.js defaultTimers — a bare
+  // `{ setTimeout }` called as `timers.setTimeout` is "Illegal invocation" in browsers.
+  timers = {
+    setTimeout: (/** @type {() => void} */ f, /** @type {number} */ t) => setTimeout(f, t),
+    clearTimeout: (/** @type {any} */ id) => clearTimeout(id),
+  },
+) {
   /** @type {*} */
   let pending = null;
   /** @type {A[] | null} */

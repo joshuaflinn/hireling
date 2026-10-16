@@ -1,15 +1,17 @@
 <script>
+  import { tipTrigger } from '../../corpus/tip.svelte.js';
   // One spell slot row (spec §2.3): cast toggle → slot.used, prepared
   // spell name, and (when unprepared) the prep affordance whose keyboard
   // path is the caster's Dialog picker. Spent slots strike through;
   // pending echoes tint (degraded-mode §4).
-  /** @type {{ row: any, editable?: boolean, offline?: boolean, oncast?: (used: boolean) => void, onprepare?: () => void }} */
-  let { row, editable = true, offline = false, oncast, onprepare } = $props();
+  /** @type {{ row: any, editable?: boolean, offline?: boolean, currSlot?: boolean, currSpell?: boolean, currWarn?: boolean,
+   *   oncast?: (used: boolean) => void, onprepare?: () => void }} */
+  let { row, editable = true, offline = false, currSlot = false, currSpell = false, currWarn = false, oncast, onprepare } = $props();
 
   const busy = $derived(offline || row.pending);
 </script>
 
-<div class="row" class:spent={row.used} class:pending={row.pending}>
+<div class="row srow" class:spent={row.used} class:pending={row.pending} class:currslot={currSlot}>
   {#if editable}
     <button
       class="use"
@@ -24,7 +26,7 @@
   {:else}
     <span class="use none"></span>
   {/if}
-  <span class="nm">{row.prepared_spell ?? (row.rank === 0 ? '—' : 'open slot')}</span>
+  <span class="nm" use:tipTrigger={row.prepared_spell ? { kind: 'spell', name: row.prepared_spell } : null}>{row.prepared_spell ?? (currSlot ? 'Curriculum slot (open)' : row.rank === 0 ? '—' : 'open slot')}{#if currSpell}<span class="cur">✦</span>{/if}{#if currSlot}<span class="chip cslot">Curriculum slot</span>{/if}{#if currWarn}<span class="warn"> needs a curriculum spell</span>{/if}</span>
   {#if editable && !row.prepared_spell && row.rank > 0}
     <button class="chip slot" onclick={onprepare} disabled={busy}>Prepare…</button>
   {/if}

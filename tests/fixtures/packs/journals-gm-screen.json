@@ -1,0 +1,23 @@
+[
+ {
+  "_id": "gmScreenJournal1",
+  "name": "GM Screen",
+  "pages": [
+   {
+    "_id": "gmsBasicActions1",
+    "name": "Basic Actions",
+    "type": "text",
+    "sort": 100,
+    "text": {
+     "content": "<table><tr><td>@UUID[Compendium.pf2e.actionspf2e.Item.BlAOM2X92SI6HMtJ]{Seek}</td></tr></table>",
+     "format": 1
+    }
+   }
+  ]
+ },
+ {
+  "_id": "other",
+  "name": "Classes",
+  "pages": []
+ }
+]

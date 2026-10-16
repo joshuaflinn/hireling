@@ -37,6 +37,8 @@ use crate::import::transform::{CategoryPlan, plan_category};
 pub const SEED_PATH: &str = "data/seed/condition-tiers.json";
 /// The vendored seed at build time — the import run never edits it.
 const SEED_JSON: &str = include_str!("../../data/seed/condition-tiers.json");
+/// The embedded tier seed, exposed for the dev-only local import example.
+pub const SEED_JSON_PUB: &str = SEED_JSON;
 
 /// Run the corpus import for a pinned release.
 ///
@@ -155,7 +157,13 @@ async fn plan_all(
         let existing = store::existing_rows(pool, category.kind).await?;
         let seed_for_kind = match category.kind {
             Kind::Condition => Some(seed),
-            Kind::Item => None,
+            Kind::Item
+            | Kind::Spell
+            | Kind::Feat
+            | Kind::ClassFeature
+            | Kind::Action
+            | Kind::Creature
+            | Kind::RulesPage => None,
         };
         let plan = plan_category(
             category.kind,

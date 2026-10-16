@@ -477,7 +477,7 @@ pub async fn audit_rows(pool: &PgPool) -> Vec<(String, Option<String>, String, S
 /// Build an in-memory release archive from named JSON packs — shared test
 /// support for running the REAL import pipeline (`import_from_bytes`)
 /// without the network. Each entry is `(archive path, documents)`; the
-/// importer reads exactly `packs/conditions.json` and `packs/equipment.json`.
+/// importer v2 reads every `Kind::pack_files` entry; missing ones are filled.
 ///
 /// # Panics
 ///
@@ -496,9 +496,72 @@ pub(crate) fn pack_zip(packs: &[(&str, serde_json::Value)]) -> Vec<u8> {
             zip.write_all(docs.to_string().as_bytes())
                 .expect("zip entry writes");
         }
+        // Importer v2 requires every declared pack file; suites written for
+        // v1 name only conditions + equipment. Fill the rest with one
+        // minimal valid doc each (zero docs would trip FR-12), so those
+        // suites keep exercising exactly what they always did.
+        for kind in crate::import::model::ALL_KINDS {
+            for file in kind.pack_files() {
+                if packs.iter().any(|(name, _)| name == file) {
+                    continue;
+                }
+                let filler = filler_doc(kind, file);
+                zip.start_file(*file, options).expect("zip entry starts");
+                zip.write_all(filler.to_string().as_bytes())
+                    .expect("zip entry writes");
+            }
+        }
         zip.finish().expect("zip finishes");
     }
     buffer.into_inner()
+}
+
+/// One minimal valid document for a v2 pack file a test did not supply.
+/// Creature packs beyond the first get an empty array (a kind needs one doc
+/// in total, not one per file).
+fn filler_doc(kind: crate::import::model::Kind, file: &str) -> serde_json::Value {
+    use crate::import::model::Kind;
+    let publication =
+        serde_json::json!({"license": "ORC", "title": "Pathfinder Player Core", "remaster": true});
+    let (doc_type, system) = match kind {
+        Kind::Spell => (
+            "spell",
+            serde_json::json!({"description": {"value": ""}, "publication": publication}),
+        ),
+        Kind::Feat | Kind::ClassFeature => (
+            "feat",
+            serde_json::json!({"description": {"value": ""}, "publication": publication}),
+        ),
+        Kind::Action => (
+            "action",
+            serde_json::json!({"description": {"value": ""}, "publication": publication}),
+        ),
+        Kind::Creature => {
+            if file != "packs/pathfinder-monster-core.json" {
+                return serde_json::json!([]);
+            }
+            (
+                "npc",
+                serde_json::json!({"details": {"publicNotes": "", "publication": publication}}),
+            )
+        }
+        Kind::RulesPage => {
+            return serde_json::json!([{
+                "_id": "filler-journal",
+                "name": "GM Screen",
+                "pages": [{"_id": "filler-page", "name": "Filler page", "type": "text",
+                           "sort": 0, "text": {"content": "", "format": 1}}]
+            }]);
+        }
+        Kind::Condition | Kind::Item => return serde_json::json!([]),
+    };
+    serde_json::json!([{
+        "_id": format!("filler-{}", kind.as_str()),
+        "name": format!("Filler {}", kind.as_str()),
+        "type": doc_type,
+        "img": "systems/pf2e/icons/default.webp",
+        "system": system
+    }])
 }
 
 /// The conditions pack every corpus-seeding archive must carry: the

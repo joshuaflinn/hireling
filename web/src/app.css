@@ -530,6 +530,18 @@ a {
   background: var(--panel2);
 }
 
+/* Row variants by child shape. The base .row grid is the prototype's 5-track
+   action row (check · glyph · name · q · tag); rows that omit the glyph
+   track would otherwise drop their name into the 20px/56px tracks and
+   ellipsize to one letter ("C…", "Detect…") — seen live 2026-10-15. */
+.row.srow {
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+}
+
+.row.frow2 {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .row .nm {
   white-space: nowrap;
   overflow: hidden;
@@ -925,4 +937,28 @@ select {
 
 .trk-wrap {
   min-width: 0;
+}
+
+/* ---- curriculum (specs/015 slice 6, Dave's .currslot) ------------------ */
+.row.currslot {
+  background: rgb(120 140 220 / 10%);
+  box-shadow: inset 3px 0 0 rgb(150 170 240 / 50%);
+}
+
+.row .cur {
+  color: var(--gold);
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+.row .chip.cslot {
+  margin-left: 6px;
+  background: rgb(120 140 220 / 15%);
+  border-color: rgb(150 170 240 / 45%);
+  color: #b9c6ff;
+}
+
+.row .warn {
+  color: #e8a87c;
+  font-size: 12px;
 }

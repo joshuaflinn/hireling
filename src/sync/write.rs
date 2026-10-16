@@ -2509,6 +2509,28 @@ async fn cas(
 
 /// CAS one vitals column; money writes set all four denominations under the
 /// one `money_version` (E2's schema).
+/// CAS the whole-row `sheet_ui` object (specs/015) — split out of
+/// `cas_vitals` only to keep that match under the line budget.
+async fn cas_sheet_ui(
+    tx: &mut Transaction<'_, Postgres>,
+    character_id: i64,
+    base_version: i64,
+    value: &JsonValue,
+) -> anyhow::Result<Option<i64>> {
+    sqlx::query_scalar(
+        "UPDATE character_vitals SET sheet_ui = $1, \
+             sheet_ui_version = nextval('field_version_seq'), updated_at = now() \
+             WHERE character_id = $2 AND sheet_ui_version = $3 \
+             RETURNING sheet_ui_version",
+    )
+    .bind(value)
+    .bind(character_id)
+    .bind(base_version)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("CAS sheet_ui")
+}
+
 async fn cas_vitals(
     tx: &mut Transaction<'_, Postgres>,
     character_id: i64,
@@ -2589,6 +2611,7 @@ async fn cas_vitals(
         .fetch_optional(&mut **tx)
         .await
         .context("CAS daily")?,
+        VitalsField::SheetUi => cas_sheet_ui(tx, character_id, base_version, value).await?,
         // The Raise-a-Shield toggle (gh#82): bounds guaranteed a boolean.
         // NULL is the never-toggled state — the CAS always writes true/false,
         // so a live lower is `false`, never a reset to NULL.
@@ -2795,6 +2818,13 @@ async fn read_vitals_version(
         .fetch_one(&mut **tx)
         .await
         .context("re-read shield_raised_version"),
+        VitalsField::SheetUi => sqlx::query_scalar(
+            "SELECT sheet_ui_version FROM character_vitals WHERE character_id = $1",
+        )
+        .bind(character_id)
+        .fetch_one(&mut **tx)
+        .await
+        .context("re-read sheet_ui_version"),
     }
 }
 
@@ -2881,6 +2911,106 @@ fn validate_daily(value: &JsonValue) -> Result<(), String> {
     Ok(())
 }
 
+/// Most bytes one `sheet_ui` object may serialize to — notes are prose, not
+/// a document store; 256 KiB is ~60 pages of dense session notes.
+const SHEET_UI_MAX_BYTES: usize = 256 * 1024;
+
+/// `sheet_ui` shape (specs/015): `{notes, minions, layout}` plus optional `inv`.
+/// notes: array of `{id, title, html, tags}` (strings; tags string array),
+/// minions: array of `{id, name, hp, hp_max}` (+ optional `corpus_id`),
+/// layout: null or an object of widget → `{x, y, w, h}` numbers. HTML in
+/// notes is stored as text and only ever rendered through the inert setter.
+fn validate_sheet_ui(value: &JsonValue) -> Result<(), String> {
+    let Some(object) = value.as_object() else {
+        return Err("sheet_ui must be an object {notes, minions, layout}".to_owned());
+    };
+    let required = ["notes", "minions", "layout"];
+    if !required.iter().all(|k| object.contains_key(*k))
+        || object
+            .keys()
+            .any(|k| !required.contains(&k.as_str()) && k != "inv")
+    {
+        return Err("sheet_ui needs notes, minions, layout (and optionally inv)".to_owned());
+    }
+    // inv (slice 8, Dave's inventory editing): per-item overrides keyed by
+    // item name — {equipped?, removed?, container?: bool, loc?: string|null,
+    // tags?: string[]}. Display state only: quantities stay on the inv field.
+    if let Some(inv) = object.get("inv") {
+        let Some(entries) = inv.as_object() else {
+            return Err("sheet_ui.inv must be an object keyed by item name".to_owned());
+        };
+        for entry in entries.values() {
+            let ok = entry.as_object().is_some_and(|e| {
+                e.iter().all(|(k, v)| match k.as_str() {
+                    "equipped" | "removed" | "container" => v.is_boolean(),
+                    "loc" => v.is_string() || v.is_null(),
+                    "tags" => v
+                        .as_array()
+                        .is_some_and(|t| t.iter().all(JsonValue::is_string)),
+                    _ => false,
+                })
+            });
+            if !ok {
+                return Err(
+                    "sheet_ui.inv entries allow equipped, removed, container, loc, tags".to_owned(),
+                );
+            }
+        }
+    }
+    if value.to_string().len() > SHEET_UI_MAX_BYTES {
+        return Err(format!("sheet_ui exceeds {SHEET_UI_MAX_BYTES} bytes"));
+    }
+    let Some(notes) = object.get("notes").and_then(JsonValue::as_array) else {
+        return Err("sheet_ui.notes must be an array".to_owned());
+    };
+    for note in notes {
+        let ok = note.as_object().is_some_and(|n| {
+            ["id", "title", "html"]
+                .iter()
+                .all(|k| n.get(*k).is_some_and(JsonValue::is_string))
+                && n.get("tags")
+                    .and_then(JsonValue::as_array)
+                    .is_some_and(|tags| tags.iter().all(JsonValue::is_string))
+        });
+        if !ok {
+            return Err("sheet_ui.notes[] must be {id, title, html, tags[]}".to_owned());
+        }
+    }
+    let Some(minions) = object.get("minions").and_then(JsonValue::as_array) else {
+        return Err("sheet_ui.minions must be an array".to_owned());
+    };
+    for minion in minions {
+        let ok = minion.as_object().is_some_and(|m| {
+            m.get("id").is_some_and(JsonValue::is_string)
+                && m.get("name").is_some_and(JsonValue::is_string)
+                && m.get("hp").is_some_and(JsonValue::is_i64)
+                && m.get("hp_max").is_some_and(JsonValue::is_i64)
+        });
+        if !ok {
+            return Err("sheet_ui.minions[] must be {id, name, hp, hp_max}".to_owned());
+        }
+    }
+    match object.get("layout") {
+        Some(JsonValue::Null) => Ok(()),
+        Some(JsonValue::Object(widgets)) => {
+            for rect in widgets.values() {
+                // h may be null: Dave's "auto height" (fits content).
+                let ok = rect.as_object().is_some_and(|r| {
+                    ["x", "y", "w"]
+                        .iter()
+                        .all(|k| r.get(*k).is_some_and(JsonValue::is_number))
+                        && r.get("h").is_some_and(|h| h.is_number() || h.is_null())
+                });
+                if !ok {
+                    return Err("sheet_ui.layout values must be {x, y, w, h|null}".to_owned());
+                }
+            }
+            Ok(())
+        }
+        _ => Err("sheet_ui.layout must be null or an object".to_owned()),
+    }
+}
+
 /// The write path's own bounds gate; the wire-contract suite pins the
 /// fixture's `effect_ops` through it (gh#90 F3), so it is crate-visible.
 pub(crate) fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result<(), String> {
@@ -2913,6 +3043,7 @@ pub(crate) fn validate_bounds(target: &FieldTarget, value: &JsonValue) -> Result
             VitalsField::FocusCurrent => int_in_range(value, 0, i32::MAX, "focus_current"),
             VitalsField::HeroPoints => int_in_range(value, 0, i32::MAX, "hero_points"),
             VitalsField::Daily => validate_daily(value),
+            VitalsField::SheetUi => validate_sheet_ui(value),
             VitalsField::ShieldRaised => match value {
                 JsonValue::Bool(_) => Ok(()),
                 JsonValue::Null
@@ -3426,6 +3557,56 @@ impl MoneyValue {
 mod bounds_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn sheet_ui_accepts_the_empty_default_and_a_full_object() {
+        assert_eq!(
+            validate_sheet_ui(&json!({"notes": [], "minions": [], "layout": null})),
+            Ok(())
+        );
+        let full = json!({
+            "notes": [{"id": "n1", "title": "Session 3", "html": "<b>Bruce</b>", "tags": ["npc"]}],
+            "minions": [{"id": "m1", "name": "Skeleton Guard", "hp": 4, "hp_max": 4, "corpus_id": 9}],
+            "layout": {"pStats": {"x": 0, "y": 0, "w": 0.3, "h": 900}, "pRef": {"x": 1, "y": 0, "w": 2, "h": null}}
+        });
+        assert_eq!(validate_sheet_ui(&full), Ok(()));
+    }
+
+    #[test]
+    fn sheet_ui_rejects_wrong_shapes_and_oversize() {
+        assert!(
+            validate_sheet_ui(&json!({"notes": []})).is_err(),
+            "missing keys"
+        );
+        assert!(
+            validate_sheet_ui(&json!({"notes": [], "minions": [], "layout": null, "zzz": 1}))
+                .is_err(),
+            "unknown key"
+        );
+        assert_eq!(
+            validate_sheet_ui(&json!({"notes": [], "minions": [], "layout": null,
+                "inv": {"Rope": {"equipped": true, "loc": "Backpack", "tags": ["trade"],
+                                 "removed": false, "container": true}}})),
+            Ok(())
+        );
+        assert!(
+            validate_sheet_ui(
+                &json!({"notes": [], "minions": [], "layout": null, "inv": {"Rope": {"qty": 3}}})
+            )
+            .is_err()
+        );
+        assert!(
+            validate_sheet_ui(&json!({"notes": [{"id": 1}], "minions": [], "layout": null}))
+                .is_err()
+        );
+        assert!(validate_sheet_ui(&json!({"notes": [], "minions": [{"id": "m", "name": "x", "hp": "4", "hp_max": 4}], "layout": null})).is_err());
+        assert!(
+            validate_sheet_ui(&json!({"notes": [], "minions": [], "layout": {"a": {"x": 1}}}))
+                .is_err()
+        );
+        let big = "x".repeat(SHEET_UI_MAX_BYTES);
+        assert!(validate_sheet_ui(&json!({"notes": [{"id": "n", "title": "t", "html": big, "tags": []}], "minions": [], "layout": null})).is_err());
+    }
 
     #[test]
     fn vitals_bounds_reject_and_accept_exactly() {

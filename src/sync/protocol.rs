@@ -117,6 +117,9 @@ pub enum VitalsField {
     HeroPoints,
     Daily,
     ShieldRaised,
+    /// Dave parity (specs/015): Notes pages, current minions, board layout —
+    /// one whole-row JSON object, the `daily` pattern.
+    SheetUi,
 }
 
 impl VitalsField {
@@ -132,6 +135,7 @@ impl VitalsField {
             Self::HeroPoints => "hero_points",
             Self::Daily => "daily",
             Self::ShieldRaised => "shield_raised",
+            Self::SheetUi => "sheet_ui",
         }
     }
 }

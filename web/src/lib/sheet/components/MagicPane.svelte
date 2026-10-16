@@ -1,4 +1,6 @@
 <script>
+  import { lookup as corpusLookup } from '../../corpus/client.js';
+  import { parseCurriculum, schoolOf } from '../../corpus/curriculum.js';
   // The magic pane (spec §2.3): per-caster blocks with slots, cantrips at
   // heightened rank, the spellbook, prep reset, and the Staff Nexus panel.
   // Tab shell: Spells | Pet & Minions (the companions tab renders in Task
@@ -37,6 +39,26 @@
   // The focus section (spec §2.3): the export's
   // `focus[tradition][ability]` block carries focus cantrips and focus
   // spells; rendered with the caster whose tradition it belongs to.
+  // Curriculum (specs/015 slice 6): the wizard's school doc from the pack.
+  /** @type {Record<number, string[]>} */
+  let curriculum = $state({});
+  const school = $derived(schoolOf(baseSheet.raw?.specials ?? baseSheet.specials ?? []));
+  $effect(() => {
+    if (!school) return;
+    corpusLookup('class_feature', { names: [school] })
+      .then((rows) => (curriculum = rows[0] ? parseCurriculum(rows[0].description) : {}))
+      .catch(() => (curriculum = {}));
+  });
+  // Staff Nexus is a wizard arcane thesis — only characters who took it
+  // get the panel (it showed on a Commander before, 2026-10-15).
+  const hasStaffNexus = $derived(
+    (baseSheet.raw?.specials ?? baseSheet.specials ?? []).some((/** @type {string} */ s) =>
+      /Staff Nexus/i.test(String(s)),
+    ),
+  );
+  const isWizard = (/** @type {any} */ caster) =>
+    !!school && String(caster.caster_key).toLowerCase() === 'wizard';
+
   const focusFor = (/** @type {any} */ caster) => {
     const byAbility = baseSheet.focus?.[caster.magic_tradition ?? ''] ?? {};
     const entry =
@@ -63,6 +85,7 @@
         {offline}
         known={caster.known}
         focusSpells={focusFor(caster)}
+        curriculum={isWizard(caster) ? curriculum : null}
         {customSpells}
         {onaddcustom}
         opErrors={opErrors.filter(
@@ -76,8 +99,10 @@
       <p class="meta">No spellcasting in this export.</p>
     {/each}
 
+    {#if hasStaffNexus}
     <h3>Staff Nexus</h3>
     <StaffPanel {daily} {editable} {offline} opError={findOpError(opErrors, 'vitals', { field: 'daily' })} onchange={(next) => ondaily?.(next)} />
+    {/if}
   {:else if companionsSlot}
     {@render companionsSlot()}
   {:else}

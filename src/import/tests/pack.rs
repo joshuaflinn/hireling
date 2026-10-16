@@ -1,6 +1,7 @@
 //! Unit tests for archive extraction and pack parsing.
 
 use super::*;
+use crate::import::model::ALL_KINDS;
 
 fn fixture_bytes(name: &str) -> Vec<u8> {
     let path = format!("{}/tests/fixtures/packs/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -39,20 +40,69 @@ fn captured_array(docs: &[&str]) -> Vec<u8> {
     out.into_bytes()
 }
 
+/// Every v2 pack file present with one captured document each (creatures:
+/// one in Monster Core, the other bestiary files empty arrays).
+fn full_entries() -> Vec<(&'static str, Vec<u8>)> {
+    vec![
+        ("packs/spells.json", captured_array(&["spell-daze.json"])),
+        (
+            "packs/feats.json",
+            captured_array(&["feat-charming-liar.json"]),
+        ),
+        (
+            "packs/class-features.json",
+            captured_array(&["classfeature-school-of-mentalism.json"]),
+        ),
+        ("packs/actions.json", captured_array(&["action-seek.json"])),
+        (
+            "packs/pathfinder-monster-core.json",
+            captured_array(&["creature-skeleton-guard.json"]),
+        ),
+        ("packs/pathfinder-monster-core-2.json", b"[]".to_vec()),
+        ("packs/pathfinder-npc-core.json", b"[]".to_vec()),
+        ("packs/pathfinder-bestiary.json", b"[]".to_vec()),
+        ("packs/pathfinder-bestiary-2.json", b"[]".to_vec()),
+        ("packs/pathfinder-bestiary-3.json", b"[]".to_vec()),
+        (
+            "packs/journals.json",
+            fixture_bytes("journals-gm-screen.json"),
+        ),
+    ]
+}
+
 #[test]
 fn extracts_both_categories_and_ignores_everything_else() {
-    let zip = build_zip(vec![
+    let mut entries = full_entries();
+    entries.extend(vec![
         (
             "packs/conditions.json",
             captured_array(&["frightened.json", "concealed.json"]),
         ),
         ("packs/equipment.json", captured_array(&["wayfinder.json"])),
-        ("packs/spells.json", b"[{\"_id\": \"nope\"}]".to_vec()),
+        (
+            "packs/kingmaker-bestiary.json",
+            b"[{\"_id\": \"nope\"}]".to_vec(),
+        ),
         ("lang/en.json", b"{}".to_vec()),
         ("packs/sf2e-stuff.json", b"[]".to_vec()),
     ]);
+    let zip = build_zip(entries);
     let categories = extract_categories(&zip).expect("well-formed archive extracts");
-    assert_eq!(categories.len(), 2, "exactly the two imported categories");
+    assert_eq!(
+        categories.len(),
+        ALL_KINDS.len(),
+        "one category per imported kind"
+    );
+    let kinds: Vec<Kind> = categories.iter().map(|c| c.kind).collect();
+    assert_eq!(kinds, ALL_KINDS.to_vec(), "categories in import order");
+    for category in categories.iter().skip(2) {
+        assert_eq!(
+            category.docs.len(),
+            1,
+            "{} lands its one captured doc",
+            category.kind.plural()
+        );
+    }
     let conditions = categories.first().expect("two categories exist");
     let items = categories.get(1).expect("two categories exist");
     assert_eq!(conditions.kind, Kind::Condition, "conditions first");
@@ -88,10 +138,12 @@ fn zero_document_category_is_extracted_and_fails_at_the_tripwire() {
     // An empty array parses fine here; the run-level tripwire (mod.rs)
     // refuses to plan an empty category. Extraction itself must still
     // reject a MISSING file (above) — the two failure modes are distinct.
-    let zip = build_zip(vec![
+    let mut entries = full_entries();
+    entries.extend(vec![
         ("packs/conditions.json", b"[]".to_vec()),
         ("packs/equipment.json", captured_array(&["wayfinder.json"])),
     ]);
+    let zip = build_zip(entries);
     let categories = extract_categories(&zip).expect("empty array still extracts");
     let conditions = categories.first().expect("both categories exist");
     assert!(conditions.docs.is_empty(), "the empty pack carries no docs");
@@ -138,5 +190,81 @@ fn non_array_pack_file_fails() {
     assert!(
         err.to_string().contains("JSON array"),
         "error must state the expected shape, got: {err}"
+    );
+}
+
+#[test]
+fn creature_packs_skip_hazards_by_type() {
+    let mut hazard: serde_json::Value =
+        serde_json::from_slice(&fixture_bytes("creature-skeleton-guard.json"))
+            .expect("fixture is JSON");
+    let object = hazard.as_object_mut().expect("fixture is an object");
+    object.insert("type".into(), serde_json::Value::String("hazard".into()));
+    object.insert(
+        "_id".into(),
+        serde_json::Value::String("hazardXXXXXXXXXX".into()),
+    );
+    let guard: serde_json::Value =
+        serde_json::from_slice(&fixture_bytes("creature-skeleton-guard.json"))
+            .expect("fixture is JSON");
+    let bytes = serde_json::to_vec(&vec![guard, hazard]).expect("array serializes");
+    let docs = parse_pack_file(
+        Kind::Creature,
+        "packs/pathfinder-monster-core-2.json",
+        &bytes,
+    )
+    .expect("a hazard in a bestiary pack is skipped, not fatal");
+    assert_eq!(docs.len(), 1, "only the npc lands");
+}
+
+#[test]
+fn creature_publication_reads_from_system_details() {
+    let guard: serde_json::Value =
+        serde_json::from_slice(&fixture_bytes("creature-skeleton-guard.json"))
+            .expect("fixture is JSON");
+    let publication = crate::import::model::publication_of(&guard);
+    assert_eq!(
+        publication.license, "ORC",
+        "npc publication lives at system.details"
+    );
+}
+
+#[test]
+fn duplicate_creature_ids_across_files_fail() {
+    let mut entries = full_entries();
+    entries.retain(|(name, _)| *name != "packs/pathfinder-monster-core-2.json");
+    entries.extend(vec![
+        (
+            "packs/conditions.json",
+            captured_array(&["frightened.json"]),
+        ),
+        ("packs/equipment.json", captured_array(&["wayfinder.json"])),
+        (
+            "packs/pathfinder-monster-core-2.json",
+            captured_array(&["creature-skeleton-guard.json"]),
+        ),
+    ]);
+    let err = extract_categories(&build_zip(entries)).expect_err("cross-file id repeat is fatal");
+    assert!(
+        err.to_string().contains("duplicate upstream id"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn rules_journal_flattens_to_pages_with_synthesized_publication() {
+    let docs = parse_pack_file(
+        Kind::RulesPage,
+        "packs/journals.json",
+        &fixture_bytes("journals-gm-screen.json"),
+    )
+    .expect("the GM Screen journal flattens");
+    assert_eq!(docs.len(), 1, "one text page");
+    let doc = docs.first().expect("one page");
+    assert_eq!(doc.name, "Basic Actions");
+    assert_eq!(
+        doc.doc.pointer("/system/publication/synthesized"),
+        Some(&serde_json::Value::Bool(true)),
+        "the stamped publication says it was synthesized"
     );
 }

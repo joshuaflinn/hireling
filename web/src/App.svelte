@@ -206,7 +206,9 @@
 {:else if view === 'about'}
   <AboutView onback={backToParty} />
 {:else if view === 'sheet' && sheetTarget && session}
-  <main>
+  <!-- Full-bleed like the prototype's board: NOT <main> (72rem, centered text),
+       which squeezed the three columns into a narrow strip after E10 (f4dbfe9). -->
+  <div class="sheet-page">
     <button class="back" onclick={backToParty}>← The party</button>
     <SheetView
       character={sheetTarget.payload}
@@ -219,8 +221,9 @@
         name: c.character.name,
       }))}
       onlogout={logout}
+      onimport={sheetTarget.editable ? () => (view = 'import') : undefined}
     />
-  </main>
+  </div>
 {:else if view === 'import'}
   <main>
     <ImportPage />
@@ -259,6 +262,15 @@
     background: var(--bg, #111317);
     color: var(--text, #e9e5d9);
     font-family: system-ui, sans-serif;
+  }
+
+  .sheet-page {
+    width: 100%;
+    text-align: left;
+  }
+
+  .sheet-page > .back {
+    margin: 5px 5px 0;
   }
 
   main {
