@@ -285,7 +285,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   Alongside the gate read, at the head already named: `git fetch origin main
   <branch>`, then `git merge-base --is-ancestor origin/main <head>` — exit 0 is
   up to date, exit 1 is behind. The fetch is not optional: `origin/main` is a
-  ref, and a stale one reports a behind head as current — a false pass, the
+  local ref, and a stale one reports a behind head as current — a false pass, the
   same wrong-head fault class as reading check-runs at a superseded SHA. `gh
   pr view <n> --json mergeStateStatus` is corroboration, never a substitute;
   it is computed lazily and can read `UNKNOWN`. A behind head does not hold
@@ -576,11 +576,17 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   issue's docs change, a hotfix, a branch collision — go in sibling
   directories, never run scratch dirs (those get cleaned). Removal has a
   hard edge: a sibling named for an *open* task
-  (`MOR-<n>`) can be clean and an ancestor of `origin/main` and still be a
+  (`MOR-<n>`) can be clean and merged by any check you like and still be a
   live harness-owned workspace — never remove one unless that task is
-  closed. Hand-cut `hireling-*` siblings keep the old staleness test:
-  branch an ancestor of `origin/main` and tree clean means merged, nothing
-  in it can be lost, and any agent may remove such a sibling on sight.
+  closed. Hand-cut `hireling-*` siblings use the clean-tree test:
+  a clean tree — `git status --porcelain` empty — means nothing tracked or
+  visibly untracked in it can be lost, and any agent may remove
+  such a sibling on sight — `git worktree remove` leaves the local branch
+  ref in place, so the commits stay reachable whatever the merge state, and
+  the clean-tree check carries that weight alone. The ancestry conjunct is
+  dropped because `main` squash-merges and a merged branch is normally *not*
+  an ancestor of `origin/main`; for a belt-and-braces merge check, read PR
+  state off `gh pr list --head <branch> --state all` (merged or closed).
   Never `worktree remove --force`; a dirty tree belongs to its owner.
   A provisioned `MOR-<n>` branch pointer is not durable between runs. The
   harness re-points it to current `origin/main` when a new run in the lineage
@@ -838,13 +844,16 @@ looks absolute stops being one the moment the leading `/` is lost — stripped b
 a wrapper (`"${HOST_PATH#/}"`), dropped in interpolation, or read slash-less out
 of a tool response or a path variable — and once it is relative, a `mkdir -p`
 over the same string creates the parent chain *under the worktree*, so the write
-lands in the tree and shows as ordinary untracked:
+lands in the tree. The root shape of it is git-ignored by `.gitignore` (`/home/`,
+`/.tmp/`, `/.paperclip/`), so plain `git status` does not show it — `--ignored`
+does:
 
 ```
 $ mkdir -p home/flinn/.tmp/paperclip-<run>
 $ echo '{"e":5}' > home/flinn/.tmp/paperclip-<run>/x.json
-$ git status --short
-?? home/
+$ git status --short                 # (no output — /home/ is ignored; see .gitignore)
+$ git status --short --ignored
+!! home/
 ```
 
 Both lines are needed. Without the `mkdir -p` the redirect exits 1 with `No such
@@ -875,8 +884,8 @@ tree does not test the claim: `"$W/out/x.json"` is then an absolute path that
   ```
 
   Read `git status` in a tree that is clean *before* the write. Contamination is
-  sticky — a `?? home/` from an earlier repro stays listed and reads as if the
-  absolute write caused it.
+  sticky — an `!! home/` from an earlier repro stays listed under `--ignored` and
+  reads as if the absolute write caused it.
 
 What contaminated a workspace here was a host path carried without its leading
 `/`, so the rule is about the name, not the redirection:
@@ -904,8 +913,9 @@ $ echo '{"e":5}' > "$PAPERCLIP_RUN_SCRATCH_DIR/x.json"   # rc 0
 $ git status --short                                     # (no output)
 $ mkdir -p "${WORKTREE_DIR#/}"                           # the step that makes it reproduce
 $ echo '{"e":5}' > "${WORKTREE_DIR#/}/x.json"            # rc 0
-$ git status --short
-?? home/
+$ git status --short                                      # (no output — /home/ is ignored)
+$ git status --short --ignored
+!! home/
 ```
 
 What the scratch dir is *not* is exempt. Used whole it is the prescribed
@@ -920,20 +930,25 @@ $ W="$(git rev-parse --show-toplevel)"
 $ U="${W#/}"
 $ mkdir -p "$U"                                      # rc 0
 $ echo '{"e":5}' > "$U/x.json"                       # rc 0
-$ git status --short
-?? home/
+$ git status --short                                 # (no output — /home/ is ignored)
+$ git status --short --ignored
+!! home/
 ```
 
 The scratch dir is no further from the tree than that, and it fails the same way:
 `mkdir -p "${PAPERCLIP_RUN_SCRATCH_DIR#/}"` then a write to a child of that
-string is rc 0 and yields `?? home/`. Write to that same string *itself* and
+string is rc 0 and yields `!! home/` under `git status --short --ignored`.
+Write to that same string *itself* and
 `mkdir -p` has just made it a directory — rc 1, `Is a directory`, tree still
 clean — the `mkdir -p` has left the directory chain in the tree and `git status`
 cannot see it, because git does not track empty directories, so this form fails
-safe only until something writes into it. That `?? home/` is the oracle read
-from the worktree toplevel. Run the same write from a *tracked* subdirectory and
-the entry still reads `?? home/`, because the entry is relative to cwd and
-`mkdir -p` built the chain under cwd. `?? ./` appears only where cwd is itself
+safe only until something writes into it. From the worktree toplevel that write
+reads `!! home/` under `git status --short --ignored`, never `?? home/`: `.gitignore`
+anchors `/home/` at the root, so plain `git status` is silent on it. Run the same
+write from a *tracked* subdirectory and the entry appears as `?? home/`, because
+the entry is relative to cwd and `mkdir -p` built the chain under cwd — while the
+toplevel still reads `?? src/home/`, since `/home/` is root-anchored and never
+matches `src/home/`. `?? ./` appears only where cwd is itself
 untracked, and there it fires whether or not anything contaminated the tree, so
 it is not an oracle.
 Whether the scratch dir sits beside `$HOME` or under it does not decide
