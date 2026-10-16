@@ -140,8 +140,9 @@ web-eslint: web-deps
 # --allow-unvendored says the registry is unreachable, in which case the
 # absent-tree note is tolerated and the scan leg still self-vendors or reds.
 # `fetch_gate_file.py --self-test` runs first: the producer of the vendored
-# tree self-tests in the leg that consumes it — its only `ci-local` home,
-# since `vendor-semgrep` is a vendoring recipe, not a gate leg.
+# tree self-tests in the leg that consumes it. `scan-semgrep` also invokes that
+# producer, but `check-vendored` is the home that CI reaches — it is the one of
+# the two carrying a `run: just` guard step in `.github/workflows/gate.yml`.
 check-vendored *args:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -216,7 +217,9 @@ web-css-guard: web-deps
 # scripts/semgrep_fail_closed.py then reads the JSON and reds on any
 # warn/PartialParsing entry, the blind-spot class gh#332 names.
 # Its `--self-test` runs first, above the CLI precondition, so the pure suite
-# still runs on a bench with no semgrep installed.
+# still runs on a bench with no semgrep installed. `just scan-semgrep` has no
+# `run: just` step in `gate.yml` — its CI home is the image's own `scan:semgrep`
+# mirror, which cannot execute this suite — so this placement covers the bench.
 scan-semgrep:
     #!/usr/bin/env bash
     set -euo pipefail
