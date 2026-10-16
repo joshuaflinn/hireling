@@ -759,3 +759,40 @@ here — which is why the citation rule carries the weight it does.
 - **Vex** — Josh's engineering agent (PM/eng on this project).
 - Constitution amendments need both owners. Everything else, one owner's PR
   approval suffices.
+
+## Tool output never goes to a host path
+
+The shell's cwd is a checked-out worktree, not a neutral directory. A name that
+looks absolute stops being one the moment the leading `/` is lost — stripped by
+a wrapper (`"${HOST_PATH#/}"`), dropped in interpolation, or read slash-less out
+of a tool response or a path variable — and once it is relative, a `mkdir -p`
+over the same string creates the parent chain *under the worktree*, so the write
+lands in the tree and shows as ordinary untracked:
+
+```
+$ echo '{"e":5}' > home/flinn/.tmp/paperclip-<run>/x.json   # parent pre-created
+$ git status --short
+?? home/
+```
+
+A literal absolute path does not behave that way: it lands at the absolute path
+when the parent directory exists and fails with `No such file or directory` when
+it does not, and either way the worktree stays clean. What contaminated a
+workspace here was a host path carried without its leading `/`, so the rule is
+about the name, not the redirection:
+
+- Never name an output file from a host path — literal, variable, template, or a
+  value read from a tool response or a path-stripping wrapper.
+- Never `>`, `tee`, or an `--output`/`-o`/`-f` flag to a path built by
+  concatenating host-path components from inside a worktree.
+
+Write output to a workspace-relative path you chose and clean it up, or — on a
+Paperclip seat — under `$PAPERCLIP_RUN_SCRATCH_DIR`, which is run-owned and
+outside every worktree precisely so this cannot happen.
+
+`set -C` is not a guard, for two reasons, and the first governs: it blocks only
+*overwriting an existing file*, and a contaminating path is always new
+(`set -C; printf x > fresh.json` returns 0, where the same redirect against an
+existing file is refused). The second is that a tool writing its own output is
+never blocked either — `tee` and `curl -o` both overwrite under `set -C` at rc
+0 — and `set -C` is not inherited by a child shell.
