@@ -198,7 +198,17 @@ function fakeSync(o = {}) {
     /** Frames the socket carried, raw. */
     sent: () => sent,
 
-    open,
+    // `open` is closed over the module-level `socket`, which every
+    // `socketFactory` call reassigns. When a second `fakeSync()` is constructed
+    // before this `open()` runs, that variable names the NEWEST stub, so this
+    // bare reference drives the wrong socket and the writes queued on THIS one
+    // never ride — which reads as an ack that files no refusal. Bind it to the
+    // stub this surface actually owns.
+    open: () => {
+      assert.ok(socket, "the socket stub was never constructed");
+      assert.ok(socket.onopen, "the connection never installed onopen");
+      socket.onopen();
+    },
     disconnect() {},
     hangUp() {},
     state: () => sync.state(),
@@ -282,6 +292,19 @@ function fakeSync(o = {}) {
       }
       const at = unanswered.indexOf(frame);
       if (at >= 0) unanswered.splice(at, 1);
+      // A frame the socket never carried has no `op_id`, and an ack naming
+      // nothing is not a refusal — `settleAck` matches no op, hands the store
+      // `op_id: undefined`, files no record, and emits no event at all
+      // (index.js:183-211). The test then waits on a notice that was never
+      // possible and reads as a screen that will not render a refusal. Most
+      // often the frame was refused a send because the link was never opened
+      // (`connection.send` returns false pre-open, connection.js:249-250), so
+      // say that rather than losing a day to it.
+      assert.ok(
+        frame === null || frame.op_id,
+        `the ack names no op_id — the frame it addresses never reached the socket. ` +
+          `Was the link opened (sync.open()) before this write?`,
+      );
       inbound({
         t: "ack",
         party_id: 1,
@@ -364,6 +387,10 @@ function fakeSync(o = {}) {
      * there is no id to name, and the assert says so.
      */
     pendingEntry(/** @type {string} */ kind) {
+      // The pair is looked up by the TARGET KIND, and a write frame names its
+      // target under `target` while a diff names its field under `field`
+      // (index.js:262-267 vs :169). Reading the wrong key silently yields
+      // `undefined?.kind`, so every lookup misses and the assert below fires.
       const frame = unanswered.find(
         (f) => /** @type {any} */ (f.t === "write" ? f.target : f.field)?.kind === kind,
       );
@@ -1048,6 +1075,11 @@ const { sync } = mount({ you: { sub: "dev-sub-a", role: "player" } });
 // component actually renders, not the shape the store happened to record.
 test("a refused op surfaces its reason in the DOM, not only in the store", async () => {
   const { sync, stash, container } = mount({ rows: [ROW("Longsword", 2)], qm: 7 });
+  // The link has to be UP before a write is worth acking: `connection.send`
+  // refuses a pre-open send (connection.js:249-250), so without this the mint
+  // below sits in the queue, `unanswered` stays empty, and the refusal has no
+  // op to name.
+  sync.open();
   assert.ok(
     !container.textContent.includes("already in the stash"),
     "no notice before the ack",
@@ -1128,6 +1160,7 @@ test("two lost-frame refusals in one turn render as two records", async () => {
 
 test("two refusals in one turn render as two records", async () => {
   const { sync, stash, container } = mount({ rows: [ROW("Longsword", 2)], qm: 7 });
+  sync.open();
   stash.adjustQty("Longsword", -1);
   await settle();
   const draw = sync.pendingEntry("stash");
@@ -1165,6 +1198,7 @@ test("an applied ack clears the own-write echo and the row reads the server valu
     rows: [ROW("Longsword", 2)],
     you: { sub: "dev-sub-a", role: "player" },
   });
+  sync.open();
   stash.adjustQty("Longsword", -1);
   await settle();
   // §4's optimistic half: the echo is on screen before any answer.
@@ -1553,6 +1587,10 @@ const { sync, stash, rowOf, bankOf } = mount({
     rows: [{ item_name: "Torch", quantity: 1 }],
     you: { sub: "dev-sub-b", role: "player" },
   });
+  // Both clicks have to reach the socket: `expose` below names the SECOND
+  // frame's op_id, and a frame `connection.send` refused (the link was never
+  // opened, connection.js:249-250) carries no id to name.
+  sync.open();
 
   const row = rowOf("Torch");
   await fireEvent.click(rowButton(row, "torch", "take")); // sum 0: deleted

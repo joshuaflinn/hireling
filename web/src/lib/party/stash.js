@@ -448,8 +448,8 @@ export function createStashState({
 
   /**
    * The shipped column ceiling. Both server guards compare against
-   * `i64::from(i32::MAX)` on the same SQL line as their floor
-   * (`write.rs:1858` bank, `write.rs:1289` row), so the client's bound is this
+   * `i64::from(i32::MAX)`, each on the same SQL line as its own floor
+   * (`write.rs:1857-1859` bank, `write.rs:1289` row), so the client's bound is this
    * number and not a looser one — see `appliesTo` for the guard itself.
    */
   const I32_MAX = 2_147_483_647;
