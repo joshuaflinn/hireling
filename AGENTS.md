@@ -813,11 +813,12 @@ What contaminated a workspace here was a host path carried without its leading
 - Never name an output file from a host path **carried in from outside this
   worktree** — as a literal, a variable, a template, or a value read from a tool
   response or a path-stripping wrapper. Every directory outside this worktree is
-  a candidate — `/tmp`, a service home, another repo's checkout. The one
-  exemption is the directory this run's harness names for you, enumerated in the
-  paragraph below; it is not inferred from a path's look.
+  a candidate — `/tmp`, a service home, another repo's checkout.
 - Never `>`, `tee`, or an `--output`/`-o`/`-f` flag to a path built by
   concatenating host-path components **carried in from outside this worktree**.
+
+The one exemption is the directory this run's harness names for you, enumerated
+in the paragraph below; it is not inferred from a path's look.
 
 The bullets are about where the name came from, not its shape, because shape
 cannot decide it: `$PAPERCLIP_RUN_SCRATCH_DIR/x.json` and
@@ -856,7 +857,15 @@ The scratch dir is no further from the tree than that, and it fails the same way
 `mkdir -p "${PAPERCLIP_RUN_SCRATCH_DIR#/}"` then a write to a child of that
 string is rc 0 and yields `?? home/`. Write to that same string *itself* and
 `mkdir -p` has just made it a directory — rc 1, `Is a directory`, tree still
-clean. Whether the scratch dir sits beside `$HOME` or under it does not decide
+clean — the `mkdir -p` has left the directory chain in the tree and `git status`
+cannot see it, because git does not track empty directories, so this form fails
+safe only until something writes into it. That `?? home/` is the oracle read
+from the worktree toplevel. Run the same write from a *tracked* subdirectory and
+the entry still reads `?? home/`, because the entry is relative to cwd and
+`mkdir -p` built the chain under cwd. `?? ./` appears only where cwd is itself
+untracked, and there it fires whether or not anything contaminated the tree, so
+it is not an oracle.
+Whether the scratch dir sits beside `$HOME` or under it does not decide
 anything, which is why `$HOME` is not the test; the condition is whether the
 absolute value survives intact to the redirect. The earlier "outside every
 worktree precisely so this cannot happen" over-claimed on that point.
