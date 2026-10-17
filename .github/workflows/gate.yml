@@ -220,6 +220,20 @@ jobs:
         if: ${{ !cancelled() }}
         run: just ship-guard
 
+      # The gh#332 blind-spot guard's bench proof, in CI (gh#369). Runs the
+      # guard's own `--self-test` suite, which re-proves every red direction of
+      # the guard. This is the leg direction A can see — `GUARD_STEP_RE` matches
+      # `run: just <leg>` and no bare `python3` line, which is why the guard's
+      # CI presence has to be a leg and not a bare invocation. The assertion
+      # half (the guard over the image's own scan JSON) cannot be a leg: it
+      # needs the log that only exists inside this job's runner temp, so it
+      # runs as its own step further down, `Fail-closed guard over the image's
+      # own scan`. A leg whose whole job is a self-test is unusual; the precedent
+      # is `ship-guard` directly above — same shape, a guard proving itself.
+      - name: guard-selftests — semgrep blind-spot guard proves its own reds
+        if: ${{ !cancelled() }}
+        run: just guard-selftests
+
       # The guardrail guarding the guardrails (gh#151) — the same recipe
       # bench-side `just ci-local` runs, so bench and CI cannot drift apart:
       # every ci-local leg must have a CI home (an image mirror declared in
