@@ -15,8 +15,8 @@ ordinary `effect_new` create frame; effects already on each target come from the
 the composer already fetches and refreshes on every applied ack, so a candidate's stacking
 verdict for each target is computed **in the engine** by a pure function that runs the shipped
 `stack_one` over existing candidates plus a shadow candidate, and the client asks for the
-verdicts for the whole roster in one party-scoped read whenever the picker changes. No engine
-change, no new wire kind, no migration.
+verdicts for the whole roster in one party-scoped read keyed on `(spell, outcome)` — not on the
+picker. No engine change, no new wire kind, no migration.
 
 ---
 
