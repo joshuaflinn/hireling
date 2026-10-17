@@ -239,7 +239,7 @@ fn classify_sibling_names_the_reapable_and_excluded_sets() {
 #[test]
 fn decide_skips_mor_regardless_of_liveness() {
     assert_eq!(
-        decide("MOR-482", true, true, LiveStatus::Live),
+        decide("MOR-482", true, LiveStatus::Live),
         ReapDecision::Skip {
             reason: SkipReason::HarnessOwned
         },
@@ -250,7 +250,7 @@ fn decide_skips_mor_regardless_of_liveness() {
 #[test]
 fn decide_skips_the_shared_checkout_regardless_of_liveness() {
     assert_eq!(
-        decide("hireling", false, false, LiveStatus::Live),
+        decide("hireling", false, LiveStatus::Live),
         ReapDecision::Skip {
             reason: SkipReason::ReferenceCheckout
         },
@@ -261,38 +261,36 @@ fn decide_skips_the_shared_checkout_regardless_of_liveness() {
 #[test]
 fn decide_skips_a_dirty_worktree() {
     assert_eq!(
-        decide("hireling-old", true, false, LiveStatus::Idle),
+        decide("hireling-old", false, LiveStatus::Idle),
         ReapDecision::Skip {
             reason: SkipReason::DirtyTree
         },
-        "a clean-ancestor but dirty worktree is skipped (AC4)"
+        "a dirty worktree is skipped: the clean-tree test is the whole test (AC4)"
     );
 }
 
 #[test]
-fn decide_skips_an_unmerged_worktree() {
+fn decide_reaps_a_clean_unmerged_worktree() {
     assert_eq!(
-        decide("hireling-old", false, true, LiveStatus::Idle),
-        ReapDecision::Skip {
-            reason: SkipReason::NotMerged
-        },
-        "a clean worktree whose branch is not an ancestor of origin/main is skipped"
+        decide("hireling-old", true, LiveStatus::Idle),
+        ReapDecision::Reap,
+        "a clean, idle hand-cut worktree is reaped with no ancestry check — squash-merged \nsibling branches are normally not ancestors of origin/main (gh#354, gh#372)"
     );
 }
 
 #[test]
 fn decide_reaps_a_clean_merged_worktree() {
     assert_eq!(
-        decide("hireling-old", true, true, LiveStatus::Idle),
+        decide("hireling-old", true, LiveStatus::Idle),
         ReapDecision::Reap,
-        "a clean, merged, idle hand-cut worktree passes the staleness test and is reaped"
+        "a clean, idle hand-cut worktree whose branch did land on main is reaped too: \nmerge state is not an input to the decision (gh#372)"
     );
 }
 
 #[test]
 fn decide_reaps_an_idle_target() {
     assert_eq!(
-        decide("target-gate-42", false, false, LiveStatus::Idle),
+        decide("target-gate-42", false, LiveStatus::Idle),
         ReapDecision::Reap,
         "an idle target dir is reaped"
     );
@@ -301,7 +299,7 @@ fn decide_reaps_an_idle_target() {
 #[test]
 fn decide_skips_a_target_with_a_live_build() {
     assert_eq!(
-        decide("target-gate-42", false, false, LiveStatus::Live),
+        decide("target-gate-42", false, LiveStatus::Live),
         ReapDecision::Skip {
             reason: SkipReason::LiveBuild
         },
@@ -312,7 +310,7 @@ fn decide_skips_a_target_with_a_live_build() {
 #[test]
 fn decide_skips_unknown_names() {
     assert_eq!(
-        decide("docs", true, true, LiveStatus::Idle),
+        decide("docs", true, LiveStatus::Idle),
         ReapDecision::Skip {
             reason: SkipReason::NotReapable
         },
@@ -328,7 +326,6 @@ fn skip_reason_text_covers_every_reason() {
         SkipReason::LiveBuild,
         SkipReason::Unobservable,
         SkipReason::DirtyTree,
-        SkipReason::NotMerged,
         SkipReason::NotReapable,
     ] {
         assert!(
@@ -508,7 +505,7 @@ fn process_liveness_marks_unreadable_env_as_unobservable() {
 #[test]
 fn decide_skips_a_target_when_liveness_is_unobservable() {
     assert_eq!(
-        decide("target-gate-42", false, false, LiveStatus::Unobservable),
+        decide("target-gate-42", false, LiveStatus::Unobservable),
         ReapDecision::Skip {
             reason: SkipReason::Unobservable
         },
