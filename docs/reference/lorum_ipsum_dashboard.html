@@ -49,7 +49,9 @@ a{color:var(--blue)}
 .tplsw.open>.tplsub{display:block}
 @media (hover:hover){.tplsw:hover>.tplsub{display:block}}
 .tplsub .tplitem.cur{color:var(--gold)}
-#tplDlg{width:min(480px,94vw)}
+#tplDlg,#layDlg{width:min(480px,94vw)}
+.tplmenu .tplitem.on,.tplrow .tplname.on{color:var(--gold)}
+.laysize{font-size:11px;color:var(--muted);white-space:nowrap}
 .tpllist{margin:8px 0 2px;display:flex;flex-direction:column;gap:2px;max-height:50vh;overflow:auto}
 .tplrow,.tpledit{display:flex;align-items:center;gap:6px;padding:3px 4px;border-radius:6px}
 .tplrow:hover{background:var(--panel2)}
@@ -530,7 +532,10 @@ h3.chead.over .cnm{color:var(--f)}
     <div id="charSub" class="sub"></div>
   </div>
   <div class="controls">
-    <button class="btn" id="btnResetLayout" title="Restore the default widget layout">Reset Layout</button>
+    <span class="splitbtn" id="laySplit">
+      <button class="btn" id="btnLayout" aria-haspopup="menu" aria-expanded="false" title="Save, load or reset the widget layout">Layout ▾</button>
+      <div class="tplmenu" id="layMenu" role="menu" hidden></div>
+    </span>
     <button class="btn gold" id="btnDaily" title="Clears cast slots, refills Focus Points, resets Drain Bonded Item">New Day</button>
     <button class="btn" id="btnImport">Import Pathbuilder JSON</button>
     <span id="syncStatus" class="syncstat"></span>
@@ -577,6 +582,17 @@ h3.chead.over .cnm{color:var(--f)}
   <div class="row2">
     <span></span>
     <button class="btn gold" id="tplClose">Close</button>
+  </div>
+</dialog>
+
+<dialog id="layDlg">
+  <h3>Layouts</h3>
+  <div id="layNew"></div>
+  <div id="layList" class="tpllist"></div>
+  <div class="err" id="layErr"></div>
+  <div class="row2">
+    <span></span>
+    <button class="btn gold" id="layClose">Close</button>
   </div>
 </dialog>
 
@@ -1038,8 +1054,8 @@ function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
 const LS_SAVEDAT=LS_KEY+":savedAt", LS_BACKUP=LS_KEY+":backup";
 function getLocalSavedAt(){ return Number(lsGet(LS_SAVEDAT))||0; }
 function setLocalSavedAt(v){ lsSet(LS_SAVEDAT, String(v)); }
-const TPL_KEY=LS_KEY+":templates", NOTES_KEY=LS_KEY+":notes";
-function ownedKeys(){ return { [LS_KEY]: lsGet(LS_KEY)||"", [TPL_KEY]: lsGet(TPL_KEY)||"" }; }
+const TPL_KEY=LS_KEY+":templates", NOTES_KEY=LS_KEY+":notes", LAY_KEY=LS_KEY+":layouts";
+function ownedKeys(){ return { [LS_KEY]: lsGet(LS_KEY)||"", [TPL_KEY]: lsGet(TPL_KEY)||"", [LAY_KEY]: lsGet(LAY_KEY)||"" }; }
 let cloudRef=null, cloudOn=false, cloudWriting=false, cloudWriteQueue=null, cloudNotice=null;
 
 function syncTimeStr(ms){ try{ return new Date(ms).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}); }catch(e){ return ""; } }
@@ -4079,7 +4095,7 @@ function initWidgets(){
 function updateMode(){ boardEl.classList.toggle("stacked", narrow()); }
 function onWindowResize(){
   updateMode();
-  if(!narrow()){ S.layout=cloneLayout(S.layoutBase); applyPositions(); relayout(); }
+  if(!narrow() && !layAutoApply()){ S.layout=cloneLayout(S.layoutBase); applyPositions(); relayout(); }
 }
 function onWidgetResize(){
   if(drag || resizeActive) return;
@@ -4088,17 +4104,142 @@ function onWidgetResize(){
 function initBoard(){
   boardEl.classList.add("noanim"); setTimeout(()=>boardEl.classList.remove("noanim"),500);  // no slide-in on first paint
   loadLayout();
+  layBoot();
   updateMode();
+  layAutoApply();
   if(!narrow()){ applyPositions(); relayout(); }
   ro=new ResizeObserver(onWidgetResize);
   WIDGET_IDS.forEach(id=>ro.observe(widgets[id]));
   window.addEventListener("resize",onWindowResize);
-  $("#btnResetLayout").onclick=()=>{
-    S.layout=defLayout(); S.layoutBase=cloneLayout(S.layout);
-    if(!narrow()){ applyPositions(); relayout(); }
-    markDirty();
-  };
 }
+
+/* ============================================================
+   Saved layouts — named widget arrangements for different screen sizes, kept apart from templates.
+   Doc shape: {v:1, auto:bool, items:{[name]:{w, savedAt, base}}}; w is the board width the layout was saved at
+   ============================================================ */
+let LAY=null, layCur=null, layNewOpen=false, layRenaming=null;
+const layMenuEl=$("#layMenu"), layDlg=$("#layDlg");
+const layNames=()=>Object.keys(LAY.items).sort((a,b)=>(LAY.items[b].w-LAY.items[a].w)||a.localeCompare(b,undefined,{sensitivity:"base"}));
+function layBoot(){
+  let t=null; try{ t=JSON.parse(lsGet(LAY_KEY)); }catch(e){}
+  const ok=t && t.v===1 && t.items && typeof t.items==="object" && Object.values(t.items).every(i=>i && typeof i.w==="number" && validLayout(i.base));
+  LAY=ok ? t : {v:1, auto:false, items:{}};
+}
+function layChanged(){ lsSet(LAY_KEY, JSON.stringify(LAY)); if(cloudOn) writeCloud(Date.now()); }
+function layCheckName(raw, except){
+  const n=raw.trim(), low=n.toLowerCase();
+  if(!n) return {err:"Enter a name."};
+  if(n.length>40) return {err:"Names can be at most 40 characters."};
+  if(n==="__proto__") return {err:"That name is reserved."};
+  if(Object.keys(LAY.items).some(k=>k!==except && k.toLowerCase()===low)) return {err:"A layout with that name already exists."};
+  return {name:n};
+}
+function layApply(base){
+  S.layoutBase=cloneLayout(base); patchLayout(S.layoutBase); S.layout=cloneLayout(S.layoutBase);
+  if(!narrow()){ applyPositions(); relayout(); }
+}
+function layLoad(name){ if(!LAY.items[name]) return; layCur=name; layApply(LAY.items[name].base); markDirty(); }
+function layStore(name){ LAY.items[name]={w:Math.round(limitW()), savedAt:Date.now(), base:cloneLayout(S.layoutBase)}; layCur=name; layChanged(); }
+function layReset(){
+  S.layout=defLayout(); S.layoutBase=cloneLayout(S.layout); layCur=null;
+  if(!narrow()){ applyPositions(); relayout(); }
+  markDirty();
+}
+function layBestFit(){
+  const W=limitW(); let best=null, bd=Infinity;
+  Object.keys(LAY.items).forEach(n=>{ const d=Math.abs(LAY.items[n].w-W); if(d<bd){ bd=d; best=n; } });
+  return best;
+}
+// a window resize only swaps layouts when the closest match changes, so drag tweaks survive small resizes
+function layAutoApply(){
+  if(!LAY.auto || narrow()) return false;
+  const pick=layBestFit();
+  if(!pick || pick===layCur) return false;
+  layCur=pick; layApply(LAY.items[pick].base);
+  return true;
+}
+function layDefaultName(){
+  const res=`${screen.width}×${screen.height}`; let n=res, i=2;
+  while(layCheckName(n).err) n=`${res} (${i++})`;
+  return n;
+}
+
+function layBuildMenu(){
+  layMenuEl.textContent="";
+  layMenuEl.append(tplMenuItem("", "Save current layout…", "", ()=>{ layMenuOpen(false); layOpenDlg(true); }));
+  const names=layNames();
+  if(names.length){
+    layMenuEl.append(tplEl("div","tplsep"));
+    names.forEach(n=>layMenuEl.append(tplMenuItem(n===layCur?"on":"", n, LAY.items[n].w+"px", ()=>{ layMenuOpen(false); layLoad(n); })));
+    const auto=tplMenuItem(LAY.auto?"on":"", "Match window width", LAY.auto?"✓ on":"off", ()=>{
+      LAY.auto=!LAY.auto; layChanged();
+      if(LAY.auto){ layCur=null; layAutoApply(); }
+      layBuildMenu();
+    });
+    auto.title="Load the saved layout closest to this window's width, now and whenever the window is resized";
+    layMenuEl.append(tplEl("div","tplsep"), auto, tplEl("div","tplsep"), tplMenuItem("", "Manage layouts…", "", ()=>{ layMenuOpen(false); layOpenDlg(false); }));
+  } else layMenuEl.append(tplEl("div","tplsep"));
+  layMenuEl.append(tplMenuItem("", "Reset to default", "", ()=>{ layMenuOpen(false); layReset(); }));
+}
+function layMenuOpen(open){
+  if(open) layBuildMenu();
+  layMenuEl.hidden=!open; $("#btnLayout").setAttribute("aria-expanded", String(open));
+}
+$("#btnLayout").onclick=()=>layMenuOpen(layMenuEl.hidden);
+document.addEventListener("pointerdown",e=>{ if(!layMenuEl.hidden && !e.target.closest("#laySplit")) layMenuOpen(false); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape" && !layMenuEl.hidden){ layMenuOpen(false); $("#btnLayout").focus(); } });
+
+function layErr(msg){ $("#layErr").textContent=msg||""; }
+function layRender(){
+  const top=$("#layNew"), list=$("#layList");
+  top.textContent=""; list.textContent="";
+  if(layNewOpen) top.append(tplNameEditor(layDefaultName(), "Save", "Layout name", layCreate, ()=>{ layNewOpen=false; layErr(""); layRender(); }));
+  else { const b=tplEl("button","btn","+ Save current layout"); b.type="button"; b.onclick=()=>{ layNewOpen=true; layRenaming=null; layErr(""); layRender(); }; top.append(b); }
+  const names=layNames();
+  if(!names.length) list.append(tplEl("div","laysize","No saved layouts yet."));
+  names.forEach(name=>{
+    const row=tplEl("div","tplrow");
+    if(layRenaming===name){
+      row.append(tplNameEditor(name, "✓", "Layout name", raw=>layRename(name,raw), ()=>{ layRenaming=null; layErr(""); layRender(); }));
+    } else {
+      const nm=tplEl("button","tplname"+(name===layCur?" on":""),name); nm.type="button"; nm.title="Load this layout";
+      nm.onclick=()=>{ layLoad(name); layRender(); };
+      const sz=tplEl("span","laysize",LAY.items[name].w+"px");
+      const upd=tplEl("button","btn tplico","⤓"), pen=tplEl("button","btn tplico","✎"), del=tplEl("button","btn tplico","✕");
+      upd.type="button"; upd.title="Replace with the current layout";
+      upd.onclick=()=>{ if(confirm(`Replace layout "${name}" with the current arrangement?`)){ layStore(name); layRender(); } };
+      pen.type="button"; pen.title="Rename"; pen.onclick=()=>{ layRenaming=name; layNewOpen=false; layErr(""); layRender(); };
+      del.type="button"; del.title="Delete"; del.onclick=()=>layDelete(name);
+      row.append(nm, sz, upd, pen, del);
+    }
+    list.append(row);
+  });
+}
+function layCreate(raw){
+  const r=layCheckName(raw); if(r.err){ layErr(r.err); return; }
+  layStore(r.name); layNewOpen=false; layErr(""); layRender();
+}
+function layRename(old, raw){
+  const r=layCheckName(raw, old); if(r.err){ layErr(r.err); return; }
+  if(r.name!==old){
+    LAY.items[r.name]=LAY.items[old]; delete LAY.items[old];
+    if(layCur===old) layCur=r.name;
+    layChanged();
+  }
+  layRenaming=null; layErr(""); layRender();
+}
+function layDelete(name){
+  if(!LAY.items[name]) return;
+  if(!confirm(`Delete layout "${name}"? This can't be undone.`)) return;
+  delete LAY.items[name]; if(layCur===name) layCur=null;
+  layChanged(); layRender();
+}
+function layOpenDlg(withNew){
+  layNewOpen=!!withNew; layRenaming=null; layErr(""); layRender();
+  if(layDlg.showModal) layDlg.showModal(); else layDlg.setAttribute("open","");
+}
+$("#layClose").onclick=()=>layDlg.close();
+layDlg.addEventListener("click",e=>{ if(e.target===layDlg) layDlg.close(); });
 
 $("#btnSave").onclick=()=>{ if(dirty||noteUnsaved()) mainSave(); };
 document.addEventListener("keydown",e=>{ if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){ e.preventDefault(); mainSave(); } });
