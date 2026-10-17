@@ -6,15 +6,26 @@ eslint config drifts the moment the image digest moves, and nothing reds
 because the copy is just text no check re-reads against the pinned digest.
 Two directions, both failing closed:
 
-1. Offline (default): the vendored file named by scripts/gate_vendored.tsv
-   still hashes to the sha256 that manifest records. The hash covers the
-   bytes below the `// === vendored-source-begin ===` marker — the image's
-   own source, verbatim — so a hand edit above the marker (a provenance
-   comment) is fine and a hand edit below it reds.
+1. Offline (default): each vendored path named by scripts/gate_vendored.tsv
+   still hashes to what the manifest records. File rows hash the bytes below
+   the `// === vendored-source-begin ===` marker — the image's own source,
+   verbatim — so a hand edit above the marker (a provenance comment) is fine
+   and a hand edit below it reds. Directory rows (both fields end in `/`)
+   hash the canonical tree digest of the vendored directory. An absent
+   directory reds: it is git-ignored, so the justfile materializes it from
+   the pinned digest (`check-vendored` and `scan-semgrep` self-provision;
+   `vendor-semgrep` re-vendors and records the digest), and the tree is the
+   provenance `just scan-semgrep` depends on
+   — a hand-made copy left stale reads green here while the scan runs
+   against the wrong rules. `--allow-unvendored` is the only opt-out, and it
+   says so in the output; it exists for a machine that cannot reach the
+   registry (CONTRIBUTOR.md), because the vendor step and the drift check are
+   the same fetch. A present-but-wrong tree reds either way.
 
 2. --image-source KEY=PATH (CI-side): the image itself still carries those
-   bytes. The gate workflow extracts the file from the pinned digest (the
-   digest is named once, at .github/workflows/gate.yml) and passes it here;
+   bytes. The gate workflow extracts the file (or, for a directory row, the
+   whole subtree) from the pinned digest (the digest is named once, at
+   .github/workflows/gate.yml) and passes it here;
    a digest bump that moved the config without re-vendoring reds this
    direction instead of silently stranding the vendored copy.
    `--require-image-sources` (also CI-side) reds when a manifest row is not
@@ -22,12 +33,14 @@ Two directions, both failing closed:
    silently skip a row.
 
 The manifest is written by scripts/fetch_gate_file.py (the producer); this
-is the verifier. One row per vendored file, three tab-separated fields:
-<image-path> <vendored-path> <sha256>.
+is the verifier. One row per vendored file or directory, three tab-separated
+fields: <image-path> <vendored-path> <sha256>. A directory row is signalled
+by a trailing slash on BOTH fields; a file row by neither.
 
 Zero dependencies, stdlib only — same discipline as the guardrails it sits
 beside. A guardrail that skips is not a guardrail: a missing manifest, a
-missing vendored file, a missing marker, or a malformed row all fail loudly.
+missing vendored file, a missing marker, a drifted directory, or a malformed
+row all fail loudly.
 """
 
 # ruff: noqa: T201, S603 -- a CLI guardrail: printing its verdict is the
@@ -35,6 +48,7 @@ missing vendored file, a missing marker, or a malformed row all fail loudly.
 
 import argparse
 import hashlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -82,6 +96,12 @@ def load_manifest() -> list[tuple[str, str, str]]:
         image_path, vendored_path, sha256 = (field.strip() for field in fields)
         if len(sha256) != SHA256_HEX_LEN or any(c not in "0123456789abcdef" for c in sha256):
             fail(f"{MANIFEST}:{lineno}: '{sha256}' is not a 64-char hex sha256")
+        if image_path.endswith("/") != vendored_path.endswith("/"):
+            fail(
+                f"{MANIFEST}:{lineno}: a directory row must carry a trailing"
+                f" slash on BOTH fields and a file row on NEITHER — got"
+                f" image_path={image_path!r} vendored_path={vendored_path!r}"
+            )
         if image_path in seen:
             fail(f"{MANIFEST}:{lineno}: image path '{image_path}' declared twice")
         seen.add(image_path)
@@ -97,6 +117,11 @@ def load_manifest() -> list[tuple[str, str, str]]:
 def sha256_bytes(data: bytes) -> str:
     """Return the lowercase hex sha256 of `data`."""
     return hashlib.sha256(data).hexdigest()
+
+
+def is_directory_row(image_path: str, vendored_path: str) -> bool:
+    """Return True when both fields end in a slash (a directory row)."""
+    return image_path.endswith("/") and vendored_path.endswith("/")
 
 
 def vendored_body(path: Path) -> bytes:
@@ -119,16 +144,72 @@ def vendored_body(path: Path) -> bytes:
     return data[index + len(MARKER) :]
 
 
-def check_offline(rows: list[tuple[str, str, str]]) -> None:
-    """Direction 1: every vendored file hashes to its recorded sha256."""
+def directory_digest(path: Path) -> str:
+    """Return the canonical tree digest over `path`.
+
+    Byte-identical to scripts/fetch_gate_file.py's directory_digest over
+    {relpath: bytes}: sorted relpaths, one `relpath<TAB>sha256(content)` line
+    each, the joined stream hashed. Fails closed on a missing/empty directory,
+    a symlink, or any non-regular file — a tree the image did not ship as such.
+    """
+    if not path.is_dir():
+        fail(f"vendored directory {path} not found or not a directory")
+    entries: dict[str, bytes] = {}
+    for file in path.rglob("*"):
+        if file.is_symlink():
+            fail(f"vendored directory {path} contains a symlink ({file}) — refusing to pass")
+        if file.is_file():
+            entries[file.relative_to(path).as_posix()] = file.read_bytes()
+        elif not file.is_dir():
+            fail(f"vendored directory {path} contains a non-regular file ({file})")
+    if not entries:
+        fail(f"vendored directory {path} is empty — refusing to pass")
+    lines = "".join(
+        f"{relpath}\t{sha256_bytes(entries[relpath])}\n" for relpath in sorted(entries)
+    )
+    return sha256_bytes(lines.encode("utf-8"))
+
+
+def check_offline(
+    rows: list[tuple[str, str, str]], *, allow_unvendored: bool
+) -> None:
+    """Direction 1: every vendored path hashes to its recorded sha256."""
     for image_path, vendored_path, sha256 in rows:
-        actual = sha256_bytes(vendored_body(Path(vendored_path)))
+        if is_directory_row(image_path, vendored_path):
+            vendored_dir = Path(vendored_path)
+            if not vendored_dir.exists():
+                if allow_unvendored:
+                    print(
+                        f"vendored-drift check: note: {vendored_path} not vendored"
+                        " — tolerated because --allow-unvendored says the registry"
+                        " is unreachable here; 'just scan-semgrep' still self-"
+                        " vendors from the pinned image and reds without the"
+                        " registry, so the scan cannot skip"
+                    )
+                    continue
+                fail(
+                    f"vendored directory {vendored_path} is absent — run 'just"
+                    " vendor-semgrep'. The tree is git-ignored, so an absent one"
+                    " means it was never fetched on this machine, and a hand-made"
+                    " copy would read green here while 'just scan-semgrep'"
+                    " scanned the wrong rules. --allow-unvendored opts out (a"
+                    " machine that cannot reach the registry; CONTRIBUTOR.md)."
+                )
+            actual = directory_digest(vendored_dir)
+        else:
+            actual = sha256_bytes(vendored_body(Path(vendored_path)))
         if actual != sha256:
+            if is_directory_row(image_path, vendored_path):
+                hint = "re-vendor with scripts/fetch_gate_file.py"
+            else:
+                hint = (
+                    "re-vendor with scripts/fetch_gate_file.py (or fix the"
+                    " hand edit below the marker)"
+                )
             fail(
                 f"{vendored_path} has sha256 {actual}, manifest records {sha256}"
                 f" for {image_path} — the vendored copy drifted from the pinned"
-                " image; re-vendor with scripts/fetch_gate_file.py (or fix the"
-                " hand edit below the marker)"
+                f" image; {hint}"
             )
 
 
@@ -137,15 +218,23 @@ def check_image_sources(
 ) -> None:
     """Direction 2: the image itself still carries the recorded bytes."""
     for key, path in sources.items():
-        if not path.is_file():
-            fail(f"image source {path} for '{key}' not found — refusing to pass")
         row = next((r for r in rows if r[0] == key), None)
         if row is None:
             fail(
                 f"image source key '{key}' matches no row in {MANIFEST} — the"
                 " manifest and the CI extraction disagree"
             )
-        actual = sha256_bytes(path.read_bytes())
+        if is_directory_row(row[0], row[1]):
+            if not path.is_dir():
+                fail(
+                    f"image source {path} for '{key}' is not a directory —"
+                    " refusing to pass"
+                )
+            actual = directory_digest(path)
+        else:
+            if not path.is_file():
+                fail(f"image source {path} for '{key}' not found — refusing to pass")
+            actual = sha256_bytes(path.read_bytes())
         if actual != row[2]:
             fail(
                 f"image carries sha256 {actual} for {key}, manifest records"
@@ -169,6 +258,14 @@ def main() -> None:
         help="image path key and the file extracted from the pinned image (repeatable)",
     )
     parser.add_argument(
+        "--allow-unvendored",
+        action="store_true",
+        help=(
+            "tolerate an absent vendored directory (registry unreachable;"
+            " scan-semgrep still fails)"
+        ),
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="re-prove every red direction against synthetic trees and exit",
@@ -184,7 +281,7 @@ def main() -> None:
         return
 
     rows = load_manifest()
-    check_offline(rows)
+    check_offline(rows, allow_unvendored=args.allow_unvendored)
 
     sources: dict[str, Path] = {}
     for item in args.image_source:
@@ -204,7 +301,7 @@ def main() -> None:
                 f" covered by --image-source: {', '.join(missing)}"
             )
 
-    direction = f"{len(rows)} vendored file(s)"
+    direction = f"{len(rows)} vendored path(s)"
     if sources:
         direction += f" + {len(sources)} image source(s)"
     print(f"vendored-drift check ok: {direction} match the manifest")
@@ -402,6 +499,123 @@ def _image_source_self_test(
     )
 
 
+def _tree_digest(files: dict[str, bytes]) -> str:
+    """Compute the canonical directory digest the manifest records (test fixture)."""
+    lines = "".join(f"{rel}\t{sha256_bytes(files[rel])}\n" for rel in sorted(files))
+    return sha256_bytes(lines.encode("utf-8"))
+
+
+def _make_directory_self_test_tree(
+    root: Path, name: str, files: dict[str, bytes], *, row_sha: str | None = None
+) -> Path:
+    """Build a synthetic tree with one vendored directory and a matching row."""
+    tree = root / name
+    (tree / "scripts").mkdir(parents=True)
+    rules = tree / "gate-semgrep-rules"
+    rules.mkdir(parents=True)
+    for rel, data in files.items():
+        target = rules / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    digest = row_sha if row_sha is not None else _tree_digest(files)
+    (tree / "scripts" / "gate_vendored.tsv").write_text(
+        "etc/gate/rules/\tgate-semgrep-rules/\t" + digest + "\n",
+        encoding="utf-8",
+    )
+    return tree
+
+
+def _directory_offline_self_test(script: Path, ran: list[str], root: Path) -> Path:
+    """Run the directory-row offline cases; return the shared green tree."""
+    green = _make_directory_self_test_tree(
+        root, "dir-green", {"a.yaml": b"one\n", "sub/b.yaml": b"two\n"}
+    )
+    _run_self_test_case(script, ran, green, [], expect_red=False)
+
+    # Red: the directory is absent (never vendored) — the tree is provenance,
+    # so absence is a hole, not a notice. Green only with the explicit opt-out.
+    tree = _make_directory_self_test_tree(root, "dir-absent-red", {"a.yaml": b"one\n"})
+    shutil.rmtree(tree / "gate-semgrep-rules")
+    _run_self_test_case(script, ran, tree, [], expect_red=True)
+
+    # Green: absent, but the caller declared the registry unreachable.
+    tree = _make_directory_self_test_tree(root, "dir-absent-opt-out", {"a.yaml": b"one\n"})
+    shutil.rmtree(tree / "gate-semgrep-rules")
+    _run_self_test_case(script, ran, tree, ["--allow-unvendored"], expect_red=False)
+
+    # Red: a file inside the directory drifted.
+    tree = _make_directory_self_test_tree(root, "dir-body-drift", {"a.yaml": b"one\n"})
+    (tree / "gate-semgrep-rules" / "a.yaml").write_bytes(b"edited\n")
+    _run_self_test_case(script, ran, tree, [], expect_red=True)
+
+    # Red: a symlink inside the directory (a tree the image did not ship).
+    tree = _make_directory_self_test_tree(root, "dir-symlink", {"a.yaml": b"one\n"})
+    (tree / "gate-semgrep-rules" / "link").symlink_to("a.yaml")
+    _run_self_test_case(script, ran, tree, [], expect_red=True)
+
+    # Red: a mixed row — one field carries the trailing slash, the other not.
+    tree = _make_directory_self_test_tree(root, "dir-mixed-row", {"a.yaml": b"one\n"})
+    (tree / "scripts" / "gate_vendored.tsv").write_text(
+        "etc/gate/rules/\tgate-semgrep-rules\t" + _tree_digest({"a.yaml": b"one\n"}) + "\n",
+        encoding="utf-8",
+    )
+    _run_self_test_case(script, ran, tree, [], expect_red=True)
+
+    return green
+
+
+def _directory_image_source_self_test(
+    script: Path, ran: list[str], root: Path, green: Path
+) -> None:
+    """Run the directory-row --image-source cases."""
+    src = root / "image-rules"
+    src.mkdir(parents=True)
+    (src / "a.yaml").write_bytes(b"one\n")
+    (src / "sub").mkdir()
+    (src / "sub" / "b.yaml").write_bytes(b"two\n")
+    _run_self_test_case(
+        script,
+        ran,
+        green,
+        ["--image-source", f"etc/gate/rules/={src}"],
+        expect_red=False,
+    )
+    _run_self_test_case(
+        script,
+        ran,
+        green,
+        ["--require-image-sources", "--image-source", f"etc/gate/rules/={src}"],
+        expect_red=False,
+    )
+    # Drift: a file in the image-source directory changed.
+    (src / "a.yaml").write_bytes(b"other\n")
+    _run_self_test_case(
+        script,
+        ran,
+        green,
+        ["--image-source", f"etc/gate/rules/={src}"],
+        expect_red=True,
+    )
+    # The image-source key resolves to a file, not a directory.
+    file_src = root / "image-file"
+    file_src.write_bytes(b"not a tree\n")
+    _run_self_test_case(
+        script,
+        ran,
+        green,
+        ["--image-source", f"etc/gate/rules/={file_src}"],
+        expect_red=True,
+    )
+    # A directory image source for a key with no matching row.
+    _run_self_test_case(
+        script,
+        ran,
+        green,
+        ["--image-source", f"etc/gate/nope/={src}"],
+        expect_red=True,
+    )
+
+
 def self_test() -> None:
     """Re-prove every red direction against synthetic trees through the CLI."""
     script = Path(__file__).resolve()
@@ -411,6 +625,8 @@ def self_test() -> None:
         root = Path(tmp)
         green = _offline_self_test(script, ran, root)
         _image_source_self_test(script, ran, root, green)
+        dir_green = _directory_offline_self_test(script, ran, root)
+        _directory_image_source_self_test(script, ran, root, dir_green)
 
     print(f"vendored-drift self-test: {len(ran)} cases, all pass")
 

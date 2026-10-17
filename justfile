@@ -117,7 +117,10 @@ web-tsc: web-deps
 # One constructional difference from the image, a written exemption: the
 # image lints the whole project with -f json; the bench lints the same files
 # (`.`) but drops the json formatter so findings are human-readable. The rule
-# set, the file set and the env knobs are identical.
+# set and the file set are identical; of the env knobs, GATE_TSCONFIG is the
+# second written exemption above — the bench passes the repo's raw
+# web/tsconfig.json, the image its harness-wrapped one (same strictness, plus
+# skip_dirs unioned into exclude).
 web-eslint: web-deps
     #!/usr/bin/env bash
     set -euo pipefail
@@ -131,10 +134,30 @@ web-eslint: web-deps
 # The drift check over the vendored gate config (gh#314): the vendored file
 # must still hash to what scripts/gate_vendored.tsv records, and (CI-side,
 # --image-source) the pinned digest must still carry those bytes. The self-
-# test re-proves every red direction; the real check is the guardrail.
-check-vendored:
+# test re-proves every red direction; the real check is the guardrail. A
+# git-ignored rule tree absent from a fresh checkout self-provisions here
+# (MOR-729) from the pinned digest, without touching the manifest — unless
+# --allow-unvendored says the registry is unreachable, in which case the
+# absent-tree note is tolerated and the scan leg still self-vendors or reds.
+# `fetch_gate_file.py --self-test` runs first: the producer of the vendored
+# tree self-tests in the leg that consumes it. `scan-semgrep` also invokes that
+# producer, but `check-vendored` is the home that CI reaches — it is the one of
+# the two carrying a `run: just` guard step in `.github/workflows/gate.yml`.
+check-vendored *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    python3 scripts/fetch_gate_file.py --self-test
     python3 scripts/check_gate_vendored.py --self-test
-    python3 scripts/check_gate_vendored.py
+    if [ ! -d gate-semgrep-rules ]; then
+        if [[ " {{args}} " == *" --allow-unvendored "* ]]; then
+            echo "check-vendored: gate-semgrep-rules/ absent and --allow-unvendored set — skipping self-provision (registry unreachable)"
+        else
+            echo "check-vendored: gate-semgrep-rules/ absent — materializing from the pinned image (~1.2 GB), without touching the manifest"
+            python3 scripts/fetch_gate_file.py etc/grizzly-gate/config/util/semgrep/rules/ \
+                --output gate-semgrep-rules
+        fi
+    fi
+    python3 scripts/check_gate_vendored.py {{args}}
 
 # The runner-label drift check (gh#331): the gate workflow's `runs-on:`
 # label and the label embedded in the cache key/restore-keys must agree.
@@ -174,28 +197,71 @@ web-css-guard: web-deps
     fi
     echo "web-css-guard ok: no unused-selector warnings in the build"
 
-# The gate image's scan:semgrep pass, replicated bench-side over the web
-# tree with the registry rules it has enforced there (calibrated by fire
-# against runs 37850972131 and 37981907115: missing-template-string-
-# indicator on the emitted-worker template; package-dependencies-check
-# on web/package.json — exact versions only, which the tree already
-# kept; and 38080211231: html-in-template-string, the run that red-flagged
-# the vetted anchor literal in inert-html.js while ci-local was green).
-# The image's full rule set is wider; a digest bump that moves it
-# updates this invocation in the same PR. Needs the semgrep CLI on PATH
-# (`pipx install semgrep`) — a scan that skips is not a scan, so a
-# missing CLI fails loudly instead.
+# The gate image's scan:semgrep pass, mirrored over the repo root with the
+# image's OWN rule directory (gh#320). gate-semgrep-rules/ is vendored verbatim
+# from the pinned digest's etc/grizzly-gate/config/util/semgrep/rules/ by
+# scripts/fetch_gate_file.py (directory mode) and git-ignored; `just
+# vendor-semgrep` re-creates it and `just check-vendored` hashes it. The
+# invocation below reproduces the image's own scan contract from
+# etc/grizzly-gate/config/util/semgrep/manifest.toml: same --exclude set
+# (plus gate-semgrep-rules itself, so the vendored rules are not scanned by
+# the vendored rules), same --exclude-rule (the check_id is derived from the
+# --config path, so the vendored path prefixes it), same --json --error
+# --quiet. `--metrics=off` is a bench-only knob (the image runs offline).
+# Needs the semgrep CLI on PATH (`pipx install semgrep`) — a missing CLI
+# fails loudly. An absent rule tree self-provisions here (MOR-729) from the
+# pinned digest, fetched by scripts/fetch_gate_file.py WITHOUT --manifest so
+# the pin the drift check compares against is never rewritten, then verified
+# against the recorded digest; that fetch reds if the registry is
+# unreachable, so the scan still cannot skip.
+# scripts/semgrep_fail_closed.py then reads the JSON and reds on any
+# warn/PartialParsing entry, the blind-spot class gh#332 names.
+# Its `--self-test` runs first, above the CLI precondition, so the pure suite
+# still runs on a bench with no semgrep installed. `just scan-semgrep` has no
+# `run: just` step in `gate.yml` — its CI home is the image's own `scan:semgrep`
+# mirror, which cannot execute this suite — so this placement covers the bench.
 scan-semgrep:
     #!/usr/bin/env bash
+    set -euo pipefail
+    cd "$(git rev-parse --show-toplevel)"
+    python3 scripts/semgrep_fail_closed.py --self-test
     if ! command -v semgrep >/dev/null 2>&1; then
         echo "scan-semgrep: semgrep CLI not found — install it (pipx install semgrep) or run the pinned gate image (CONTRIBUTOR.md)" >&2
         exit 1
     fi
-    SEMGREP_SEND_METRICS=off semgrep scan --metrics=off --error \
-        --config https://semgrep.dev/r/javascript.lang.correctness.missing-template-string-indicator \
-        --config https://semgrep.dev/r/json.npm.security.package-dependencies-check \
-        --config https://semgrep.dev/r/javascript.lang.security.html-in-template-string \
-        web
+    if [ ! -d gate-semgrep-rules ]; then
+        echo "scan-semgrep: gate-semgrep-rules/ absent — materializing from the pinned image (~1.2 GB), without touching the manifest"
+        python3 scripts/fetch_gate_file.py etc/grizzly-gate/config/util/semgrep/rules/ \
+            --output gate-semgrep-rules
+        python3 scripts/check_gate_vendored.py
+    fi
+    semgrep_json="$(mktemp)"
+    trap 'rm -f "$semgrep_json"' EXIT
+    set +e
+    SEMGREP_SEND_METRICS=off semgrep scan --metrics=off --json --error --quiet \
+        --exclude=dist --exclude=build --exclude=.svelte-kit --exclude=gate-semgrep-rules \
+        --exclude-rule=gate-semgrep-rules.python.lang.correctness.common-mistakes.string-concat-in-list \
+        --config gate-semgrep-rules \
+        . > "$semgrep_json"
+    rc=$?
+    set -e
+    if [ "$rc" -ge 2 ]; then
+        echo "scan-semgrep: semgrep exited $rc (failed to run, not findings) — see output above" >&2
+        exit "$rc"
+    fi
+    python3 scripts/semgrep_fail_closed.py "$semgrep_json"
+    exit "$rc"
+
+# Vendor the image's semgrep rule directory (gh#320) — the same
+# scripts/fetch_gate_file.py mechanism that vendors the eslint config, in
+# directory mode (trailing slash on IMAGE_PATH). Re-run after a digest bump
+# or when check-vendored reds on the directory row's tree digest. The tree
+# is git-ignored; `just scan-semgrep` reads it and `just check-vendored`
+# hashes it, so it is reproduced by the same authority the gate runs, never
+# by hand.
+vendor-semgrep:
+    python3 scripts/fetch_gate_file.py etc/grizzly-gate/config/util/semgrep/rules/ \
+        --output gate-semgrep-rules --manifest scripts/gate_vendored.tsv
 
 # Vite dev server for frontend-only iteration (proxies nothing; use `just dev`
 # for the real full-stack path).
@@ -332,12 +398,13 @@ json-keys:
 
 # The disk floor for `disk-guard`, overridable three ways (precedence:
 # `just disk-floor-gb=<n>` on the command line, then `DISK_FLOOR_GB` in the
-# environment, then this 10G default). 10G is ~3x a measured full gate build — a leaked target-gate-*
-# dir runs 2.2–3.7G (`du -sh` on this bench) — so the floor leaves headroom
-# for one build plus the checkouts, node_modules and git objects that share
-# the filesystem, without crying wolf on every bench holding a little
-# history. CI runs the same default: the runner logged 75.4G free with the
-# gate cache already restored, so no override is needed.
+# environment, then this 10G default). 10G is ~3x a measured full gate build
+# — a leaked target-gate-* dir runs 2.2–3.7G (`du -sh` on this bench) — so
+# the floor leaves headroom for one build plus the checkouts, node_modules
+# and git objects that share the filesystem, without crying wolf on every
+# bench holding a little history. CI runs the same default: the runner
+# logged 75.4G free with the gate cache already restored, so no override is
+# needed.
 disk-floor-gb := env_var_or_default("DISK_FLOOR_GB", "10")
 
 # Free-space guard: fail fast, before the expensive ci-local legs, when the
