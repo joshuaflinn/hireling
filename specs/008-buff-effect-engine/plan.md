@@ -114,7 +114,7 @@
 
 ### Task 12: Gate + PR
 - [ ] `just ci-local` green (fmt, clippy-deny block, tests, cargo-deny); add the boundary assertion to the recipe or a CI test.
-- [ ] Open PR: `Closes #10`, link the Paperclip implementation task, decisions-with-alternatives from design.md, WEx list + mutation evidence in the body. Grizzly-gate must pass; a human merges.
+- [ ] Open PR: `Closes #10`, link the Paperclip implementation task, decisions-with-alternatives from design.md, WEx list + mutation evidence in the body. Grizzly-gate must pass; merge ask goes to Thrane.
 - Done when: PR open, gate green, Orsik's review task carries the verdict.
 
 ## Self-review (run by the plan author)

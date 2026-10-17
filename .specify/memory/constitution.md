@@ -29,9 +29,26 @@ Complexity is the enemy. Every decision reduces it or holds the line.
 
 Both owners build with AI agents. That's the workflow, not a secret.
 
-- All work lands via PR. Agents never push to `main`.
-- A human reviews and merges every PR. The reviewer is never the session that wrote it.
-- Agents verify before claiming done: run the tests, run the build, paste the evidence.
+- All work lands via PR. Nobody pushes to `main` — not agents, not owners, not
+  admins. Protection that an admin can wave away is not protection.
+- Every PR carries two independent things before it merges: a green `gate` on
+  the exact head commit being merged, and an accept from a reviewer who is not
+  the session that wrote it.
+- **The press is delegable; the judgment is not.** An owner may name a merge
+  authority in `AGENTS.md`, and that authority may be an agent. A named
+  authority may press merge only when all three hold:
+  1. `gate` is `success` at the exact head being merged, read from the
+     check-runs API and not from a pasted local log;
+  2. an independent reviewer has accepted that head;
+  3. `main` is protected such that the gate cannot be bypassed by anyone,
+     including admins, and the protection is live at the time of the press.
+  If any one of the three fails, the press returns to an owner, and the
+  authority says on the PR which one failed.
+- Either owner may merge anything at any time, and either owner may reserve a
+  PR — or a class of PRs — for their own hand by saying so on it. Delegation is
+  a default, never a transfer of ownership.
+- Agents verify before claiming done: run the tests, run the build, paste the
+  evidence.
 - An agent that cannot verify says so. No plausible-sounding completion reports.
 
 ## Article IV — The modifier engine is sacred
@@ -58,4 +75,6 @@ tracking, auto-expiry, positioning — violates the product's core deal and the 
 
 - This constitution supersedes the PRD, which supersedes any individual decision.
 - Amendments require a PR approved by **both** owners (Josh and Dave).
+- Naming, changing, or revoking the merge authority in `AGENTS.md` is not an
+  amendment and needs one owner. Changing the three conditions in Article III is.
 - When the SDD/SpecKit pipeline engages, its constitution artifacts sync FROM this file.

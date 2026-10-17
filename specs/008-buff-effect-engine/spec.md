@@ -391,7 +391,7 @@ them as unit tests, paraphrase-cited per the Community Use notice):
 - Effect model is `{name, source_character, targets[], modifiers[], duration_note, active}`; targets are roster characters only (companions/minions tracked manually — PRD).
 - Stacking rules, the vocabulary, and the expansion sets are settled PRD decisions — this spec enumerates, it does not re-decide.
 - E7's wire protocol, versioning, and ownership enforcement are landed contracts this epic extends, not re-designs.
-- Engine bugs and test ordering carry into the plan (FR-10); `just ci-local` green before any PR; grizzly-gate fail-closed; a human merges.
+- Engine bugs and test ordering carry into the plan (FR-10); `just ci-local` green before any PR; grizzly-gate fail-closed; merge ask goes to Thrane.
 
 ### Success Criteria
 
