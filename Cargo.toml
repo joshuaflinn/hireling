@@ -77,11 +77,13 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 # 9.x, not 8.x: RUSTSEC-2026-0367/0368/0369 (all three privilege-escalation
 # advisories in the `extract()` family) are `severity: error` against 8.6.0
 # and every 8.x release, so `cargo deny` fails the gate repo-wide on 8.x.
-# 9.0.0 landed the fixes; 9.0.1/9.0.2 carried the incomplete follow-ups
-# (9.0.1 `set_permissions was still following symlinks in non-streaming
-# extraction`, 9.0.2 `additional bug fixes for symlink extraction`), so the
-# floor is 9.0.2 — named explicitly, because a 9.0.0 lockfile would satisfy
-# `^9.0` and still be vulnerable. MOR-816.
+# 9.0.0 landed the fixes; 9.0.1/9.0.2 carried the incomplete symlink-extraction
+# follow-ups (9.0.1 `set_permissions was still following symlinks in non-streaming
+# extraction`, 9.0.2 `additional bug fixes for symlink extraction`). The floor is
+# 9.0.2 because of those follow-ups, not the advisories: all three read
+# `patched = [">= 9.0.0"]`, so a 9.0.0 lockfile does satisfy `cargo deny`. The
+# floor is named explicitly to keep a resolver from picking 9.0.0 anyway.
+# MOR-816.
 zip = { version = "9.0.2", default-features = false, features = ["deflate"] }
 
 # Splitting the session socket into read/write halves for the select loop

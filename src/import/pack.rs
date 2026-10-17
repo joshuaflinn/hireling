@@ -161,10 +161,10 @@ fn duplicate_entry(name: &str) -> anyhow::Error {
 
 /// The archive entry's path as the importer sees it.
 ///
-/// zip 9.x made `ZipFile::name()` fallible — it decodes the raw entry name
-/// and can fail on bytes that are not valid UTF-8. An unreadable name is a
-/// malformed release asset, so it fails the run like any other unreadable
-/// entry rather than being skipped.
+/// zip 9.x made `ZipFile::name()` fallible by signature, so the `Result`
+/// propagates here rather than being swallowed. In practice no entry name
+/// reaches the `Err` arm: `name()` falls back to CP437 decoding, which maps
+/// every byte in `0..=0xff` to a `char` and so is total over all byte values.
 fn entry_name<R: std::io::Read + std::io::Seek>(
     entry: &zip::read::ZipFile<'_, R>,
 ) -> anyhow::Result<String> {
