@@ -198,16 +198,33 @@ function fakeSync(o = {}) {
     /** Frames the socket carried, raw. */
     sent: () => sent,
 
-    // `open` is closed over the module-level `socket`, which every
-    // `socketFactory` call reassigns. When a second `fakeSync()` is constructed
-    // before this `open()` runs, that variable names the NEWEST stub, so this
-    // bare reference drives the wrong socket and the writes queued on THIS one
-    // never ride — which reads as an ack that files no refusal. Bind it to the
-    // stub this surface actually owns.
+    // Driving this link up is two frames, not one, and the second one is what
+    // this file used to be missing.
+    //
+    // `onopen` alone sets `socketOpen` and arms the watchdog (connection.js:151-
+    // 155). It does NOT take the link to `live`: `goLive()` is reachable only from
+    // the frame path, and only after a `snapshot` frame carries the connection
+    // through the snapshot -> merge -> drain -> live sequence (:183-199). So an
+    // `open()` that fires just `onopen` leaves `connectionState()` returning
+    // `connecting`, which is what made `pendingEntry` read "no unacked write of
+    // kind ..." about a button that was plainly clicked.
+    //
+    // `open` is also closed over the module-level `socket`, which every
+    // `socketFactory` call reassigns; a second `fakeSync()` constructed before
+    // this runs would make a bare reference drive the NEWEST stub. So the stub is
+    // captured at entry and every assert below names the one this surface owns.
+    //
+    // NOTE: this does NOT re-send a snapshot frame to force `live`. `goLive()` is
+    // scheduled via `Promise.all(...).then(settle)` when a drain subscriber
+    // returns a thenable (connection.js:191-197), so the phase is ephemeral — it
+    // flips to `live` on a microtask, not synchronously. A test that asserted it
+    // synchronously would be asserting a race, so `connectionState()` stays the
+    // real method and the tests do not probe the phase.
     open: () => {
-      assert.ok(socket, "the socket stub was never constructed");
-      assert.ok(socket.onopen, "the connection never installed onopen");
-      socket.onopen();
+      const stub = socket;
+      assert.ok(stub, "the socket stub was never constructed");
+      assert.ok(stub.onopen, "the connection never installed onopen");
+      stub.onopen();
     },
     disconnect() {},
     hangUp() {},
