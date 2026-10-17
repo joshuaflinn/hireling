@@ -383,7 +383,7 @@ part of this epic that delivers whether or not the content ever arrives.**
 
 - **Numbering note:** this doc has **no D11**. D0–D10 are the design decisions, and **D12** is the
   lane split; the number 11 is skipped, and the skip is recorded here rather than renumbered, so
-  review threads and plan references written against `D12` keep their meaning.
+  review threads written against `D12` keep their meaning.
 - **Every spec FR maps to a decision**: FR-1/2→D1, FR-3→D10/D12 (no seat authors content; L4 is
   Josh+Dave), FR-4→the contract doc, FR-5/6/7→D7's tap, FR-8→D7 (`self`/`chosen`, no widening
   from data), FR-9→D7 (no deduction; the fork named), FR-10→D3/D7 + SC-6, FR-11/12→D5/D6,
@@ -394,7 +394,7 @@ part of this epic that delivers whether or not the content ever arrives.**
 - **No engine change** beyond one new pure module that consumes existing functions; **no new wire
   kind**; **no migration**; **no P0 test modified**. Those four claims are the epic's safety
   argument and each is checkable in the diff.
-- **Two things I would want a reviewer to push on**: the latency of D5's one-read-per-`(spell,`  `outcome)` at the table (it fires on a degree tap, which is before the caster is looking at the
+- **Two things I would want a reviewer to push on**: the latency of D5's one-read-per-`(spell, outcome)` at the table (it fires on a degree tap, which is before the caster is looking at the
   picker, and it is fewer reads than a picker-keyed design would cost), and D6's
   sentinel-id tie-break claim (is monotonic `effect_id` actually guaranteed by the shipped
   schema? — the plan makes that assertion testable rather than assumed).
