@@ -230,3 +230,84 @@ test('hangUp cancels a pending retry — offline with a scheduled reconnect stop
   clock.advance(120000);
   assert.equal(mocks.sockets.length, 1, 'the scheduled retry never fires');
 });
+
+test('a socket object handed to a second connection belongs to the second one, not the first', () => {
+  // The ownership test, written test-first against a hole the gate cannot see.
+  //
+  // `connect()` installs four handlers and guards three of them with
+  // `socket === mySocket`, but the socket object is never told who owns it. So
+  // one `SyncSocket` instance handed to two connections leaves the FIRST
+  // connection's handlers installed over the second's, and a `close()` on that
+  // object fires the first's `handleDisconnect`, which nulls the SECOND's
+  // `socket` and takes the link `offline` (`connection.js:117-119`). From then on
+  // `send` returns false and every inbound frame is dropped by handleFrame's own
+  // identity guard — a link that looks up and carries nothing.
+  //
+  // Production cannot reach this: each reconnect calls `socketFactory` and gets a
+  // fresh `WebSocket`, so `socket === dying` is only ever true for the socket that
+  // owns the handler. A test double that returns one stub per factory *result*
+  // rather than per *call* can, and does — which is how "the server refused my
+  // write and the client never heard the ack" turns up as a store bug it is not.
+  const clock = fakeClock();
+  /** A stub that hands the same object to every `socketFactory` call. */
+  /** @type {import('../../src/lib/sync/connection.js').SyncSocket & { _oo?: *, _om?: *, _oc?: *, _oe?: *, frames: string[] }} */
+  const shared = {
+    frames: [],
+    send: (/** @type {string} */ m) => shared.frames.push(m),
+    close: () => {
+      // A real WebSocket's close fires the close handler; so does this.
+      if (shared._oc) shared._oc();
+    },
+    onclose: null,
+    onerror: null,
+  };
+  Object.defineProperty(shared, 'onopen', {
+    get: () => shared._oo,
+    set: (/** @type {*} */ f) => { shared._oo = f; },
+  });
+  Object.defineProperty(shared, 'onmessage', {
+    get: () => shared._om,
+    set: (/** @type {*} */ f) => { shared._om = f; },
+  });
+  Object.defineProperty(shared, 'onclose', {
+    get: () => shared._oc,
+    set: (/** @type {*} */ f) => { shared._oc = f; },
+  });
+  Object.defineProperty(shared, 'onerror', {
+    get: () => shared._oe,
+    set: (/** @type {*} */ f) => { shared._oe = f; },
+  });
+
+  const first = createConnection({
+    url: 'ws://test/party/1',
+    socketFactory: () => shared,
+    rng: () => 1,
+    timers: clock.timers,
+  });
+  const second = createConnection({
+    url: 'ws://test/party/1',
+    socketFactory: () => shared,
+    rng: () => 1,
+    timers: clock.timers,
+  });
+
+  first.connect();
+  shared._oo(); // the first link comes up...
+  shared.close(); // ...and dies, which is the first's own disconnect.
+
+  second.connect();
+  shared._oo(); // the second link comes up over the same object.
+  assert.equal(second.state(), 'connecting');
+
+  // A close on the shared object now belongs to whoever installed the handler
+  // LAST. The first connection discharged its own disconnect above, so this
+  // event must not be read as the second's death — the second connection never
+  // saw a close it did not install.
+  shared.close();
+  assert.notEqual(
+    second.state(),
+    'offline',
+    'a close the second connection never installed took it offline, so its ' +
+      'socket was nulled and every later frame and send is silently dropped',
+  );
+});
