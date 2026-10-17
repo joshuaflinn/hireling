@@ -230,7 +230,7 @@ jobs:
       # runs as its own step further down, `Fail-closed guard over the image's
       # own scan`. A leg whose whole job is a self-test is unusual; the precedent
       # is `ship-guard` directly above — same shape, a guard proving itself.
-      - name: guard-selftests — semgrep blind-spot guard proves its own reds
+      - name: guard-selftests — semgrep guard proves its own reds
         if: ${{ !cancelled() }}
         run: just guard-selftests
 
