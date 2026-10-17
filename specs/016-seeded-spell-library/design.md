@@ -88,16 +88,16 @@ field — the shipped JSON-shape-drift posture from `src/import/model.rs`. Valid
 | modifier type | the engine's `MODIFIER_TYPES` / `ModifierType::parse` | D2 |
 | value | integer, within the composer's existing bound | D3 |
 | degree keys | exactly the four, all present | D4 |
+| target rule | `"chosen"` \| `"self"` | D5 |
+| required non-empty strings | `name`, `duration_note`, `citation`, each `prose` entry | D6 |
+| name uniqueness | set over entries | D7 |
+| top-level shape / `schema` version | strict serde + version check | D8 |
 
 The four degree keys (`crit success` / `success` / `failure` / `crit failure`) are a **PF2e rules
 fact hard-coded in the loader**, not content. Rules-exactness §1 applies to the constant itself,
 not only to the per-entry `citation` field that covers Dave's content: the degree-key set carries
 its *Player Core* source and page in its doc comment, written off the source page. The plan
 requires this in H1.
-| target rule | `"chosen"` \| `"self"` | D5 |
-| required non-empty strings | `name`, `duration_note`, `citation`, each `prose` entry | D6 |
-| name uniqueness | set over entries | D7 |
-| top-level shape / `schema` version | strict serde + version check | D8 |
 
 Every message names **spell, degree, row index, field** — the contract's message shapes — because
 the reader is Dave, in a PR, not a debugger. **Empty `spells` is green. An empty per-degree list
