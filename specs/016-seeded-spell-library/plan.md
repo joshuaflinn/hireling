@@ -51,7 +51,11 @@ content ask ([`contracts/content-ask.md`](contracts/content-ask.md)) names exact
 `src/engine_host/rest.rs` (the read), `src/tests/spellbook_rest.rs`, `justfile` (`spellcheck`),
 `.github/workflows/gate.yml` (one step), `Cargo.toml` only if a dev-dep is needed for fixtures.
 
-**Do**: the strict serde model per the contract doc; `Library::load()` that parses the embedded
+**Do**: the strict serde model per the contract doc; the four-degree key set as a code constant
+whose doc comment names its *Player Core* source and page (rules-exactness §1 — the four keys are
+a PF2e rules fact hard-coded in the loader, **D2**'s defect-class table requires "degree keys:
+exactly the four, all present", and the per-entry `citation` field covers Dave's content, not this
+constant); `Library::load()` that parses the embedded
 file, validates **vocabulary and shape only** against `hireling_engine::vocab::Stat::parse` and
 the engine's `MODIFIER_TYPES` (re-exported, never copied — the shipped `import/seed.rs` pattern),
 and returns a `LibraryDefect` naming **spell, degree, row index, field** in the contract's message
