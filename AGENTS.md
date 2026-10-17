@@ -432,8 +432,10 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
     reconciliation re-bind round* — so no presser miscounts it as a third
     author-text round. The press reads round state off those two artifacts, so
     the mandate belongs on them and not on the seat marker alone; the marker
-    carries it too: `review-seat: PR #<n> uncounted reconciliation round head
-    <sha>`.
+    carries it too, in the same words: `review-seat: PR #<n> uncounted
+    reconciliation re-bind round head <sha>`. One literal names the kind in
+    all three places; a presser grepping for it finds every artifact of the
+    round.
 
   **PR #366 is this round's reason,** and the record is checkable. Round-2 accept
   `5545784972` at head `f1d0004e0fc3154e5c5351520b965af42a7f940b`; `main` at
@@ -486,7 +488,12 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
      form, run once per reviewed path, the two sides' outputs for that
      path compared equal: `git diff --output-indicator-old=O --output-indicator-new=N <base>...<head> -- <path> | grep -E '^([ON]|\\)'`. Where `main` has edited a
      reviewed file, the reviewer also names the incoming `main` hunks and
-     states they do not interact with the reviewed ones. The knife-edge
+     states whether they interact with the reviewed ones, and — for the
+     judgment branch that re-binds instead of opening a round — that any
+     interaction needs no fix at the merged head. A statement that the
+     hunks do not interact is one form of that judgment, not its only
+     form: a reviewer who found interaction and judged it harmless makes
+     this judgment too, and the re-bind is theirs to post. The knife-edge
      is the author's text: it moved, new round. A blob test is not
      enough: it also fires when `main` arrives in a reviewed file with
      nothing of the author's riding in — the PR #155 sequence; evidence
