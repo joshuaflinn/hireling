@@ -147,9 +147,9 @@ pub enum SiblingKind {
     /// recipe names `target-gate-<n>`). Reapable once no live build writes
     /// inside it.
     Target,
-    /// `hireling-*` — a hand-cut worktree. Reapable only when it also
-    /// passes the AGENTS.md staleness test: branch an ancestor of
-    /// `origin/main` *and* a clean tree.
+    /// `hireling-*` — a hand-cut worktree. Reapable on the AGENTS.md
+    /// clean-tree test alone: a clean tree means nothing in it can be lost,
+    /// since `git worktree remove` leaves the branch ref in place.
     Hireling,
     /// `MOR-<n>` — a harness-provisioned workspace. Never reaped, however
     /// stale it looks: a clean `MOR-<n>` that is an ancestor of `main` can
@@ -191,8 +191,6 @@ pub enum SkipReason {
     Unobservable,
     /// A hand-cut worktree with uncommitted work.
     DirtyTree,
-    /// A hand-cut worktree whose branch is not an ancestor of `origin/main`.
-    NotMerged,
     /// A name outside the reapable set.
     NotReapable,
 }
@@ -234,11 +232,16 @@ impl LiveStatus {
 
 /// Decide a candidate's fate. The hard exclusions are decided on the name
 /// *before* liveness or staleness is consulted, so they hold regardless of
-/// `liveness`, `is_clean`, or `is_ancestor`: `MOR-<n>` and the shared
-/// `hireling` checkout are skipped even when a build is writing inside
-/// them.
+/// `liveness` or `is_clean`: `MOR-<n>` and the shared `hireling` checkout are
+/// skipped even when a build is writing inside them.
+///
+/// A hand-cut `hireling-*` sibling is reapable on the clean-tree test alone:
+/// `git worktree remove` leaves the local branch ref in place, so its commits
+/// stay reachable whatever the merge state. The ancestry conjunct this used
+/// to require is retired (gh#354) precisely because `main` squash-merges and a
+/// merged branch is normally *not* an ancestor of `origin/main`.
 #[must_use]
-pub fn decide(name: &str, is_ancestor: bool, is_clean: bool, liveness: LiveStatus) -> ReapDecision {
+pub fn decide(name: &str, is_clean: bool, liveness: LiveStatus) -> ReapDecision {
     let kind = classify_sibling(name);
     match kind {
         SiblingKind::Mor => ReapDecision::Skip {
@@ -269,11 +272,6 @@ pub fn decide(name: &str, is_ancestor: bool, is_clean: bool, liveness: LiveStatu
                     reason: SkipReason::DirtyTree,
                 };
             }
-            if kind == SiblingKind::Hireling && !is_ancestor {
-                return ReapDecision::Skip {
-                    reason: SkipReason::NotMerged,
-                };
-            }
             ReapDecision::Reap
         }
     }
@@ -290,7 +288,6 @@ pub fn skip_reason_text(reason: SkipReason) -> &'static str {
             "a build-token process whose working directory or environment could not be read"
         }
         SkipReason::DirtyTree => "dirty worktree",
-        SkipReason::NotMerged => "branch is not an ancestor of origin/main",
         SkipReason::NotReapable => "not a reapable sibling",
     }
 }

@@ -418,8 +418,14 @@ disk-guard:
     cargo run -q --package diskops -- guard --floor-gib {{ disk-floor-gb }}
 
 # Reap leaked build dirs: sibling target-* dirs (external CARGO_TARGET_DIRs)
-# and stale hand-cut hireling-* worktrees that pass the AGENTS.md staleness
-# test (branch an ancestor of origin/main AND tree clean). Dry-run by
+# and stale hand-cut hireling-* worktrees. The worktree criterion is the
+# AGENTS.md clean-tree test, quoted rather than line-numbered per gh#274:
+# "a clean tree — `git status --porcelain` empty — means nothing tracked or
+# visibly untracked in it can be lost", because `git worktree remove` leaves
+# the branch ref in place, so commits stay reachable whatever the merge state.
+# The old ancestry conjunct is retired (gh#354): `main` squash-merges, so a
+# merged branch is normally NOT an ancestor of origin/main, and gating on it
+# skipped every merged sibling (gh#372). Dry-run by
 # default; --prune removes. Hard exclusions are never touched, regardless of
 # liveness: MOR-<n> workspaces, dirty trees, and the shared hireling
 # checkout. Liveness is decided per candidate from /proc/<pid>/cwd, so a

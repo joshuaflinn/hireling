@@ -124,11 +124,23 @@ fn df_avail(path: &Path) -> Result<FreeSpace, String> {
 /// The reaper: sweep the parent directory for leaked `target-*` dirs and
 /// stale `hireling-*` worktrees, dry-run by default, `--prune` to remove.
 fn reap(args: &[String]) -> Result<ExitCode, String> {
+    reap_into(args, &mut std::io::stdout())
+}
+
+/// The `reap` path with its stdout handed in. `just reap` has no other
+/// caller, so this is what lets a test drive the whole wiring — parse,
+/// resolve the parent, read `/proc`, `build_plan`, `decide`, report and
+/// remove — and read the plan text back, instead of calling `build_plan`
+/// and re-deriving the decision the production path already made.
+/// `remove_dir` is still the real removal, so `--prune` really removes;
+/// the caller owns `--parent`, and nothing here can sweep the real sibling
+/// set. `reap` is the only non-test caller.
+fn reap_into(args: &[String], sink: &mut impl std::io::Write) -> Result<ExitCode, String> {
     let (prune, parent) = parse_reap_args(args)?;
     let parent_path = reap_parent(parent.as_deref())?;
     let observations = read_processes()?;
     let plan = build_plan(&parent_path, &observations)?;
-    Ok(report_and_remove(&plan, prune))
+    report_and_remove(&plan, prune, sink)
 }
 
 /// Parse `reap` options: `--prune` (remove) vs `--list`/default (dry-run),
@@ -177,7 +189,7 @@ fn reap_parent(parent: Option<&Path>) -> Result<PathBuf, String> {
 
 /// Build the per-candidate plan: classify each directory in the parent and
 /// decide its fate from liveness (per candidate) and, for hand-cut
-/// worktrees, the staleness test.
+/// worktrees, the clean-tree test.
 fn build_plan(
     parent: &Path,
     observations: &[ProcessObservation],
@@ -208,21 +220,28 @@ fn build_plan(
                 }),
             SiblingKind::Mor | SiblingKind::Reference | SiblingKind::Other => LiveStatus::Idle,
         };
-        let is_ancestor = if kind == SiblingKind::Hireling {
-            git_head_is_ancestor(&path)
-        } else {
-            false
-        };
         let is_clean = if kind == SiblingKind::Hireling {
             git_tree_is_clean(&path)
         } else {
             false
         };
-        let decision = decide(&name, is_ancestor, is_clean, liveness);
+        let decision = decide(&name, is_clean, liveness);
         plan.push((name, path, kind, decision));
     }
     plan.sort_by(|left, right| left.0.cmp(&right.0));
     Ok(plan)
+}
+
+/// One error string for a report write that failed. `String` has no
+/// `From<io::Error>`, so each `writeln!` in `report_and_remove` names this
+/// rather than `?`. The report text is what the caller reads back, so a
+/// failed write is a reap failure, not something to swallow.
+fn write_error(error: std::io::Error) -> String {
+    #![allow(
+        clippy::needless_pass_by_value,
+        reason = "an io::Error is consumed into one String"
+    )]
+    format!("cannot write the reap report: {error}")
 }
 
 /// Print the plan and, in `--prune` mode, carry out the removals. Never
@@ -230,11 +249,16 @@ fn build_plan(
 fn report_and_remove(
     plan: &[(String, PathBuf, SiblingKind, ReapDecision)],
     prune: bool,
-) -> ExitCode {
+    sink: &mut impl std::io::Write,
+) -> Result<ExitCode, String> {
     if prune {
-        println!("reap: removing");
+        writeln!(sink, "reap: removing").map_err(write_error)?;
     } else {
-        println!("reap: dry-run — nothing removed (pass --prune to remove)");
+        writeln!(
+            sink,
+            "reap: dry-run — nothing removed (pass --prune to remove)"
+        )
+        .map_err(write_error)?;
     }
 
     let mut reclaimed_bytes: u64 = 0;
@@ -253,11 +277,12 @@ fn report_and_remove(
                         None => unmeasured += 1,
                     }
                     let size_text = size.map_or_else(|| "?".to_owned(), format_gib);
-                    println!("would remove {name} ({size_text})");
+                    writeln!(sink, "would remove {name} ({size_text})").map_err(write_error)?;
                 }
             }
             ReapDecision::Skip { reason } => {
-                println!("skip {name} ({})", skip_reason_text(*reason));
+                writeln!(sink, "skip {name} ({})", skip_reason_text(*reason))
+                    .map_err(write_error)?;
             }
         }
     }
@@ -270,7 +295,7 @@ fn report_and_remove(
             let size_text = size.map_or_else(|| "?".to_owned(), format_gib);
             match remove_dir(path, name, kind) {
                 Ok(()) => {
-                    println!("removed {name} ({size_text})");
+                    writeln!(sink, "removed {name} ({size_text})").map_err(write_error)?;
                     match size {
                         Some(bytes) => reclaimed_bytes += bytes,
                         None => unmeasured += 1,
@@ -281,7 +306,7 @@ fn report_and_remove(
             }
         });
         for message in &applied.failures {
-            eprintln!("diskops: {message}");
+            writeln!(sink, "diskops: {message}").map_err(write_error)?;
         }
         let total = if unmeasured == 0 {
             format_gib(reclaimed_bytes)
@@ -293,15 +318,18 @@ fn report_and_remove(
             )
         };
         if applied.failures.is_empty() {
-            println!("reclaimed {total} ({} dirs removed)", applied.removed);
-            ExitCode::SUCCESS
+            writeln!(sink, "reclaimed {total} ({} dirs removed)", applied.removed)
+                .map_err(write_error)?;
+            Ok(ExitCode::SUCCESS)
         } else {
-            println!(
+            writeln!(
+                sink,
                 "reclaimed {total} ({} dirs removed, {} failed)",
                 applied.removed,
                 applied.failures.len()
-            );
-            ExitCode::FAILURE
+            )
+            .map_err(write_error)?;
+            Ok(ExitCode::FAILURE)
         }
     } else {
         let total = if unmeasured == 0 {
@@ -313,8 +341,8 @@ fn report_and_remove(
                 unmeasured
             )
         };
-        println!("would reclaim {total} ({candidates} dirs)");
-        ExitCode::SUCCESS
+        writeln!(sink, "would reclaim {total} ({candidates} dirs)").map_err(write_error)?;
+        Ok(ExitCode::SUCCESS)
     }
 }
 
@@ -346,21 +374,9 @@ fn remove_dir(path: &Path, name: &str, kind: SiblingKind) -> Result<(), String> 
     }
 }
 
-/// Whether the branch at `worktree` HEAD is an ancestor of `origin/main` —
-/// the AGENTS.md staleness test's first half.
-fn git_head_is_ancestor(worktree: &Path) -> bool {
-    let Ok(output) = Command::new("git")
-        .args(["merge-base", "--is-ancestor", "HEAD", "origin/main"])
-        .current_dir(worktree)
-        .output()
-    else {
-        return false;
-    };
-    output.status.success()
-}
-
-/// Whether the tree at `worktree` is clean — the AGENTS.md staleness test's
-/// second half. Fail-closed: an unreadable status reads as dirty.
+/// Whether the tree at `worktree` is clean — the AGENTS.md clean-tree test,
+/// and the whole of it since gh#354 retired the ancestry conjunct.
+/// Fail-closed: an unreadable status reads as dirty.
 fn git_tree_is_clean(worktree: &Path) -> bool {
     let Ok(output) = Command::new("git")
         .args(["status", "--porcelain"])
@@ -372,11 +388,65 @@ fn git_tree_is_clean(worktree: &Path) -> bool {
     output.status.success() && output.stdout.is_empty()
 }
 
+/// The worktree that owns `worktree`'s admin data: the main checkout for a
+/// linked worktree, or `worktree` itself when it is the main one.
+///
+/// `git worktree remove` is a command *of the owning repo*, so it has to run
+/// with `cwd` inside that repo. The delete path cannot inherit the sweep's
+/// cwd, because the sweep may be running from any sibling of the candidate:
+/// with `cwd` at another checkout, `git worktree remove <abs path>` answers
+/// `fatal: '<abs path>' is not a working tree` even though the argument is
+/// absolute and the worktree is real. Measured both ways in a throwaway repo
+/// (`.git` file holds an absolute gitdir, so this is the owning-repo lookup
+/// failing, not path resolution):
+///
+/// - cwd = the main checkout, arg = absolute sibling path -> `not a working tree`, nothing removed
+/// - cwd = the sibling itself, same absolute arg -> removed
+///
+/// The reaper's own cwd is the project directory, whose repo owns none of the
+/// siblings, so without this resolution every `hireling-*` removal fails.
+/// `git worktree list --porcelain` lists the main worktree first, so that is
+/// the entry taken.
+fn worktree_owner(worktree: &Path) -> Result<PathBuf, String> {
+    let output = Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .current_dir(worktree)
+        .output()
+        .map_err(|error| {
+            format!(
+                "cannot run git worktree list in {}: {error}",
+                worktree.display()
+            )
+        })?;
+    if !output.status.success() {
+        return Err(format!(
+            "git worktree list in {} failed: {}",
+            worktree.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let owner = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("worktree "))
+        .ok_or_else(|| {
+            format!(
+                "no `worktree` line in git worktree list --porcelain from {}",
+                worktree.display()
+            )
+        })?;
+    Ok(PathBuf::from(owner))
+}
+
 /// Remove a hand-cut worktree via `git worktree remove`, never `--force`.
+/// Run from the owning repo — see [`worktree_owner`] — because that is the
+/// only cwd from which the candidate is a registered worktree.
 fn git_worktree_remove(path: &Path) -> Result<(), String> {
+    let owner = worktree_owner(path)?;
     let output = Command::new("git")
         .args(["worktree", "remove"])
         .arg(path)
+        .current_dir(&owner)
         .output()
         .map_err(|error| {
             format!(
@@ -491,3 +561,7 @@ fn parent_pid(pid: u32) -> Option<u32> {
     let rest = stat.rsplit_once(')')?.1;
     rest.split_whitespace().nth(1)?.parse::<u32>().ok()
 }
+
+#[cfg(test)]
+#[path = "tests/main.rs"]
+mod tests;
