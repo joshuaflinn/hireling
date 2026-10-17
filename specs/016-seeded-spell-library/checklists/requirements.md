@@ -59,18 +59,28 @@
 
 ## The one check unique to this epic
 
-- [x] **No seat of this company authored, illustrated, or "examplified" a spell's content.** The
-      only sample spell-shaped text in the whole pipeline sits inside
-      [`contracts/spell-library-seed.md`](../contracts/spell-library-seed.md) under a heading that names it a
-      **schema illustration**, and the file it would live in ships **empty**. Test fixtures are
-      required by the plan to be labelled fictional in the test file. Two checks, both re-runnable
-      from this directory: `grep -n '"name"' contracts/spell-library-seed.md` returns exactly one
-      spell name, `Example Cantrip`, inside the fenced illustration block (lines 34–67) — and
-      `git status --short data/` returns nothing, because this PR touches no data file.
+- [x] **No seat of this company authored, illustrated, or "examplified" a spell's content.** Two
+      claims, each with the command that establishes it.
+  1. *The only sample spell-shaped **data** in the pipeline is the labelled illustration.*
+     `grep -n '"name"' contracts/spell-library-seed.md` returns exactly one spell name,
+     `Example Cantrip`, inside the fenced illustration block (lines 34–67). That command greps
+     one file for a JSON key: it establishes the claim about **data** and reaches no prose
+     anywhere else — it is not evidence about `spec.md`.
+  2. *The file the content would live in ships empty, and this PR touches no data file.*
+     `git diff --stat origin/main...HEAD -- data/` returns nothing. (`git status --short data/`
+     reads the working tree only — a **committed** data change leaves it clean and still rides in
+     the diff, so it cannot establish this claim.)
+
+      Spell **names** in prose are governed by FR-3's quoting exemption: a name carried in
+      narrative is legal only when it is quoted from `docs/PRD.md` or `docs/EPICS.md` and cited
+      there, and any other name is labelled notional in the sentence that uses it. The names in
+      this pipeline are `Bless` and `Inspire Courage` (both cited to PRD/EPICS lines in
+      `spec.md`) and nothing else outside the illustration block.
 
 ## Notes
 
 Nothing blocking. Two things I would want a reviewer to push on, both restated in design **D9**'s
-self-review: whether one conflicts read per picker-change is the right latency at the table, and
+self-review: whether the conflicts read keyed on `(spell, outcome)` is the right latency at the
+table, and
 whether the sentinel-id tie-break claim (**D6**) survives contact with the shipped id allocation —
 the plan turns the second into an assertion instead of an assumption.
