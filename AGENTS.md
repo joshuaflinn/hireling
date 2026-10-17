@@ -431,8 +431,8 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
     first. **The announcement and the verdict name the kind** —
     *uncounted reconciliation re-bind round* — so no presser miscounts it as a
     third author-text round. The press reads round state off those two
-    artifacts, so
-    the mandate belongs on them and not on the seat marker alone; the marker
+    artifacts, so the mandate belongs on them and not on the seat marker alone;
+    the marker
     carries it too, in the same words:
     `review-seat: PR #<n> uncounted reconciliation re-bind round head <sha>`.
     One literal names the kind in all three places, contiguous on one line at
