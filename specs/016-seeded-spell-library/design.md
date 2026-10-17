@@ -394,8 +394,8 @@ part of this epic that delivers whether or not the content ever arrives.**
 - **No engine change** beyond one new pure module that consumes existing functions; **no new wire
   kind**; **no migration**; **no P0 test modified**. Those four claims are the epic's safety
   argument and each is checkable in the diff.
-- **Two things I would want a reviewer to push on**: D5's one-read-per-picker-change (is the
-  latency acceptable at the table, or should the composer prefetch on spell-select?) and D6's
+- **Two things I would want a reviewer to push on**: the latency of D5's one-read-per-`(spell,`  `outcome)` at the table (it fires on a degree tap, which is before the caster is looking at the
+  picker, and it is fewer reads than a picker-keyed design would cost), and D6's
   sentinel-id tie-break claim (is monotonic `effect_id` actually guaranteed by the shipped
   schema? — the plan makes that assertion testable rather than assumed).
 
