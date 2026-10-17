@@ -325,9 +325,24 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   narrow scope is a scope limit, not a lower bar.
 
   **Which kind a round is, checkable:** compare the PR's own hunks at both
-  heads. The first round on a PR has no prior head; it is an author-text
-  round. Byte-identical hunks mean carry-over — narrow, uncounted. Changed
-  hunks mean an author-text round — wide, counted.
+  heads, *and* ask whether `main`'s incoming hunks touch a reviewed one. The
+  first round on a PR has no prior head; it is an author-text round. Changed
+  author hunks mean an author-text round — wide, counted. Byte-identical
+  author hunks fork three ways on `main`'s side of the seam, and only one of
+  the three opens a round, so name each outcome by whether a round follows:
+  non-interacting `main` hunks are a plain carry-over re-bind — **no round**;
+  interacting `main` hunks that need no fix are a carry-over re-bind on the
+  reviewer's judgment branch of *Verdict carry-over* — **no round**; and
+  interacting `main` hunks whose combination is defective in a way that needs
+  added text at the merged head are the reconciliation re-bind round below —
+  **a round, uncounted**, and not an author-text round. The first two are
+  re-binds, not rounds: each posts a re-bind comment and never an announcement
+  carrying a verdict, so a presser must not hold a pressable PR waiting for a
+  verdict that will not come, and must not press past an open round. Say
+  "re-bind," not "carry-over round," for both — the preceding paragraph's
+  carry-over *round* is a third thing with its own trigger. Byte-identical
+  hunks alone cannot tell those three apart, which is why the second question
+  is part of the test.
 
   **A verdict is discharged when posted, and is not the author's to
   withdraw.** The head a verdict names carries it permanently. An author may
@@ -377,7 +392,65 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
     is a decision about the task.
   - Announced and verdicted like any round, per *Review of record*.
 
-  PR #227 is the reason, and the record is checkable. Round-2 accept at
+  **The reviewer re-binds under a reconciliation re-bind round.** This round
+  is `main`'s; the post-accept round above is the author's. A verdict is posted
+  at a head; the strict up-to-date policy of `ruleset 24735400 v53013064`
+  forces a head move; `main` has edited an interacting part of a reviewed
+  path; and the combination is defective in a way that needs added text at
+  the merged head. The merge is clean, so *Verdict carry-over* condition 1
+  flags nothing, and its condition 2 fails by the letter the moment the
+  reconciliation text is added. The *A carry-over round does not count
+  against the budget* clause does not cover
+  it either: its uncounted branch requires `main` to have moved an
+  *unrelated* part of the shared file, and its tail sends a defect-finding
+  carry-over round to a counted author-text round, which a PR at its two
+  rounds does not have. This round carries the post-accept properties, all of
+  them:
+
+  - **Uncounted.** It is forced by that strict up-to-date policy, not earned
+    by the author. Refusing it on budget grounds strands a green accepted
+    head with no verdict and no path to one.
+  - **Scope is the combination and the reconciliation delta only** — the
+    merged file read as one unit, plus `git diff <verdict-head> <new-head>`
+    and the interaction between that delta and the text already accepted. It
+    may not re-litigate the author's diff; that diff already carries a
+    verdict. Narrow scope is a scope limit, not a lower bar.
+  - **The author's reviewed hunks stay byte-identical, and that is the
+    boundary condition.** If the fix moves the author's own hunks, or reaches
+    past the seam into fresh argument, it is a counted author-text round —
+    and on a PR already at its two rounds that is Thrane's decision about the
+    task, taken before the round is announced.
+  - **Same reviewer.** `main` edited a reviewed path and the incoming hunks
+    interact with the reviewed ones, so *Verdict carry-over*'s mechanical
+    branch is unavailable: naming the incoming hunks and judging the
+    interaction is judgment, and the judgment is the reviewer's. No presser
+    takes this PR on a silent or mechanical re-bind.
+  - **Once per PR.** A second forced reconciliation on the same PR goes to
+    Thrane, and whether it proceeds is a decision about the task.
+  - Announced and verdicted like any round, per *Review of record*, gate read
+    first. **The announcement and the verdict name the kind** —
+    *uncounted reconciliation re-bind round* — so no presser miscounts it as a
+    third author-text round. The press reads round state off those two
+    artifacts, so the mandate belongs on them and not on the seat marker alone;
+    the marker
+    carries it too, in the same words:
+    `review-seat: PR #<n> uncounted reconciliation re-bind round head <sha>`.
+    One literal names the kind in all three places, contiguous on one line at
+    each; a presser grepping for it finds every artifact of the round — the
+    grep is line-oriented, and a literal wrapped across two lines is a literal
+    it cannot see.
+
+  **PR #366 is this round's reason,** and the record is checkable. Round-2 accept
+  `5545784972` at head `f1d0004e0fc3154e5c5351520b965af42a7f940b`; `main` at
+  `999a6da8669399bc642a3feff09cf57f225890b1`, which edits the same paragraph.
+  `git merge-tree --write-tree f1d0004 999a6da` is rc 0, tree
+  `fbe2b376b94b60bbadfcb3986023f64308f8d5b6` — clean, and it produces a seam
+  that contradicts itself: merged `AGENTS.md:869` reads `` !! home/ `` while
+  merged `:874`, three lines later, calls "That `?? home/`" the oracle read
+  from the worktree toplevel. Reconciling that takes added lines at the
+  merged head, and both of this PR's author-text rounds were already spent.
+
+  **PR #227 is the post-accept round's reason,** and the record is checkable. Round-2 accept at
   `a22443d` — review `5526943831`, submitted `2026-10-15T01:31:06Z`. The
   author filed the accept's follow-ups (gh#230, gh#231) in PR comment
   `6182320720` at `01:31:53Z` — proof the verdict was read. `acb573e`
@@ -418,7 +491,11 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
      form, run once per reviewed path, the two sides' outputs for that
      path compared equal: `git diff --output-indicator-old=O --output-indicator-new=N <base>...<head> -- <path> | grep -E '^([ON]|\\)'`. Where `main` has edited a
      reviewed file, the reviewer also names the incoming `main` hunks and
-     states they do not interact with the reviewed ones. The knife-edge
+     states whether they interact with the reviewed ones, and, where they
+     do, names each interaction and states that it needs no fix at the
+     merged head. "They do not interact" is one form of that statement, not
+     its only form: a reviewer who found interaction and judged it harmless
+     posts this re-bind too. The knife-edge
      is the author's text: it moved, new round. A blob test is not
      enough: it also fires when `main` arrives in a reviewed file with
      nothing of the author's riding in — the PR #155 sequence; evidence
@@ -438,14 +515,19 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   supply: it does not have to be the reviewer, it does not open a review
   round, and routing it back to them buys a round-trip against a diff that
   did not move. Where `main` has edited a reviewed file, naming the incoming
-  `main` hunks and stating they do not interact with the reviewed ones is
-  judgment, and the judgment is the reviewer's — the re-bind routes to them.
+  `main` hunks and stating whether they interact with the reviewed ones, and
+  where they do, naming each interaction and judging it, is judgment, and the
+  judgment is the reviewer's — the re-bind routes to them.
   PR #157 is the live proof that this case is real: an accepted verdict whose
   head had to move while `main` landed interacting prose in the same bullet.
   The verdict itself is still the reviewer's and only the reviewer's; the
   mechanical re-bind is bookkeeping over their verdict, not a second one.
   That comment is the record, same as any verdict — a carry-over is never
-  silent. If any condition fails, it is a new review round, full stop.
+  silent. If any condition fails, it is a new review round — counted and
+  author-text, unless condition 2 fails only because `main`'s interacting
+  hunks forced reconciliation text at the merged head, which is the
+  *uncounted reconciliation re-bind round* in *Review rounds*. Full stop on the
+  rest.
 
   The head move itself is not waste and is not negotiable. `main` carries the
   `main-gate` ruleset (id `24735400`), which at version `v53013064` requires
