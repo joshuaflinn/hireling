@@ -270,9 +270,11 @@ verdict logic).
 - **Render**: one row per spell. Selecting a spell reveals its four degrees (rendered from the
   data, so a spell with three degrees shows three — spec edge case), each labelled with its
   prose; the target picker below is the picker that already exists, unchanged in behaviour.
-- **Pre-warn**: when a spell+degree is selected and targets are picked, one conflicts read per
-  change (D5); each flagged target's row carries the message inline, before assignment. Flags
-  never disable a row (FR-12).
+- **Pre-warn**: once a spell+degree is selected, one conflicts read fires — keyed on `(spell,
+  outcome)` alone (D5), **not** on the picker — so it normally lands while the caster is still
+  choosing targets rather than once per picker change; the response is roster-wide and the picker
+  filters it locally. Each flagged target's row carries the message inline, before assignment.
+  Flags never disable a row (FR-12).
 - **Tap** → assemble the create payload from the template's rows for that degree and call the
   composer's existing `oncreate` — the same path the freeform form uses, so bounds validation,
   op state, ack handling, offline queueing and error surfacing are inherited, not rebuilt.
