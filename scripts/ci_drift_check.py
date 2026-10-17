@@ -251,7 +251,7 @@ def require_image_side_step() -> None:
 
 
 def check_repo_side_mirrors(
-    legs: list[str], repo_side: set[str], passes: dict[str, tuple[str, str]]
+    repo_side: set[str], passes: dict[str, tuple[str, str]]
 ) -> list[str]:
     """Direction A's gh#369 half: a repo-side-only mirror needs its step.
 
@@ -410,7 +410,14 @@ def main() -> None:
     repo_side = derive_repo_side()
     require_image_side_step()
 
-    mirrors = {mirror for mirror, _ in passes.values() if mirror != "-" and mirror != MIRROR_NONE}
+    # Both non-leg values are stripped here: `-` (a written exemption) and
+    # the sentinel. A `set` membership test keeps that one comparison instead
+    # of two `!=` clauses the image's own PLR1714 would red on.
+    mirrors = {
+        mirror
+        for mirror, _ in passes.values()
+        if mirror not in ("-", MIRROR_NONE)
+    }
 
     # One bench leg claiming two image checks is a fat-fingered row, not a
     # mapping — fail and make the author write two legs or two reasons.
@@ -463,7 +470,7 @@ def main() -> None:
     # ci-local, and A's set difference cannot see either — it walks `legs`,
     # and a sentinel is not a leg. So it gets its own assertion, run last so
     # a plain ungated leg reds under A's wording first.
-    repo_side_only = check_repo_side_mirrors(legs, repo_side, passes)
+    repo_side_only = check_repo_side_mirrors(repo_side, passes)
 
     mirrored_count = len(mirrors)
     print(
