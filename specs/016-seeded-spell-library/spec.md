@@ -141,8 +141,9 @@ always has: *New effect*, name, `+1 status → attack`, duration, targets. The l
   **Inspire Courage** (`docs/PRD.md:206,353`). US-2's and FR-11's quoted message string is the PRD's
   own `:216` verbatim, not this spec's wording. US-1 and US-2 name *Bless* because they are the PRD's
   own *Step 3* scenario and *Conflicting effects* example restated — a US-1 that could not name the
-  spell the PRD names could not state the story. **Checkable** — one command, the whole spec directory, not one
-  file: see `checklists/requirements.md`, "the one check unique to this epic".
+  spell the PRD names could not state the story. **Checkable by reading** — the quoted names are
+  verified against a named allowlist by reading the spec directory, not by grep (grep cannot see
+  prose membership): see `checklists/requirements.md`, "the one check unique to this epic".
 
 - **FR-4 [X] — What one library entry must carry.** A library entry is, at minimum: a name; one or more **named outcomes**, each of which carries **zero or more** effect definitions and display prose; and a duration note. An effect definition carries a modifier type, a stat from the closed vocabulary, a value, and a target selection rule resolvable at cast time. The precise field names, the ordering, and the JSON shape are fixed by [`contracts/spell-library-seed.md`](contracts/spell-library-seed.md) — which is this shop's deliverable and the thing Dave and Dave's PR are written against. Content authors are not asked to design the schema; they are asked to fill it.
 

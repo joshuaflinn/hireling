@@ -74,8 +74,11 @@
       Spell **names** in prose are governed by FR-3's quoting exemption: a name carried in
       narrative is legal only when it is quoted from `docs/PRD.md` or `docs/EPICS.md` and cited
       there, and any other name is labelled notional in the sentence that uses it. The names in
-      this pipeline are `Bless` and `Inspire Courage` (both cited to PRD/EPICS lines in
-      `spec.md`) and nothing else outside the illustration block.
+      this pipeline are the allowlist — `Bless` and `Inspire Courage` (both cited to PRD/EPICS lines
+      in `spec.md`) plus `Example Cantrip` inside the illustration — and nothing else outside the
+      illustration block. That membership is verified **by reading the directory against the
+      allowlist, not by grep**: no command establishes prose membership, and this checklist claims
+      no command that does.
 
 ## Notes
 
