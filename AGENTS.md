@@ -428,14 +428,17 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   - **Once per PR.** A second forced reconciliation on the same PR goes to
     Thrane, and whether it proceeds is a decision about the task.
   - Announced and verdicted like any round, per *Review of record*, gate read
-    first. **The announcement and the verdict name the kind** — *uncounted
-    reconciliation re-bind round* — so no presser miscounts it as a third
-    author-text round. The press reads round state off those two artifacts, so
+    first. **The announcement and the verdict name the kind** —
+    *uncounted reconciliation re-bind round* — so no presser miscounts it as a
+    third author-text round. The press reads round state off those two
+    artifacts, so
     the mandate belongs on them and not on the seat marker alone; the marker
-    carries it too, in the same words: `review-seat: PR #<n> uncounted
-    reconciliation re-bind round head <sha>`. One literal names the kind in
-    all three places; a presser grepping for it finds every artifact of the
-    round.
+    carries it too, in the same words:
+    `review-seat: PR #<n> uncounted reconciliation re-bind round head <sha>`.
+    One literal names the kind in all three places, contiguous on one line at
+    each; a presser grepping for it finds every artifact of the round — the
+    grep is line-oriented, and a literal wrapped across two lines is a literal
+    it cannot see.
 
   **PR #366 is this round's reason,** and the record is checkable. Round-2 accept
   `5545784972` at head `f1d0004e0fc3154e5c5351520b965af42a7f940b`; `main` at
@@ -512,8 +515,9 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   supply: it does not have to be the reviewer, it does not open a review
   round, and routing it back to them buys a round-trip against a diff that
   did not move. Where `main` has edited a reviewed file, naming the incoming
-  `main` hunks and stating they do not interact with the reviewed ones is
-  judgment, and the judgment is the reviewer's — the re-bind routes to them.
+  `main` hunks and stating whether they interact with the reviewed ones, and
+  where they do, naming each interaction and judging it, is judgment, and the
+  judgment is the reviewer's — the re-bind routes to them.
   PR #157 is the live proof that this case is real: an accepted verdict whose
   head had to move while `main` landed interacting prose in the same bullet.
   The verdict itself is still the reviewer's and only the reviewer's; the
@@ -521,8 +525,9 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   That comment is the record, same as any verdict — a carry-over is never
   silent. If any condition fails, it is a new review round — counted and
   author-text, unless condition 2 fails only because `main`'s interacting
-  hunks forced reconciliation text at the merged head, which is the uncounted
-  *reconciliation re-bind round* in *Review rounds*. Full stop on the rest.
+  hunks forced reconciliation text at the merged head, which is the
+  *uncounted reconciliation re-bind round* in *Review rounds*. Full stop on the
+  rest.
 
   The head move itself is not waste and is not negotiable. `main` carries the
   `main-gate` ruleset (id `24735400`), which at version `v53013064` requires
