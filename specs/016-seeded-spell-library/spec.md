@@ -96,10 +96,9 @@ Dave's PR adds a spell whose template says `stat: "attak"`. Nothing at the table
 
 ### User Story 4 — Everything that is not in the library is exactly as it was (Priority: P1)
 
-**A spell outside the list** is cast the way it always was. The story names no spell, and that is
-FR-3's exemption doing its work rather than a gap in the prose: the claim "a spell outside the
-library still casts freeform" needs no name to be legible, and a coined name would behave like a
-candidate entry that was quietly kept out of the list. Bear casts an unlisted spell the way he
+**A spell outside the list** is cast the way it always was. The story deliberately names no spell:
+"a spell outside the library still casts freeform" needs no name to be legible, and a coined name
+would behave like a candidate entry that was quietly kept out of the list. Bear casts an unlisted spell the way he
 always has: *New effect*, name, `+1 status → attack`, duration, targets. The library section does not intercept it, does not grey anything out, does not hint that he is doing it wrong, and — the sharp edge — **no freeform spell ever mints a `custom` corpus row on its way past the composer**. The library is an extra door, not a new hallway.
 
 **Why this priority**: the PRD's sentence is "*Spells outside the library stay freeform exactly as P0*." The cheap way to build a library is to route the composer through it, and that way breaks this story and, if the composer is reused carelessly, drags E9's custom-content side-effects into the P0 path.
