@@ -488,12 +488,11 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
      form, run once per reviewed path, the two sides' outputs for that
      path compared equal: `git diff --output-indicator-old=O --output-indicator-new=N <base>...<head> -- <path> | grep -E '^([ON]|\\)'`. Where `main` has edited a
      reviewed file, the reviewer also names the incoming `main` hunks and
-     states whether they interact with the reviewed ones, and — for the
-     judgment branch that re-binds instead of opening a round — that any
-     interaction needs no fix at the merged head. A statement that the
-     hunks do not interact is one form of that judgment, not its only
-     form: a reviewer who found interaction and judged it harmless makes
-     this judgment too, and the re-bind is theirs to post. The knife-edge
+     states whether they interact with the reviewed ones, and, where they
+     do, names each interaction and states that it needs no fix at the
+     merged head. "They do not interact" is one form of that statement, not
+     its only form: a reviewer who found interaction and judged it harmless
+     posts this re-bind too. The knife-edge
      is the author's text: it moved, new round. A blob test is not
      enough: it also fires when `main` arrives in a reviewed file with
      nothing of the author's riding in — the PR #155 sequence; evidence
