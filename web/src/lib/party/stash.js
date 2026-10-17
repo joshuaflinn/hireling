@@ -138,7 +138,12 @@ const partyTarget = (partyId) => ({ kind: 'party', party_id: partyId, field: 'qu
  * @property {(itemName: string, qtyDelta: number) => void} adjustQty
  * @property {(itemName: string, meta: {bulk?: number|null, notes?: string|null}) => void} editMeta
  * @property {(characterId: number|null) => void} setQuartermaster
- * @property {(coins: BankBalance) => void} adjustBank
+ * @property {(coins: Partial<BankBalance> & Record<'gp' | 'sp' | 'cp', unknown>)
+ *   => void} adjustBank a signed delta per denomination. Typed loose on purpose:
+ *   a `type=number` input can hand back a string integer or an empty-string
+ *   blank, and `encodeCoin` is the one place that decides what counts as an
+ *   integer — narrowing this to `BankBalance` would just move that decision to
+ *   the caller, which is the coercion `encodeCoin` exists to refuse
  * @property {(itemName: string, qty: number, direction: 'in' | 'out', characterId: number) => void} transfer
  * @property {(itemName: string, qty: number, price: SellPrice) => void} sell
  * @property {() => import('svelte/store').Readable<Projection>} changed fires
@@ -151,6 +156,9 @@ const partyTarget = (partyId) => ({ kind: 'party', party_id: partyId, field: 'qu
  * @property {() => void} refresh re-project the merged map (event-driven; the
  *   screen never calls this, the sync subscription and tests do)
  * @property {() => void} destroy
+ * @property {() => Array<{target: Record<string, *>, value: *,
+ *   base_version: number, id: string | null}>} writes every frame `post`
+ *   delivered, in order. Assertions about a frame read this; production does not.
  */
 
 
@@ -160,6 +168,8 @@ const partyTarget = (partyId) => ({ kind: 'party', party_id: partyId, field: 'qu
  *   partyId: number,
  *   you?: {sub: string, role: string} | null,
  *   roster?: Array<{character: {id: number, name: string, owner: string}}>,
+ *   transport?: ((target: Record<string, *>, value: *, baseVersion: number)
+ *     => string | null) | null,
  * }} setup
  * @returns {StashState & {sync: import('../sync/index.js').Sync}}
  */
@@ -312,14 +322,18 @@ export function createStashState({
   }
 
 
-  /** One state entry as `sync.state()` reports it, with the target narrowed to
-   *  the kinds this party surface routes on (wire-protocol §3's table). */
   /** One state entry, as `sync.state()` reports it, with the target narrowed to
-   *  the kinds this surface routes on (wire-protocol §3's field table). Declared
-   *  literally: `FieldState` is a JSDoc typedef inside `createStore()` and is not
-   *  reachable by `import()`, and `state()`'s own return type declares `target`
-   *  as `Record<string, *>`, so the narrowing belongs at the join. */
-  /** @typedef {{target: Record<string, *> & StashTarget, value: *, version: number, serverValue: *}} Entry */
+   *  the kinds this surface routes on (wire-protocol §3's field table). DERIVED
+   *  from the store's own `FieldState` rather than restated by hand: this literal
+   *  used to enumerate the entry's fields, and when the fold grew a pending half
+   *  the copy kept only the old four, so `svelte-check` reported `pendingValue`
+   *  as missing from a type the transport plainly returns. `FieldState` is a
+   *  MODULE-level typedef in `sync/store.js` (line 40) and is reachable by
+   *  `import()` — the note here once claimed it sat inside `createStore()` and
+   *  was not, and that claim is what kept the stale copy alive. `state()`'s own
+   *  return type already names it (store.js:116). Only the target narrowing
+   *  belongs at this join. */
+  /** @typedef {Omit<import('../sync/store.js').FieldState, 'target'> & {target: Record<string, *> & StashTarget}} Entry */
 
   function readFields() {
     /** @type {Map<string, Entry>} */

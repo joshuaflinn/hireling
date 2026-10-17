@@ -119,7 +119,13 @@
   }
 
   // --- dialogs -----------------------------------------------------------
-  /** @type {{kind: 'transfer'|'sell', item: string, quantity: number} | null} */
+  // The union carries all three kinds, because `openMeta` adds the third and an
+  // annotation copied from the transfer/sell pair makes every `meta` branch
+  // unreadable — `svelte-check` reads the comparison as provably false and the
+  // editor's markup as dead code, while the component runs perfectly. Name the
+  // whole set so the branches that render the row editor are type-checked as
+  // reachable, which is what FR-8's affordance actually is.
+  /** @type {{kind: 'transfer'|'sell', item: string, quantity: number} | {kind: 'meta', item: string, quantity: number} | null} */
   let dialog = $state(null);
   let dialogQty = $state('1');
   let dialogCharacter = $state('');
@@ -222,6 +228,11 @@
   // The bank adjuster: one signed delta per denomination, applied on one click.
   // Blank means "no adjustment", which the store encodes as the integer 0 — the
   // frame `validate_bank` requires all three keys of (write.rs:3182-3199).
+  // Held as STRINGS because `bind:value` on a `type=number` input keeps the
+  // control's text until it parses, so a blank is `''` here and not `0`; the
+  // store's `encodeCoin` is the boundary that decides what is an integer and
+  // refuses anything it cannot encode rather than coercing it (see `adjustBank`).
+  /** @type {{gp: string, sp: string, cp: string}} */
   let bankDelta = $state({ gp: '', sp: '', cp: '' });
 
   function adjustBank() {

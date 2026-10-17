@@ -43,6 +43,11 @@
  *   flight, the server's statement otherwise
  * @property {number} version
  * @property {*} serverValue the server's last statement, surviving the echo
+ * @property {*} pendingValue the echoed value this seat has in front of the
+ *   server's statement, or `null` when nothing is in flight
+ * @property {boolean} hasPending whether this seat has a frame in front of the
+ *   server's statement
+ * @property {string|null} pendingOpId whose echo is in front of the value
  */
 
 /**
@@ -251,7 +256,6 @@ export function createStore() {
           // base out of `value` at all; it is in `serverValue`. Nothing that
           // reads `value` changes, and the existing consumers (sheet/state.js,
           // party/state.js) keep their own mirrors and never look here.
-          serverValue: field.serverValue,
         };
       }
       return out;
