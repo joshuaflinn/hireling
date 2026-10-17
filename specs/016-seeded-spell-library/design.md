@@ -162,8 +162,8 @@ suppressed") is a **per-target verdict**, not a per-instance breakdown, so a per
 computed **in the engine** is both the honest and the cheap one:
 
 **`POST /api/parties/{party_id}/spell-conflicts`** — session-gated, party-scoped, read-only.
-Body: `{ spell: "<name>", outcome: "<degree>", targets: [<character ids>] }` — the *candidate
-effect definition*, plus the target ids. Response: per target, a list of
+Body: `{ spell: "<name>", outcome: "<degree>" }` — the *candidate effect definition* only, no
+target ids. Response: per roster character, a list of
 `{ stat_text, verdict: applies | would_not_stack | would_be_suppressed | no_instance,
 conflict: { effect_name, type, value, reason } | null }`. The server loads the party's active
 effects and each target's `BaseStats` from the same sources the derived read uses, and evaluates

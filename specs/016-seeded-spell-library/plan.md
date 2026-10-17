@@ -95,7 +95,7 @@ sentinel `effect_id`) and re-run the **public** `stack::candidates` so the engin
 and **report the delta** as
 `applies | would_not_stack | would_be_suppressed | no_instance`, quoting the suppressing effect.
 No spell/template/library concept enters the engine. Then the session-gated, party-scoped
-`POST /api/parties/{party_id}/spell-conflicts` that loads each target's active effects and
+`POST /api/parties/{party_id}/spell-conflicts` that loads every roster character's active effects and
 `BaseStats` from the same sources the derived read uses and returns per-target verdicts (**D5**).
 
 **Acceptance** (all through the pure function or the real route, never a re-implementation):
