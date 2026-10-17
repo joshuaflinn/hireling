@@ -339,9 +339,12 @@ details.book.drop-ok>summary{color:var(--gold)}
 .tabs button.on{border-color:var(--gold-dim);color:var(--gold);background:var(--panel2)}
 .grp{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin:10px 6px 2px;font-weight:600}
 .arow{grid-template-columns:56px auto minmax(0,1fr)}
-.frow{grid-template-columns:22px auto minmax(0,1fr)}
-#pFeats .row:not(.frow){grid-template-columns:22px minmax(0,1fr) auto auto}
-#pFeats .row:not(.frow)>.use.none{display:none}   /* focus-spell rows share the feature rows' 22px icon column */
+.frow{grid-template-columns:auto minmax(0,1fr)}
+.frow .nm .glyph{margin-left:8px}
+#pFeats .row:not(.frow){grid-template-columns:auto auto minmax(0,1fr) auto}
+#pFeats .row:not(.frow)>.use.none{display:none}   /* focus-spell rows match the feature rows: name flush left, action icon after it */
+#pFeats .row:not(.frow)>.nm{order:-1}
+#pFeats .row:not(.frow)>.q{justify-self:end}
 .currlist{margin-left:36px}
 .clab{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--gold);font-weight:600}
 .currlist .unlearned{color:var(--dim);text-decoration-color:rgba(255,255,255,.22)}
@@ -2298,7 +2301,7 @@ function renderFeats(){
   const frow=(name,bodyHTML,meta,indent)=>{
     const g=glyph(ACT[name]!=null?ACT[name]:null);
     const id=reg(()=>`<div class="tt-h"><span class="tt-name">${g}${esc(name)}</span><span class="tt-rank">${esc(meta||"")}</span></div><p>${linkConds(bodyHTML)}</p>`);
-    return `<div class="row arow frow" data-tip="${id}"${indent?' style="padding-left:20px"':""}>${g}<span class="nm">${esc(name)}</span><span class="q">${esc(meta||"")}</span></div>`;
+    return `<div class="row arow frow" data-tip="${id}"${indent?' style="padding-left:20px"':""}><span class="nm">${esc(name)}${g}</span><span class="q">${esc(meta||"")}</span></div>`;
   };
   const specials=B.specials||[];
   const feats=B.feats||[];
