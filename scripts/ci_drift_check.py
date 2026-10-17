@@ -260,34 +260,46 @@ def check_repo_side_mirrors(
     `none:` value is what the row CLAIMS; `repo_side` is what the workflow
     text proves. Require the claim to be backed, per leg:
 
-    - claimed, in `ci-local`, no step -> red, naming the leg. This is the
-      exact false-green gh#369 was filed for: `scan-semgrep` carried a
-      mirror row and direction A printed `all 18 ci-local legs are gated`
-      while the blind-spot guard that row names ran nowhere in CI.
-    - claimed and a step exists, but the leg is not in `ci-local` -> red by
-      direction B's own wording (a `none:` row names a leg, so B walks it).
+    - claimed, no step -> red, naming the leg AND the row. This is the exact
+      false-green gh#369 was filed for: `scan:semgrep` carried a plain mirror
+      of `scan-semgrep`, so the union in direction A printed `all N ci-local
+      legs are gated` while the blind-spot guard that row itself named — a
+      python suite no image pass can execute — had no CI home at all. The
+      sentinel is the row admitting the half-coverage; this function is what
+      makes the admission cost something.
+    - claimed, but the leg is NOT in `ci-local` -> red, and this direction
+      needs its own check because nothing else sees it. Direction A is a set
+      difference over `ci-local`, so a leg that is absent cannot appear in
+      it; direction B only walked real mirrors, so the sentinel was invisible
+      to it too. A `none:` row can name a leg nobody runs, and until gh#369
+      nothing here could say so.
+
+    B's phantom list keeps the reverse direction: the sentinel is excluded
+    there, because a `none:` row naming a leg outside ci-local is reported
+    here — naming the pass, the leg and the reason — rather than as a
+    phantom mirror it is not.
 
     The accept is the whole step-derived set: unlike the mirror branch of
     direction A, this one has no union with the image's coverage to soften
     it. A `none:` row whose leg has no guard step cannot pass this function
-    by any route.
+    by any route, and neither can one whose leg nothing runs.
 
     Returns the legs it accepted, so the verdict line can count them.
     """
     claimed = sorted({m for m, _ in passes.values() if m == MIRROR_NONE})
-    unbacked = sorted(leg for leg in claimed if leg not in repo_side)
-    if unbacked:
-        fail(
-            "declaration row(s) claim a repo-side-only CI home (mirror"
-            f" '{MIRROR_NONE}') for leg(s) the gate workflow runs no guard"
-            " step for: "
-            + ", ".join(unbacked)
-            + f" — add a `run: just <leg>` step to {WORKFLOW}, or name the"
-              " image pass's mirror in"
-              f" {DECLARATION} (gh#369: a mirror row alone used to read as"
-              " full coverage, which is how the blind-spot guard shipped"
-              " with no CI home at all)"
-        )
+    for leg in claimed:
+        if leg not in repo_side:
+            fail(
+                "declaration row(s) claim a repo-side-only CI home (mirror"
+                f" '{MIRROR_NONE}') for leg(s) the gate workflow runs no guard"
+                " step for: "
+                + ", ".join(leg)
+                + f" — add a `run: just <leg>` step to {WORKFLOW}, or name the"
+                  " image pass's mirror in"
+                  f" {DECLARATION} (gh#369: a mirror row alone used to read as"
+                  " full coverage, which is how the blind-spot guard shipped"
+                  " with no CI home at all)"
+            )
     return claimed
 
 
@@ -348,10 +360,14 @@ def check_image_log(
     # bench leg through a mirror row nothing backs. Mirrored rows
     # only — the exempt rows describe provisioning/scan passes the
     # image may legitimately skip, and requiring them would false-red.
+    # The `none:` sentinel is excluded with it: that row CLAIMS a
+    # repo-side step as its home and the image runs no pass for it, so
+    # requiring it in the image's output would be the same false-red in
+    # a new costume (gh#369).
     dropped = sorted(
         name
         for name, (mirror, _) in passes.items()
-        if mirror != "-" and name not in names_set
+        if mirror not in ("-", MIRROR_NONE) and name not in names_set
     )
     if dropped:
         fail(
@@ -394,7 +410,7 @@ def main() -> None:
     repo_side = derive_repo_side()
     require_image_side_step()
 
-    mirrors = {mirror for mirror, _ in passes.values() if mirror != "-"}
+    mirrors = {mirror for mirror, _ in passes.values() if mirror != "-" and mirror != MIRROR_NONE}
 
     # One bench leg claiming two image checks is a fat-fingered row, not a
     # mapping — fail and make the author write two legs or two reasons.
@@ -407,8 +423,17 @@ def main() -> None:
             + " — one mirror leg per image pass"
         )
 
-    # A. Every ci-local leg has a CI home.
+    # A. Every ci-local leg has a CI home. `MIRROR_NONE` is stripped before
+    # the union, not folded into `mirrors`: the sentinel claims a repo-side
+    # step, and unioning it in here would let the row self-certify the very
+    # claim `check_repo_side_mirrors` below exists to test. A `none:` leg is
+    # gated by its step or not at all — and direction A reds it first, which
+    # is why A'.2 covers a different shape (a `none:` row whose leg has since
+    # LEFT ci-local, where A's set difference cannot see it).
     ungated = sorted(set(legs) - mirrors - repo_side)
+    # (`none:repo-side-only` is not a leg name and never lands in `legs`, so
+    # the sentinel needs no subtraction here — a `none:` row's leg is gated
+    # by its step or not at all, which is exactly what A' proves next.)
     if ungated:
         fail(
             "ci-local leg(s) gated by no CI job: "
@@ -418,10 +443,14 @@ def main() -> None:
         )
 
     # B. Every declared pass is mirrored by a leg ci-local actually runs.
+    # The sentinel skips this list: a `none:` row is not claiming a mirror,
+    # and its own ci-local-membership direction is proved by A' below, which
+    # names the pass and the reason instead of calling it a phantom mirror.
+    # A bare `-` (no mirror, written exemption) is the other value B skips.
     phantom = sorted(
         f"{name} -> {mirror}"
         for name, (mirror, _) in passes.items()
-        if mirror != "-" and mirror not in legs
+        if mirror not in ("-", MIRROR_NONE) and mirror not in legs
     )
     if phantom:
         fail(
@@ -430,9 +459,17 @@ def main() -> None:
             + " — add the leg to ci-local or fix the mirror"
         )
 
+    # A'. gh#369: a `none:` row is a claim about the workflow and about
+    # ci-local, and A's set difference cannot see either — it walks `legs`,
+    # and a sentinel is not a leg. So it gets its own assertion, run last so
+    # a plain ungated leg reds under A's wording first.
+    repo_side_only = check_repo_side_mirrors(legs, repo_side, passes)
+
     mirrored_count = len(mirrors)
     print(
-        f"drift check ok: all {len(legs)} ci-local legs are gated;"
+        f"drift check ok: all {len(legs)} ci-local legs are gated"
+        f" ({len(repo_side_only)} repo-side-only"
+        f"{': ' + ', '.join(repo_side_only) if repo_side_only else ''});"
         f" {len(passes)} image passes declared"
         f" ({mirrored_count} mirrored, {len(passes) - mirrored_count} exempt)"
     )

@@ -217,9 +217,12 @@ web-css-guard: web-deps
 # scripts/semgrep_fail_closed.py then reads the JSON and reds on any
 # warn/PartialParsing entry, the blind-spot class gh#332 names.
 # Its `--self-test` runs first, above the CLI precondition, so the pure suite
-# still runs on a bench with no semgrep installed. `just scan-semgrep` has no
-# `run: just` step in `gate.yml` — its CI home is the image's own `scan:semgrep`
-# mirror, which cannot execute this suite — so this placement covers the bench.
+# still runs on a bench with no semgrep installed. That placement covers the
+# BENCH only: `scan-semgrep` has no `run: just` step in `gate.yml`, and the
+# image's own `scan:semgrep` pass cannot execute a python suite, so CI never
+# reaches this line (gh#369 — that gap is why `guard-selftests` exists, and
+# why `scan:semgrep` is declared `none:repo-side-only` rather than as a
+# mirror of this leg: the image covers the scan, never the guard's self-tests).
 scan-semgrep:
     #!/usr/bin/env bash
     set -euo pipefail
