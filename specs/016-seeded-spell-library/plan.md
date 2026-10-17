@@ -84,8 +84,11 @@ file as `{"schema": 1, "spells": []}` plus a `_readme` naming the owner and the 
 `src/tests/spellbook_conflicts.rs`.
 
 **Do**: the pure function per **D6** — build existing candidates with the shipped
-`stack::candidates`, append one shadow candidate fanned through the shipped `fan_out`/`expand`,
-group per `StatRef`, run the shipped `stack_one` twice, and **report the delta** as
+`stack::candidates`, append one **shadow `ActiveEffect`** (a real one-modifier effect carrying the
+sentinel `effect_id`) and re-run the **public** `stack::candidates` so the engine's own private
+`fan_out` produces its `StatRef`(s) — `fan_out` is not `pub` (`engine/src/stack.rs:90`), and
+`stack.rs` stays on the read-only list — group per `StatRef`, run the shipped `stack_one` twice,
+and **report the delta** as
 `applies | would_not_stack | would_be_suppressed | no_instance`, quoting the suppressing effect.
 No spell/template/library concept enters the engine. Then the session-gated, party-scoped
 `POST /api/parties/{party_id}/spell-conflicts` that loads each target's active effects and
@@ -120,8 +123,9 @@ form's fields and validation are untouched), `web/src/lib/sheet/state.js` or `Sh
 
 **Do**: fetch the library on composer open alongside the existing effects read; render one row per
 spell, revealing its degrees from the data; the existing target picker unchanged; one debounced
-conflicts read per picker-change (**not** per keystroke) with flags inline on each flagged target
-row, never disabling a row; tap → assemble the create payload from the template's rows for that
+conflicts read keyed on `(spell, outcome)` alone (**not** per picker-change, **not** per
+keystroke — **D5**) with the roster-wide response filtered locally and flags inline on each
+flagged target row, never disabling a row; tap → assemble the create payload from the template's rows for that
 degree → the composer's existing `oncreate` (so bounds validation, ack handling, offline queueing
 and error surfacing are inherited). No slot deduction, anywhere. Empty library renders an honest
 one-liner; a degree with an empty effect list renders and taps to an explanatory line with **no
