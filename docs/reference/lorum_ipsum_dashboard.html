@@ -257,6 +257,17 @@ html{overflow-y:scroll}
 .attr .k{font-size:10px;letter-spacing:1px;color:var(--muted)}
 .attr .v{font-size:16px;font-weight:600}
 .attr.key{border-color:var(--gold-dim)}
+.panel h3 .hbtn{font-family:var(--sans);font-size:12.5px;padding:2px 12px;margin-left:10px;text-transform:none;letter-spacing:0;font-weight:400;vertical-align:middle}
+.condlist{display:flex;flex-wrap:wrap;gap:3px 14px;font-size:13px;padding:2px}
+.condlist .ccond{color:var(--cc);border-bottom-color:currentColor;font-weight:600}
+.condnone{color:var(--dim)}
+#condDlg{width:min(560px,94vw)}
+.cdhint{color:var(--muted);font-size:12.5px}
+.cdgrp{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin:10px 0 4px;font-weight:600}
+.cdbtns{display:flex;flex-wrap:wrap;gap:4px}
+.cdb{background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:3px 10px;font-size:13px;color:var(--cc);user-select:none}
+.cdb:hover{border-color:var(--cc)}
+.cdb.on{border-color:var(--cc);background:color-mix(in srgb,var(--cc) 20%,var(--panel2));font-weight:600}
 .skills{display:grid;grid-template-columns:1fr 1fr;gap:1px 10px}
 .sk{display:flex;align-items:center;gap:6px;padding:2px 2px;border-bottom:1px dotted #2a2f38;font-size:13px;min-width:0}
 .sk .rk{width:15px;height:15px;border-radius:3px;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;background:#2a2f38;color:var(--dim);flex:none}
@@ -585,6 +596,16 @@ h3.chead.over .cnm{color:var(--f)}
   <div class="row2">
     <span></span>
     <button class="btn gold" id="tplClose">Close</button>
+  </div>
+</dialog>
+
+<dialog id="condDlg">
+  <h3>Conditions</h3>
+  <div class="cdhint">Click a condition to add it or raise its value. Right-click to lower or remove it.</div>
+  <div id="condBody"></div>
+  <div class="row2">
+    <span></span>
+    <button class="btn gold" id="condClose">Close</button>
   </div>
 </dialog>
 
@@ -1944,6 +1965,35 @@ const COND_GROUPS=[
   ["Defense and objects",["broken","off-guard"]],
   ["Attitudes",["helpful","friendly","indifferent","unfriendly","hostile"],true]
 ];
+/* conditions on the character: S.conds = {[condition]: value}; unvalued conditions are stored as 1 */
+const COND_VALUED=new Set(["clumsy","doomed","drained","dying","enfeebled","frightened","sickened","slowed","stunned","stupefied","wounded"]);
+const COND_COLORS={"Detection":"#7fb0de","Senses":"#b9a3e3","Mind and control":"#e38fc4","Actions":"#e3a45a","Movement and position":"#a9cf86","Lowered attributes":"#e9c47c","Health and dying":"#e46b5e","Defense and objects":"#a2a8b3"};
+function condColor(k){ const g=COND_GROUPS.find(([,ks])=>ks.includes(k)); return (g&&COND_COLORS[g[0]])||"var(--text)"; }
+const condLabel=(k,n)=>esc(cap(k))+(COND_VALUED.has(k)?" "+n:"");
+function condChip(k,n){ return `<span class="cond ccond" data-cond="${k}" style="--cc:${condColor(k)}">${condLabel(k,n)}</span>`; }
+function condBump(k,d){
+  S.conds=S.conds||{};
+  const cur=S.conds[k]||0, max=k==="dying"?4:COND_VALUED.has(k)?99:1;
+  const n=Math.max(0,Math.min(max,cur+d));
+  if(n===cur) return;
+  if(n) S.conds[k]=n; else delete S.conds[k];
+  render(); condRenderDlg();
+}
+function condRenderDlg(){
+  const cs=S.conds||{};
+  setHTML($("#condBody"), COND_GROUPS.filter(g=>!g[2]).map(([name,ks])=>`<div class="cdgrp">${name}</div><div class="cdbtns">${ks.map(k=>
+    `<button type="button" class="cdb${cs[k]?" on":""}" data-cdb="${k}" style="--cc:${COND_COLORS[name]}">${cs[k]?condLabel(k,cs[k]):esc(cap(k))}</button>`).join("")}</div>`).join(""));
+}
+function openCondDlg(){ const d=$("#condDlg"); condRenderDlg(); if(d.showModal) d.showModal(); else d.setAttribute("open",""); }
+$("#condClose").onclick=()=>$("#condDlg").close();
+$("#condDlg").addEventListener("click",e=>{
+  if(e.target.id==="condDlg"){ e.currentTarget.close(); return; }
+  const b=e.target.closest("[data-cdb]"); if(b) condBump(b.dataset.cdb,1);
+});
+$("#condDlg").addEventListener("contextmenu",e=>{
+  const b=e.target.closest("[data-cdb]"); if(!b) return;
+  e.preventDefault(); condBump(b.dataset.cdb,-1);
+});
 function condRow(k){ return `<div class="row arow crow" data-cond="${k}"><span class="nm">${esc(cap(k))}</span><span class="q">${linkConds(esc(COND_SUM[k]||""),k)}</span></div>`; }
 function actionRow(it){
   const q = ACTION_SUM[it.n] ? ACTION_SUM[it.n](C) : it.q ? it.q(C) : it.sk ? skl(C,it.sk) : "";
@@ -2023,6 +2073,8 @@ function renderStats(){
   if(C.focusMax) h+=`<div class="trk"><span class="k">Focus</span><span class="pips">${[...Array(C.focusMax).keys()].map(i=>`<button class="pip ${i<focus?"on":""}" data-focus="${i+1}"></button>`).join("")}</span></div>`;
   h+=`</div>`;
   h+=`<h3>Attributes</h3><div class="attrs">${["str","dex","con","int","wis","cha"].map(k=>`<div class="attr ${k===B.keyability?"key":""}"><div class="k">${k.toUpperCase()}</div><div class="v">${sg(C.M[k])}</div></div>`).join("")}</div>`;
+  const conds=Object.entries(S.conds||{}).filter(([k])=>CONDITIONS[k]);
+  h+=`<h3>Conditions<button class="btn gold hbtn" data-condmgr="1">Manage</button></h3><div class="condlist">${conds.length?conds.map(([k,n])=>condChip(k,n)).join(""):`<span class="condnone">None</span>`}</div>`;
   h+=`<h3>Skills</h3><div class="skills">`;
   const skRow=(s,wide)=>`<div class="sk ${s.rank?"":"untr"} ${wide?"wide":""}" data-tip="${reg(()=>skillTip(s))}"><span class="rk r${s.rank}">${RANK[s.rank][0]}</span><span class="n">${esc(s.name)}${C.assurance&&C.assurance.key===s.key?` <span style="color:var(--gold);font-size:11px">A ${C.assurance.value}</span>`:""}</span><span class="m">${sg(s.mod)}</span></div>`;
   h+=C.skills.map(s=>skRow(s)).join("")+C.lores.map(s=>skRow(s,true)).join("")+`</div>`;
@@ -3498,6 +3550,7 @@ document.addEventListener("click",e=>{
     delete S.userConts[key]; render(); return; }
   const additem=t.closest("[data-additem]");
   if(additem){ openAddItem(); return; }
+  if(t.closest("[data-condmgr]")){ openCondDlg(); return; }
   const xdel=t.closest("[data-xdel]");
   if(xdel){ S.removed=S.removed||{}; S.removed[xdel.dataset.xdel]=true; render(); return; }
   const mdel=t.closest("[data-mdel]");
