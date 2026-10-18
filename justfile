@@ -217,9 +217,12 @@ web-css-guard: web-deps
 # scripts/semgrep_fail_closed.py then reads the JSON and reds on any
 # warn/PartialParsing entry, the blind-spot class gh#332 names.
 # Its `--self-test` runs first, above the CLI precondition, so the pure suite
-# still runs on a bench with no semgrep installed. `just scan-semgrep` has no
-# `run: just` step in `gate.yml` — its CI home is the image's own `scan:semgrep`
-# mirror, which cannot execute this suite — so this placement covers the bench.
+# still runs on a bench with no semgrep installed. That placement covers the
+# BENCH only: `scan-semgrep` has no `run: just` step in `gate.yml`, and the
+# image's own `scan:semgrep` pass cannot execute a python suite, so CI never
+# reaches this line (gh#369 — that gap is why `guard-selftests` exists, and
+# why `scan:semgrep` is declared `none:repo-side-only` rather than as a
+# mirror of this leg: the image covers the scan, never the guard's self-tests).
 scan-semgrep:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -444,6 +447,34 @@ ci-drift:
     python3 scripts/ci_drift_check.py --self-test
     python3 scripts/ci_drift_check.py
 
+# The gh#332 blind-spot guard's CI home (gh#369). This leg runs the guard's own
+# `--self-test` suite, which re-proves every red direction of the guard, and it
+# is the leg the drift check can see (`GUARD_STEP_RE` matches `run: just …` and
+# no bare `python3` line — that is why the guard's CI presence has to be a leg).
+#
+# The guard's *assertion over the image's scan* is the other half of the CI
+# home and cannot be a leg: it needs `ci_drift_check.py`'s log reader, and
+# `gate.yml:17` owns the "$RUNNER_TEMP path that only exists inside the image's
+# own step" reason for keeping a log-reading leg out of the recipe list (also
+# why no `ci-local` invocation exists in the workflow at all). It runs as its
+# own CI step, `Fail-closed guard over the image's scan`, reading the log
+# `ci_drift_check.py` already reads with `read_log_lines` — a second reader of
+# an existing artifact, never a second scan (that step cites the log's real
+# format). So this leg needs no log path: it stays runnable from any clean
+# checkout, like `ship-guard`.
+#
+# A separate leg, not a line appended to `scan-semgrep`: that recipe exits at its
+# own CLI precondition on any machine without the semgrep CLI
+# (`justfile:228-231`), and CI is exactly such a machine — the CLI lives in the
+# gate image, not the runner. This leg is pure python: no CLI, no vendored rule
+# tree, no network. PR #368 put the `--self-test` call in `scan-semgrep`, which
+# is why it ran nowhere on CI: no `run: just scan-semgrep` step exists there, and
+# Direction A does not count a mirror as a leg's step home.
+guard-selftests:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    python3 scripts/semgrep_fail_closed.py --self-test
+
 # The full local gate. Run this before pushing. Two kinds of leg:
 #
 # Image mirrors — the pinned gate image runs the same check. The mapping
@@ -469,7 +500,7 @@ ci-drift:
 # prints only when every leg passed, so a piped run reads green only when
 # it is green. Note what it is not: the exit status is still the thing to
 # check, and a reader who ignores both is still reading one leg's output.
-ci-local: disk-guard json-keys fmt-check lint test deny boundary web-check web-tsc web-test web-css-guard web-html-boundary web-eslint check-vendored check-runner-label scan-semgrep ship-guard ci-drift
+ci-local: disk-guard json-keys fmt-check lint test deny boundary web-check web-tsc web-test web-css-guard web-html-boundary web-eslint check-vendored check-runner-label scan-semgrep guard-selftests ship-guard ci-drift
     @echo "ci-local: every leg above passed"
 
 # Alias — same gate, the name the spec calls it by.
