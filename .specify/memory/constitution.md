@@ -44,7 +44,7 @@ Both owners build with AI agents. That's the workflow, not a secret.
      including admins, and the protection is live at the time of the press.
   If any one of the three fails, the press returns to an owner, and the
   authority says on the PR which one failed.
-- Either owner may merge anything at any time, and either owner may reserve a
+- Either owner may press any PR themselves at any time, and either owner may reserve a
   PR — or a class of PRs — for their own hand by saying so on it. Delegation is
   a default, never a transfer of ownership.
 - Agents verify before claiming done: run the tests, run the build, paste the

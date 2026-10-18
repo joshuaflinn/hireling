@@ -25,10 +25,8 @@ is the agent side; `CONSTITUTION.md` governs both.
    **grizzly-gate** (Bear's quality gate, standalone mode) — the gate is the
    first reviewer; an independent reviewer is the second.
 5. **Independent review, then the merge.** The reviewer is never the person (or session)
-   that wrote it. A merge needs a green `gate` on the exact head
-   and that reviewer's accept; either owner may merge anything, and otherwise
-   the press is Thrane's under the three conditions in Article III.
-   Constitution changes need both owners. Agents
+   that wrote it. Who can merge what is governed by `CONSTITUTION.md` Article
+   III and its *Governance* section — this file does not restate it. Agents
    additionally follow `AGENTS.md`.
 
 ## Ground rules
