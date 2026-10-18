@@ -39,6 +39,7 @@ function defaultSocketFactory(url) {
 // `timers.setTimeout(...)`, which makes `this` the timers object — browsers
 // reject that with "TypeError: Illegal invocation" (Node does not, so the
 // suite never saw it). Resolved at call time against the global.
+/** @type {{ setTimeout: (fn: () => void, ms: number) => *, clearTimeout: (id: *) => void }} */
 export const defaultTimers = {
   setTimeout: (fn, ms) => setTimeout(fn, ms),
   clearTimeout: (id) => clearTimeout(id),
