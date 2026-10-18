@@ -43,6 +43,11 @@
  *   flight, the server's statement otherwise
  * @property {number} version
  * @property {*} serverValue the server's last statement, surviving the echo
+ * @property {*} pendingValue the echoed value this seat has in front of the
+ *   server's statement, or `null` when nothing is in flight
+ * @property {boolean} hasPending whether this seat has a frame in front of the
+ *   server's statement
+ * @property {string|null} pendingOpId whose echo is in front of the value
  */
 
 /**
@@ -116,6 +121,60 @@ export function targetKey(target) {
  *   subscribe: (cb: (event: StoreEvent) => void) => () => boolean,
  * }}
  */
+/**
+ * Is `value` an ADDITIVE write frame — a delta rather than a value?
+ *
+ * The one place this test is written. It used to live inside `createStore` and be
+ * read only by `ack`, which meant the projection layer had to REDECIDE the same
+ * question with its own shape test and got it wrong in both directions at once: a
+ * stash quantity delta (`{op: 'qty', qty_delta: n}`) is additive and was treated
+ * as absolute, and a sell or transfer frame is `{op: …}` carrying NO delta and was
+ * treated as one. Same rule, two copies, two different answers.
+ *
+ * The rule is a shape test because the shape is the evidence, and the frame is the
+ * only place the distinction exists: §4 gives an additive write the DELTA and no
+ * balance, so a frame that names a `*_delta` is asserting "I am not a value" — the
+ * absolute arms of the same targets (`{op: 'meta', bulk, notes}`, a sell's
+ * `{price, proceeds}`) name no delta and are values. `isAdditiveOpValue` below is
+ * this function, unchanged, under its old name.
+ *
+ * A frame is read for what it IS, not for what target it rode: the ack settles the
+ * op, and the op's frame is the evidence, exactly as the comment in `ack` says.
+ *
+ * @param {*} value
+ * @returns {boolean}
+ */
+export function isAdditiveFrame(value) {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    ('gp_delta' in value ||
+      'sp_delta' in value ||
+      'cp_delta' in value ||
+      'qty_delta' in value)
+  );
+}
+
+/**
+ * The value a field should SHOW: the pending echo while this seat's own write is in
+ * flight, else the server's last statement.
+ *
+ * Exported for the same reason `isAdditiveFrame` is. A consumer that reads
+ * `state()[key].value` and then re-derives what a pending frame MEANS has to know
+ * the pending rule and the additive rule together, and if it knows them it can get
+ * them wrong — which is how the stash screen came to paint a `qty_delta` frame as
+ * though it were the balance's new value while its sibling fold added that same
+ * delta to the server's number. Read the field through here and there is nothing
+ * left to re-derive: `serverValue` is the last number the server stated, and this
+ * says whether an echo is sitting in front of it.
+ *
+ * @param {{serverValue: *, pending: {opId: string, value: *} | null}} field
+ * @returns {*}
+ */
+export function effectiveValueOf(field) {
+  return field.pending !== null ? field.pending.value : field.serverValue;
+}
+
 export function createStore() {
   /**
    * @typedef {Object} Field
@@ -159,27 +218,34 @@ export function createStore() {
    * @param {*} value
    */
   function isAdditiveOpValue(value) {
-    return (
-      value !== null &&
-      typeof value === 'object' &&
-      ('gp_delta' in value || 'sp_delta' in value || 'cp_delta' in value || 'qty_delta' in value)
-    );
-  }
-
-  /** @param {Field} field */
-  function effectiveValue(field) {
-    return field.pending !== null ? field.pending.value : field.serverValue;
+    return isAdditiveFrame(value);
   }
 
   return {
-    /** Merged state: `{ [targetKey]: { target, value, version } }`. */
+    /** Merged state: `{ [targetKey]: { target, value, version, serverValue,
+     *  pendingValue, hasPending } }` — see `effectiveValueOf` for what `value`
+     *  is showing and why the pair next to it is the honest question. */
     state() {
       /** @type {Record<string, FieldState>} */
       const out = {};
       for (const [key, field] of fields) {
         out[key] = {
           target: field.target,
-          value: effectiveValue(field),
+          value: effectiveValueOf(field),
+          // The two facts a projection needs to fold an additive echo, and the
+          // only pair that lets it tell an echo from a server value: what the
+          // server last STATED, and whether this seat has a frame in front of it.
+          // `value` above cannot answer either — it is whichever of the two is
+          // being shown, which is exactly why a fold that consumed it doubled a
+          // delta on one side and drew a raw delta as a balance on the other.
+          serverValue: field.serverValue,
+          pendingValue: field.pending ? field.pending.value : null,
+          hasPending: field.pending !== null,
+          // Whose echo is in front of the value. A fold cache cannot key on
+          // `pendingValue` alone: a delta that the server refuses leaves the
+          // rendered number exactly where it was, and only the id distinguishes
+          // "an echo is live" from "the echo just went away".
+          pendingOpId: field.pending ? field.pending.opId : null,
           version: field.serverVersion,
           // The server's own last statement, alongside the rendered value above
           // rather than buried under it. `value` is the field as it is SHOWN —
@@ -190,7 +256,6 @@ export function createStore() {
           // base out of `value` at all; it is in `serverValue`. Nothing that
           // reads `value` changes, and the existing consumers (sheet/state.js,
           // party/state.js) keep their own mirrors and never look here.
-          serverValue: field.serverValue,
         };
       }
       return out;
