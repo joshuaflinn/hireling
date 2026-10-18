@@ -16,6 +16,13 @@
 # grizzly-gate local report output
 grizzly-gate-report/
 
+# Vendored semgrep rules (gh#320): reproduced from the pinned image by
+# `just vendor-semgrep`, hashed by `just check-vendored`, read by
+# `just scan-semgrep`. Git-ignored because the tree carries semgrep test
+# fixtures that are not JSON, which the pre-commit duplicate-key guard
+# refuses to commit. Never hand-edit; re-vendor instead.
+gate-semgrep-rules/
+
 # Frontend
 web/node_modules
 web/dist/
@@ -24,3 +31,24 @@ web/dist/
 web/.grizzly-gate.node_modules/
 .pr-body.md
 __pycache__/
+
+# Host-path contamination (AGENTS.md "Tool output never goes to a host path").
+# A host path whose leading `/` is lost lands in the tree as a top-level
+# `home/…`, `.tmp/…` or `.paperclip/…` directory. These entries are anchored at
+# the worktree root and cover only that shape. Coverage limit: the top-level
+# entries `home/`, `.tmp/` and `.paperclip/` and nothing else — a top-level
+# `tmp/` or `paperclip/` dump (no leading dot) is NOT ignored. No bare
+# basename pattern is used here: a basename entry hides its own literal name at
+# any depth, so `.tmp/` hides `.a/.tmp/` and `tmp/` hides `.a/tmp/`, either of
+# which could be a real directory (gh#346). No depth-threshold scrub either —
+# it misses shallow paths. These entries do not prevent contamination; the
+# AGENTS.md clause is the control. They only stop the known shape from being
+# swept into a commit by `git add -A`/`commit -a` — and they hide the shape
+# from `git status`, which is why that clause, not this file, is what you
+# actually rely on. Each name is probeable:
+#   git check-ignore --no-index -v home/flinn/.tmp/x.json   # /home/
+#   git check-ignore --no-index -v .tmp/x.json              # /.tmp/
+#   git check-ignore --no-index -v .paperclip/x.json        # /.paperclip/
+/home/
+/.tmp/
+/.paperclip/

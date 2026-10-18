@@ -7,8 +7,10 @@ license = "MIT"
 
 # The engine crate (E8) is the portable buff/effect core: serde-only prod
 # deps, its own test suites. The binary is the workspace's other member.
+# diskops (MOR-637) is the std-only disk floor guard — zero deps, so
+# `just disk-guard` compiles in seconds even on a nearly-full disk.
 [workspace]
-members = ["engine"]
+members = ["engine", "diskops"]
 
 [dependencies]
 anyhow = "1.0.104"
@@ -72,7 +74,17 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 # Deflate only: the upstream pack assets are plain deflate zips, so the
 # default features (bzip2/lzma/zstd/aes-crypto) are dead weight — and the
 # bzip2 leg carried a license the deny allow list rightly didn't know.
-zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+# 9.x, not 8.x: RUSTSEC-2026-0367/0368/0369 (all three privilege-escalation
+# advisories in the `extract()` family) are `severity: error` against 8.6.0
+# and every 8.x release, so `cargo deny` fails the gate repo-wide on 8.x.
+# 9.0.0 landed the fixes; 9.0.1/9.0.2 carried the incomplete symlink-extraction
+# follow-ups (9.0.1 `set_permissions was still following symlinks in non-streaming
+# extraction`, 9.0.2 `additional bug fixes for symlink extraction`). The floor is
+# 9.0.2 because of those follow-ups, not the advisories: all three read
+# `patched = [">= 9.0.0"]`, so a 9.0.0 lockfile does satisfy `cargo deny`. The
+# floor is named explicitly to keep a resolver from picking 9.0.0 anyway.
+# MOR-816.
+zip = { version = "9.0.2", default-features = false, features = ["deflate"] }
 
 # Splitting the session socket into read/write halves for the select loop
 # (E7 session). Already in the tree via axum/tungstenite; sink feature only.

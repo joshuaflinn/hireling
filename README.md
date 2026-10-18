@@ -14,6 +14,9 @@ just dev       # build the frontend, run the backend (serves API + UI on :3000)
 just db        # start the throwaway dev Postgres on :5432
 just test      # tests (starts the throwaway Postgres first when docker exists)
 just gate      # the full local gate (same checks as CI)
+just disk-guard  # free-space floor: fails when the disk can't absorb one more build
+just reap        # dry-run: list leaked target-* dirs and stale hireling-* worktrees
+just reap --prune  # actually remove them (never MOR-<n>, dirty trees, or the shared checkout)
 ```
 
 Every recipe is also a plain cargo/npm command — `just` is convenience, not
@@ -27,6 +30,8 @@ cargo fmt --all                                           # format
 cargo clippy --all-targets --all-features -- -D warnings  # lint
 cargo deny check                                          # audit dependencies
 docker compose up -d db                                   # dev Postgres
+cargo run --package diskops -- guard --floor-gib 10       # free-space floor (just disk-guard)
+cargo run --package diskops -- reap                        # reaper, dry-run (just reap; --prune removes)
 python3 scripts/check_json_dup_keys.py                    # JSON duplicate-key guardrail (gh#49)
 ```
 

@@ -250,6 +250,54 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   **A review object's `commit_id` is not evidence of what was reviewed.** The
   head a verdict is bound to is the head its text names. A push can move the
   stamp; it cannot rewrite the prose.
+
+  **No announcement before the gate concludes.** The reviewer's announcement
+  names the `gate` check-run's conclusion at the head under review, and the
+  conclusion is `success` or `failure`: `queued` and `in_progress` are not
+  conclusions, and `cancelled`, `timed_out`, `skipped`, `stale` and `neutral`
+  are conclusions that certify nothing. If the gate has not concluded to
+  `success` or `failure`, the reviewer does not announce: it waits and
+  re-reads, and the idempotence clause above ("read the record before you
+  write it") already covers that re-read, so a waiting reviewer does not open
+  a duplicate round. Where no usable conclusion arrives, the reviewer does
+  not announce, notes it on the PR, and reports it on the review task — the
+  same handling as a provisioning defect.
+  The author's seat marker is unchanged and does not wait — seating is a
+  marker, not a certificate read, and making authors block on a gate they
+  cannot speed up adds latency and fixes nothing; the seat task already
+  carries the gate check-run id, which is what lets the reviewer read it. An
+  `in_progress` gate read as if it were a conclusion is the same fault class
+  as reading check-runs at the wrong head, and it fails the same two
+  dangerous ways: a round announced before a red concludes can accept a head
+  nobody gated, and one announced before a green concludes can bounce an
+  engineer on nothing. PR #317 is the instance: the seat marker went up at
+  `2026-10-15T20:20:31Z` and round 1 was announced at `20:21:38Z` (review
+  `5539383360`); check-run `116649603910` (`gate`) at head
+  `6c8f04fb4cd733dcf35fd014ede0510b9d8760de` was still `in_progress` and did
+  not conclude until `20:26:05Z` — `failure`, `gate FAILED: 2/16` (review
+  `5539498644`) — so for about four and a half minutes an announced round
+  faced a head with no readable certificate, and the rule as written did not
+  forbid it. No fault landed: the author gated on the bench and disclosed it,
+  the reviewer caught both red legs by hand, and the verdict is correct —
+  this closes a rule gap on the announcing side, not a fault assignment.
+
+  **The announcement names whether the head is up to date with `main`.**
+  Alongside the gate read, at the head already named: `git fetch origin main
+  <branch>`, then `git merge-base --is-ancestor origin/main <head>` — exit 0 is
+  up to date, exit 1 is behind. The fetch is not optional: `origin/main` is a
+  local ref, and a stale one reports a behind head as current — a false pass, the
+  same wrong-head fault class as reading check-runs at a superseded SHA. `gh
+  pr view <n> --json mergeStateStatus` is corroboration, never a substitute;
+  it is computed lazily and can read `UNKNOWN`. A behind head does not hold
+  the review — the diff is still the diff — so announce and review as normal,
+  and the verdict names the head move the press will need. `main` carries the
+  strict up-to-date policy — the `main-gate` ruleset (id `24735400`), which at
+  version `v53013064` enforces `required_status_checks` with
+  `strict_required_status_checks_policy: true` — so that move is forced; where
+  `main` has not edited a reviewed path it is the
+  wholly-mechanical carry-over re-bind of *Verdict carry-over* and costs no
+  round. This does not relieve *Bring the branch up to date before you ask
+  for review* — it is the second seat on it.
 - **Review rounds — two author-text rounds, then a verdict.** The budget
   counts rounds that review changed author text. Two of those, then a
   verdict — accept-with-follow-up-issues or reject-with-a-plan. There is no
@@ -277,9 +325,24 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   narrow scope is a scope limit, not a lower bar.
 
   **Which kind a round is, checkable:** compare the PR's own hunks at both
-  heads. The first round on a PR has no prior head; it is an author-text
-  round. Byte-identical hunks mean carry-over — narrow, uncounted. Changed
-  hunks mean an author-text round — wide, counted.
+  heads, *and* ask whether `main`'s incoming hunks touch a reviewed one. The
+  first round on a PR has no prior head; it is an author-text round. Changed
+  author hunks mean an author-text round — wide, counted. Byte-identical
+  author hunks fork three ways on `main`'s side of the seam, and only one of
+  the three opens a round, so name each outcome by whether a round follows:
+  non-interacting `main` hunks are a plain carry-over re-bind — **no round**;
+  interacting `main` hunks that need no fix are a carry-over re-bind on the
+  reviewer's judgment branch of *Verdict carry-over* — **no round**; and
+  interacting `main` hunks whose combination is defective in a way that needs
+  added text at the merged head are the reconciliation re-bind round below —
+  **a round, uncounted**, and not an author-text round. The first two are
+  re-binds, not rounds: each posts a re-bind comment and never an announcement
+  carrying a verdict, so a presser must not hold a pressable PR waiting for a
+  verdict that will not come, and must not press past an open round. Say
+  "re-bind," not "carry-over round," for both — the preceding paragraph's
+  carry-over *round* is a third thing with its own trigger. Byte-identical
+  hunks alone cannot tell those three apart, which is why the second question
+  is part of the test.
 
   **A verdict is discharged when posted, and is not the author's to
   withdraw.** The head a verdict names carries it permanently. An author may
@@ -329,7 +392,65 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
     is a decision about the task.
   - Announced and verdicted like any round, per *Review of record*.
 
-  PR #227 is the reason, and the record is checkable. Round-2 accept at
+  **The reviewer re-binds under a reconciliation re-bind round.** This round
+  is `main`'s; the post-accept round above is the author's. A verdict is posted
+  at a head; the strict up-to-date policy of `ruleset 24735400 v53013064`
+  forces a head move; `main` has edited an interacting part of a reviewed
+  path; and the combination is defective in a way that needs added text at
+  the merged head. The merge is clean, so *Verdict carry-over* condition 1
+  flags nothing, and its condition 2 fails by the letter the moment the
+  reconciliation text is added. The *A carry-over round does not count
+  against the budget* clause does not cover
+  it either: its uncounted branch requires `main` to have moved an
+  *unrelated* part of the shared file, and its tail sends a defect-finding
+  carry-over round to a counted author-text round, which a PR at its two
+  rounds does not have. This round carries the post-accept properties, all of
+  them:
+
+  - **Uncounted.** It is forced by that strict up-to-date policy, not earned
+    by the author. Refusing it on budget grounds strands a green accepted
+    head with no verdict and no path to one.
+  - **Scope is the combination and the reconciliation delta only** — the
+    merged file read as one unit, plus `git diff <verdict-head> <new-head>`
+    and the interaction between that delta and the text already accepted. It
+    may not re-litigate the author's diff; that diff already carries a
+    verdict. Narrow scope is a scope limit, not a lower bar.
+  - **The author's reviewed hunks stay byte-identical, and that is the
+    boundary condition.** If the fix moves the author's own hunks, or reaches
+    past the seam into fresh argument, it is a counted author-text round —
+    and on a PR already at its two rounds that is Thrane's decision about the
+    task, taken before the round is announced.
+  - **Same reviewer.** `main` edited a reviewed path and the incoming hunks
+    interact with the reviewed ones, so *Verdict carry-over*'s mechanical
+    branch is unavailable: naming the incoming hunks and judging the
+    interaction is judgment, and the judgment is the reviewer's. No presser
+    takes this PR on a silent or mechanical re-bind.
+  - **Once per PR.** A second forced reconciliation on the same PR goes to
+    Thrane, and whether it proceeds is a decision about the task.
+  - Announced and verdicted like any round, per *Review of record*, gate read
+    first. **The announcement and the verdict name the kind** —
+    *uncounted reconciliation re-bind round* — so no presser miscounts it as a
+    third author-text round. The press reads round state off those two
+    artifacts, so the mandate belongs on them and not on the seat marker alone;
+    the marker
+    carries it too, in the same words:
+    `review-seat: PR #<n> uncounted reconciliation re-bind round head <sha>`.
+    One literal names the kind in all three places, contiguous on one line at
+    each; a presser grepping for it finds every artifact of the round — the
+    grep is line-oriented, and a literal wrapped across two lines is a literal
+    it cannot see.
+
+  **PR #366 is this round's reason,** and the record is checkable. Round-2 accept
+  `5545784972` at head `f1d0004e0fc3154e5c5351520b965af42a7f940b`; `main` at
+  `999a6da8669399bc642a3feff09cf57f225890b1`, which edits the same paragraph.
+  `git merge-tree --write-tree f1d0004 999a6da` is rc 0, tree
+  `fbe2b376b94b60bbadfcb3986023f64308f8d5b6` — clean, and it produces a seam
+  that contradicts itself: merged `AGENTS.md:869` reads `` !! home/ `` while
+  merged `:874`, three lines later, calls "That `?? home/`" the oracle read
+  from the worktree toplevel. Reconciling that takes added lines at the
+  merged head, and both of this PR's author-text rounds were already spent.
+
+  **PR #227 is the post-accept round's reason,** and the record is checkable. Round-2 accept at
   `a22443d` — review `5526943831`, submitted `2026-10-15T01:31:06Z`. The
   author filed the accept's follow-ups (gh#230, gh#231) in PR comment
   `6182320720` at `01:31:53Z` — proof the verdict was read. `acb573e`
@@ -370,7 +491,11 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
      form, run once per reviewed path, the two sides' outputs for that
      path compared equal: `git diff --output-indicator-old=O --output-indicator-new=N <base>...<head> -- <path> | grep -E '^([ON]|\\)'`. Where `main` has edited a
      reviewed file, the reviewer also names the incoming `main` hunks and
-     states they do not interact with the reviewed ones. The knife-edge
+     states whether they interact with the reviewed ones, and, where they
+     do, names each interaction and states that it needs no fix at the
+     merged head. "They do not interact" is one form of that statement, not
+     its only form: a reviewer who found interaction and judged it harmless
+     posts this re-bind too. The knife-edge
      is the author's text: it moved, new round. A blob test is not
      enough: it also fires when `main` arrives in a reviewed file with
      nothing of the author's riding in — the PR #155 sequence; evidence
@@ -390,14 +515,19 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   supply: it does not have to be the reviewer, it does not open a review
   round, and routing it back to them buys a round-trip against a diff that
   did not move. Where `main` has edited a reviewed file, naming the incoming
-  `main` hunks and stating they do not interact with the reviewed ones is
-  judgment, and the judgment is the reviewer's — the re-bind routes to them.
+  `main` hunks and stating whether they interact with the reviewed ones, and
+  where they do, naming each interaction and judging it, is judgment, and the
+  judgment is the reviewer's — the re-bind routes to them.
   PR #157 is the live proof that this case is real: an accepted verdict whose
   head had to move while `main` landed interacting prose in the same bullet.
   The verdict itself is still the reviewer's and only the reviewer's; the
   mechanical re-bind is bookkeeping over their verdict, not a second one.
   That comment is the record, same as any verdict — a carry-over is never
-  silent. If any condition fails, it is a new review round, full stop.
+  silent. If any condition fails, it is a new review round — counted and
+  author-text, unless condition 2 fails only because `main`'s interacting
+  hunks forced reconciliation text at the merged head, which is the
+  *uncounted reconciliation re-bind round* in *Review rounds*. Full stop on the
+  rest.
 
   The head move itself is not waste and is not negotiable. `main` carries the
   `main-gate` ruleset (id `24735400`), which at version `v53013064` requires
@@ -457,12 +587,31 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   issue's docs change, a hotfix, a branch collision — go in sibling
   directories, never run scratch dirs (those get cleaned). Removal has a
   hard edge: a sibling named for an *open* task
-  (`MOR-<n>`) can be clean and an ancestor of `origin/main` and still be a
+  (`MOR-<n>`) can be clean and merged by any check you like and still be a
   live harness-owned workspace — never remove one unless that task is
-  closed. Hand-cut `hireling-*` siblings keep the old staleness test:
-  branch an ancestor of `origin/main` and tree clean means merged, nothing
-  in it can be lost, and any agent may remove such a sibling on sight.
+  closed. Hand-cut `hireling-*` siblings use the clean-tree test:
+  a clean tree — `git status --porcelain` empty — means nothing tracked or
+  visibly untracked in it can be lost, and any agent may remove
+  such a sibling on sight — `git worktree remove` leaves the local branch
+  ref in place, so the commits stay reachable whatever the merge state, and
+  the clean-tree check carries that weight alone. The ancestry conjunct is
+  dropped because `main` squash-merges and a merged branch is normally *not*
+  an ancestor of `origin/main`; for a belt-and-braces merge check, read PR
+  state off `gh pr list --head <branch> --state all` (merged or closed).
   Never `worktree remove --force`; a dirty tree belongs to its owner.
+  A provisioned `MOR-<n>` branch pointer is not durable between runs. The
+  harness re-points it to current `origin/main` when a new run in the lineage
+  starts — `MOR-482`'s reflog carries four `reset: moving to <sha>` entries
+  before any commit landed on it, and PR #277 binds agents, not the harness.
+  Push every commit to `origin/MOR-<n>` in the same heartbeat you make it —
+  unless a review round is open against the PR, where *The author holds the
+  head while a round is open* governs: the head is held, so do not make the
+  commit until the verdict lands. An unpushed commit survives only in one
+  local disk's reflog. If that push
+  would need `--force`, the branch has already moved under you — stop and
+  escalate it as a provisioning defect, same handling as a branch collision.
+  Do not force-push, and do not rebase to make the push fast-forward; that is
+  the move PR #277 bans.
 - **The tree check is not only a pickup check.** A foreign path can appear
   in your tree *mid-task* — after pickup, while a review verdict is live —
   and it gets the same handling as a branch collision. Do not clean it:
@@ -534,6 +683,22 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   mode, pinned image) on every PR — a red gate is a red PR, no exceptions. The
   lint/test configs are vendored from Bear's rust-toolkit; if a lint fights you,
   propose tuning it in a PR, don't `#[allow]` around it.
+- **A behaviour claim in the PR body names the test that proves it, per claimed
+  input.** The count rule above extends to behaviour, and the fail-closed class is
+  where it bites: a claim that the change *rejects*, *refuses* or *fails closed* on an
+  input is a claim nothing exercises incidentally — a working feature proves the accept
+  path and never the reject path — so each input the claim names carries its own
+  assertion through the production path that owns it, and the body names that assertion.
+  Where a named input has no assertion, the body says "not tested" for that input
+  instead of stating the behaviour as fact. A list of inputs is a list of claims: one
+  test behind a three-item list certifies two items nobody checked, the same fault as a
+  single citation over a whole rules table. Shipped text is held to the same bar — a
+  fail-closed claim in a doc comment is a behaviour claim, and it ships with the
+  assertion or it does not ship. PR #337 is the reason, and the tell was in the claim
+  itself: it named "chained `just a && just b`" as failing closed and "two new
+  self-tests, arged-green/multiline-red" as its coverage in one sentence. At head
+  `88aca54` that input derives `alpha`, and so does `run: just alpha; true` — a step
+  that can never red, reported as a CI home that can.
 - **Bring the branch up to date before you ask for review.** `main` is guarded
   by the `main-gate` ruleset (id `24735400`), which at version `v53013064`
   enforces a strict up-to-date status-check policy, so a branch BEHIND `main`
@@ -551,12 +716,45 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   assert anything about what blocks a merge. When a procedure doc states a
   ruleset rule, it states the rule operatively and cites a named ruleset
   version — `ruleset 24735400 v53013064` — never the live value.
-- **Sweep for reachability before you hand over.** Walk the spec's requirement
-  list and, for each one, name the production-path test that proves it. Where
-  the requirement landed in a library module, grep for a caller:
-  `grep -rn "<export_name>" src web/src`. Hits confined to the defining module
-  mean the requirement is unbuilt — a green unit test does not change that.
-  Report the sweep in the PR body alongside the gate output.
+- **Sweep for reachability before you hand over.** Walk the spec's
+  requirement list — the requirement list, never the module's export list —
+  and, for each one, name the production-path test that proves it and the
+  call site that reaches it. The unit of the census is the **named action
+  the requirement is implemented as**, whatever its shape: an exported
+  function, a method on an object a factory returns, a store action, a
+  handler a component is passed. A reachable factory says nothing about the
+  actions it returns, so counting the factory is not a sweep. Where the
+  requirement landed in a library module, grep for a caller of that action:
+  `grep -rn "<action_name>" src web/src`. Hits confined to the defining
+  module and its tests mean the requirement is unbuilt — a green unit test
+  does not change that. Report the sweep in the PR body alongside the gate
+  output, one row per requirement naming the action, its caller, and its
+  production-path test. PR #311 is the reason the unit is written down: its
+  sweep counted module exports, `createStashState` among them with callers
+  in `web/src/App.svelte`, and reported everything reachable — while
+  `adjustQty`, `editMeta` and `adjustBank`, the actions that factory
+  returns, had no caller anywhere in `web/src` at head `c7e7e3c`.
+  `adjustBank` is `specs/014-shared-inventory` FR-7's party bank and
+  carried nine test references with no UI path to it. An export census that
+  passes while three spec'd actions are unreachable cannot fail the way the
+  sweep was meant to.
+
+  **The sweep walks what the diff removes, not only what it adds.** Read the
+  deleted lines for call sites
+  (`git diff <base>...<head> -- src web/src | grep '^-' | grep -v '^---'` — a
+  git pathspec is root-relative, so `-- src` alone matches nothing under
+  `web/`, and the `--- a/<path>` headers read as deleted lines), and for
+  every symbol whose last production call the diff deletes, run the same
+  `grep -rn "<symbol>" src web/src`. Hits confined to the defining module
+  and its tests mean the diff made that symbol unbuilt — report it, the same
+  as an unbuilt requirement. PR #250 is the reason: its sweep was clean over
+  every symbol the PR added, while replacing two `authorize(...)` calls with
+  a hand-rolled membership `if` deleted the only production callers of
+  `Resource::Stash` and `Resource::PartySettings`, so two of
+  `specs/014-shared-inventory` design D4's three
+  authz-matrix rows went dead in production with `gate` `success` at head
+  `275b2c1` (check-run `116275069010`) and `src/auth/tests/authz.rs` still
+  testing code nothing called.
 - Priority order is P0 → P1 → P2 as tagged in the PRD's functional requirements.
 - Feedback on the PRD itself goes to the PRD (via issue or PR against `docs/PRD.md`),
   not into code comments.
@@ -649,3 +847,134 @@ here — which is why the citation rule carries the weight it does.
 - **Vex** — Josh's engineering agent (PM/eng on this project).
 - Constitution amendments need both owners. Everything else, one owner's PR
   approval suffices.
+
+## Tool output never goes to a host path
+
+The shell's cwd is a checked-out worktree, not a neutral directory. A name that
+looks absolute stops being one the moment the leading `/` is lost — stripped by
+a wrapper (`"${HOST_PATH#/}"`), dropped in interpolation, or read slash-less out
+of a tool response or a path variable — and once it is relative, a `mkdir -p`
+over the same string creates the parent chain *under the worktree*, so the write
+lands in the tree. The root shape of it is git-ignored by `.gitignore` (`/home/`,
+`/.tmp/`, `/.paperclip/`), so plain `git status` does not show it — `--ignored`
+does:
+
+```
+$ mkdir -p home/flinn/.tmp/paperclip-<run>
+$ echo '{"e":5}' > home/flinn/.tmp/paperclip-<run>/x.json
+$ git status --short                 # (no output — /home/ is ignored; see .gitignore)
+$ git status --short --ignored
+!! home/
+```
+
+Both lines are needed. Without the `mkdir -p` the redirect exits 1 with `No such
+file or directory` and nothing is contaminated — measured in a clean tree. The
+`mkdir -p` is the step that makes it reproduce, so it is part of the
+reproduction, not a precondition to footnote.
+
+A literal absolute path does not behave that way. Point `$W` at a directory that
+is not beneath the tree, and each outcome is a command. Pointing `$W` *at* the
+tree does not test the claim: `"$W/out/x.json"` is then an absolute path that
+*is* under the tree, and the block demonstrates contamination instead.
+
+- *Parent exists → lands at the absolute path, tree clean.* From a clean tree:
+
+  ```
+  $ W="$(mktemp -d)"                      # a directory NOT beneath the tree
+  $ mkdir -p "$W/out"                     # rc 0
+  $ echo '{"e":5}' > "$W/out/x.json"      # rc 0
+  $ test -f "$W/out/x.json" && echo wrote # wrote
+  $ git status --short                    # (no output)
+  ```
+
+- *Parent missing → rc 1, tree clean.* Same tree, no `mkdir`:
+
+  ```
+  $ echo '{"e":5}' > "$W/absent-9x/y.json"  # rc 1: No such file or directory
+  $ git status --short                      # (no output)
+  ```
+
+  Read `git status` in a tree that is clean *before* the write. Contamination is
+  sticky — an `!! home/` from an earlier repro stays listed under `--ignored` and
+  reads as if the absolute write caused it.
+
+What contaminated a workspace here was a host path carried without its leading
+`/`, so the rule is about the name, not the redirection:
+
+- Never name an output file from a host path **carried in from outside this
+  worktree** — as a literal, a variable, a template, or a value read from a tool
+  response or a path-stripping wrapper. Every directory outside this worktree is
+  a candidate — `/tmp`, a service home, another repo's checkout.
+- Never `>`, `tee`, or an `--output`/`-o`/`-f` flag to a path built by
+  concatenating host-path components **carried in from outside this worktree**.
+
+The one exemption is the directory this run's harness names for you, enumerated
+in the paragraph below; it is not inferred from a path's look.
+
+The bullets are about where the name came from, not its shape, because shape
+cannot decide it: `$PAPERCLIP_RUN_SCRATCH_DIR/x.json` and
+`"${WORKTREE_DIR#/}/x.json"` (`$WORKTREE_DIR` is a stand-in for a worktree path,
+not an env var this harness sets) are both an absolute path in a variable, used as
+a template — and only the second is what the bullets mean. From a clean tree, the
+scratch variable passes whole and stays clean; the stripped worktree path needs
+one `mkdir -p` and then contaminates:
+
+```
+$ echo '{"e":5}' > "$PAPERCLIP_RUN_SCRATCH_DIR/x.json"   # rc 0
+$ git status --short                                     # (no output)
+$ mkdir -p "${WORKTREE_DIR#/}"                           # the step that makes it reproduce
+$ echo '{"e":5}' > "${WORKTREE_DIR#/}/x.json"            # rc 0
+$ git status --short                                      # (no output — /home/ is ignored)
+$ git status --short --ignored
+!! home/
+```
+
+What the scratch dir is *not* is exempt. Used whole it is the prescribed
+substitute; run through a stripping wrapper or a slash-less interpolation it
+reaches the tree like any other absolute path. A stripping wrapper is not picky
+about which absolute it eats. Here is the same tree's own path taken from
+`git rev-parse --show-toplevel` — a value read straight out of a tool response —
+stripped and run through the mechanism. In a tree clean before the write:
+
+```
+$ W="$(git rev-parse --show-toplevel)"
+$ U="${W#/}"
+$ mkdir -p "$U"                                      # rc 0
+$ echo '{"e":5}' > "$U/x.json"                       # rc 0
+$ git status --short                                 # (no output — /home/ is ignored)
+$ git status --short --ignored
+!! home/
+```
+
+The scratch dir is no further from the tree than that, and it fails the same way:
+`mkdir -p "${PAPERCLIP_RUN_SCRATCH_DIR#/}"` then a write to a child of that
+string is rc 0 and yields `!! home/` under `git status --short --ignored`.
+Write to that same string *itself* and
+`mkdir -p` has just made it a directory — rc 1, `Is a directory`, tree still
+clean — the `mkdir -p` has left the directory chain in the tree and `git status`
+cannot see it, because git does not track empty directories, so this form fails
+safe only until something writes into it. From the worktree toplevel that write
+reads `!! home/` under `git status --short --ignored`, never `?? home/`: `.gitignore`
+anchors `/home/` at the root, so plain `git status` is silent on it. Run the same
+write from a *tracked* subdirectory and the entry appears as `?? home/`, because
+the entry is relative to cwd and `mkdir -p` built the chain under cwd — while the
+toplevel still reads `?? src/home/`, since `/home/` is root-anchored and never
+matches `src/home/`. `?? ./` appears only where cwd is itself
+untracked, and there it fires whether or not anything contaminated the tree, so
+it is not an oracle.
+Whether the scratch dir sits beside `$HOME` or under it does not decide
+anything, which is why `$HOME` is not the test; the condition is whether the
+absolute value survives intact to the redirect. The earlier "outside every
+worktree precisely so this cannot happen" over-claimed on that point.
+
+Write output to a workspace-relative path you chose and clean it up, or — on a
+Paperclip seat — under `$PAPERCLIP_RUN_SCRATCH_DIR`, passed whole. It is run-owned
+and outside every worktree, which is why it is the substitute; it does not need to
+sit outside `$HOME`, and it earns nothing by passing through a wrapper.
+
+`set -C` is not a guard, for two reasons, and the first governs: it blocks only
+*overwriting an existing file*, and a contaminating path is always new
+(`set -C; printf x > fresh.json` returns 0, where the same redirect against an
+existing file is refused). The second is that a tool writing its own output is
+never blocked either — `tee` and `curl -o` both overwrite under `set -C` at rc
+0 — and `set -C` is not inherited by a child shell.

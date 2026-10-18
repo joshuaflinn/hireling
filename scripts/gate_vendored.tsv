@@ -1,0 +1,12 @@
+# Vendored gate-file manifest. One row per vendored file or directory,
+# three tab-separated fields: <image-path> <vendored-path> <sha256>.
+# File rows (no trailing slash): sha256 of the image's raw bytes, i.e.
+# everything below the marker line in the vendored file. Directory rows
+# (BOTH fields end in /): sha256 of the canonical tree digest — sorted
+# relpath<TAB>file-sha256 lines, hashed — the same form both
+# scripts/fetch_gate_file.py and scripts/check_gate_vendored.py compute.
+# A directory row's vendored tree is git-ignored and re-created on demand
+# (`just vendor-semgrep`); the manifest hashes it, the tree does not commit it.
+# Written by scripts/fetch_gate_file.py; read by scripts/check_gate_vendored.py.
+etc/grizzly-gate/config/languages/node/eslint.config.mjs.tmpl	web/gate-eslint.config.mjs.tmpl	f157de2eaa4b6f55ec73135f329d0a88e4d99c3747f7b3043e6ab975b723a2d5
+etc/grizzly-gate/config/util/semgrep/rules/	gate-semgrep-rules/	bbb457adf8e88538f66fbf809110429076961ba3f48b15457d6d72bd8aa1d730

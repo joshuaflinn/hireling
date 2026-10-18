@@ -13,15 +13,28 @@ on:
   push:
     branches: [main]
 
-# The pinned gate image, named once: the docker run below and the cache key
-# both read this, so a deliberate digest bump — always its own PR — rolls the
-# cache key over with the same single edit instead of drifting apart.
+# The pinned gate image, named once: the cache key, the first restore-keys
+# line, and the two step-level GATE_IMAGE_REF env lines below — four readers
+# — all read this, so a deliberate digest bump — always its own PR — rolls
+# the cache key and both docker runs over with the same single edit instead
+# of drifting apart. The GATE_IMAGE_REF indirection keeps `${{ }}` out of
+# `run:` bodies: the image's curl-pipe security rules hand a `run:` body to a
+# Bash parser that cannot read GitHub expressions, and a skipped parse reads
+# as a clean pass (gh#332).
 env:
   GATE_IMAGE: bearflinn/grizzly-gate@sha256:25c6193d39ee9460f8e0dc2413e728723943caeb2b550249061c045cab42bc4e
 
 jobs:
   gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    # Pinned label, not ubuntu-latest: this job does real work on the runner
+    # host outside the pinned gate image — host-side cargo under a rustup
+    # auto-install, setup-node + npm ci, a sudo install of the just musl
+    # binary, docker run, a postgres:16-alpine service container, and the
+    # hardcoded /home/runner/.cache/grizzly-gate cache path. The gate is this
+    # repo's certificate; its host image moves only by a reviewed one-line PR,
+    # never by ubuntu-latest riding a major OS migration into a red that
+    # reads as a code defect.
     # The database-backed suite runs for real here. gh#125: the gate image
     # ships no Postgres, so every DB provision in every run before this
     # service existed burned sqlx's 30s acquire_timeout against a refused
@@ -49,7 +62,7 @@ jobs:
           --health-timeout 2s
           --health-retries 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # grizzly-gate, standalone checker mode — the gate is the first reviewer.
       # Pinned by digest (bearflinn/grizzly-gate:4ba8fc3). Bump deliberately, in
@@ -71,25 +84,30 @@ jobs:
       # First run on a fresh branch is still warm: caches saved on the base
       # branch are readable from pull_request runs.
       #
-      # Keys: exact key on lockfile + toolchain + image digest; restore falls
-      # back to the same image, then to any prior gate tree. Stale artifacts
+      # Keys: exact key on the pinned runner label + lockfile + toolchain +
+      # image digest; restore falls back to the same image, then to any prior
+      # gate tree. The label is the literal ubuntu-24.04, matching the runs-on:
+      # line — runner.os is "Linux" on every Ubuntu, so a runner-image change
+      # under runner.os alone would restore a cache built on the old image
+      # under an unchanged key. The literal must move in the same edit as
+      # runs-on:; together they are the reviewed one-line PR. Stale artifacts
       # are safe — cargo fingerprints invalidate on compiler/toolchain change
       # and rebuild what moved.
       - name: Restore gate cargo cache
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /home/runner/.cache/grizzly-gate
-          key: grizzly-gate-${{ runner.os }}-${{ env.GATE_IMAGE }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('rust-toolchain.toml') }}
+          key: grizzly-gate-ubuntu-24.04-${{ env.GATE_IMAGE }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('rust-toolchain.toml') }}
           restore-keys: |
-            grizzly-gate-${{ runner.os }}-${{ env.GATE_IMAGE }}-
-            grizzly-gate-${{ runner.os }}-
+            grizzly-gate-ubuntu-24.04-${{ env.GATE_IMAGE }}-
+            grizzly-gate-ubuntu-24.04-
 
       # Repo-side guardrails, run before the image below. The gate image owns
       # 16 passes; `just ci-local` (see justfile) carries legs it has never
-      # run — web-test, web-css-guard, web-html-boundary, json-keys,
-      # boundary. They ride this job because the main-gate ruleset requires
-      # exactly one status
-      # context, `gate` — a second job would publish an unrequired context
+      # run — disk-guard, web-test, web-css-guard, web-html-boundary,
+      # json-keys, boundary. They ride this job because the main-gate ruleset
+      # requires exactly one status context, `gate` — a second job would
+      # publish an unrequired context
       # that could sit red while the merge button stays live. Every guard
       # step and the image run below carry if: ${{ !cancelled() }}: one red
       # run must list every failure it has (a json-keys red must not hide a
@@ -128,9 +146,11 @@ jobs:
       # verified below before the binary lands — a replaced or re-tagged
       # asset fails this step instead of executing. The fetch retries: a
       # transient CDN failure must not redden the required gate on code
-      # nobody touched. Nothing here warms a Rust toolchain: the boundary
-      # step's host-side cargo gets the rust-toolchain.toml pin from
-      # rustup's auto-install on its first invocation. Bump deliberately:
+      # nobody touched. Nothing here warms a Rust toolchain: the disk-guard
+      # step's host-side cargo — the first host cargo invocation, since it
+      # is the first ci-local leg — gets the rust-toolchain.toml pin from
+      # rustup's auto-install on its first invocation, and boundary below
+      # reuses it. Bump deliberately:
       # version and sha256 move together, both read from upstream's
       # release assets at pin time.
       - name: Install just
@@ -149,6 +169,22 @@ jobs:
           tar --extract --gzip --file just.tar.gz just
           sudo install --mode 0755 just /usr/local/bin/just
           just --version
+
+      # Free-space floor, the first ci-local leg (justfile): fail before the
+      # expensive legs when the runner cannot absorb another build. The
+      # runner has ample headroom — the green run at 9487e3a logged
+      # "disk-guard ok: 75.4G free on /" with the gate cache already
+      # restored (gh run view 38742381851 --log | grep 'free on') — so CI
+      # runs the bench's 10G default, no override. The decision lives in
+      # diskops, a std-only zero-dep crate, so this compiles in seconds —
+      # and it is the first host-side cargo invocation, warming the
+      # rust-toolchain.toml pin before boundary below needs it. CARGO_HOME
+      # points at the restored gate cache, same as boundary.
+      - name: disk-guard — free-space floor
+        if: ${{ !cancelled() }}
+        run: just disk-guard
+        env:
+          CARGO_HOME: /home/runner/.cache/grizzly-gate/cargo
 
       - name: web-test — vitest suite
         if: ${{ !cancelled() }}
@@ -200,6 +236,106 @@ jobs:
         if: ${{ !cancelled() }}
         run: just ci-drift
 
+      # The vendored-config drift check (gh#314): web/gate-eslint.config.mjs.tmpl
+      # is vendored from the pinned image's own eslint flat config by
+      # scripts/fetch_gate_file.py.
+      # This step is that guard's CI home (direction A of ci-drift: a
+      # repo-side leg needs a `run: just <leg>` step here) and reds when a
+      # vendored copy stops hashing to what scripts/gate_vendored.tsv records.
+      # A digest bump that forgets to re-vendor reds here before the image
+      # even runs.
+      #
+      # --allow-unvendored: CI checks out a git tree, and gate-semgrep-rules/
+      # is git-ignored, so the vendored rule directory is structurally absent
+      # here — the same fetch that populates it is the one that cannot reach
+      # the registry from a bare checkout any better than the bench can.
+      # Absence is red on a bench (where `just vendor-semgrep` can run) and
+      # opt-out tolerated here, because the image-side step below is what
+      # actually proves the rules are the pinned ones. `just scan-semgrep`
+      # does not run in CI at all: the image runs its own semgrep pass, which
+      # reads its own on-image rules and never looks at this directory.
+      - name: check-vendored — vendored config matches its recorded hash
+        if: ${{ !cancelled() }}
+        run: just check-vendored --allow-unvendored
+
+      # The other half of gh#314: the pinned digest must still carry the
+      # bytes we vendored. The offline check above hashes the vendored copies
+      # against the manifest; this extracts every manifest row's file from
+      # the image itself (cat via --entrypoint) and hashes each against the
+      # manifest too. The loop reads scripts/gate_vendored.tsv, not a
+      # hand-kept list, so a row added there is image-checked without a
+      # second edit here; --require-image-sources reds if the loop missed a
+      # row. Fails closed: a missing file, an unknown key, or a failed
+      # docker run reds the step under bash -e.
+      - name: check-vendored — image carries every vendored file
+        if: ${{ !cancelled() }}
+        env:
+          GATE_IMAGE_REF: ${{ env.GATE_IMAGE }}
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS=$'\t' read -r image_path _ _; do
+            [ -n "$image_path" ] || continue
+            if [ "${image_path%/}" != "$image_path" ]; then
+              # Directory row: tar the subtree out of the image and unpack it.
+              dir="$RUNNER_TEMP/image-$(printf '%s' "$image_path" | tr '/' '_').dir"
+              mkdir -p "$dir"
+              docker run --rm --entrypoint tar "$GATE_IMAGE_REF" \
+                -c -C "/${image_path%/}" . | tar -x -C "$dir"
+              args+=(--image-source "$image_path=$dir")
+            else
+              # File row: cat a single file out of the image.
+              out="$RUNNER_TEMP/image-$(printf '%s' "$image_path" | tr '/' '_').tmp"
+              docker run --rm --entrypoint cat "$GATE_IMAGE_REF" "/$image_path" > "$out"
+              args+=(--image-source "$image_path=$out")
+            fi
+          done < <(grep -v '^#' scripts/gate_vendored.tsv)
+          # --allow-unvendored: same reason as the offline step above — the
+          # git-ignored rule directory is structurally absent from a CI
+          # checkout, and this step's job is to prove the image still carries
+          # the pinned bytes (check_image_sources), not the local tree.
+          python3 scripts/check_gate_vendored.py --allow-unvendored --require-image-sources "${args[@]}"
+
+      # The image's pinned semgrep version, asserted against the number named
+      # in scripts/gate_passes.tsv's scan:semgrep row (MOR-727). The bench
+      # installs semgrep unpinned (pipx install semgrep); the image pins its
+      # own. PR #139 is the precedent: a bench tool at a different version
+      # than the image's can answer a different question and stay green. The
+      # expected semver is read from the scan:semgrep row — the single
+      # repo-side authority — and compared to the image's own
+      # `semgrep --version`; a mismatch reds, so the row cannot drift
+      # uncaught and the number is never restated here. A failed docker run
+      # reds too (bash -e over the substitution and the grep).
+      - name: semgrep version — image's pinned CLI matches the declared row
+        if: ${{ !cancelled() }}
+        env:
+          GATE_IMAGE_REF: ${{ env.GATE_IMAGE }}
+        run: |
+          set -euo pipefail
+          expected="$(awk -F'\t' '$1 == "scan:semgrep" { print $3 }' scripts/gate_passes.tsv \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"
+          if [ -z "$expected" ]; then
+            echo "semgrep version: no semver found in the scan:semgrep row" >&2
+            exit 1
+          fi
+          actual="$(docker run --rm --entrypoint semgrep "$GATE_IMAGE_REF" --version)"
+          printf 'semgrep version: image %s, scan:semgrep row %s\n' "$actual" "$expected"
+          printf '%s\n' "$actual" | grep -qx "$expected" || {
+            echo "semgrep version drift: image $actual != scan:semgrep row $expected" >&2
+            exit 1
+          }
+
+      # The runner-label drift check (gh#331): the workflow's `runs-on:`
+      # label and the label embedded in the cache key/restore-keys must
+      # agree. PR #319 made the runner label a hand-kept literal in four
+      # places; a mismatch is a silent cache miss, not a red gate (runner.os
+      # is "Linux" on every Ubuntu, so the key cannot catch it either). This
+      # step is that guard's CI home and reds when the workflow's own text
+      # drifts — runs-on moved but the key stayed, or the reverse.
+      - name: check-runner-label — runner label matches the cache key
+        if: ${{ !cancelled() }}
+        run: just check-runner-label
+
       # GIT_CONFIG_*/safe.directory: the cache restore extracts as the runner
       # user, so cached git state (cargo-deny's advisory DB, any future git
       # deps) comes back runner-owned while the container runs as root — git
@@ -226,6 +362,8 @@ jobs:
       - name: Run grizzly-gate
         if: ${{ !cancelled() }}
         shell: bash
+        env:
+          GATE_IMAGE_REF: ${{ env.GATE_IMAGE }}
         run: |
           set -o pipefail
           docker run --rm \
@@ -238,7 +376,7 @@ jobs:
             -e GIT_CONFIG_KEY_0=safe.directory \
             -e GIT_CONFIG_VALUE_0=* \
             -w /src \
-            "${{ env.GATE_IMAGE }}" \
+            "$GATE_IMAGE_REF" \
             --source /src 2>&1 | tee "$RUNNER_TEMP/gate-image-output.log"
         # --network host: the gate container's 127.0.0.1 is its own network
         # namespace, so without this the service Postgres above is unreachable

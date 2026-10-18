@@ -80,16 +80,93 @@ web-check: web-deps
 web-tsc: web-deps
     cd web && ./node_modules/.bin/tsc --noEmit -p tsconfig.json
 
-# The gate image's node:eslint pass, replicated bench-side. The image
-# lints with --no-config-lookup and its own flat config — ES builtins
-# only, no browser/node env — so every platform global must be declared
-# in-file (/* global */ header; convention: web/src/lib/sync/index.js).
-# The replica config is web/gate-eslint.config.mjs, calibrated
-# one-for-one against gate run 37850972131 (44 findings before the
-# header fixes, clean after, nothing extra). A gate-image digest bump
-# that moves the rule set updates that config in the same PR.
+# The gate image's node:eslint pass, replicated bench-side over the image's
+# OWN flat config — not a hand-typed replica. web/gate-eslint.config.mjs.tmpl
+# is vendored verbatim from the pinned digest (etc/grizzly-gate/config/
+# languages/node/eslint.config.mjs.tmpl) by scripts/fetch_gate_file.py, and
+# scripts/check_gate_vendored.py reds when it drifts (`just check-vendored`).
+# It is kept as a `.tmpl` — the same shape the image ships — so neither the
+# gate's honest-map walk nor node:eslint sees a live `.mjs`; this leg
+# materializes it into web/node_modules/ (auto-ignored by ESLint 9) and
+# removes it after, reproducing the image's own "copy beside node_modules,
+# then delete" contract (ADR-033).
+# The image lints with --no-config-lookup and ES builtins only (no browser/
+# node env), so platform globals must still be declared in-file
+# (/* global */ header; convention: web/src/lib/sync/index.js).
+#
+# The vendored config reads two runtime knobs from process.env; this leg
+# supplies them to reproduce the image's adapter contract (see the config's
+# own header, ADR-033):
+#   GATE_TSCONFIG  — the repo's tsconfig, absolute (the image passes its
+#                    wrapped tsconfig: same strictness — web/tsconfig.json
+#                    is strict:true — plus skip_dirs unioned into exclude).
+#   GATE_SKIP_DIRS — the image's Ops-owned skip_dirs, hand-copied from the
+#                    pinned digest's config/detect.toml (verified 15/15 at
+#                    vendoring 2026-10-15); not re-read by any guard — gh#322
+#                    files wiring it to the manifest (which needs a raw-byte
+#                    vendoring format: non-JS files cannot carry the `//`
+#                    provenance header).
+# The eslint toolchain in web/package.json (eslint 9.39.4, typescript-eslint
+# 8.62.0, react 7.37.5, react-hooks 7.1.1, svelte-plugin 3.20.0, plus
+# svelte-eslint-parser 1.8.0 and typescript 6.0.3) matches the image's
+# languages/node/package.json dependencies — verified at vendoring
+# (2026-10-15), not re-read by any guard; gh#322 files wiring that check.
+# svelte (5.57.1) and svelte-check (4.7.6) are the app's own versions, not
+# the image's 5.56.4/4.7.1 — they are not part of the eslint toolchain.
+#
+# One constructional difference from the image, a written exemption: the
+# image lints the whole project with -f json; the bench lints the same files
+# (`.`) but drops the json formatter so findings are human-readable. The rule
+# set and the file set are identical; of the env knobs, GATE_TSCONFIG is the
+# second written exemption above — the bench passes the repo's raw
+# web/tsconfig.json, the image its harness-wrapped one (same strictness, plus
+# skip_dirs unioned into exclude).
 web-eslint: web-deps
-    cd web && ./node_modules/.bin/eslint --no-config-lookup --config gate-eslint.config.mjs src tests scripts plugins vite.config.js
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd web
+    trap 'rm -f node_modules/eslint.config.mjs' EXIT
+    cp gate-eslint.config.mjs.tmpl node_modules/eslint.config.mjs
+    GATE_TSCONFIG="$(pwd)/tsconfig.json" \
+    GATE_SKIP_DIRS="node_modules,target,vendor,.venv,venv,__pycache__,.mypy_cache,.pytest_cache,.ruff_cache,.cargo,.gradle,.tox,dist,build,.svelte-kit" \
+        ./node_modules/.bin/eslint --no-config-lookup --no-error-on-unmatched-pattern --config node_modules/eslint.config.mjs .
+
+# The drift check over the vendored gate config (gh#314): the vendored file
+# must still hash to what scripts/gate_vendored.tsv records, and (CI-side,
+# --image-source) the pinned digest must still carry those bytes. The self-
+# test re-proves every red direction; the real check is the guardrail. A
+# git-ignored rule tree absent from a fresh checkout self-provisions here
+# (MOR-729) from the pinned digest, without touching the manifest — unless
+# --allow-unvendored says the registry is unreachable, in which case the
+# absent-tree note is tolerated and the scan leg still self-vendors or reds.
+# `fetch_gate_file.py --self-test` runs first: the producer of the vendored
+# tree self-tests in the leg that consumes it. `scan-semgrep` also invokes that
+# producer, but `check-vendored` is the home that CI reaches — it is the one of
+# the two carrying a `run: just` guard step in `.github/workflows/gate.yml`.
+check-vendored *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    python3 scripts/fetch_gate_file.py --self-test
+    python3 scripts/check_gate_vendored.py --self-test
+    if [ ! -d gate-semgrep-rules ]; then
+        if [[ " {{args}} " == *" --allow-unvendored "* ]]; then
+            echo "check-vendored: gate-semgrep-rules/ absent and --allow-unvendored set — skipping self-provision (registry unreachable)"
+        else
+            echo "check-vendored: gate-semgrep-rules/ absent — materializing from the pinned image (~1.2 GB), without touching the manifest"
+            python3 scripts/fetch_gate_file.py etc/grizzly-gate/config/util/semgrep/rules/ \
+                --output gate-semgrep-rules
+        fi
+    fi
+    python3 scripts/check_gate_vendored.py {{args}}
+
+# The runner-label drift check (gh#331): the gate workflow's `runs-on:`
+# label and the label embedded in the cache key/restore-keys must agree.
+# After PR #319 those four literals are hand-kept; a mismatch is a silent
+# cache miss, not a red gate. The self-test re-proves every red direction;
+# the real check is the guardrail.
+check-runner-label:
+    python3 scripts/check_runner_label.py --self-test
+    python3 scripts/check_runner_label.py
 
 # The prose boundary (E9, contracts/inert-html.md §3): `{@html}` is banned
 # for prose repo-wide — every markup-carrying string renders through the one
@@ -120,28 +197,71 @@ web-css-guard: web-deps
     fi
     echo "web-css-guard ok: no unused-selector warnings in the build"
 
-# The gate image's scan:semgrep pass, replicated bench-side over the web
-# tree with the registry rules it has enforced there (calibrated by fire
-# against runs 37850972131 and 37981907115: missing-template-string-
-# indicator on the emitted-worker template; package-dependencies-check
-# on web/package.json — exact versions only, which the tree already
-# kept; and 38080211231: html-in-template-string, the run that red-flagged
-# the vetted anchor literal in inert-html.js while ci-local was green).
-# The image's full rule set is wider; a digest bump that moves it
-# updates this invocation in the same PR. Needs the semgrep CLI on PATH
-# (`pipx install semgrep`) — a scan that skips is not a scan, so a
-# missing CLI fails loudly instead.
+# The gate image's scan:semgrep pass, mirrored over the repo root with the
+# image's OWN rule directory (gh#320). gate-semgrep-rules/ is vendored verbatim
+# from the pinned digest's etc/grizzly-gate/config/util/semgrep/rules/ by
+# scripts/fetch_gate_file.py (directory mode) and git-ignored; `just
+# vendor-semgrep` re-creates it and `just check-vendored` hashes it. The
+# invocation below reproduces the image's own scan contract from
+# etc/grizzly-gate/config/util/semgrep/manifest.toml: same --exclude set
+# (plus gate-semgrep-rules itself, so the vendored rules are not scanned by
+# the vendored rules), same --exclude-rule (the check_id is derived from the
+# --config path, so the vendored path prefixes it), same --json --error
+# --quiet. `--metrics=off` is a bench-only knob (the image runs offline).
+# Needs the semgrep CLI on PATH (`pipx install semgrep`) — a missing CLI
+# fails loudly. An absent rule tree self-provisions here (MOR-729) from the
+# pinned digest, fetched by scripts/fetch_gate_file.py WITHOUT --manifest so
+# the pin the drift check compares against is never rewritten, then verified
+# against the recorded digest; that fetch reds if the registry is
+# unreachable, so the scan still cannot skip.
+# scripts/semgrep_fail_closed.py then reads the JSON and reds on any
+# warn/PartialParsing entry, the blind-spot class gh#332 names.
+# Its `--self-test` runs first, above the CLI precondition, so the pure suite
+# still runs on a bench with no semgrep installed. `just scan-semgrep` has no
+# `run: just` step in `gate.yml` — its CI home is the image's own `scan:semgrep`
+# mirror, which cannot execute this suite — so this placement covers the bench.
 scan-semgrep:
     #!/usr/bin/env bash
+    set -euo pipefail
+    cd "$(git rev-parse --show-toplevel)"
+    python3 scripts/semgrep_fail_closed.py --self-test
     if ! command -v semgrep >/dev/null 2>&1; then
         echo "scan-semgrep: semgrep CLI not found — install it (pipx install semgrep) or run the pinned gate image (CONTRIBUTOR.md)" >&2
         exit 1
     fi
-    SEMGREP_SEND_METRICS=off semgrep scan --metrics=off --error \
-        --config https://semgrep.dev/r/javascript.lang.correctness.missing-template-string-indicator \
-        --config https://semgrep.dev/r/json.npm.security.package-dependencies-check \
-        --config https://semgrep.dev/r/javascript.lang.security.html-in-template-string \
-        web
+    if [ ! -d gate-semgrep-rules ]; then
+        echo "scan-semgrep: gate-semgrep-rules/ absent — materializing from the pinned image (~1.2 GB), without touching the manifest"
+        python3 scripts/fetch_gate_file.py etc/grizzly-gate/config/util/semgrep/rules/ \
+            --output gate-semgrep-rules
+        python3 scripts/check_gate_vendored.py
+    fi
+    semgrep_json="$(mktemp)"
+    trap 'rm -f "$semgrep_json"' EXIT
+    set +e
+    SEMGREP_SEND_METRICS=off semgrep scan --metrics=off --json --error --quiet \
+        --exclude=dist --exclude=build --exclude=.svelte-kit --exclude=gate-semgrep-rules \
+        --exclude-rule=gate-semgrep-rules.python.lang.correctness.common-mistakes.string-concat-in-list \
+        --config gate-semgrep-rules \
+        . > "$semgrep_json"
+    rc=$?
+    set -e
+    if [ "$rc" -ge 2 ]; then
+        echo "scan-semgrep: semgrep exited $rc (failed to run, not findings) — see output above" >&2
+        exit "$rc"
+    fi
+    python3 scripts/semgrep_fail_closed.py "$semgrep_json"
+    exit "$rc"
+
+# Vendor the image's semgrep rule directory (gh#320) — the same
+# scripts/fetch_gate_file.py mechanism that vendors the eslint config, in
+# directory mode (trailing slash on IMAGE_PATH). Re-run after a digest bump
+# or when check-vendored reds on the directory row's tree digest. The tree
+# is git-ignored; `just scan-semgrep` reads it and `just check-vendored`
+# hashes it, so it is reproduced by the same authority the gate runs, never
+# by hand.
+vendor-semgrep:
+    python3 scripts/fetch_gate_file.py etc/grizzly-gate/config/util/semgrep/rules/ \
+        --output gate-semgrep-rules --manifest scripts/gate_vendored.tsv
 
 # Vite dev server for frontend-only iteration (proxies nothing; use `just dev`
 # for the real full-stack path).
@@ -276,6 +396,38 @@ json-keys:
     python3 scripts/check_json_dup_keys.py --self-test
     python3 scripts/check_json_dup_keys.py
 
+# The disk floor for `disk-guard`, overridable three ways (precedence:
+# `just disk-floor-gb=<n>` on the command line, then `DISK_FLOOR_GB` in the
+# environment, then this 10G default). 10G is ~3x a measured full gate build
+# — a leaked target-gate-* dir runs 2.2–3.7G (`du -sh` on this bench) — so
+# the floor leaves headroom for one build plus the checkouts, node_modules
+# and git objects that share the filesystem, without crying wolf on every
+# bench holding a little history. CI runs the same default: the runner
+# logged 75.4G free with the gate cache already restored, so no override is
+# needed.
+disk-floor-gb := env_var_or_default("DISK_FLOOR_GB", "10")
+
+# Free-space guard: fail fast, before the expensive ci-local legs, when the
+# filesystem holding the build output has less than disk-floor-gb free. The
+# decision lives in diskops (std-only, zero deps), so it compiles in under
+# a second even on a nearly-full disk — the only thing a completely full
+# disk cannot do is compile anything at all, and that failure is its own
+# message. Fires with the measured number and the remedy (free space, or
+# lower the floor via the disk-floor-gb variable).
+disk-guard:
+    cargo run -q --package diskops -- guard --floor-gib {{ disk-floor-gb }}
+
+# Reap leaked build dirs: sibling target-* dirs (external CARGO_TARGET_DIRs)
+# and stale hand-cut hireling-* worktrees that pass the AGENTS.md staleness
+# test (branch an ancestor of origin/main AND tree clean). Dry-run by
+# default; --prune removes. Hard exclusions are never touched, regardless of
+# liveness: MOR-<n> workspaces, dirty trees, and the shared hireling
+# checkout. Liveness is decided per candidate from /proc/<pid>/cwd, so a
+# permanent npm/node tooling process outside the sibling set does not block
+# the sweep (gh#301 round 2 F1).
+reap *args:
+    cargo run -q --package diskops -- reap {{ args }}
+
 # The guardrail guarding the guardrails (gh#151), the same script the gate
 # workflow's drift-check step runs: every ci-local leg has a CI home; every
 # pass declared in scripts/gate_passes.tsv is mirrored by a leg this
@@ -305,10 +457,10 @@ ci-drift:
 #
 # Repo-side legs — no image pass runs these; CI gates them as guard steps
 # in the gate job of .github/workflows/gate.yml, ahead of the image run:
-# json-keys, boundary, web-test, web-css-guard, web-html-boundary, and
-# ci-drift itself. That job's drift-check step runs this same ci-drift
-# recipe, so a new leg lands together with its CI home or the gate goes
-# red — bench and CI run one check, not two that can drift.
+# disk-guard, json-keys, boundary, web-test, web-css-guard,
+# web-html-boundary, check-vendored, check-runner-label, and ci-drift itself. That job's drift-check step runs
+# this same ci-drift recipe, so a new leg lands together with its CI home
+# or the gate goes red — bench and CI run one check, not two that can drift.
 #
 # The closing line exists because `just` stops at the first failed
 # dependency and this recipe had no body: a run that died six legs in
@@ -317,7 +469,7 @@ ci-drift:
 # prints only when every leg passed, so a piped run reads green only when
 # it is green. Note what it is not: the exit status is still the thing to
 # check, and a reader who ignores both is still reading one leg's output.
-ci-local: json-keys fmt-check lint test deny boundary web-check web-tsc web-test web-css-guard web-html-boundary web-eslint scan-semgrep ship-guard ci-drift
+ci-local: disk-guard json-keys fmt-check lint test deny boundary web-check web-tsc web-test web-css-guard web-html-boundary web-eslint check-vendored check-runner-label scan-semgrep ship-guard ci-drift
     @echo "ci-local: every leg above passed"
 
 # Alias — same gate, the name the spec calls it by.
