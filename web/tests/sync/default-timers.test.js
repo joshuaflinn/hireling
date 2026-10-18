@@ -4,8 +4,8 @@
 // browsers reject ("TypeError: Illegal invocation"). Node and jsdom accept it,
 // so the suite was blind. These tests pin the browser's receiver rule.
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { defaultTimers } from '../../src/lib/sync/index.js';
 import { createThrottledWriter } from '../../src/lib/party/boot.js';
+import { mockSockets, fakeStorage } from './fakes.js';
 
 /** Install browser-strict timer globals: throw unless called with the global receiver. */
 function strictTimers() {
@@ -26,11 +26,29 @@ function strictTimers() {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('default timers survive method-call receivers (browser rule)', () => {
-  it('sync defaultTimers can be called as timers.setTimeout / timers.clearTimeout', () => {
+  // Drives the production path, not the default object: SheetView.svelte:52
+  // calls createSync() with no `timers`, and the watchdog arms from both
+  // `onopen` and every inbound frame (connection.js:154, :167) — the two
+  // sites the outage threw from. The strict globals go in *before*
+  // sync/index.js evaluates (resetModules + dynamic import), because a
+  // module-level `{ setTimeout, clearTimeout }` captures jsdom's originals at
+  // load time and never consults a later stub — which is how the first cut of
+  // this test passed against the bug it names.
+  it('createSync default timers survive onopen + onmessage watchdog arming', async () => {
     strictTimers();
+    vi.resetModules();
+    const { createSync } = await import('../../src/lib/sync/index.js');
+    const mocks = mockSockets();
+    const sync = createSync({
+      url: 'ws://test/party/1',
+      storage: fakeStorage(),
+      accountSub: 'sub-a',
+      socketFactory: mocks.factory,
+    });
     expect(() => {
-      const id = defaultTimers.setTimeout(() => {}, 10);
-      defaultTimers.clearTimeout(id);
+      sync.connect();
+      mocks.sockets[0].open();
+      mocks.sockets[0].message(JSON.stringify({ t: 'snapshot', fields: [] }));
     }).not.toThrow();
   });
 
