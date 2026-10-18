@@ -767,7 +767,7 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
   tests; everything else gets a curated end-to-end suite.
 - **A test for a spec'd behavior must exercise the production path that owns
   it.** Testing the module underneath that path proves the module, not the
-  behavior. Six instances of the same rule:
+  behavior. Seven instances of the same rule:
   - *Observability* (audit, log, metric): send an HTTP request through the
     configured router for HTTP behavior, or call the public orchestration
     function for non-HTTP behavior; then assert the persisted record or
@@ -807,6 +807,21 @@ six users. Full spec: `docs/PRD.md`. UX baseline: `docs/reference/lorum_ipsum_da
     `the_pinned_vitals_fields_are_the_serde_wire_names_of_the_enum` and
     `the_pinned_effect_ops_are_the_write_paths_accepted_set` in
     `src/tests/sync/contract.rs`.
+  - *A regression test for a defect already seen in production*: name the
+    **error string** it fails with against the defect, not that it fails.
+    "It fails on `main` and passes here" is not evidence — the failure can
+    come from a missing export, an unresolved import or a renamed symbol
+    rather than the bug. So reproduce the defect at the head under review,
+    run the test against it, and quote the failure. PR #297 is the instance:
+    the sync half shipped a test that passed against the real bug and failed
+    on `main` only with `TypeError: Cannot read properties of undefined
+    (reading 'setTimeout')` — a resolution error. `Illegal invocation`, the
+    thing being guarded, never appeared. `gate` was `success` at that head.
+    Watch for load-order in particular: a stub installed in the test body
+    cannot be seen by a module-level capture that already evaluated, so
+    install it before the module loads (`vi.resetModules()` + dynamic
+    import) and drive the production entry point. Same family as PR #73
+    under [Rules exactness](#rules-exactness) — green gate, wrong substance.
 - Log generously on the backend: major branches, request IDs.
 - Commit messages: imperative, one line, what + why if non-obvious.
 
