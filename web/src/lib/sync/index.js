@@ -35,7 +35,15 @@ function defaultSocketFactory(url) {
   return /** @type {SyncSocket} */ (new WebSocket(url));
 }
 
-const defaultTimers = { setTimeout, clearTimeout };
+// Wrappers, not bare references: connection.js calls these as
+// `timers.setTimeout(...)`, which makes `this` the timers object — browsers
+// reject that with "TypeError: Illegal invocation" (Node does not, so the
+// suite never saw it). Resolved at call time against the global.
+/** @type {{ setTimeout: (fn: () => void, ms: number) => *, clearTimeout: (id: *) => void }} */
+const defaultTimers = {
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (id) => clearTimeout(id),
+};
 
 /**
  * Absolute ws(s) URL for a party socket from the current page location.
