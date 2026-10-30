@@ -183,8 +183,8 @@ html{overflow-y:scroll}
 .nprev .npvb .ntag{cursor:default}
 #pInv.invwrap{display:flex;flex-direction:column;gap:5px;background:none;border:0;padding:0}
 #pInv.invwrap[hidden]{display:none}
-/* a resized Inventory keeps its main panel stretched to the widget's height, so the widget's real bottom edge is visible */
-.widget.fixedh>#pInv.invwrap>#pInvMain{flex:1 1 auto;min-height:0;overflow:auto}
+/* in a resized Inventory the list is only as tall as its rows, so the bulk bar rides directly under it; a longer list scrolls and the bar stays in view */
+.widget.fixedh>#pInv.invwrap>#pInvMain{flex:0 1 auto;min-height:0;overflow:auto}
 .widget.fixedh>#pInv.invwrap>#pInvBulk{flex:none}
 .widget.fixedh>#pInv.invwrap{overflow:hidden}
 #pInvBulk{padding:8px 12px}
@@ -452,6 +452,16 @@ h3.chead .h3s{margin:0 auto 0 0;font-size:11.5px;color:var(--dim)}
 .tt-name{font-family:var(--serif);font-size:18px;color:var(--gold)}
 .tt-name .glyph{margin-right:7px;color:var(--gold);vertical-align:-1px}
 .tt-name .glyph svg{height:14px}
+.tt-edit{margin:0 auto 0 -4px;display:inline-flex;gap:2px;align-self:center}
+.tt-edit button{background:none;border:0;color:var(--dim);font-size:14px;line-height:1;padding:0 3px;cursor:pointer;display:inline-flex}
+.tt-edit button:hover{color:var(--gold)}
+.ied{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px;margin:4px 0}
+.ied label{display:flex;flex-direction:column;gap:2px;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600}
+.ied .full{grid-column:1/-1}
+.ied input,.ied select,.ied textarea{width:100%;box-sizing:border-box;background:#2a2f38;color:var(--text);border:1px solid var(--line2);border-radius:6px;font:inherit;font-size:13px;font-weight:normal;letter-spacing:0;text-transform:none;padding:3px 7px}
+.ied textarea{min-height:58px;resize:vertical}
+.ied input:focus,.ied select:focus,.ied textarea:focus{outline:none;border-color:var(--gold-dim)}
+#ieErr{color:var(--cf);font-size:12.5px;min-height:0;margin:2px 0}
 .tt-rank{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);white-space:nowrap}
 #tip .traits,#ctip .traits{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px}
 .kv{display:grid;grid-template-columns:1fr 1fr;gap:1px 12px;margin-bottom:6px}
@@ -698,6 +708,7 @@ h3.chead.over .cnm{color:var(--f)}
   <div id="aiResults" class="airesults"></div>
   <div id="aiManual" class="aimanual">
     <div class="aimhead">Custom item: used when no search result is picked</div>
+    <label>Value (required)<input type="text" id="aiMVal" placeholder="5 gp, 3 sp, 12 cp, 2 gp 5 sp"></label>
     <label>Bulk<input type="text" id="aiMBulk" placeholder="L, —, or a number"></label>
     <label>Description (optional)<textarea id="aiMDesc" placeholder="Short description…"></textarea></label>
   </div>
@@ -947,28 +958,28 @@ function linkConds(html, self){
 }
 
 const WEAPONS = {
-  "Staff":{traits:["Monk","Two-Hand d8"],group:"Club",bulk:1,hands:1,
+  "Staff":{price:0,traits:["Monk","Two-Hand d8"],group:"Club",bulk:1,hands:1,
     text:"A long piece of wood. Held in two hands, its damage die becomes d8. Staff Nexus: your makeshift staff holds one cantrip and one 1st-rank spell from your spellbook. The export doesn't record which spells."},
-  "Fist":{traits:["Agile","Finesse","Nonlethal","Unarmed"],group:"Brawling",bulk:0,text:"Your unarmed attack."}
+  "Fist":{price:0,traits:["Agile","Finesse","Nonlethal","Unarmed"],group:"Brawling",bulk:0,text:"Your unarmed attack."}
 };
-const ARMOR = {"Explorer's Clothing":{ac:0,dexCap:5,bulk:"L",text:"Not armor; uses your unarmored defense proficiency. Dex cap +5. Can still take armor potency runes."}};
+const ARMOR = {"Explorer's Clothing":{price:10,ac:0,dexCap:5,bulk:"L",text:"Not armor; uses your unarmored defense proficiency. Dex cap +5. Can still take armor potency runes."}};
 const ITEMS = {
-  "Backpack":{bulk:"L",worn:"-",text:"Holds up to 4 Bulk. Worn on your back, the first 2 Bulk inside don't count against your limits and the pack itself is negligible. Carried instead of worn, the pack is light Bulk."},
-  "Bedroll":{bulk:"L",text:"Sleeping gear for camping."},
-  "Chalk":{bulk:"-",text:"Sold as 10 pieces. Handy for marking your path."},
-  "Flint and Steel":{bulk:"-",text:"Lights a fire given time: at least 3 actions in ideal conditions, often much longer. Not practical mid-fight."},
-  "Rope":{bulk:"L",text:"50 feet of rope."},
-  "Rations":{bulk:"L",text:"Each unit is 1 week of food."},
-  "Torch":{bulk:"L",text:"Bright light in a 20-foot radius and dim light for the next 20 feet, for 1 hour. As an improvised weapon: 1d4 bludgeoning plus 1 fire."},
-  "Waterskin":{bulk:"L",text:"Full, it holds about 1 day of water for a Small or Medium creature."},
-  "Soap":{bulk:"-",text:"Soap."},
-  "Writing Set":{bulk:"L",text:"Paper, parchment, ink, a pen, sealing wax and a simple seal. Used for correspondence and scribing scrolls."},
-  "Sack":{bulk:"L",text:"Holds up to 8 Bulk. With 2 Bulk or less inside, it can be worn tucked into a belt."},
-  "Lock (Simple)":{bulk:"-",text:"Picking it takes three successful DC 20 Thievery checks."},
-  "Manacles (Simple)":{bulk:"-",text:"Apply to a willing or helpless creature in 10 to 30 seconds. Bound legs: −15-foot circumstance penalty to Speeds. Bound wrists: DC 5 flat check for each manipulate action. Bound to a fixed object: immobilized. Escaping takes three successful DC 22 Thievery checks."},
-  "Cold Iron Ingot":{bulk:null,text:"Precious material, worth 100 gp. Cold iron weapons are deadly to demons and fey."},
-  "Silver Chunk":{bulk:"L",text:"Precious material, worth 10 gp. Silver weapons are a bane to creatures from devils to werewolves."},
-  "Oil of Weightlessness":{bulk:"L",text:"Consumable magical oil, held in 2 hands. Activate (1 action, manipulate): spread it on an item of 1 Bulk or less, which has negligible Bulk for 1 hour."}
+  "Backpack":{price:10,bulk:"L",worn:"-",text:"Holds up to 4 Bulk. Worn on your back, the first 2 Bulk inside don't count against your limits and the pack itself is negligible. Carried instead of worn, the pack is light Bulk."},
+  "Bedroll":{price:2,bulk:"L",text:"Sleeping gear for camping."},
+  "Chalk":{price:1,bulk:"-",text:"Sold as 10 pieces. Handy for marking your path."},
+  "Flint and Steel":{price:5,bulk:"-",text:"Lights a fire given time: at least 3 actions in ideal conditions, often much longer. Not practical mid-fight."},
+  "Rope":{price:50,bulk:"L",text:"50 feet of rope."},
+  "Rations":{price:40,bulk:"L",text:"Each unit is 1 week of food."},
+  "Torch":{price:1,bulk:"L",text:"Bright light in a 20-foot radius and dim light for the next 20 feet, for 1 hour. As an improvised weapon: 1d4 bludgeoning plus 1 fire."},
+  "Waterskin":{price:5,bulk:"L",text:"Full, it holds about 1 day of water for a Small or Medium creature."},
+  "Soap":{price:2,bulk:"-",text:"Soap."},
+  "Writing Set":{price:100,bulk:"L",text:"Paper, parchment, ink, a pen, sealing wax and a simple seal. Used for correspondence and scribing scrolls."},
+  "Sack":{price:1,bulk:"L",text:"Holds up to 8 Bulk. With 2 Bulk or less inside, it can be worn tucked into a belt."},
+  "Lock (Simple)":{price:200,bulk:"-",text:"Picking it takes three successful DC 20 Thievery checks."},
+  "Manacles (Simple)":{price:300,bulk:"-",text:"Apply to a willing or helpless creature in 10 to 30 seconds. Bound legs: −15-foot circumstance penalty to Speeds. Bound wrists: DC 5 flat check for each manipulate action. Bound to a fixed object: immobilized. Escaping takes three successful DC 22 Thievery checks."},
+  "Cold Iron Ingot":{price:10000,bulk:null,text:"Precious material, worth 100 gp. Cold iron weapons are deadly to demons and fey."},
+  "Silver Chunk":{price:1000,bulk:"L",text:"Precious material, worth 10 gp. Silver weapons are a bane to creatures from devils to werewolves."},
+  "Oil of Weightlessness":{price:600,bulk:"L",text:"Consumable magical oil, held in 2 hands. Activate (1 action, manipulate): spread it on an item of 1 Bulk or less, which has negligible Bulk for 1 hour."}
 };
 
 const FEATURE_TEXT = {
@@ -1508,8 +1519,8 @@ function place(el){
   y=Math.min(Math.max(8,y),Math.max(8,H-t.height-8));
   tipEl.style.left=x+"px"; tipEl.style.top=y+"px";
 }
-function hideTip(){ pinned=null; owner=null; tipEl.hidden=true; document.querySelectorAll(".row.pinned").forEach(r=>r.classList.remove("pinned")); }
-let owner=null;
+function hideTip(){ pinned=null; owner=null; ITEM_EDIT=null; tipEl.hidden=true; document.querySelectorAll(".row.pinned").forEach(r=>r.classList.remove("pinned")); }
+let owner=null, ITEM_EDIT=null;                          // ITEM_EDIT: {tkey, rowKey, base} while a pinned item popup is in edit mode
 
 /* condition popups (second layer above the main tooltip) */
 const ctipEl=$("#ctip"); let cPinned=false, cHideT=null, cShowT=null, cOwner=null;
@@ -1543,7 +1554,7 @@ function tipTarget(t){
   const el=t.closest("[data-tip]"); if(!el || !el.classList.contains("sprow")) return el;
   const col=t.closest(".nm,.q,.chip"); return col && el.contains(col) ? el : null;
 }
-document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ if(!ctipEl.hidden) hideCond(); else hideTip(); } });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ if(!ctipEl.hidden) hideCond(); else if(ITEM_EDIT) itemEditCancel(); else hideTip(); } });
 window.addEventListener("scroll",()=>{ if(!pinned) tipEl.hidden=true; if(!cPinned) ctipEl.hidden=true; },{passive:true});
 
 // condition definitions now open as popups from the linked words, so no glossary block at the bottom
@@ -2220,13 +2231,13 @@ function renderInv(){
   const B=C.B, m=S.coins||B.money||{};
   const COIN_COLOR={pp:"#b9d4e6",gp:"#e3b54a",sp:"#c9ced6",cp:"#c98a5a"};
   const coinsHtml=["pp","gp","sp","cp"].map(k=>`<span class="hcoin" data-coin="${k}" title="Click to edit" style="color:${COIN_COLOR[k]};border-color:${COIN_COLOR[k]}55"><b class="v">${m[k]||0}</b><i>${k.toUpperCase()}</i></span>`).join("");
-  let h=`<h2><span class="htitle">Inventory<button class="btn gold hbtn" data-additem="1">Add item</button>${rmCount(S.removed)?`<button class="btn gold hbtn" data-unremove="1" title="Pick deleted items to bring back">Restore (${rmCount(S.removed)})</button>`:""}</span><span class="hcoins">${coinsHtml}${S.coins!=null?`<button class="lnk" data-coinreset="1">reset</button>`:""}</span></h2>`;
+  let h="";
 
   const containers=B.equipmentContainers||{};
   const contNames=Object.values(containers).map(c=>c.containerName);
   const eq=(B.equipment||[]).map(e=>({name:e[0],qty:e[1],cont:containers[e[2]]?e[2]:null}));
   let unknown=[];
-  const itemTip=(name,qty,def,extra)=>()=>`<div class="tt-h"><span class="tt-name">${esc(name)}</span><span class="tt-rank">${qty>1?"×"+qty+" · ":""}Bulk ${def&&def.bulk!=null?(def.bulk==="-"?"—":def.bulk):"?"}</span></div>${def&&def.traits?`<div class="traits">${traitsHTML(def.traits)}</div>`:""}<p>${def?esc(def.text||""):"No item data on file."}</p>${extra||""}`;
+  const itemTip=(name,qty,def,extra)=>()=>`<div class="tt-h"><span class="tt-name">${esc(name)}</span><span class="tt-rank">${qty>1?"×"+qty+" · ":""}Bulk ${def&&def.bulk!=null?(def.bulk==="-"?"—":def.bulk):"?"}</span></div>${def&&def.traits?`<div class="traits">${traitsHTML(def.traits)}</div>`:""}${def&&def.price!=null?`<div class="istats"><b>Price</b> ${esc(fmtPriceCp(def.price))}</div>`:""}<p>${def?esc(def.text||""):"No item data on file."}</p>${extra||""}`;
   const isMagic=n=>MAGIC_ITEMS.includes(n);
 
   // ---- entities: items and containers, each with a location (top level or a container), an equipped flag and tags ----
@@ -2258,9 +2269,9 @@ function renderInv(){
     const bu=(known?bulkVal(d.bulk):0);
     items.push({key:`c|${e.cont}|${e.name}`, name:e.name, src:e.name, qty:e.qty, bu, b:bu*e.qty, def:"cont:"+e.cont, eqDef:false, tip:itemTip(e.name,e.qty,d)}); }
   for(const c of S.custom||[]){
-    const rec=itemDB().find(r=>r.name===c.name);
+    const rec=(c.rid&&itemDB().find(r=>r.id===c.rid))||itemDB().find(r=>r.name===c.name);
     const bu=rec?dbBulkVal(rec.bulk):0;
-    items.push({key:c.key, name:c.name, src:c.name, qty:c.qty, bu, b:bu*c.qty, def:c.loc, eqDef:false, tip:rec?itemTipDB(rec):itemTip(c.name,c.qty,null)}); }
+    items.push({key:c.key, name:c.name, src:c.name, rec, qty:c.qty, bu, b:bu*c.qty, def:c.loc, eqDef:false, tip:rec?itemTipDB(rec):itemTip(c.name,c.qty,null)}); }
 
   // ---- apply per-key qty overrides, then expand any splits into their own rows ----
   const baseByKey=new Map(items.map(it=>[it.key,it]));
@@ -2271,6 +2282,15 @@ function renderInv(){
   for(const sp of S.splits){
     const base=baseByKey.get(sp.base); if(!base) continue;
     items.push({key:sp.id, name:base.name, src:base.src, hint:base.hint, qty:sp.qty, bu:base.bu, b:base.bu*sp.qty, def:sp.loc, eqDef:false, tip:base.tip, isSplit:true, splitBase:sp.base, tkey:sp.base});
+  }
+  // hardcoded table entry, edited-record override (looked up by id, shared by every split of the item) and unit value for each row
+  S.recOverride=S.recOverride||{};
+  for(const x of items.concat(conts)){
+    x.hd=WEAPONS[x.src]||ARMOR[x.src]||ITEMS[x.src]||null;
+    const ov=itemDB().find(r=>r.id===S.recOverride[x.tkey||x.key]);
+    if(ov){ x.rec=ov; x.name=ov.name; x.bu=dbBulkVal(ov.bulk); x.b=x.isC?x.bu:x.bu*x.qty; x.tip=itemTipDB(ov); }
+    x.vcp=itemValueCp(x);
+    const t0=x.tip, tk=x.tkey||x.key; if(t0) x.tip=()=>withEditBtn(t0(),tk);
   }
   items=items.filter(it=>it.qty>0);
 
@@ -2287,7 +2307,7 @@ function renderInv(){
       if(home.startsWith("cont:")) home="top";
       setLoc(it.key,home);
     }
-    conts.push({key:it.key, id:"u:"+it.key, isC:true, name:it.name+(it.qty>1?" ×"+it.qty:""), src:it.src, hint:it.hint, tkey:it.tkey, backpack:false, xd:false, b:it.b, user:true, tip:it.tip, def:home, eqDef:it.eqDef});
+    conts.push({key:it.key, id:"u:"+it.key, isC:true, name:it.name+(it.qty>1?" ×"+it.qty:""), src:it.src, hint:it.hint, tkey:it.tkey, rec:it.rec, hd:it.hd, vcp:it.vcp, vq:it.qty, backpack:false, xd:false, b:it.b, user:true, tip:it.tip, def:home, eqDef:it.eqDef});
   }
   S.removed=S.removed||{}; INV_REMOVED=[];
   for(let i=items.length-1;i>=0;i--) if(S.removed[items[i].key]) (S.removed[items[i].key]===true?INV_REMOVED:[]).push({key:items[i].key,name:items.splice(i,1)[0].name});
@@ -2335,6 +2355,10 @@ function renderInv(){
     : k==="equipped"?items.concat(conts).filter(x=>x.eq).length : tagged(k).length;
 
   if(!INV_TABS.some(([k])=>k===S.invTab)) S.invTab="all";
+  const sumCp=t=>tagged(t).reduce((n,x)=>n+x.vcp*(x.isC?(x.vq||1):x.qty),0);
+  const valBox=(lab,col,title,cp)=>`<span class="hcoin" title="${title}" style="color:${col};border-color:${col}55;cursor:default"><b>${gpTxt(cp)}</b><i>${lab}</i></span>`;
+  const valsHtml=valBox("GEMS","#b48ce6","Total value of gems, jewelry and art",sumCp("gems"))+valBox("TRADE","#8fc79a","Total value of trade goods",sumCp("trade"));
+  h=`<h2><span class="htitle">Inventory<button class="btn gold hbtn" data-additem="1">Add item</button>${rmCount(S.removed)?`<button class="btn gold hbtn" data-unremove="1" title="Pick deleted items to bring back">Restore (${rmCount(S.removed)})</button>`:""}</span><span class="hcoins">${valsHtml}${coinsHtml}${S.coins!=null?`<button class="lnk" data-coinreset="1">reset</button>`:""}</span></h2>`;
   h+=`<div class="tabs invtabs" data-idroptabs="1">${INV_TABS.map(([k,n,to])=>`<button data-invtab="${k}" data-idrop="${to}" class="${S.invTab===k?"on":""}">${esc(n)} <span class="tcount">${count(k)}</span></button>`).join("")}</div>`;
   h+=section(S.invTab);
 
@@ -2690,6 +2714,60 @@ function itemTipDB(it){
 }
 
 /* ============================================================
+   Edit an inventory item from its popup
+   ============================================================ */
+const PENCIL=`<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M11 2.5l2.5 2.5L5.5 13H3v-2.5z"/></svg>`;
+function withEditBtn(html,tkey){                            // pencil sits right after the name in the popup header
+  return html.replace(`</span><span class="tt-rank">`,`</span><span class="tt-edit"><button data-itemedit="${esc(tkey)}" title="Edit this item">${PENCIL}</button></span><span class="tt-rank">`);
+}
+function itemEditBase(x){                                   // the record to edit: its own, else what the dashboard knows about the item
+  if(x.rec) return x.rec;
+  const db=itemDB().find(r=>r.name===x.src), d=x.hd||{}, cp=itemValueCp(x);
+  const bulk=d.bulk==null?(db?db.bulk:"—"):(d.bulk==="-"||d.bulk===0)?"—":d.bulk==="L"?"L":String(d.bulk);
+  const stats={...(db?db.stats:{}),Price:fmtPriceCp(cp),Bulk:bulk};
+  return {type:"Other",sub:"",level:0,hands:null,usage:"",rarity:"common",traits:[],acts:[],desc:"",vdesc:"",craft:"",variant:"",...(db||{}),
+    name:x.name.replace(/\s+×\d+$/,""), priceCp:cp, price:fmtPriceCp(cp), bulk, stats,
+    traits:d.traits||(db?db.traits:[]), desc:d.text||(db?db.desc:""), hands:d.hands!=null?d.hands:(db?db.hands:null)};
+}
+function itemEditStart(tkey){
+  const x=findTagged(tkey), row=document.querySelector(".row.pinned"); if(!x||!row) return;
+  const b=itemEditBase(x), st=b.stats||{};
+  ITEM_EDIT={tkey, rowKey:row.dataset.idrag, base:b};
+  const f=(k,lab,v,cls,tag)=>`<label class="${cls||""}">${lab}${tag==="ta"?`<textarea data-ie="${k}">${esc(v==null?"":v)}</textarea>`:`<input type="text" data-ie="${k}" value="${esc(v==null?"":v)}">`}</label>`;
+  const stat=Object.keys(st).filter(k=>k!=="Price"&&k!=="Bulk").map(k=>`<label>${esc(k)}<input type="text" data-iestat="${esc(k)}" value="${esc(st[k])}"></label>`).join("");
+  setHTML(tipEl, `<div class="tt-h"><span class="tt-name">${esc(b.name)}</span><span class="tt-edit"><button data-itemsave="1" title="Save changes">&#10003;</button><button data-itemcancel="1" title="Cancel">&#10005;</button></span><span class="tt-rank">Editing</span></div>
+<div class="ied">${f("name","Name",b.name,"full")}${f("level","Level",b.level)}${f("price","Price",b.priceCp==null?"":fmtPriceCp(b.priceCp))}${f("bulk","Bulk",b.bulk)}
+<label>Rarity<select data-ie="rarity">${["common","uncommon","rare","unique"].map(r=>`<option${r===b.rarity?" selected":""}>${r}</option>`).join("")}</select></label>
+${f("traits","Traits (comma-separated)",(b.traits||[]).join(", "),"full")}${f("type","Type",b.type)}${f("usage","Usage",b.usage)}${f("hands","Hands",b.hands)}${stat}
+${f("desc","Description",b.desc,"full","ta")}${f("vdesc","Variant text",b.vdesc,"full","ta")}${f("craft","Craft requirements",b.craft,"full")}</div><div id="ieErr"></div>`);
+  place(row); tipEl.querySelector('[data-ie="name"]').select();
+}
+tipEl.addEventListener("keydown",e=>{ if(ITEM_EDIT && e.key==="Enter" && e.target.tagName==="INPUT"){ e.preventDefault(); itemEditSave(); } });
+function itemEditCancel(){
+  const el=document.querySelector("[data-tip].pinned"); ITEM_EDIT=null;
+  if(el) showTip(el,true); else hideTip();
+}
+function itemEditSave(){
+  const E=ITEM_EDIT; if(!E) return;
+  const v=k=>tipEl.querySelector(`[data-ie="${k}"]`).value.trim(), err=m=>{ tipEl.querySelector("#ieErr").textContent=m; };
+  const name=v("name"); if(!name) return err("Enter an item name.");
+  const cp=parsePriceCp(v("price")); if(cp==null) return err("Enter a price like 5 gp, 3 sp, 12 cp or 2 gp 5 sp.");
+  let bulk=v("bulk"); bulk=(!bulk||bulk==="-"||bulk==="—")?"—":/^l$/i.test(bulk)?"L":bulk;
+  const stats={Price:fmtPriceCp(cp),Bulk:bulk};
+  tipEl.querySelectorAll("[data-iestat]").forEach(i=>{ const val=i.value.trim(); if(val) stats[i.dataset.iestat]=val; });
+  const hands=v("hands");
+  const rec={...E.base, id:"manual"+Date.now(), name, level:parseInt(v("level"),10)||0, price:fmtPriceCp(cp), priceCp:cp, bulk, stats,
+    rarity:v("rarity"), traits:v("traits").split(",").map(t=>t.trim()).filter(Boolean), type:v("type"), usage:v("usage"),
+    hands:hands===""||isNaN(+hands)?null:+hands, desc:v("desc"), vdesc:v("vdesc"), craft:v("craft"), source:"Custom item", url:""};
+  S.added=S.added||[]; S.added.push(rec);
+  S.recOverride=S.recOverride||{}; S.recOverride[E.tkey]=rec.id;
+  const c=(S.custom||[]).find(c=>c.key===E.tkey); if(c){ c.name=name; c.rid=rec.id; }
+  markDirty(); render();
+  const row=[...document.querySelectorAll("[data-idrag]")].find(r=>r.dataset.idrag===E.rowKey);
+  if(row && row.dataset.tip){ pinned=row.dataset.tip; showTip(row,true); }
+}
+
+/* ============================================================
    Add item (search Archives of Nethys, or enter by hand)
    ============================================================ */
 function titleCase(s){ return String(s||"").trim().replace(/\w\S*/g, t=>t[0].toUpperCase()+t.slice(1).toLowerCase()) || "Other"; }
@@ -2699,6 +2777,24 @@ function fmtPriceCp(cp){
   const gp=Math.floor(cp/100), rem=cp%100, sp=Math.floor(rem/10), cpr=rem%10;
   const parts=[]; if(gp) parts.push(gp+" gp"); if(sp) parts.push(sp+" sp"); if(cpr) parts.push(cpr+" cp");
   return parts.join(", ")||"—";
+}
+// "5 gp", "3 sp", "12 cp", "2 gp 5 sp"; a bare number is gp; "—" or "free" is 0. null when it can't be read
+function parsePriceCp(str){
+  const t=String(str||"").trim().toLowerCase().replace(/,/g," ").replace(/\s+/g," ");
+  if(!t) return null;
+  if(/^(—|-|free)$/.test(t)) return 0;
+  if(/^\d+(\.\d+)?$/.test(t)) return Math.round(+t*100);
+  const re=/(\d+(?:\.\d+)?)\s*(pp|gp|sp|cp)\b/g, mult={pp:1000,gp:100,sp:10,cp:1};
+  let m, cp=0;
+  while((m=re.exec(t))) cp+=+m[1]*mult[m[2]];
+  return t.replace(re,"").trim()===""? Math.round(cp) : null;
+}
+const gpTxt=cp=>(+(cp/100).toFixed(2)).toLocaleString("en-US",{maximumFractionDigits:2});
+function itemValueCp(x){                                  // one unit: its record first, then the item DB by name, then the hardcoded table
+  if(x.rec) return x.rec.priceCp||0;
+  const db=itemDB().find(r=>r.name===x.src);
+  if(db && db.priceCp!=null) return db.priceCp;
+  return (x.hd&&x.hd.price)||0;
 }
 function fmtBulkNum(v){
   if(v==null || v==="") return "—";
@@ -2758,23 +2854,23 @@ function aonToRecord(hit){
     source:(Array.isArray(s.source)?s.source[0]:s.source)||"", url:(s.url||"").replace(/^\//,"")
   };
 }
-function manualToRecord(name, bulkRaw, descRaw){
+function manualToRecord(name, bulkRaw, descRaw, priceCp){
   let bulk=(bulkRaw||"").trim();
   if(!bulk || bulk==="-" || bulk==="—") bulk="—";
   else if(/^l$/i.test(bulk)) bulk="L";
   return {
     id:"manual"+Date.now(), name, type:"Other", sub:"", level:0,
-    price:"—", priceCp:null, bulk, hands:null, usage:"", rarity:"common", traits:[],
-    stats:{Price:"—", Bulk:bulk}, acts:[], desc:descRaw||"", vdesc:"", craft:"", variant:"",
+    price:fmtPriceCp(priceCp), priceCp, bulk, hands:null, usage:"", rarity:"common", traits:[],
+    stats:{Price:fmtPriceCp(priceCp), Bulk:bulk}, acts:[], desc:descRaw||"", vdesc:"", craft:"", variant:"",
     source:"Custom item", url:""
   };
 }
 function commitAddItem(rec, qty, equipped, tags){
   S.added=S.added||[];
-  if(!S.added.some(r=>r.name===rec.name)) S.added.push(rec);
+  if(!S.added.some(r=>r.id===rec.id)) S.added.push(rec);
   S.custom=S.custom||[];
   const key="x|"+Date.now()+"_"+(S.customSeq=(S.customSeq||0)+1);
-  S.custom.push({key, name:rec.name, qty, loc:"top"});
+  S.custom.push({key, name:rec.name, rid:rec.id, qty, loc:"top"});
   setEq(key,equipped); setTags({key},tags);
   markDirty();
 }
@@ -2806,7 +2902,7 @@ function aiRenderResults(hits){
 function openAddItem(){
   aiHits=[]; aiSelected=null;
   $("#aiName").value=""; setHTML($("#aiResults"), "");
-  $("#aiMBulk").value=""; $("#aiMDesc").value=""; $("#aiQty").value=1;
+  $("#aiMVal").value=""; $("#aiMBulk").value=""; $("#aiMDesc").value=""; $("#aiQty").value=1;
   $("#aiEq").checked=S.invTab==="equipped";
   aiSetTags(INV_TAGS.some(t=>t[0]===S.invTab)?[S.invTab]:[]);          // adding from a filter tab starts with that filter's tag
   $("#aiErr").textContent="";
@@ -3508,6 +3604,8 @@ function startCoinEdit(tile){
    ============================================================ */
 document.addEventListener("click",e=>{
   const t=e.target;
+  const ie=t.closest("[data-itemedit],[data-itemsave],[data-itemcancel]");
+  if(ie){ if(ie.dataset.itemedit!=null) itemEditStart(ie.dataset.itemedit); else if(ie.dataset.itemsave!=null) itemEditSave(); else itemEditCancel(); return; }
   const eqcb=t.closest(".eqcb[data-eqkey]");
   if(eqcb){ setEq(eqcb.dataset.eqkey,eqcb.checked); render(); return; }
   const tagb=t.closest("[data-tagedit]");
@@ -3889,7 +3987,9 @@ $("#aiAdd").onclick=()=>{
   if(!rec){
     const name=$("#aiName").value.trim();
     if(!name){ $("#aiErr").textContent="Enter an item name."; return; }
-    rec=manualToRecord(name, $("#aiMBulk").value, $("#aiMDesc").value);
+    const cp=parsePriceCp($("#aiMVal").value);
+    if(cp==null){ $("#aiErr").textContent="Enter a value, like 5 gp, 3 sp, 12 cp or 2 gp 5 sp."; return; }
+    rec=manualToRecord(name, $("#aiMBulk").value, $("#aiMDesc").value, cp);
   }
   commitAddItem(rec, qty, equipped, tags);
   addDlg.close();
