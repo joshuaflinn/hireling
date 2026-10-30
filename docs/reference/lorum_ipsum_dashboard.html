@@ -2358,7 +2358,7 @@ function renderInv(){
   const sumCp=t=>tagged(t).reduce((n,x)=>n+x.vcp*(x.isC?(x.vq||1):x.qty),0);
   const valBox=(lab,col,title,cp)=>`<span class="hcoin" title="${title}" style="color:${col};border-color:${col}55;cursor:default"><b>${gpTxt(cp)}</b><i>${lab}</i></span>`;
   const valsHtml=valBox("GEMS","#b48ce6","Total value of gems, jewelry and art",sumCp("gems"))+valBox("TRADE","#8fc79a","Total value of trade goods",sumCp("trade"));
-  h=`<h2><span class="htitle">Inventory<button class="btn gold hbtn" data-additem="1">Add item</button>${rmCount(S.removed)?`<button class="btn gold hbtn" data-unremove="1" title="Pick deleted items to bring back">Restore (${rmCount(S.removed)})</button>`:""}</span><span class="hcoins">${valsHtml}${coinsHtml}${S.coins!=null?`<button class="lnk" data-coinreset="1">reset</button>`:""}</span></h2>`;
+  h=`<h2><span class="htitle">Inventory<button class="btn gold hbtn" data-additem="1">Add item</button>${rmCount(S.removed)?`<button class="btn gold hbtn" data-unremove="1" title="Pick deleted items to bring back">Restore (${rmCount(S.removed)})</button>`:""}</span><span class="hcoins">${coinsHtml}${valsHtml}${S.coins!=null?`<button class="lnk" data-coinreset="1">reset</button>`:""}</span></h2>`;
   h+=`<div class="tabs invtabs" data-idroptabs="1">${INV_TABS.map(([k,n,to])=>`<button data-invtab="${k}" data-idrop="${to}" class="${S.invTab===k?"on":""}">${esc(n)} <span class="tcount">${count(k)}</span></button>`).join("")}</div>`;
   h+=section(S.invTab);
 
